@@ -1,0 +1,45 @@
+# ==========================================
+# C# コード埋め込み (スリープ抑止クラス)
+# ==========================================
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+
+public class PowerManager {
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern uint SetThreadExecutionState(uint esFlags);
+
+    // フラグ定数
+    public const uint ES_CONTINUOUS = 0x80000000;
+    public const uint ES_SYSTEM_REQUIRED = 0x00000001; // スリープ抑止
+    public const uint ES_DISPLAY_REQUIRED = 0x00000002; // 画面消灯抑止
+
+    // スリープを禁止するメソッド
+    public static void PreventSleep() {
+        // システムスリープと画面消灯を抑止し、その状態を継続(Continuous)させる
+        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
+    }
+
+    // スリープを許可する（元に戻す）メソッド
+    public static void AllowSleep() {
+        // 継続フラグのみを渡すことで、設定をリセットする
+        SetThreadExecutionState(ES_CONTINUOUS);
+    }
+}
+'@
+
+Add-Type -TypeDefinition $code
+
+# ==========================================
+# 実行デモ
+# ==========================================
+Write-Host "スリープ抑止モードを開始します..." -ForegroundColor Cyan
+[PowerManager]::PreventSleep()
+
+# --- ここに長い処理（Windows Updateやアプリインストール）を書く ---
+Write-Host "重い処理を実行中（10秒間待機）... この間、PCはスリープしません。"
+Start-Sleep -Seconds 10
+# ------------------------------------------------------------------
+
+Write-Host "処理完了。スリープ設定を元に戻します。" -ForegroundColor Green
+[PowerManager]::AllowSleep()

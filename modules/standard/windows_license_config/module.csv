@@ -1,0 +1,3 @@
+MenuName,Category,Script,Order,Enabled
+Install Product Key,System,windows_license_install.ps1,91,1
+Activate Windows License,System,windows_license_auth.ps1,92,1

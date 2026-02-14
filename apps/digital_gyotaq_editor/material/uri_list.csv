@@ -1,0 +1,49 @@
+﻿Category,Name,OpenCommand,OpenArgs,DefaultTitle,DefaultInstruction
+Windows Settings,Windows Update,ms-settings:windowsupdate,,WindowsUpdate完了,Windows Updateを実行し完了画面を表示してください
+Windows Settings,Network Status,ms-settings:network,,ネットワーク設定確認,IPアドレスとDNS設定を確認してください
+Windows Settings,Ethernet Settings,ms-settings:network-ethernet,,イーサネット設定確認,イーサネットのネットワーク設定を確認してください
+Windows Settings,Wi-Fi Settings,ms-settings:network-wifi,,Wi-Fi設定確認,Wi-Fiの接続設定を確認してください
+Windows Settings,Proxy Settings,ms-settings:network-proxy,,プロキシ設定確認,プロキシ設定を確認してください
+Windows Settings,VPN Settings,ms-settings:network-vpn,,VPN設定確認,VPN接続設定を確認してください
+Windows Settings,Display Settings,ms-settings:display,,ディスプレイ設定確認,ディスプレイの解像度と拡大縮小率を確認してください
+Windows Settings,Date and Time,ms-settings:dateandtime,,日付と時刻確認,日付と時刻の設定を確認してください
+Windows Settings,Region Settings,ms-settings:regionformatting,,地域設定確認,地域と言語の設定を確認してください
+Windows Settings,Language Settings,ms-settings:regionlanguage,,言語設定確認,表示言語とキーボードレイアウトを確認してください
+Windows Settings,About (System Info),ms-settings:about,,システム情報確認,PC名やWindowsバージョンを確認してください
+Windows Settings,Default Apps,ms-settings:defaultapps,,既定アプリ確認,既定のアプリ設定を確認してください
+Windows Settings,Apps & Features,ms-settings:appsfeatures,,アプリと機能確認,インストール済みアプリを確認してください
+Windows Settings,Power & Sleep,ms-settings:powersleep,,電源とスリープ確認,電源とスリープの設定を確認してください
+Windows Settings,Sound Settings,ms-settings:sound,,サウンド設定確認,音量とサウンドデバイスを確認してください
+Windows Settings,Bluetooth,ms-settings:bluetooth,,Bluetooth確認,Bluetoothデバイスの接続を確認してください
+Windows Settings,Printers & Scanners,ms-settings:printers,,プリンター確認,プリンターとスキャナーの設定を確認してください
+Windows Settings,Privacy General,ms-settings:privacy,,プライバシー設定確認,プライバシー設定を確認してください
+Windows Settings,Windows Security,ms-settings:windowsdefender,,セキュリティ確認,Windows セキュリティの状態を確認してください
+Windows Settings,Storage,ms-settings:storagesense,,ストレージ確認,ストレージの使用状況を確認してください
+Windows Settings,Accounts Info,ms-settings:yourinfo,,アカウント情報確認,サインインしているアカウント情報を確認してください
+Windows Settings,Sign-in Options,ms-settings:signinoptions,,サインインオプション確認,サインインオプションの設定を確認してください
+Windows Settings,Notifications,ms-settings:notifications,,通知設定確認,通知とアクションの設定を確認してください
+Windows Settings,Focus Assist,ms-settings:quiethours,,集中モード確認,集中モードの設定を確認してください
+Windows Settings,Taskbar,ms-settings:taskbar,,タスクバー設定確認,タスクバーの設定を確認してください
+Windows Settings,Personalization,ms-settings:personalization,,個人設定確認,デスクトップの個人設定を確認してください
+Windows Settings,Recovery,ms-settings:recovery,,回復設定確認,回復オプションの設定を確認してください
+Control Panel,BitLocker Management,control,/name Microsoft.BitLockerDriveEncryption,BitLocker状態確認,BitLockerの暗号化状態を確認してください
+Control Panel,Device Manager,devmgmt.msc,,デバイスマネージャー確認,デバイスマネージャーでドライバー状態を確認してください
+Control Panel,Disk Management,diskmgmt.msc,,ディスク管理確認,ディスクパーティションの状態を確認してください
+Control Panel,Event Viewer,eventvwr.msc,,イベントビューアー確認,イベントログを確認してください
+Control Panel,Local Group Policy,gpedit.msc,,グループポリシー確認,ローカルグループポリシーの設定を確認してください
+Control Panel,Services,services.msc,,サービス確認,Windowsサービスの状態を確認してください
+Control Panel,Computer Management,compmgmt.msc,,コンピューター管理確認,コンピューター管理の設定を確認してください
+Control Panel,Windows Firewall,control,firewall.cpl,ファイアウォール確認,Windowsファイアウォールの設定を確認してください
+Control Panel,System Properties,sysdm.cpl,,システムのプロパティ確認,コンピューター名やドメインの設定を確認してください
+Control Panel,Network Connections,ncpa.cpl,,ネットワーク接続確認,ネットワーク接続の詳細を確認してください
+Control Panel,Programs and Features,appwiz.cpl,,プログラムと機能確認,インストール済みプログラムを確認してください
+Control Panel,Power Options,powercfg.cpl,,電源オプション確認,電源プランの設定を確認してください
+Control Panel,User Accounts,control,/name Microsoft.UserAccounts,ユーザーアカウント確認,ユーザーアカウントの設定を確認してください
+System Tools,Command Prompt,cmd,,コマンドプロンプト操作,コマンドプロンプトで指定されたコマンドを実行してください
+System Tools,PowerShell,powershell,,PowerShell操作,PowerShellで指定されたコマンドを実行してください
+System Tools,Registry Editor,regedit,,レジストリ確認,レジストリエディターで設定値を確認してください
+System Tools,Task Manager,taskmgr,,タスクマネージャー確認,タスクマネージャーでプロセスを確認してください
+System Tools,System Information,msinfo32,,システム情報詳細確認,システム情報の詳細を確認してください
+System Tools,DirectX Diagnostic,dxdiag,,DirectX診断確認,DirectX診断ツールでシステム情報を確認してください
+System Tools,Remote Desktop,mstsc,,リモートデスクトップ確認,リモートデスクトップ接続の設定を確認してください
+System Tools,Windows Features,optionalfeatures,,Windows機能確認,Windowsの機能の有効化状態を確認してください

@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Local Group Member Config,User Management,group_config.ps1,15,1

@@ -1,0 +1,4 @@
+﻿Enabled,TaskID,TaskTitle,Instruction,OpenCommand,OpenArgs
+1,T001,WindowsUpdate完了,Windows Updateを実行し完了画面を表示してください,ms-settings:windowsupdate,
+1,T002,BitLocker状態確認,BitLockerの暗号化状態を確認してください,control,/name Microsoft.BitLockerDriveEncryption
+1,T003,ネットワーク設定確認,IPアドレスとDNS設定を確認してください,ms-settings:network,

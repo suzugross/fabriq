@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Display DPI Scaling Config,Registry,dpi_config.ps1,26,1

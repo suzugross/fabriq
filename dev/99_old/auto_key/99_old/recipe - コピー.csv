@@ -1,0 +1,4 @@
+﻿Step,Action,Value,Wait,Note
+1,Open,https://www.google.com,3000,Webサイトを開く
+2,Type,PowerShell Automation,1000,検索ワード入力
+3,Key,{ENTER},500,検索実行

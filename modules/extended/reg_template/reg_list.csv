@@ -1,0 +1,3 @@
+Enabled,RegistryPath,Description
+0,HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Bags\1\Desktop,Desktop icon layout (Sample)
+0,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate,Windows Update policy (Sample)

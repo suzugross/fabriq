@@ -1,0 +1,27 @@
+Order,ScriptPath,Enabled,Description
+1005,standard\ipaddress_config\ipaddress_config.ps1,1,IP Address Settings
+1010,standard\hostname_config\hostname_config.ps1,1,Change Hostname
+1012,extended\ipv6_config\ipv6_config.ps1,1,IPv6 Settings
+1015,standard\domain_join\domain_join.ps1,1,Domain Join
+2020,standard\reg_config\reg_hklm_config.ps1,1,Registry Config (HKLM)
+2021,standard\reg_config\reg_hklm_delete.ps1,1,Registry Delete (HKLM)
+2022,standard\reg_config\reg_hkcu_config.ps1,1,Registry Config (HKCU)
+2023,standard\reg_config\reg_hkcu_delete.ps1,1,Registry Delete (HKCU)
+2025,extended\display_config\display_config.ps1,1,Display Resolution Config
+2026,extended\dpi_config\dpi_config.ps1,1,Display DPI Scaling Config
+3031,standard\printer_driver_config\printer_driver_install.ps1,1,Printer Drivers
+3032,standard\printer_driver_config\printer_config.ps1,1,Register Printers
+3033,standard\printer_driver_config\printer_driver_uninstall.ps1,1,Uninstall Printer Drivers
+4040,standard\firewall_config\firewall_config.ps1,1,Firewall Settings
+5050,standard\power_config\power_config.ps1,1,Power Settings
+6015,extended\group_config\group_config.ps1,1,Local Group Member Config
+6060,standard\local_user_config\local_user_config.ps1,1,Create Local Users
+6061,standard\local_user_config\local_user_delete.ps1,1,Delete Local Users
+7020,standard\app_config\app_config.ps1,1,App Installation
+7075,standard\storeapp_config\storeapp_remove.ps1,1,Remove Store Apps
+8010,extended\heif_config\Install-HeifImageExtensions.ps1,1,Install HEIF Image Extensions
+8020,extended\heif_config\Remove-HeifImageExtensions.ps1,1,Remove HEIF Image Extensions
+8030,extended\heif_config\Install-HevcVideoExtension.ps1,1,Install HEVC Video Extensions
+8040,extended\heif_config\Remove-HevcVideoExtension.ps1,1,Remove HEVC Video Extensions
+9099,standard\restart_config\restart_config.ps1,1,Restart with AutoRun
+10095,standard\gyotaku_template\gyotaku_config.ps1,1,Digital Gyotaku (Template)

@@ -1,0 +1,4 @@
+MenuName,Category,Script,Order,Enabled
+Printer Drivers,Printer,printer_driver_install.ps1,31,1
+Register Printers,Printer,printer_config.ps1,32,1
+Uninstall Printer Drivers,Printer,printer_driver_uninstall.ps1,33,1

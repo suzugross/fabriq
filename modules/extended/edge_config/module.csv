@@ -1,0 +1,3 @@
+MenuName,Category,Script,Order,Enabled
+Edge Profile Backup,Applications,edge_backup.ps1,60,1
+Edge Profile Restore,Applications,edge_restore.ps1,61,1

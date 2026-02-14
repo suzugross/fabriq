@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+App Installation,Applications,app_config.ps1,20,1

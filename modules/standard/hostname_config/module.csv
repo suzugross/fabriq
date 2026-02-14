@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Change Hostname,Network,hostname_config.ps1,10,1

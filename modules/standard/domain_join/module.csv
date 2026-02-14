@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Domain Join,Network,domain_join.ps1,15,1

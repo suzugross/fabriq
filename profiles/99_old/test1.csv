@@ -1,0 +1,6 @@
+Order,ScriptPath,Enabled,Description
+10,standard\local_user_config\local_user_config.ps1,1,Create Local Users
+20,standard\local_user_config\local_user_delete.ps1,1,Delete Local Users
+30,__RESTART__,1,Restart
+40,standard\reg_config\reg_hklm_config.ps1,1,Registry Config (HKLM)
+50,standard\reg_config\reg_hklm_delete.ps1,1,Registry Delete (HKLM)

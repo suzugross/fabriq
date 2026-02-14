@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Firewall Settings,Security,firewall_config.ps1,40,1

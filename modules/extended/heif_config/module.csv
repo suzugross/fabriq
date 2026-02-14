@@ -1,0 +1,7 @@
+MenuName,Category,Script,Order,Enabled
+Install HEIF Image Extensions,Media Codec,Install-HeifImageExtensions.ps1,10,1
+Remove HEIF Image Extensions,Media Codec,Remove-HeifImageExtensions.ps1,20,1
+Install HEVC Video Extensions,Media Codec,Install-HevcVideoExtension.ps1,30,1
+Remove HEVC Video Extensions,Media Codec,Remove-HevcVideoExtension.ps1,40,1
+Install Paid HEVC Video Extensions,Media Codec,Install-PaidHevcVideoExtensions.ps1,50,0
+Remove Paid HEVC Video Extensions,Media Codec,Remove-PaidHevcVideoExtensions.ps1,60,0

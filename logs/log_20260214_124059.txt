@@ -1,0 +1,122 @@
+﻿**********************
+Windows PowerShell トランスクリプト開始
+開始時刻: 20260214124059
+ユーザー名: SZK-WIN01\szk-WIN01
+RunAs ユーザー: SZK-WIN01\szk-WIN01
+構成名: 
+コンピューター: SZK-WIN01 (Microsoft Windows NT 10.0.26200.0)
+ホスト アプリケーション: powershell.exe -NoProfile -ExecutionPolicy Unrestricted .\kernel\main.ps1
+プロセス ID: 9880
+PSVersion: 5.1.26100.7705
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7705
+BuildVersion: 10.0.26100.7705
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+========================================
+Fabriq ver2.1 - Manifeste du Surkitinisme -
+========================================
+
+[INFO] Log file: .\logs\log_20260214_124059.txt
+
+[INFO] Loading hostlist.csv...
+[SUCCESS] Loaded hostlist.csv (4 items)
+
+[INFO] Current PC Name: SZK-WIN01
+
+[SUCCESS] Auto-selected: ID [4] - szk-win01 -> szk-win01
+
+[INFO] Environment variables set.
+
+[INFO] No previous execution history for AdminID 4
+
+[INFO] Loading categories.csv...
+[SUCCESS] Loaded categories.csv (12 items)
+
+[INFO] Detecting modules...
+[SUCCESS] Modules loaded (35 items)
+
+[INFO] Status Monitor started (PID: 11652)
+
+
+========================================
+Fabriq ver2.1 - Manifeste du Surkitinisme -
+========================================
+  Selected Host: szk-win01
+========================================
+
+=== Network ===
+  [1] IP Address Settings
+  [2] Change Hostname
+  [3] IPv6 Settings
+  [4] Domain Join
+
+=== Registry ===
+  [5] Registry Config (HKLM)
+  [6] Registry Delete (HKLM)
+  [7] Registry Config (HKCU)
+  [8] Registry Delete (HKCU)
+  [9] Display Resolution Config
+  [10] Display DPI Scaling Config
+  [11] Registry Backup (Template)
+  [12] Registry Import (Template)
+
+=== Printer ===
+  [13] Printer Drivers
+  [14] Register Printers
+  [15] Uninstall Printer Drivers
+
+=== Security ===
+  [16] Firewall Settings
+
+=== Power ===
+  [17] Power Settings
+
+=== User Management ===
+  [18] Local Group Member Config
+  [19] Create Local Users
+  [20] Delete Local Users
+
+=== Applications ===
+  [21] App Installation
+  [22] Edge Profile Backup
+  [23] Edge Profile Restore
+  [24] Remove Store Apps
+
+=== Media Codec ===
+  [25] Install HEIF Image Extensions
+  [26] Remove HEIF Image Extensions
+  [27] Install HEVC Video Extensions
+  [28] Remove HEVC Video Extensions
+
+=== System ===
+  [29] File Copy Config
+  [30] Desktop Icon Backup
+  [31] Desktop Icon Restore
+  [32] Install Product Key
+  [33] Activate Windows License
+  [34] Restart with AutoRun
+
+=== Evidence ===
+  [35] Digital Gyotaku (Template)
+
+----------------------------------------
+  [C] Command  [A] Apps  [H] Host Info  [Q] Quit
+  [P] Run Profile  [R] History
+  [re] Restart  [eh] Export  [rf] Refabriq
+  * Batch Run: 1,3,5 or 1-5 allowed
+----------------------------------------
+
+Please enter the number:
+
+[INFO] Exiting
+
+========================================
+**********************
+Windows PowerShell トランスクリプト終了
+終了時刻: 20260214124106
+**********************

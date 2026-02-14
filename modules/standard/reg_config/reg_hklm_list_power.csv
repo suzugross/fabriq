@@ -1,0 +1,2 @@
+﻿Enabled,AdminID,SettingTitle,KeyPath,KeyName,Type,Value
+1,1,高速スタートアップを無効にする,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Power,HiberbootEnabled,REG_DWORD,0

@@ -1,0 +1,12 @@
+﻿Step,Action,Value,Wait,Note
+1,Open,notepad,0,Open Notepad
+2,WaitWin,メモ帳,10000,Wait for メモ帳 (max 10s)
+3,Type,Auto keyboard test.,500,Type text
+4,Key,{ENTER},200,Press Enter
+5,Type,PowerShell Automation,500,Type English text
+6,Key,{ENTER},500,Press Enter
+7,Wait,500,0,Brief pause
+8,Key,%{F4},1000,Alt+F4 to close
+9,WaitWin,メモ帳,3000,Wait for save dialog
+10,Key,{TAB},500,Move to Don't Save
+11,Key,{ENTER},0,Confirm and close

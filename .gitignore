@@ -1,0 +1,25 @@
+# ツールやAIの設定フォルダ
+.claude/
+
+# 巨大なインストーラーやISOファイルは除外
+*.iso
+*.exe
+*.msi
+
+# 特定のフォルダの中身をまるごと除外
+/modules/standard/driver_config/driver/*
+!/modules/standard/driver_config/driver/.gitkeep
+
+/modules/standard/printer_driver_config/INF/*
+!/modules/standard/printer_driver_config/INF/命名規則.txt
+!/modules/standard/printer_driver_config/INF/.gitkeep
+
+/evidence/export_history/*
+!/evidence/export_history/.gitkeep
+
+/evidence/gyotaku/*
+!/evidence/gyotaku/.gitkeep
+
+# 一時ファイルやキャッシュ
+*.tmp
+*.log

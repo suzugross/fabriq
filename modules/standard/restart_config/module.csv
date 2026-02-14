@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Restart with AutoRun,System,restart_config.ps1,99,1

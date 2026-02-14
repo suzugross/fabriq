@@ -1,0 +1,11 @@
+Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,Operator,SessionID
+2026-02-14 22:32:36,4,szk-win01,Display Resolution Config,Registry,Skipped,No enabled entries,SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:33:10,4,szk-win01,Activate Windows License,System,Skipped,Already activated (Windows(R)),SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:33:28,4,szk-win01,App Installation,Applications,Cancelled,User canceled,SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:33:50,4,szk-win01,Domain Join,Network,Error,Ping to DNS server failed,SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:34:04,4,szk-win01,Firewall Settings,Security,Cancelled,User canceled,SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:34:30,4,szk-win01,Register Printers,Printer,Cancelled,User canceled,SZK-WIN01\szk-WIN01,20260214_223141
+2026-02-14 22:37:57,4,szk-win01,Register Printers,Printer,Cancelled,User canceled,SZK-WIN01\szk-WIN01,20260214_223727
+2026-02-14 22:39:37,4,szk-win01,Register Printers,Printer,Success,"Success: 2, Fail: 0",SZK-WIN01\szk-WIN01,20260214_223727
+2026-02-14 22:39:50,4,szk-win01,Register Printers,Printer,Success,"Success: 2, Fail: 0",SZK-WIN01\szk-WIN01,20260214_223727
+2026-02-14 22:41:12,4,szk-win01,Domain Join,Network,Error,Ping to DNS server failed,SZK-WIN01\szk-WIN01,20260214_224019

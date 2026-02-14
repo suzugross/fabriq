@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+IPv6 Settings,Network,ipv6_config.ps1,12,1

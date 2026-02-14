@@ -1,0 +1,3 @@
+MenuName,Category,Script,Order,Enabled
+Create Local Users,User Management,local_user_config.ps1,60,1
+Delete Local Users,User Management,local_user_delete.ps1,61,1

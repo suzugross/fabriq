@@ -1,0 +1,4 @@
+"UserName","Password","PasswordNeverExpires","UserMayNotChangePassword","Group"
+"admin_user","P@ssw0rd","1","1","Administrators"
+"standard_user","Pass1234","0","0","Users"
+"remote_user","R3m0te!","1","1","Users;Remote Desktop Users"

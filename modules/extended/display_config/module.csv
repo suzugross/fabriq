@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Display Resolution Config,Registry,display_config.ps1,25,1
