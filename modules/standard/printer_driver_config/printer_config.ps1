@@ -85,10 +85,7 @@ if ($missingDrivers.Count -gt 0) {
     Write-Host ""
 }
 
-Write-Host -NoNewline "Do you want to proceed with registration? (Y/N): "
-$confirm = Read-Host
-
-if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+if (-not (Confirm-Execution -Message "Do you want to proceed with registration?")) {
     Write-Host ""
     Write-Host "[INFO] Canceled" -ForegroundColor Cyan
     Write-Host ""
@@ -101,6 +98,7 @@ Write-Host ""
 # Step 3: Registration Loop
 # ========================================
 $successCount = 0
+$skipCount = 0
 $errorCount = 0
 
 foreach ($p in $printers) {
@@ -135,19 +133,10 @@ foreach ($p in $printers) {
 
     $existingPrinter = Get-Printer -Name $p.Name -ErrorAction SilentlyContinue
     if ($existingPrinter) {
-        Write-Host "[WARNING] Printer already exists: $($p.Name)" -ForegroundColor Yellow
-        Write-Host "[INFO] Deleting and recreating existing printer" -ForegroundColor Cyan
-
-        try {
-            Remove-Printer -Name $p.Name -ErrorAction Stop
-            Write-Host "[SUCCESS] Deleted existing printer: $($p.Name)" -ForegroundColor Green
-        }
-        catch {
-            Write-Host "[ERROR] Failed to delete existing printer: $($p.Name) - $_" -ForegroundColor Red
-            $errorCount++
-            Write-Host ""
-            continue
-        }
+        Write-Host "[SKIP] Printer already exists: $($p.Name)" -ForegroundColor Gray
+        $skipCount++
+        Write-Host ""
+        continue
     }
 
     try {
@@ -169,7 +158,12 @@ foreach ($p in $printers) {
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Registration Results" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Success: $successCount items" -ForegroundColor Green
+if ($successCount -gt 0) {
+    Write-Host "Success: $successCount items" -ForegroundColor Green
+}
+if ($skipCount -gt 0) {
+    Write-Host "Skipped: $skipCount items (already registered)" -ForegroundColor Gray
+}
 if ($errorCount -gt 0) {
     Write-Host "Failed: $errorCount items" -ForegroundColor Red
 }
@@ -177,6 +171,8 @@ Write-Host ""
 
 # Return ModuleResult
 $overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
+    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
     elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $errorCount")
+    elseif ($errorCount -gt 0) { "Error" }
+    else { "Success" }
+return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")

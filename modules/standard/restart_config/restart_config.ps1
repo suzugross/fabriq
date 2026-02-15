@@ -55,10 +55,7 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-Write-Host -NoNewline "Register RunOnce and restart the computer? (Y/N): "
-$confirm = Read-Host
-
-if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
     Write-Host ""
     Write-Host "[INFO] Canceled" -ForegroundColor Cyan
     Write-Host ""

@@ -104,10 +104,7 @@ Write-Host "Set firewall for all profiles to $actionText" -ForegroundColor Yello
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-Write-Host -NoNewline "Are you sure you want to execute? (Y/N): "
-$confirm = Read-Host
-
-if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+if (-not (Confirm-Execution -Message "Are you sure you want to execute?")) {
     Write-Host ""
     Write-Host "[INFO] Canceled" -ForegroundColor Cyan
     Write-Host ""

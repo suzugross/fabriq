@@ -141,10 +141,7 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-Write-Host -NoNewline "Do you want to uninstall? (Y/N): "
-$confirm = Read-Host
-
-if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+if (-not (Confirm-Execution -Message "Do you want to uninstall?")) {
     Write-Host ""
     Write-Host "[INFO] Canceled" -ForegroundColor Cyan
     Write-Host ""
