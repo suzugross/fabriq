@@ -20,6 +20,14 @@
 /evidence/gyotaku/*
 !/evidence/gyotaku/.gitkeep
 
+/logs/*
+!/logs/.gitkeep
+
+/logs/history/*
+!/logs/history/.gitkeep
+
+
+
 # 一時ファイルやキャッシュ
 *.tmp
 *.log
