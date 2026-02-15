@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+History Destroyer,System,history_destroyer.ps1,80,1
