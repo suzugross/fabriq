@@ -19,6 +19,22 @@ Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 '@
+
+# NoActivateForm: Form subclass that does not steal focus on show
+Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System.Windows.Forms;
+public class NoActivateForm : Form {
+    protected override bool ShowWithoutActivation { get { return true; } }
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    protected override CreateParams CreateParams {
+        get {
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_NOACTIVATE;
+            return cp;
+        }
+    }
+}
+'@
 $consoleHwnd = [Native.Win32]::GetConsoleWindow()
 if ($consoleHwnd -ne [IntPtr]::Zero) {
     [Native.Win32]::ShowWindow($consoleHwnd, 0) | Out-Null  # SW_HIDE = 0
@@ -46,7 +62,7 @@ $fontTitle  = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.Fon
 # ========================================
 # Form Setup
 # ========================================
-$form = New-Object System.Windows.Forms.Form
+$form = New-Object NoActivateForm
 $form.Text = "Fabriq - Status Monitor"
 $form.Size = New-Object System.Drawing.Size(480, 780)
 $form.StartPosition = "Manual"

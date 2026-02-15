@@ -1746,7 +1746,7 @@ function Start-StatusMonitor {
             Show-Info "Status Monitor started (PID: $($monitorProcess.Id))"
             Write-Host ""
 
-            Start-Sleep -Milliseconds 800
+            Start-Sleep -Milliseconds 1200
             Set-ConsoleForeground
         }
     }
