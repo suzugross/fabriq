@@ -22,8 +22,6 @@ Set-ConsoleSize -Columns 75 -Lines 35
 # Constants
 # ========================================
 $HOSTLIST_CSV = ".\kernel\hostlist.csv"
-$CATEGORIES_CSV = ".\kernel\categories.csv"
-$MODULES_DIR = ".\modules"
 $COMMANDS_DIR = ".\commands"
 $APPS_DIR = ".\apps"
 
@@ -47,128 +45,8 @@ function Load-HostList {
     }
 }
 
-# ========================================
-# Function: Load Category Definitions
-# ========================================
-function Load-Categories {
-    $categoryOrder = @{}
-
-    if (Test-Path $CATEGORIES_CSV) {
-        try {
-            $categories = Import-Csv -Path $CATEGORIES_CSV -Encoding Default
-            foreach ($cat in $categories) {
-                $categoryOrder[$cat.Category] = [int]$cat.Order
-            }
-            Show-Success "Loaded categories.csv ($(($categories | Measure-Object).Count) items)"
-        }
-        catch {
-            Show-Error "Failed to load categories.csv: $_"
-        }
-    }
-    else {
-        Show-Info "categories.csv not found. Using default order."
-    }
-
-    return $categoryOrder
-}
-
-# ========================================
-# Function: Auto-detect Modules
-# ========================================
-function Load-ModulesFromDirectory {
-    param(
-        [string]$ModulesPath,
-        [string]$ModuleType
-    )
-
-    $modules = @()
-
-    if (-not (Test-Path $ModulesPath)) {
-        return $modules
-    }
-
-    $dirs = Get-ChildItem $ModulesPath -Directory -ErrorAction SilentlyContinue
-
-    foreach ($dir in $dirs) {
-        $moduleCsv = Join-Path $dir.FullName "module.csv"
-        if (Test-Path $moduleCsv) {
-            try {
-                $entries = Import-Csv $moduleCsv -Encoding Default
-                foreach ($entry in $entries) {
-                    # Check Enabled (Default is enabled if omitted)
-                    $enabled = $entry.Enabled
-                    if ($enabled -eq "0") {
-                        continue
-                    }
-
-                    # Order (Default is 100)
-                    $order = 100
-                    if ($entry.Order -and $entry.Order -match '^\d+$') {
-                        $order = [int]$entry.Order
-                    }
-
-                    $modules += [PSCustomObject]@{
-                        MenuName     = $entry.MenuName
-                        Category     = $entry.Category
-                        Script       = Join-Path $dir.FullName $entry.Script
-                        Order        = $order
-                        ModuleType   = $ModuleType
-                        ModuleDir    = $dir.Name
-                        RelativePath = "$ModuleType\$($dir.Name)\$($entry.Script)"
-                    }
-                }
-            }
-            catch {
-                Show-Error "Error loading module.csv: $($dir.Name) - $_"
-            }
-        }
-    }
-
-    return $modules
-}
-
-# ========================================
-# Function: Load All Modules
-# ========================================
-function Load-AllModules {
-    $allModules = @()
-
-    # Standard modules
-    $standardPath = Join-Path $MODULES_DIR "standard"
-    $standardModules = Load-ModulesFromDirectory -ModulesPath $standardPath -ModuleType "standard"
-    $allModules += $standardModules
-
-    # Extended modules
-    $extendedPath = Join-Path $MODULES_DIR "extended"
-    $extendedModules = Load-ModulesFromDirectory -ModulesPath $extendedPath -ModuleType "extended"
-    $allModules += $extendedModules
-
-    $count = ($allModules | Measure-Object).Count
-    Show-Success "Modules loaded ($count items)"
-
-    return $allModules
-}
-
-# ========================================
-# Function: Build Menu by Category
-# ========================================
-function Build-CategoryMenu {
-    param(
-        [array]$Modules,
-        [hashtable]$CategoryOrder
-    )
-
-    # Group by category
-    $grouped = $Modules | Group-Object -Property Category
-
-    # Sort by category order
-    $sorted = $grouped | Sort-Object {
-        $order = $CategoryOrder[$_.Name]
-        if ($null -eq $order) { 999 } else { $order }
-    }
-
-    return $sorted
-}
+# (Load-Categories, Load-ModulesFromDirectory, Load-AllModules, Build-CategoryMenu
+#  have been consolidated into Initialize-ModuleSystem and Build-CategoryMenu in common.ps1)
 
 # ========================================
 # Function: Select Host
@@ -480,24 +358,10 @@ function Invoke-BatchExecution {
                              -CompletedModules $completedResults
 
             # Register RunOnce
-            $fabriqRoot = (Resolve-Path ".").Path
-            $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-            $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
-
-            try {
-                if (-not (Test-Path $runOncePath)) {
-                    New-Item -Path $runOncePath -Force | Out-Null
-                }
-                $runOnceValue = "cmd /c `"$fabriqBat`""
-                New-ItemProperty -Path $runOncePath -Name "FabriqAutoStart" `
-                    -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-                Write-Host "[SUCCESS] RunOnce registered" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "[ERROR] Failed to register RunOnce: $_" -ForegroundColor Red
+            if (-not (Register-FabriqRunOnce)) {
                 Remove-ResumeState
                 Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed"
-                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce failed: $_"
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed"
                 if ($StopOnError) { break } else { continue }
             }
 
@@ -505,19 +369,7 @@ function Invoke-BatchExecution {
             Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..."
             $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))"
 
-            # Countdown
-            Write-Host ""
-            Write-Host "The computer will restart in 5 seconds..." -ForegroundColor Yellow
-            Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-            Write-Host ""
-            for ($i = 5; $i -ge 1; $i--) {
-                Write-Host "`r  Restarting in $i seconds... " -NoNewline -ForegroundColor Yellow
-                Start-Sleep -Seconds 1
-            }
-            Write-Host ""
-
-            Restart-Computer -Force
-            Start-Sleep -Seconds 30  # Fallback wait after Restart-Computer
+            Invoke-CountdownRestart
             return
         }
 
@@ -595,17 +447,7 @@ function Invoke-BatchExecution {
             Add-ExecutionResult -Operation "[SHUTDOWN]" -Status "Success" -Message "Shutting down..."
             $null = Write-ExecutionHistory -ModuleName "[SHUTDOWN]" -Category "System" -Status "Success" -Message "Shutdown initiated"
 
-            Write-Host "The computer will shut down in 5 seconds..." -ForegroundColor Yellow
-            Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-            Write-Host ""
-            for ($i = 5; $i -ge 1; $i--) {
-                Write-Host "`r  Shutting down in $i seconds... " -NoNewline -ForegroundColor Yellow
-                Start-Sleep -Seconds 1
-            }
-            Write-Host ""
-
-            Stop-Computer -Force
-            Start-Sleep -Seconds 30
+            Invoke-CountdownShutdown
             return
         }
 
@@ -996,8 +838,12 @@ if (-not $hostList) {
 }
 Write-Host ""
 
-# Check for resume state (profile restart)
+# ========================================
+# Resume Detection
+# ========================================
+$isResuming = $false
 $resumeState = Load-ResumeState
+
 if ($null -ne $resumeState) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Yellow
@@ -1011,188 +857,81 @@ if ($null -ne $resumeState) {
     Write-Host "  Progress: $completedCount modules completed" -ForegroundColor White
     Write-Host ""
 
-    $resumeChoice = $null
-    while ($true) {
-        Write-Host -NoNewline "Resume profile execution? (Y/N): "
-        $resumeChoice = Read-Host
-        if ($resumeChoice -eq 'Y' -or $resumeChoice -eq 'y') { break }
-        if ($resumeChoice -eq 'N' -or $resumeChoice -eq 'n') { break }
-        Write-Host "[INFO] Please enter Y or N" -ForegroundColor Yellow
-    }
-
-    if ($resumeChoice -eq 'Y' -or $resumeChoice -eq 'y') {
-        # Restore environment variables (skip host selection)
+    if (Confirm-Execution -Message "Resume profile execution?") {
+        $isResuming = $true
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"
-
-        # Inherit SessionID for history continuity
         $script:SessionID = $resumeState.SessionID
-
-        # Restore execution history for the selected PC
-        Restore-ExecutionHistory
-        Write-Host ""
-
-        # Load modules
-        Clear-Host
-        Show-Info "Loading categories.csv..."
-        $categoryOrder = Load-Categories
-        Write-Host ""
-
-        Show-Info "Detecting modules..."
-        $allModules = Load-AllModules
-        if (($allModules | Measure-Object).Count -eq 0) {
-            Show-Error "No valid modules found"
-            Remove-ResumeState
-            Stop-Transcript | Out-Null
-            exit 1
-        }
-        Write-Host ""
-
-        $groupedModules = Build-CategoryMenu -Modules $allModules -CategoryOrder $categoryOrder
-
-        # Launch Status Monitor early for resume flow
-        Write-StatusFile -Phase "idle"
-        $script:StatusMonitorProcess = $null
-        try {
-            $monitorScript = ".\kernel\status_monitor.ps1"
-            if (Test-Path $monitorScript) {
-                $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-                $script:StatusMonitorProcess = Start-Process powershell.exe -ArgumentList @(
-                    "-NoProfile", "-ExecutionPolicy", "Unrestricted",
-                    "-File", $monitorScript,
-                    "-StatusFilePath", $statusFileFullPath
-                ) -WindowStyle Hidden -PassThru
-                Show-Info "Status Monitor started (PID: $($script:StatusMonitorProcess.Id))"
-                Write-Host ""
-
-                Start-Sleep -Milliseconds 800
-                try {
-                    $wsh = New-Object -ComObject WScript.Shell
-                    $wsh.AppActivate($PID) | Out-Null
-                    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) | Out-Null
-                }
-                catch { }
-            }
-        }
-        catch {
-            Show-Warning "Failed to start Status Monitor: $_"
-            Write-Host ""
-        }
-
-        # Resolve remaining modules from profile
-        $validation = Resolve-ProfileModules -ProfileCsvPath $resumeState.ProfilePath -AllModules $allModules
-
-        $remainingModules = @($validation.ValidModules | Where-Object {
-            $_.Order -gt $resumeState.ResumeAfterOrder
-        })
-
-        if ($remainingModules.Count -eq 0) {
-            Show-Info "No remaining modules to execute"
-            Remove-ResumeState
-        }
-        else {
-            Write-Host ""
-            Show-Info "Resuming profile: $($resumeState.ProfileName)"
-            Show-Info "Remaining modules: $($remainingModules.Count)"
-            Write-Host ""
-
-            # Restore completed module results to summary
-            foreach ($cm in $resumeState.CompletedModules) {
-                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)"
-            }
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
-
-            # Execute remaining modules
-            Invoke-BatchExecution -SelectedModules $remainingModules `
-                -StopOnError:$resumeState.StopOnError `
-                -ProfilePath $resumeState.ProfilePath `
-                -ProfileName $resumeState.ProfileName
-
-            Remove-ResumeState
-        }
     }
     else {
-        # Resume declined: clear state, proceed with normal startup
         Remove-ResumeState
         Show-Info "Resume state cleared. Starting normally."
-        Write-Host ""
-
-        $selectedHost = Select-Host -HostList $hostList
-        Write-Host ""
-        Set-SelectedHostEnvironment -SelectedHost $selectedHost
-        Write-Host ""
-        Restore-ExecutionHistory
-        Write-Host ""
-
-        Clear-Host
-        Show-Info "Loading categories.csv..."
-        $categoryOrder = Load-Categories
-        Write-Host ""
-
-        Show-Info "Detecting modules..."
-        $allModules = Load-AllModules
-        if (($allModules | Measure-Object).Count -eq 0) {
-            Show-Error "No valid modules found"
-            Stop-Transcript | Out-Null
-            exit 1
-        }
-        Write-Host ""
-
-        $groupedModules = Build-CategoryMenu -Modules $allModules -CategoryOrder $categoryOrder
     }
+    Write-Host ""
 }
-else {
-    # Normal startup (no resume state)
+
+# ========================================
+# Host Selection (skip if resuming)
+# ========================================
+if (-not $isResuming) {
     $selectedHost = Select-Host -HostList $hostList
     Write-Host ""
     Set-SelectedHostEnvironment -SelectedHost $selectedHost
     Write-Host ""
-    Restore-ExecutionHistory
-    Write-Host ""
-
-    Clear-Host
-    Show-Info "Loading categories.csv..."
-    $categoryOrder = Load-Categories
-    Write-Host ""
-
-    Show-Info "Detecting modules..."
-    $allModules = Load-AllModules
-    if (($allModules | Measure-Object).Count -eq 0) {
-        Show-Error "No valid modules found"
-        Stop-Transcript | Out-Null
-        exit 1
-    }
-    Write-Host ""
-
-    $groupedModules = Build-CategoryMenu -Modules $allModules -CategoryOrder $categoryOrder
 }
 
-# Initialize Menu Map
+# Restore execution history for the selected PC
+Restore-ExecutionHistory
+Write-Host ""
+
+# ========================================
+# Module System Initialization
+# ========================================
+Clear-Host
+$moduleSystem = Initialize-ModuleSystem
+if ($null -eq $moduleSystem) {
+    if ($isResuming) { Remove-ResumeState }
+    Stop-Transcript | Out-Null
+    exit 1
+}
+$allModules = $moduleSystem.AllModules
+$groupedModules = $moduleSystem.GroupedModules
+
+# ========================================
+# Status Monitor & Menu Map
+# ========================================
 $menuMap = @{}
+$script:StatusMonitorProcess = Start-StatusMonitor
 
-# Launch Status Monitor Window (skip if already started during resume flow)
-if ($null -eq $script:StatusMonitorProcess) {
-    Write-StatusFile -Phase "idle"
-    try {
-        $monitorScript = ".\kernel\status_monitor.ps1"
-        if (Test-Path $monitorScript) {
-            $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-            $script:StatusMonitorProcess = Start-Process powershell.exe -ArgumentList @(
-                "-NoProfile", "-ExecutionPolicy", "Unrestricted",
-                "-File", $monitorScript,
-                "-StatusFilePath", $statusFileFullPath
-            ) -WindowStyle Hidden -PassThru
-            Show-Info "Status Monitor started (PID: $($script:StatusMonitorProcess.Id))"
-            Write-Host ""
+# ========================================
+# Resume Execution (if resuming)
+# ========================================
+if ($isResuming) {
+    $validation = Resolve-ProfileModules -ProfileCsvPath $resumeState.ProfilePath -AllModules $allModules
+    $remainingModules = @($validation.ValidModules | Where-Object {
+        $_.Order -gt $resumeState.ResumeAfterOrder
+    })
 
-            # Return focus to Fabriq console after monitor window appears
-            Start-Sleep -Milliseconds 800
-            Set-ConsoleForeground
-        }
+    if ($remainingModules.Count -eq 0) {
+        Show-Info "No remaining modules to execute"
+        Remove-ResumeState
     }
-    catch {
-        Show-Warning "Failed to start Status Monitor: $_"
+    else {
+        Show-Info "Resuming profile: $($resumeState.ProfileName)"
+        Show-Info "Remaining modules: $($remainingModules.Count)"
         Write-Host ""
+
+        foreach ($cm in $resumeState.CompletedModules) {
+            Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)"
+        }
+        Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
+
+        Invoke-BatchExecution -SelectedModules $remainingModules `
+            -StopOnError:$resumeState.StopOnError `
+            -ProfilePath $resumeState.ProfilePath `
+            -ProfileName $resumeState.ProfileName
+
+        Remove-ResumeState
     }
 }
 
@@ -1211,17 +950,7 @@ while ($true) {
         Write-Host ""
         Show-Info "Exiting"
 
-        # Close Status Monitor Window
-        if ($script:StatusMonitorProcess -and -not $script:StatusMonitorProcess.HasExited) {
-            try {
-                $script:StatusMonitorProcess.CloseMainWindow() | Out-Null
-                if (-not $script:StatusMonitorProcess.WaitForExit(2000)) {
-                    $script:StatusMonitorProcess.Kill()
-                }
-            }
-            catch { }
-        }
-        Remove-StatusFile
+        Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
         Disable-SleepSuppression
 
         break
@@ -1275,24 +1004,6 @@ while ($true) {
         Show-Separator
         Write-Host ""
 
-        $fabriqRoot = (Resolve-Path ".").Path
-        $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-
-        if (-not (Test-Path $fabriqBat)) {
-            Show-Error "Fabriq.bat not found: $fabriqBat"
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
-        $runOnceName = "FabriqAutoStart"
-        $runOnceValue = "cmd /c `"$fabriqBat`""
-
-        Write-Host "  RunOnce: $runOnceName" -ForegroundColor White
-        Write-Host "  Value:   $runOnceValue" -ForegroundColor Gray
-        Write-Host ""
-
         if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
             Show-Info "Canceled"
             Wait-KeyPress
@@ -1301,32 +1012,13 @@ while ($true) {
         }
 
         Write-Host ""
-        try {
-            if (-not (Test-Path $runOncePath)) {
-                New-Item -Path $runOncePath -Force | Out-Null
-            }
-            New-ItemProperty -Path $runOncePath -Name $runOnceName -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-            Write-Host "[SUCCESS] RunOnce registered" -ForegroundColor Green
-        }
-        catch {
-            Show-Error "Failed to register RunOnce: $_"
+        if (-not (Register-FabriqRunOnce)) {
             Wait-KeyPress
             Clear-Host
             continue
         }
 
-        Write-Host ""
-        Write-Host "The computer will restart in 5 seconds..." -ForegroundColor Yellow
-        Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-        Write-Host ""
-        for ($i = 5; $i -ge 1; $i--) {
-            Write-Host "`r  Restarting in $i seconds... " -NoNewline -ForegroundColor Yellow
-            Start-Sleep -Seconds 1
-        }
-        Write-Host ""
-
-        Restart-Computer -Force
-        Start-Sleep -Seconds 30
+        Invoke-CountdownRestart
         continue
     }
 
@@ -1345,17 +1037,7 @@ while ($true) {
         Write-Host ""
         Show-Info "Restarting Fabriq..."
 
-        # Close Status Monitor
-        if ($script:StatusMonitorProcess -and -not $script:StatusMonitorProcess.HasExited) {
-            try {
-                $script:StatusMonitorProcess.CloseMainWindow() | Out-Null
-                if (-not $script:StatusMonitorProcess.WaitForExit(2000)) {
-                    $script:StatusMonitorProcess.Kill()
-                }
-            }
-            catch { }
-        }
-        Remove-StatusFile
+        Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
 
         # Launch new Fabriq instance
         $fabriqRoot = (Resolve-Path ".").Path
@@ -1426,16 +1108,7 @@ Write-Host ""
 Show-Separator
 
 # Ensure Status Monitor is closed (safety net)
-if ($script:StatusMonitorProcess -and -not $script:StatusMonitorProcess.HasExited) {
-    try {
-        $script:StatusMonitorProcess.CloseMainWindow() | Out-Null
-        if (-not $script:StatusMonitorProcess.WaitForExit(2000)) {
-            $script:StatusMonitorProcess.Kill()
-        }
-    }
-    catch { }
-}
-Remove-StatusFile
+Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
 
 # Stop Logging
 Stop-Transcript | Out-Null

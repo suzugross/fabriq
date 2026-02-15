@@ -1727,3 +1727,212 @@ function Remove-StatusFile {
     }
     catch { }
 }
+
+# ========================================
+# Status Monitor Lifecycle
+# ========================================
+function Start-StatusMonitor {
+    Write-StatusFile -Phase "idle"
+    $monitorProcess = $null
+    try {
+        $monitorScript = ".\kernel\status_monitor.ps1"
+        if (Test-Path $monitorScript) {
+            $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
+            $monitorProcess = Start-Process powershell.exe -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Unrestricted",
+                "-File", $monitorScript,
+                "-StatusFilePath", $statusFileFullPath
+            ) -WindowStyle Hidden -PassThru
+            Show-Info "Status Monitor started (PID: $($monitorProcess.Id))"
+            Write-Host ""
+
+            Start-Sleep -Milliseconds 800
+            Set-ConsoleForeground
+        }
+    }
+    catch {
+        Show-Warning "Failed to start Status Monitor: $_"
+        Write-Host ""
+    }
+    return $monitorProcess
+}
+
+function Stop-StatusMonitor {
+    param([System.Diagnostics.Process]$MonitorProcess)
+
+    if ($MonitorProcess -and -not $MonitorProcess.HasExited) {
+        try {
+            $MonitorProcess.CloseMainWindow() | Out-Null
+            if (-not $MonitorProcess.WaitForExit(2000)) {
+                $MonitorProcess.Kill()
+            }
+        }
+        catch { }
+    }
+    Remove-StatusFile
+}
+
+# ========================================
+# Function: Build Menu by Category
+# ========================================
+function Build-CategoryMenu {
+    param(
+        [array]$Modules,
+        [hashtable]$CategoryOrder
+    )
+
+    # Group by category
+    $grouped = $Modules | Group-Object -Property Category
+
+    # Sort by category order
+    $sorted = $grouped | Sort-Object {
+        $order = $CategoryOrder[$_.Name]
+        if ($null -eq $order) { 999 } else { $order }
+    }
+
+    return $sorted
+}
+
+# ========================================
+# Module System Initialization
+# ========================================
+function Initialize-ModuleSystem {
+    param(
+        [string]$CategoriesCsv = ".\kernel\categories.csv",
+        [string]$ModulesDir = ".\modules"
+    )
+
+    Show-Info "Loading categories.csv..."
+    $categoryOrder = @{}
+    if (Test-Path $CategoriesCsv) {
+        try {
+            $categories = Import-Csv -Path $CategoriesCsv -Encoding Default
+            foreach ($cat in $categories) {
+                $categoryOrder[$cat.Category] = [int]$cat.Order
+            }
+            Show-Success "Loaded categories.csv ($(($categories | Measure-Object).Count) items)"
+        }
+        catch {
+            Show-Error "Failed to load categories.csv: $_"
+        }
+    }
+    else {
+        Show-Info "categories.csv not found. Using default order."
+    }
+    Write-Host ""
+
+    Show-Info "Detecting modules..."
+    $allModules = @()
+    $standardPath = Join-Path $ModulesDir "standard"
+    $extendedPath = Join-Path $ModulesDir "extended"
+
+    foreach ($type in @(@{Path=$standardPath;Type="standard"}, @{Path=$extendedPath;Type="extended"})) {
+        if (Test-Path $type.Path) {
+            $dirs = Get-ChildItem $type.Path -Directory -ErrorAction SilentlyContinue
+            foreach ($dir in $dirs) {
+                $moduleCsv = Join-Path $dir.FullName "module.csv"
+                if (Test-Path $moduleCsv) {
+                    try {
+                        $entries = Import-Csv $moduleCsv -Encoding Default
+                        foreach ($entry in $entries) {
+                            if ($entry.Enabled -eq "0") { continue }
+                            $order = 100
+                            if ($entry.Order -and $entry.Order -match '^\d+$') {
+                                $order = [int]$entry.Order
+                            }
+                            $allModules += [PSCustomObject]@{
+                                MenuName     = $entry.MenuName
+                                Category     = $entry.Category
+                                Script       = Join-Path $dir.FullName $entry.Script
+                                Order        = $order
+                                ModuleType   = $type.Type
+                                ModuleDir    = $dir.Name
+                                RelativePath = "$($type.Type)\$($dir.Name)\$($entry.Script)"
+                            }
+                        }
+                    }
+                    catch {
+                        Show-Error "Error loading module.csv: $($dir.Name) - $_"
+                    }
+                }
+            }
+        }
+    }
+
+    $count = ($allModules | Measure-Object).Count
+    if ($count -eq 0) {
+        Show-Error "No valid modules found"
+        return $null
+    }
+    Show-Success "Modules loaded ($count items)"
+    Write-Host ""
+
+    $groupedModules = Build-CategoryMenu -Modules $allModules -CategoryOrder $categoryOrder
+
+    return [PSCustomObject]@{
+        AllModules     = $allModules
+        GroupedModules = $groupedModules
+        CategoryOrder  = $categoryOrder
+    }
+}
+
+# ========================================
+# RunOnce Registration & Countdown
+# ========================================
+function Register-FabriqRunOnce {
+    $fabriqRoot = (Resolve-Path ".").Path
+    $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
+
+    if (-not (Test-Path $fabriqBat)) {
+        Show-Error "Fabriq.bat not found: $fabriqBat"
+        return $false
+    }
+
+    $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+    try {
+        if (-not (Test-Path $runOncePath)) {
+            New-Item -Path $runOncePath -Force | Out-Null
+        }
+        $runOnceValue = "cmd /c `"$fabriqBat`""
+        New-ItemProperty -Path $runOncePath -Name "FabriqAutoStart" `
+            -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
+        Write-Host "[SUCCESS] RunOnce registered" -ForegroundColor Green
+        return $true
+    }
+    catch {
+        Write-Host "[ERROR] Failed to register RunOnce: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Invoke-CountdownRestart {
+    param([int]$Seconds = 5)
+
+    Write-Host ""
+    Write-Host "The computer will restart in $Seconds seconds..." -ForegroundColor Yellow
+    Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
+    Write-Host ""
+    for ($i = $Seconds; $i -ge 1; $i--) {
+        Write-Host "`r  Restarting in $i seconds... " -NoNewline -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+    }
+    Write-Host ""
+    Restart-Computer -Force
+    Start-Sleep -Seconds 30
+}
+
+function Invoke-CountdownShutdown {
+    param([int]$Seconds = 5)
+
+    Write-Host ""
+    Write-Host "The computer will shut down in $Seconds seconds..." -ForegroundColor Yellow
+    Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
+    Write-Host ""
+    for ($i = $Seconds; $i -ge 1; $i--) {
+        Write-Host "`r  Shutting down in $i seconds... " -NoNewline -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+    }
+    Write-Host ""
+    Stop-Computer -Force
+    Start-Sleep -Seconds 30
+}
