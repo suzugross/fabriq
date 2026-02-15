@@ -521,6 +521,112 @@ function Invoke-BatchExecution {
             return
         }
 
+        # __REEXPLORER__ marker handling
+        if ($module._IsReexplorer) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[REEXPLORER]"
+            Show-Info "Restarting Explorer..."
+            try {
+                Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+                # Explorer usually auto-restarts; ensure it does
+                if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
+                    Start-Process explorer.exe
+                }
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted"
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted"
+            }
+            catch {
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message
+                if ($StopOnError) { break }
+            }
+            $completedResults += @{ MenuName = "[REEXPLORER]"; Status = "Success" }
+            continue
+        }
+
+        # __STOPLOG__ marker handling
+        if ($module._IsStopLog) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[STOPLOG]"
+            Show-Info "Stopping transcript..."
+            try {
+                Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+                Add-ExecutionResult -Operation "[STOPLOG]" -Status "Success" -Message "Transcript stopped"
+                $null = Write-ExecutionHistory -ModuleName "[STOPLOG]" -Category "System" -Status "Success" -Message "Transcript stopped"
+            }
+            catch {
+                Add-ExecutionResult -Operation "[STOPLOG]" -Status "Warning" -Message $_.Exception.Message
+            }
+            $completedResults += @{ MenuName = "[STOPLOG]"; Status = "Success" }
+            continue
+        }
+
+        # __STARTLOG__ marker handling
+        if ($module._IsStartLog) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[STARTLOG]"
+            Show-Info "Resuming transcript..."
+            try {
+                $transcriptPath = $global:FabriqTranscriptPath
+                if ([string]::IsNullOrEmpty($transcriptPath)) {
+                    $transcriptPath = ".\logs\log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+                    $global:FabriqTranscriptPath = $transcriptPath
+                }
+                Start-Transcript -Path $transcriptPath -Append | Out-Null
+                Add-ExecutionResult -Operation "[STARTLOG]" -Status "Success" -Message "Transcript resumed: $transcriptPath"
+                $null = Write-ExecutionHistory -ModuleName "[STARTLOG]" -Category "System" -Status "Success" -Message "Transcript resumed"
+            }
+            catch {
+                Add-ExecutionResult -Operation "[STARTLOG]" -Status "Warning" -Message $_.Exception.Message
+            }
+            $completedResults += @{ MenuName = "[STARTLOG]"; Status = "Success" }
+            continue
+        }
+
+        # __SHUTDOWN__ marker handling
+        if ($module._IsShutdown) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[SHUTDOWN]"
+            Write-Host ""
+            Write-Host "========================================" -ForegroundColor Red
+            Write-Host "  Shutdown Phase" -ForegroundColor Red
+            Write-Host "========================================" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Progress: $($completedResults.Count) modules completed" -ForegroundColor White
+            Write-Host ""
+
+            Add-ExecutionResult -Operation "[SHUTDOWN]" -Status "Success" -Message "Shutting down..."
+            $null = Write-ExecutionHistory -ModuleName "[SHUTDOWN]" -Category "System" -Status "Success" -Message "Shutdown initiated"
+
+            Write-Host "The computer will shut down in 5 seconds..." -ForegroundColor Yellow
+            Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
+            Write-Host ""
+            for ($i = 5; $i -ge 1; $i--) {
+                Write-Host "`r  Shutting down in $i seconds... " -NoNewline -ForegroundColor Yellow
+                Start-Sleep -Seconds 1
+            }
+            Write-Host ""
+
+            Stop-Computer -Force
+            Start-Sleep -Seconds 30
+            return
+        }
+
+        # __PAUSE__ marker handling
+        if ($module._IsPause) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[PAUSE]"
+            Write-Host ""
+            Write-Host "========================================" -ForegroundColor Yellow
+            Write-Host "  Pause - Waiting for user input" -ForegroundColor Yellow
+            Write-Host "========================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  Progress: $current/$total ($($completedResults.Count) completed)" -ForegroundColor White
+            Write-Host ""
+            Set-ConsoleForeground
+            Wait-KeyPress -Message "Press Enter to continue..."
+            Add-ExecutionResult -Operation "[PAUSE]" -Status "Success" -Message "User resumed"
+            $null = Write-ExecutionHistory -ModuleName "[PAUSE]" -Category "System" -Status "Success" -Message "User resumed"
+            $completedResults += @{ MenuName = "[PAUSE]"; Status = "Success" }
+            continue
+        }
+
         # Normal module execution
         Show-BatchProgress -Current $current -Total $total -ItemName $module.MenuName
 
@@ -554,6 +660,31 @@ function Invoke-BatchExecution {
         Write-Host ""
         Write-Host "[INFO] Auto-exporting execution history as evidence..." -ForegroundColor Cyan
         $null = Export-ExecutionHistory
+
+        # Auto-run log upload
+        $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
+        if (Test-Path $logUploaderScript) {
+            $destConfig = ".\kernel\log_destinations.csv"
+            $hasDestinations = $false
+            if (Test-Path $destConfig) {
+                try {
+                    $dests = @(Import-Csv -Path $destConfig -Encoding Default | Where-Object { $_.Enabled -eq "1" })
+                    $hasDestinations = ($dests.Count -gt 0)
+                }
+                catch { }
+            }
+
+            if ($hasDestinations) {
+                Write-Host ""
+                Write-Host "[INFO] Auto-uploading logs and evidence..." -ForegroundColor Cyan
+                try {
+                    & $logUploaderScript
+                }
+                catch {
+                    Show-Warning "Log upload failed: $($_.Exception.Message)"
+                }
+            }
+        }
     }
 
     Wait-KeyPress
@@ -837,6 +968,7 @@ if (-not (Test-Path $logDir)) {
 }
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $logFile = Join-Path $logDir "log_$timestamp.txt"
+$global:FabriqTranscriptPath = $logFile
 Start-Transcript -Path $logFile -Append | Out-Null
 
 Write-Host ""

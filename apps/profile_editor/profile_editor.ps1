@@ -38,8 +38,25 @@ $fgDim        = [System.Drawing.Color]::FromArgb(150, 150, 150)
 $fgHeader     = [System.Drawing.Color]::FromArgb(100, 180, 255)
 $fgFooter     = [System.Drawing.Color]::FromArgb(170, 170, 170)
 $gridLine     = [System.Drawing.Color]::FromArgb(60, 60, 60)
-$restartBg    = [System.Drawing.Color]::FromArgb(80, 60, 0)
-$restartFg    = [System.Drawing.Color]::FromArgb(255, 200, 50)
+$specialBg    = [System.Drawing.Color]::FromArgb(80, 60, 0)
+$specialFg    = [System.Drawing.Color]::FromArgb(255, 200, 50)
+$restartBg    = $specialBg
+$restartFg    = $specialFg
+
+# Special marker definitions
+$script:SpecialMarkers = [ordered]@{
+    "--- RESTART ---"    = @{ Path = "__RESTART__";    Desc = "Restart" }
+    "--- REEXPLORER ---" = @{ Path = "__REEXPLORER__"; Desc = "Restart Explorer" }
+    "--- STOPLOG ---"    = @{ Path = "__STOPLOG__";    Desc = "Stop Transcript" }
+    "--- STARTLOG ---"   = @{ Path = "__STARTLOG__";   Desc = "Start Transcript" }
+    "--- SHUTDOWN ---"   = @{ Path = "__SHUTDOWN__";   Desc = "Shutdown" }
+    "--- PAUSE ---"      = @{ Path = "__PAUSE__";      Desc = "Pause (Enter wait)" }
+}
+# Reverse lookup: path -> display name
+$script:MarkerPathToDisplay = @{}
+foreach ($key in $script:SpecialMarkers.Keys) {
+    $script:MarkerPathToDisplay[$script:SpecialMarkers[$key].Path] = $key
+}
 
 # ========================================
 # Discover all available modules
@@ -112,9 +129,9 @@ function Update-RowStyles {
         $row = $script:dgv.Rows[$i]
         if ($row.IsNewRow) { continue }
         $module = $row.Cells["Module"].Value
-        if ($module -eq "--- RESTART ---") {
-            $row.DefaultCellStyle.BackColor = $restartBg
-            $row.DefaultCellStyle.ForeColor = $restartFg
+        if ($script:SpecialMarkers.Contains($module)) {
+            $row.DefaultCellStyle.BackColor = $specialBg
+            $row.DefaultCellStyle.ForeColor = $specialFg
         }
         else {
             $row.DefaultCellStyle.BackColor = $bgCell
@@ -139,8 +156,8 @@ function Get-GridAsCsv {
 
         # Resolve display name to script path
         $scriptPath = ""
-        if ($module -eq "--- RESTART ---") {
-            $scriptPath = "__RESTART__"
+        if ($script:SpecialMarkers.Contains($module)) {
+            $scriptPath = $script:SpecialMarkers[$module].Path
         }
         elseif ($script:DisplayToPath.ContainsKey($module)) {
             $scriptPath = $script:DisplayToPath[$module]
@@ -187,8 +204,8 @@ function Import-ProfileCsv {
 
         # Resolve ScriptPath to display name
         $sp = if ($item.ScriptPath) { $item.ScriptPath.Trim().Replace("/", "\") } else { "" }
-        if ($sp -eq "__RESTART__") {
-            $row.Cells["Module"].Value = "--- RESTART ---"
+        if ($script:MarkerPathToDisplay.ContainsKey($sp)) {
+            $row.Cells["Module"].Value = $script:MarkerPathToDisplay[$sp]
         }
         elseif ($script:PathToDisplay.ContainsKey($sp)) {
             $row.Cells["Module"].Value = $script:PathToDisplay[$sp]
@@ -295,8 +312,8 @@ $footerPanel.Padding = New-Object System.Windows.Forms.Padding(12, 6, 12, 6)
 
 $footerText = @"
 Profile CSV 解説:
-  Order: 実行順序 (自動連番・ドラッグ＆ドロップで並替可)   Module: 実行するモジュールをドロップダウンから選択
-  Enabled: 1=有効 0=無効   Description: 説明メモ   __RESTART__: PC再起動後に次のモジュールから自動再開
+  Order: 実行順序 (自動連番・D&Dで並替可)   Module: モジュール or 特殊コマンドを選択
+  Enabled: 1=有効 0=無効   特殊: RESTART/REEXPLORER/STOPLOG/STARTLOG/PAUSE/SHUTDOWN
 "@
 
 $footerLabel = New-Object System.Windows.Forms.Label
@@ -334,13 +351,13 @@ function New-RowButton {
 }
 
 $btnAddModule = New-RowButton -Text "+ Add Module"   -X 8   -Width 110
-$btnRestart   = New-RowButton -Text "+ RESTART"      -X 125 -Width 100 -BgColor ([System.Drawing.Color]::FromArgb(120, 90, 0))
-$btnInsert    = New-RowButton -Text "Insert Above"   -X 232 -Width 105
-$btnDelete    = New-RowButton -Text "Delete Row"     -X 344 -Width 95
-$btnMoveUp    = New-RowButton -Text "Move Up"        -X 462 -Width 80
-$btnMoveDown  = New-RowButton -Text "Move Down"      -X 549 -Width 85
+$btnSpecial   = New-RowButton -Text "+ Special"      -X 125 -Width 90 -BgColor ([System.Drawing.Color]::FromArgb(120, 90, 0))
+$btnInsert    = New-RowButton -Text "Insert Above"   -X 222 -Width 105
+$btnDelete    = New-RowButton -Text "Delete Row"     -X 334 -Width 95
+$btnMoveUp    = New-RowButton -Text "Move Up"        -X 452 -Width 80
+$btnMoveDown  = New-RowButton -Text "Move Down"      -X 539 -Width 85
 
-$rowPanel.Controls.AddRange(@($btnAddModule, $btnRestart, $btnInsert, $btnDelete, $btnMoveUp, $btnMoveDown))
+$rowPanel.Controls.AddRange(@($btnAddModule, $btnSpecial, $btnInsert, $btnDelete, $btnMoveUp, $btnMoveDown))
 $form.Controls.Add($rowPanel)
 
 # ========================================
@@ -401,8 +418,10 @@ $colModule.FillWeight = 40
 $colModule.MinimumWidth = 200
 $colModule.FlatStyle = "Flat"
 $colModule.SortMode = "NotSortable"
-# Add RESTART marker
-$null = $colModule.Items.Add("--- RESTART ---")
+# Add special markers
+foreach ($markerName in $script:SpecialMarkers.Keys) {
+    $null = $colModule.Items.Add($markerName)
+}
 # Add all discovered modules
 foreach ($m in $script:ModuleDisplayList) {
     $null = $colModule.Items.Add($m)
@@ -445,10 +464,10 @@ $script:dgv.Add_CellValueChanged({
     if ($colName -eq "Module") {
         $row = $sender.Rows[$e.RowIndex]
         $module = $row.Cells["Module"].Value
-        if ($module -eq "--- RESTART ---") {
-            $row.Cells["Description"].Value = "Restart"
-            $row.DefaultCellStyle.BackColor = $restartBg
-            $row.DefaultCellStyle.ForeColor = $restartFg
+        if ($script:SpecialMarkers.Contains($module)) {
+            $row.Cells["Description"].Value = $script:SpecialMarkers[$module].Desc
+            $row.DefaultCellStyle.BackColor = $specialBg
+            $row.DefaultCellStyle.ForeColor = $specialFg
         }
         else {
             $row.DefaultCellStyle.BackColor = $bgCell
@@ -583,10 +602,34 @@ $btnAddModule.Add_Click({
 })
 
 # ========================================
-# Button: + RESTART
+# Button: + Special (context menu with all markers)
 # ========================================
-$btnRestart.Add_Click({
-    Add-ModuleRow -Module "--- RESTART ---" -Enabled "1" -Description "Restart"
+$specialMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$specialMenu.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
+$specialMenu.ForeColor = $fgText
+$specialMenu.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$specialMenu.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRenderer(
+    (New-Object System.Windows.Forms.ProfessionalColorTable)
+)
+
+foreach ($markerName in $script:SpecialMarkers.Keys) {
+    $desc = $script:SpecialMarkers[$markerName].Desc
+    $menuItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $menuItem.Text = "$markerName  ($desc)"
+    $menuItem.Tag = $markerName
+    $menuItem.ForeColor = $specialFg
+    $menuItem.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
+    $menuItem.Add_Click({
+        param($sender, $e)
+        $name = $sender.Tag
+        $d = $script:SpecialMarkers[$name].Desc
+        Add-ModuleRow -Module $name -Enabled "1" -Description $d
+    })
+    $null = $specialMenu.Items.Add($menuItem)
+}
+
+$btnSpecial.Add_Click({
+    $specialMenu.Show($btnSpecial, (New-Object System.Drawing.Point(0, $btnSpecial.Height)))
 })
 
 # ========================================

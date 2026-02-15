@@ -1358,16 +1358,27 @@ function Resolve-ProfileModules {
         $path = $entry.ScriptPath.Trim().Replace("/", "\")
         if ([string]::IsNullOrEmpty($path)) { continue }
 
-        # __RESTART__ marker
-        if ($path -eq '__RESTART__') {
-            $validModules += [PSCustomObject]@{
-                MenuName     = "[RESTART]"
+        # Special markers
+        $specialMarkers = @{
+            '__RESTART__'    = @{ MenuName = "[RESTART]";    Flag = "_IsRestart" }
+            '__REEXPLORER__' = @{ MenuName = "[REEXPLORER]"; Flag = "_IsReexplorer" }
+            '__STOPLOG__'    = @{ MenuName = "[STOPLOG]";    Flag = "_IsStopLog" }
+            '__STARTLOG__'   = @{ MenuName = "[STARTLOG]";   Flag = "_IsStartLog" }
+            '__SHUTDOWN__'   = @{ MenuName = "[SHUTDOWN]";   Flag = "_IsShutdown" }
+            '__PAUSE__'      = @{ MenuName = "[PAUSE]";      Flag = "_IsPause" }
+        }
+
+        if ($specialMarkers.ContainsKey($path)) {
+            $marker = $specialMarkers[$path]
+            $obj = [PSCustomObject]@{
+                MenuName     = $marker.MenuName
                 Category     = "System"
                 Script       = $null
-                RelativePath = "__RESTART__"
+                RelativePath = $path
                 Order        = [int]$entry.Order
-                _IsRestart   = $true
             }
+            $obj | Add-Member -NotePropertyName $marker.Flag -NotePropertyValue $true
+            $validModules += $obj
             continue
         }
 
@@ -1424,8 +1435,11 @@ function Show-ProfileConfirmation {
     Write-Host "Modules to be executed:" -ForegroundColor Cyan
     $index = 1
     foreach ($m in $Modules) {
-        if ($m._IsRestart) {
-            Write-Host "  [$index] --- RESTART ---" -ForegroundColor Yellow
+        # Check for any special marker
+        $isSpecial = $m._IsRestart -or $m._IsReexplorer -or $m._IsStopLog -or
+                     $m._IsStartLog -or $m._IsShutdown -or $m._IsPause
+        if ($isSpecial) {
+            Write-Host "  [$index] --- $($m.MenuName) ---" -ForegroundColor Yellow
         }
         else {
             Write-Host "  [$index] $($m.MenuName) ($($m.Category))" -ForegroundColor White

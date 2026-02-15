@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Log Upload,Evidence,log_uploader.ps1,110,1
