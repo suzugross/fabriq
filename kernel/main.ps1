@@ -608,7 +608,7 @@ function Invoke-BatchExecution {
 function Invoke-ProfileExecution {
     param([array]$AllModules)
 
-    $profiles = Load-Profiles -AllModules $AllModules
+    $profiles = @(Load-Profiles -AllModules $AllModules)
 
     if ($profiles.Count -eq 0) {
         Show-Warning "No profile files found in profiles/ directory"
