@@ -24,6 +24,7 @@
 !/logs/.gitkeep
 
 /logs/history/*
+!/logs/history
 !/logs/history/.gitkeep
 
 
