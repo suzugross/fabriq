@@ -140,41 +140,27 @@ function Set-SelectedHostEnvironment {
 }
 
 # ========================================
-# Function: Show Main Menu (By Category)
+# Function: Show Main Menu (Navigation Hub)
 # ========================================
 function Show-MainMenu {
-    param(
-        [array]$GroupedModules,
-        [hashtable]$MenuMap
-    )
-
     Write-Host ""
     Show-Separator
     Write-Host "Fabriq ver2.1 - Manifeste du Surkitinisme -" -ForegroundColor Green
     Show-Separator
     Write-Host "  Selected Host: $env:SELECTED_NEW_PCNAME" -ForegroundColor White
     Show-Separator
-
-    $menuIndex = 1
-
-    foreach ($category in $GroupedModules) {
-        Show-CategorySeparator -Name $category.Name
-
-        $items = $category.Group | Sort-Object Order
-
-        foreach ($item in $items) {
-            Write-Host "  [$menuIndex] $($item.MenuName)" -ForegroundColor White
-            $MenuMap[$menuIndex] = $item
-            $menuIndex++
-        }
-    }
-
+    Write-Host ""
+    Write-Host "  [S] Script Menu" -ForegroundColor White
+    Write-Host "  [A] FabriqApps" -ForegroundColor White
+    Write-Host "  [C] Command" -ForegroundColor White
+    Write-Host "  [P] Run Profile" -ForegroundColor White
+    Write-Host "  [R] History" -ForegroundColor White
     Write-Host ""
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  [C] Command  [A] Apps  [H] Host Info  [Q] Quit" -ForegroundColor DarkGray
-    Write-Host "  [P] Run Profile  [R] History" -ForegroundColor DarkGray
-    Write-Host "  [re] Restart  [eh] Export  [rf] Refabriq" -ForegroundColor DarkGray
-    Write-Host "  * Batch Run: 1,3,5 or 1-5 allowed" -ForegroundColor DarkGray
+    Write-Host "  [eh] History Export" -ForegroundColor DarkGray
+    Write-Host "  [re] Windows Restart" -ForegroundColor DarkGray
+    Write-Host "  [rf] Refabriq" -ForegroundColor DarkGray
+    Write-Host "  [m]  Manifeste du Surkitinisme" -ForegroundColor DarkGray
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
 }
 
@@ -226,6 +212,90 @@ function Show-HostInfo {
 
     Show-Separator
     Wait-KeyPress
+}
+
+# ========================================
+# Function: Script Menu (Module Selection)
+# ========================================
+function Enter-ScriptMenu {
+    param(
+        [array]$GroupedModules,
+        [array]$AllModules
+    )
+
+    while ($true) {
+        $menuMap = @{}
+
+        Write-Host ""
+        Show-Separator
+        Write-Host "Script Menu" -ForegroundColor Magenta
+        Show-Separator
+        Write-Host "  Selected Host: $env:SELECTED_NEW_PCNAME" -ForegroundColor White
+        Show-Separator
+
+        $menuIndex = 1
+        foreach ($category in $GroupedModules) {
+            Show-CategorySeparator -Name $category.Name
+            $items = $category.Group | Sort-Object Order
+            foreach ($item in $items) {
+                Write-Host "  [$menuIndex] $($item.MenuName)" -ForegroundColor White
+                $menuMap[$menuIndex] = $item
+                $menuIndex++
+            }
+        }
+
+        Write-Host ""
+        Write-Host "  * Batch Run: 1,3,5 or 1-5" -ForegroundColor DarkGray
+        Write-Host "  [0] Back" -ForegroundColor Yellow
+        Show-Separator
+
+        Write-Host -NoNewline "Please select: "
+        $choice = Read-Host
+
+        # Back
+        if ($choice -eq '0') { return }
+
+        # Batch Input
+        if (Test-BatchInput -InputString $choice) {
+            $selectedNumbers = Parse-MenuSelection -InputString $choice
+            $selectedModules = @()
+            foreach ($num in $selectedNumbers) {
+                if ($menuMap.ContainsKey($num)) {
+                    $selectedModules += $menuMap[$num]
+                }
+            }
+            if ($selectedModules.Count -gt 0) {
+                Clear-Host
+                Invoke-BatchExecution -SelectedModules $selectedModules
+                Clear-Host
+            }
+            else {
+                Write-Host ""
+                Show-Error "No valid numbers specified"
+                Write-Host ""
+            }
+            continue
+        }
+
+        # Single Number Selection
+        $menuNum = 0
+        if ([int]::TryParse($choice, [ref]$menuNum) -and $menuMap.ContainsKey($menuNum)) {
+            $selectedModule = $menuMap[$menuNum]
+            Clear-Host
+            Show-Info "Executing [$($selectedModule.MenuName)]"
+            Write-Host ""
+            $null = Invoke-KittingScript -ScriptPath $selectedModule.Script `
+                                         -ModuleName $selectedModule.MenuName `
+                                         -Category $selectedModule.Category
+            Wait-KeyPress
+            Clear-Host
+        }
+        else {
+            Write-Host ""
+            Show-Error "Invalid selection"
+            Write-Host ""
+        }
+    }
 }
 
 # ========================================
@@ -898,9 +968,8 @@ $allModules = $moduleSystem.AllModules
 $groupedModules = $moduleSystem.GroupedModules
 
 # ========================================
-# Status Monitor & Menu Map
+# Status Monitor
 # ========================================
-$menuMap = @{}
 $script:StatusMonitorProcess = Start-StatusMonitor
 
 # ========================================
@@ -938,22 +1007,27 @@ if ($isResuming) {
 # Main Loop
 while ($true) {
     Write-StatusFile -Phase "idle"
-    $menuMap.Clear()
-    Show-MainMenu -GroupedModules $groupedModules -MenuMap $menuMap
+    Show-MainMenu
 
     Write-Host ""
-    Write-Host -NoNewline "Please enter the number: "
+    Write-Host -NoNewline "Please select: "
     $choice = Read-Host
 
     # Quit
     if ($choice -eq "Q" -or $choice -eq "q" -or $choice -eq "0") {
         Write-Host ""
         Show-Info "Exiting"
-
         Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
         Disable-SleepSuppression
-
         break
+    }
+
+    # Script Menu
+    if ($choice -eq 'S' -or $choice -eq 's') {
+        Clear-Host
+        Enter-ScriptMenu -GroupedModules $groupedModules -AllModules $allModules
+        Clear-Host
+        continue
     }
 
     # Command Mode
@@ -972,14 +1046,6 @@ while ($true) {
         continue
     }
 
-    # Show Host Info
-    if ($choice -eq 'H' -or $choice -eq 'h') {
-        Clear-Host
-        Show-HostInfo
-        Clear-Host
-        continue
-    }
-
     # Run Profile
     if ($choice -eq 'P' -or $choice -eq 'p') {
         Clear-Host
@@ -988,10 +1054,20 @@ while ($true) {
         continue
     }
 
-    # Show History
+    # History
     if ($choice -eq 'R' -or $choice -eq 'r') {
         Clear-Host
         Enter-HistoryMode
+        Clear-Host
+        continue
+    }
+
+    # Export History
+    if ($choice -eq 'EH' -or $choice -eq 'eh') {
+        Write-Host ""
+        $null = Export-ExecutionHistory
+        Write-Host ""
+        Wait-KeyPress
         Clear-Host
         continue
     }
@@ -1022,16 +1098,6 @@ while ($true) {
         continue
     }
 
-    # Export History
-    if ($choice -eq 'EH' -or $choice -eq 'eh') {
-        Write-Host ""
-        $null = Export-ExecutionHistory
-        Write-Host ""
-        Wait-KeyPress
-        Clear-Host
-        continue
-    }
-
     # Refabriq (Restart Fabriq)
     if ($choice -eq 'RF' -or $choice -eq 'rf') {
         Write-Host ""
@@ -1039,7 +1105,6 @@ while ($true) {
 
         Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
 
-        # Launch new Fabriq instance
         $fabriqRoot = (Resolve-Path ".").Path
         $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
@@ -1053,55 +1118,23 @@ while ($true) {
             continue
         }
 
-        # Stop transcript and exit current instance
         try { Stop-Transcript | Out-Null } catch { }
         exit 0
     }
 
-    # Check Batch Input
-    if (Test-BatchInput -InputString $choice) {
-        $selectedNumbers = Parse-MenuSelection -InputString $choice
-
-        # Filter valid numbers only
-        $selectedModules = @()
-        foreach ($num in $selectedNumbers) {
-            if ($menuMap.ContainsKey($num)) {
-                $selectedModules += $menuMap[$num]
-            }
-        }
-
-        if ($selectedModules.Count -gt 0) {
-            Clear-Host
-            Invoke-BatchExecution -SelectedModules $selectedModules
-            Clear-Host
-        }
-        else {
-            Write-Host ""
-            Show-Error "No valid numbers specified"
-            Write-Host ""
-        }
+    # Manifeste du Surkitinisme (placeholder)
+    if ($choice -eq 'M' -or $choice -eq 'm') {
+        Write-Host ""
+        Show-Info "Manifeste du Surkitinisme - Coming soon..."
+        Wait-KeyPress
+        Clear-Host
         continue
     }
 
-    # Single Number Selection
-    $menuNum = 0
-    if ([int]::TryParse($choice, [ref]$menuNum) -and $menuMap.ContainsKey($menuNum)) {
-        $selectedModule = $menuMap[$menuNum]
-        Write-Host ""
-        Clear-Host
-        Show-Info "Executing [$($selectedModule.MenuName)]"
-        Write-Host ""
-
-        $null = Invoke-KittingScript -ScriptPath $selectedModule.Script -ModuleName $selectedModule.MenuName -Category $selectedModule.Category
-
-        Wait-KeyPress
-        Clear-Host
-    }
-    else {
-        Write-Host ""
-        Show-Error "Invalid selection"
-        Write-Host ""
-    }
+    # Invalid selection
+    Write-Host ""
+    Show-Error "Invalid selection"
+    Write-Host ""
 }
 
 Write-Host ""
