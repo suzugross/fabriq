@@ -11,6 +11,12 @@ $script:HistoryPath = ".\logs\history\execution_history.csv"
 $script:ProfilesDir = ".\profiles"
 $script:StatusFilePath = ".\kernel\status.json"
 $script:ResumeStatePath = ".\kernel\resume_state.json"
+$script:SessionFilePath = ".\kernel\session.json"
+$script:SourceMediaIdPath = ".\kernel\source_media.id"
+$script:WorkersCsvPath = ".\kernel\workers.csv"
+
+# Session info (populated by Initialize-Session)
+$script:SessionInfo = $null
 
 # ========================================
 # Sleep Suppression (SetThreadExecutionState)
@@ -598,7 +604,15 @@ function Write-ExecutionHistory {
 
     $maxRetry = 3
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $operator = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $windowsUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+    # Session info (worker name, media serial)
+    $workerName = ""
+    $mediaSerial = ""
+    if ($null -ne $script:SessionInfo) {
+        $workerName = $script:SessionInfo.WorkerName
+        $mediaSerial = $script:SessionInfo.MediaSerial
+    }
 
     # CSV Escape (if containing comma or newlines)
     $escapedMessage = $Message -replace '"', '""'
@@ -606,7 +620,7 @@ function Write-ExecutionHistory {
         $escapedMessage = "`"$escapedMessage`""
     }
 
-    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$operator,$($script:SessionID)"
+    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID)"
 
     # Create with header if file does not exist
     $needHeader = -not (Test-Path $script:HistoryPath)
@@ -614,7 +628,7 @@ function Write-ExecutionHistory {
     for ($i = 0; $i -lt $maxRetry; $i++) {
         try {
             if ($needHeader) {
-                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,Operator,SessionID"
+                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID"
                 $header | Out-File -FilePath $script:HistoryPath -Encoding Default -Force
                 $needHeader = $false
             }
@@ -874,6 +888,11 @@ function Clear-AllLogs {
         $targets += [PSCustomObject]@{ Type = "Status Temp"; Path = $statusTmp; IsDir = $false }
     }
 
+    # 5. Session JSON
+    if (Test-Path $script:SessionFilePath) {
+        $targets += [PSCustomObject]@{ Type = "Session File"; Path = $script:SessionFilePath; IsDir = $false }
+    }
+
     if ($targets.Count -eq 0) {
         Show-Info "No log files to clear"
         return
@@ -1101,6 +1120,137 @@ function Restore-HostEnvironment {
     $HostEnv.PSObject.Properties | ForEach-Object {
         Set-Item -Path "env:$($_.Name)" -Value $_.Value -ErrorAction SilentlyContinue
     }
+}
+
+# ========================================
+# Session Management Functions
+# ========================================
+
+function Get-VolumeSerial {
+    param([string]$DriveLetter)
+    try {
+        $drive = $DriveLetter.TrimEnd(":\") + ":"
+        $vol = Get-WmiObject -Class Win32_LogicalDisk -Filter "DeviceID='$drive'" -ErrorAction Stop
+        if ($vol.VolumeSerialNumber) {
+            return $vol.VolumeSerialNumber
+        }
+    }
+    catch { }
+    return "UNKNOWN"
+}
+
+function Initialize-Session {
+    # Priority 1: Existing session.json (survives restart)
+    if (Test-Path $script:SessionFilePath) {
+        try {
+            $json = Get-Content $script:SessionFilePath -Raw -Encoding UTF8
+            $script:SessionInfo = $json | ConvertFrom-Json
+            Show-Success "Session loaded: Worker=$($script:SessionInfo.WorkerName), MediaSerial=$($script:SessionInfo.MediaSerial)"
+            return
+        }
+        catch {
+            Show-Warning "Failed to load session.json, re-initializing..."
+        }
+    }
+
+    # --- Determine Media Serial ---
+    $mediaSerial = ""
+
+    # Priority 2: source_media.id (created by Deploy.bat)
+    if (Test-Path $script:SourceMediaIdPath) {
+        try {
+            $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim()
+        }
+        catch { }
+    }
+
+    # Priority 3: Current drive volume serial
+    if ([string]::IsNullOrWhiteSpace($mediaSerial)) {
+        $currentDrive = (Resolve-Path ".").Drive.Name + ":"
+        $mediaSerial = Get-VolumeSerial -DriveLetter $currentDrive
+    }
+
+    # --- Determine Worker ---
+    $workerID = ""
+    $workerName = ""
+
+    # Try loading workers.csv for selection
+    if (Test-Path $script:WorkersCsvPath) {
+        try {
+            $workers = @(Import-Csv -Path $script:WorkersCsvPath -Encoding Default)
+            if ($workers.Count -gt 0) {
+                Write-Host ""
+                Show-Separator
+                Write-Host "Worker Selection" -ForegroundColor Magenta
+                Show-Separator
+                Write-Host ""
+
+                for ($i = 0; $i -lt $workers.Count; $i++) {
+                    Write-Host "  [$($i + 1)] $($workers[$i].ID) - $($workers[$i].Name)" -ForegroundColor White
+                }
+                Write-Host ""
+                Write-Host "  [0] Manual input" -ForegroundColor Yellow
+                Show-Separator
+                Write-Host ""
+
+                while ($true) {
+                    Write-Host -NoNewline "Select worker: "
+                    $wChoice = Read-Host
+
+                    if ($wChoice -eq '0') {
+                        Write-Host -NoNewline "Worker name: "
+                        $workerName = Read-Host
+                        $workerID = "MANUAL"
+                        break
+                    }
+
+                    $wNum = 0
+                    if ([int]::TryParse($wChoice, [ref]$wNum) -and $wNum -ge 1 -and $wNum -le $workers.Count) {
+                        $selected = $workers[$wNum - 1]
+                        $workerID = $selected.ID
+                        $workerName = $selected.Name
+                        break
+                    }
+
+                    Show-Error "Invalid selection"
+                }
+            }
+        }
+        catch {
+            Show-Warning "Failed to load workers.csv: $_"
+        }
+    }
+
+    # Fallback: manual input if no worker selected
+    if ([string]::IsNullOrWhiteSpace($workerName)) {
+        Write-Host ""
+        Write-Host -NoNewline "Worker name: "
+        $workerName = Read-Host
+        if ([string]::IsNullOrWhiteSpace($workerName)) {
+            $workerName = $env:USERNAME
+        }
+        $workerID = "MANUAL"
+    }
+
+    # Build session object
+    $script:SessionInfo = [PSCustomObject]@{
+        WorkerID     = $workerID
+        WorkerName   = $workerName
+        MediaSerial  = $mediaSerial
+        StartTime    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        WindowsUser  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        ComputerName = $env:COMPUTERNAME
+    }
+
+    # Save to session.json
+    try {
+        $script:SessionInfo | ConvertTo-Json -Depth 3 | Out-File -FilePath $script:SessionFilePath -Encoding UTF8 -Force
+    }
+    catch {
+        Show-Warning "Failed to save session.json: $_"
+    }
+
+    Show-Success "Session initialized: Worker=$workerName, MediaSerial=$mediaSerial"
 }
 
 # ========================================

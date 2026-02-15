@@ -850,6 +850,9 @@ Write-Host ""
 # Initialize history (Create backup)
 Initialize-ExecutionHistory
 
+# Initialize session (worker, media serial)
+Initialize-Session
+
 # Load hostlist.csv
 Show-Info "Loading hostlist.csv..."
 $hostList = Load-HostList
