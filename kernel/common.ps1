@@ -9,11 +9,11 @@ $script:ExecutionResults = @()
 $script:SessionID = Get-Date -Format "yyyyMMdd_HHmmss"
 $script:HistoryPath = ".\logs\history\execution_history.csv"
 $script:ProfilesDir = ".\profiles"
-$script:StatusFilePath = ".\kernel\status.json"
-$script:ResumeStatePath = ".\kernel\resume_state.json"
-$script:SessionFilePath = ".\kernel\session.json"
+$script:StatusFilePath = ".\kernel\json\status.json"
+$script:ResumeStatePath = ".\kernel\json\resume_state.json"
+$script:SessionFilePath = ".\kernel\json\session.json"
 $script:SourceMediaIdPath = ".\kernel\source_media.id"
-$script:WorkersCsvPath = ".\kernel\workers.csv"
+$script:WorkersCsvPath = ".\kernel\csv\workers.csv"
 
 # Session info (populated by Initialize-Session)
 $script:SessionInfo = $null
@@ -1735,7 +1735,7 @@ function Start-StatusMonitor {
     Write-StatusFile -Phase "idle"
     $monitorProcess = $null
     try {
-        $monitorScript = ".\kernel\status_monitor.ps1"
+        $monitorScript = ".\kernel\ps1\status_monitor.ps1"
         if (Test-Path $monitorScript) {
             $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
             $monitorProcess = Start-Process powershell.exe -ArgumentList @(
@@ -1798,7 +1798,7 @@ function Build-CategoryMenu {
 # ========================================
 function Initialize-ModuleSystem {
     param(
-        [string]$CategoriesCsv = ".\kernel\categories.csv",
+        [string]$CategoriesCsv = ".\kernel\csv\categories.csv",
         [string]$ModulesDir = ".\modules"
     )
 

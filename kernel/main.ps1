@@ -21,7 +21,7 @@ Set-ConsoleSize -Columns 75 -Lines 35
 # ========================================
 # Constants
 # ========================================
-$HOSTLIST_CSV = ".\kernel\hostlist.csv"
+$HOSTLIST_CSV = ".\kernel\csv\hostlist.csv"
 $COMMANDS_DIR = ".\commands"
 $APPS_DIR = ".\apps"
 
@@ -576,7 +576,7 @@ function Invoke-BatchExecution {
         # Auto-run log upload
         $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
         if (Test-Path $logUploaderScript) {
-            $destConfig = ".\kernel\log_destinations.csv"
+            $destConfig = ".\kernel\csv\log_destinations.csv"
             $hasDestinations = $false
             if (Test-Path $destConfig) {
                 try {

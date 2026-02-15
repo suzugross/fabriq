@@ -33,8 +33,8 @@ $fontSmall  = New-Object System.Drawing.Font("Consolas", 9)
 # CSV Registry: Editable CSV files
 # ========================================
 $script:CsvRegistry = @(
-    @{ Name = "Host List";           Group = "Kernel";   Path = ".\kernel\hostlist.csv" }
-    @{ Name = "Categories";          Group = "Kernel";   Path = ".\kernel\categories.csv" }
+    @{ Name = "Host List";           Group = "Kernel";   Path = ".\kernel\csv\hostlist.csv" }
+    @{ Name = "Categories";          Group = "Kernel";   Path = ".\kernel\csv\categories.csv" }
     @{ Name = "App Install List";    Group = "Apps";     Path = ".\modules\standard\app_config\app_list.csv" }
     @{ Name = "Registry HKLM";       Group = "Registry"; Path = ".\modules\standard\reg_config\reg_hklm_list.csv" }
     @{ Name = "Registry HKCU";       Group = "Registry"; Path = ".\modules\standard\reg_config\reg_hkcu_list.csv" }

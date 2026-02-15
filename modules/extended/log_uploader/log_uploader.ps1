@@ -11,7 +11,7 @@ Write-Host ""
 # ========================================
 # Load configuration
 # ========================================
-$configPath = ".\kernel\log_destinations.csv"
+$configPath = ".\kernel\csv\log_destinations.csv"
 
 if (-not (Test-Path $configPath)) {
     Show-Error "log_destinations.csv not found: $configPath"
@@ -28,7 +28,7 @@ if ($destinations.Count -eq 0) {
 # ========================================
 # Load session info for folder naming
 # ========================================
-$sessionPath = ".\kernel\session.json"
+$sessionPath = ".\kernel\json\session.json"
 $mediaSerial = "UNKNOWN"
 
 if (Test-Path $sessionPath) {

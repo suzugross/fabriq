@@ -3,10 +3,10 @@
 # ========================================
 # Launched as a separate process by main.ps1
 # Reads status.json and displays PC info + execution status
-# Usage: powershell -NoProfile -ExecutionPolicy Unrestricted -File .\kernel\status_monitor.ps1 -StatusFilePath ".\kernel\status.json"
+# Usage: powershell -NoProfile -ExecutionPolicy Unrestricted -File .\kernel\ps1\status_monitor.ps1 -StatusFilePath ".\kernel\json\status.json"
 
 param(
-    [string]$StatusFilePath = ".\kernel\status.json"
+    [string]$StatusFilePath = ".\kernel\json\status.json"
 )
 
 Add-Type -AssemblyName System.Windows.Forms

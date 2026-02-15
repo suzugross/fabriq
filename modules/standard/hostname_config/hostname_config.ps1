@@ -2,7 +2,7 @@
 # Hostname Change Script
 # ========================================
 
-$HOSTLIST_CSV = Join-Path $PSScriptRoot "..\..\..\kernel\hostlist.csv"
+$HOSTLIST_CSV = Join-Path $PSScriptRoot "..\..\..\kernel\csv\hostlist.csv"
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
