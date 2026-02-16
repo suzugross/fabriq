@@ -8,16 +8,15 @@
 # ========================================
 
 # Check Administrator Privileges
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Administrator privileges are required."
-    Write-Warning "Please run PowerShell as Administrator and try again."
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Display Resolution Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -73,14 +72,14 @@ function Select-DisplayInteractive {
 
     $allKeys = Find-DisplayConfigKeys -HardwareID ""
     if ($allKeys.Count -eq 0) {
-        Write-Host "[ERROR] No display configuration keys found in registry" -ForegroundColor Red
+        Show-Error "No display configuration keys found in registry"
         return $null
     }
 
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Available Displays" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host ""
 
     $displayList = @()
@@ -107,12 +106,12 @@ function Select-DisplayInteractive {
     $selection = Read-Host "Select display number (or 0 to skip)"
     $selNum = 0
     if (-not [int]::TryParse($selection, [ref]$selNum)) {
-        Write-Host "[INFO] Invalid input, skipping" -ForegroundColor Yellow
+        Show-Info "Invalid input, skipping"
         return $null
     }
 
     if ($selNum -eq 0 -or $selNum -gt $displayList.Count) {
-        Write-Host "[INFO] Skipped" -ForegroundColor Yellow
+        Show-Info "Skipped"
         return $null
     }
 
@@ -124,37 +123,21 @@ function Select-DisplayInteractive {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "display_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] display_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "display_list.csv not found")
-}
-
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load display_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load display_list.csv: $_")
-}
-
-if ($allItems.Count -eq 0) {
-    Write-Host "[ERROR] display_list.csv contains no data" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "display_list.csv contains no data")
+$allItems = Import-CsvSafe -Path $csvPath -Description "display_list.csv"
+if ($null -eq $allItems -or $allItems.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load display_list.csv")
 }
 
 # Filter enabled entries
 $items = @($allItems | Where-Object { $_.Enabled -eq "1" })
 
 if ($items.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in display_list.csv" -ForegroundColor Yellow
+    Show-Skip "No enabled entries in display_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
-Write-Host "[INFO] Loaded $($items.Count) enabled entries (total: $($allItems.Count))" -ForegroundColor Cyan
+Show-Info "Loaded $($items.Count) enabled entries (total: $($allItems.Count))"
 Write-Host ""
 
 # ========================================
@@ -164,18 +147,18 @@ $validItems = @()
 foreach ($item in $items) {
     $w = 0; $h = 0
     if (-not [int]::TryParse($item.Width, [ref]$w) -or -not [int]::TryParse($item.Height, [ref]$h)) {
-        Write-Host "[WARN] Invalid Width/Height for '$($item.Description)': Width=$($item.Width), Height=$($item.Height) — skipping" -ForegroundColor Yellow
+        Show-Warning "Invalid Width/Height for '$($item.Description)': Width=$($item.Width), Height=$($item.Height) — skipping"
         continue
     }
     if ($w -le 0 -or $h -le 0) {
-        Write-Host "[WARN] Width/Height must be positive for '$($item.Description)' — skipping" -ForegroundColor Yellow
+        Show-Warning "Width/Height must be positive for '$($item.Description)' — skipping"
         continue
     }
     $validItems += $item
 }
 
 if ($validItems.Count -eq 0) {
-    Write-Host "[ERROR] No valid entries after validation" -ForegroundColor Red
+    Show-Error "No valid entries after validation"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No valid entries after validation")
 }
@@ -232,8 +215,8 @@ foreach ($target in $targets) {
     }
 
     if ($target.MatchedKeys.Count -eq 0) {
-        Write-Host "[$index] $($item.HardwareID) -> $targetW x $targetH  [ERROR]" -ForegroundColor Red
-        Write-Host "    No display found matching '$($item.HardwareID)'" -ForegroundColor Red
+        Write-Host "[$index] $($item.HardwareID) -> $targetW x $targetH  [ERROR]"
+        Write-Host "    No display found matching '$($item.HardwareID)'"
         Write-Host "    $($item.Description)" -ForegroundColor Gray
         Write-Host ""
         continue
@@ -267,7 +250,7 @@ Write-Host ""
 # ========================================
 if (-not (Confirm-Execution -Message "Apply the above display resolution settings?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -277,7 +260,7 @@ Write-Host ""
 # ========================================
 # Apply Settings
 # ========================================
-Write-Host "--- Applying Display Resolution Settings ---" -ForegroundColor Cyan
+Show-Info "Applying Display Resolution Settings..."
 Write-Host ""
 
 $successCount = 0
@@ -296,7 +279,7 @@ foreach ($target in $targets) {
     if ($target.Interactive) {
         $selectedKey = Select-DisplayInteractive -Width $targetW -Height $targetH -Description $item.Description
         if ($null -eq $selectedKey) {
-            Write-Host "  [SKIP] No display selected" -ForegroundColor Yellow
+            Show-Skip "No display selected"
             $skipCount++
             Write-Host ""
             continue
@@ -305,8 +288,8 @@ foreach ($target in $targets) {
     }
     else {
         if ($target.MatchedKeys.Count -eq 0) {
-            Write-Host "[$index] $($item.HardwareID) -> $targetW x $targetH" -ForegroundColor Red
-            Write-Host "  [ERROR] No display found matching '$($item.HardwareID)'" -ForegroundColor Red
+            Write-Host "[$index] $($item.HardwareID) -> $targetW x $targetH"
+            Show-Error "No display found matching '$($item.HardwareID)'"
             $failCount++
             Write-Host ""
             continue
@@ -322,7 +305,7 @@ foreach ($target in $targets) {
         # Find subkey (00, 01, etc.)
         $subKeys = Get-ChildItem $configKey.PSPath -ErrorAction SilentlyContinue
         if (-not $subKeys) {
-            Write-Host "  [ERROR] No subkeys found under configuration key" -ForegroundColor Red
+            Show-Error "No subkeys found under configuration key"
             $failCount++
             Write-Host ""
             continue
@@ -334,7 +317,7 @@ foreach ($target in $targets) {
         # Check current values
         $props = Get-ItemProperty $subKeyPath -ErrorAction SilentlyContinue
         if ($null -eq $props) {
-            Write-Host "  [ERROR] Cannot read subkey properties" -ForegroundColor Red
+            Show-Error "Cannot read subkey properties"
             $failCount++
             Write-Host ""
             continue
@@ -344,7 +327,7 @@ foreach ($target in $targets) {
         $currentCy = $props.'PrimSurfSize.cy'
 
         if ($null -eq $currentCx -or $null -eq $currentCy) {
-            Write-Host "  [ERROR] PrimSurfSize.cx/cy not found in registry" -ForegroundColor Red
+            Show-Error "PrimSurfSize.cx/cy not found in registry"
             $failCount++
             Write-Host ""
             continue
@@ -352,7 +335,7 @@ foreach ($target in $targets) {
 
         # Idempotency check
         if ([int]$currentCx -eq $targetW -and [int]$currentCy -eq $targetH) {
-            Write-Host "  [SKIP] Already $targetW x $targetH" -ForegroundColor Gray
+            Show-Skip "Already $targetW x $targetH"
             $skipCount++
             Write-Host ""
             continue
@@ -362,11 +345,11 @@ foreach ($target in $targets) {
         try {
             Set-ItemProperty -Path $subKeyPath -Name 'PrimSurfSize.cx' -Value $targetW -Type DWord -ErrorAction Stop
             Set-ItemProperty -Path $subKeyPath -Name 'PrimSurfSize.cy' -Value $targetH -Type DWord -ErrorAction Stop
-            Write-Host "  [SUCCESS] Changed from ${currentCx}x${currentCy} to ${targetW}x${targetH}" -ForegroundColor Green
+            Show-Success "Changed from ${currentCx}x${currentCy} to ${targetW}x${targetH}"
             $successCount++
         }
         catch {
-            Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+            Show-Error "$($_.Exception.Message)"
             $failCount++
         }
 
@@ -377,16 +360,16 @@ foreach ($target in $targets) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  Success: $successCount items" -ForegroundColor Green
 Write-Host "  Skipped: $skipCount items (Already configured)" -ForegroundColor $(if ($skipCount -gt 0) { "Gray" } else { "Green" })
 Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host ""
-    Write-Host "NOTE: Restart required for changes to take effect." -ForegroundColor Yellow
+    Show-Warning "Restart required for changes to take effect."
 }
 Write-Host ""
 

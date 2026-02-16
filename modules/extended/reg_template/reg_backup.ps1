@@ -7,31 +7,22 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Backup" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # --- CSV Loading ---
 $csvPath = Join-Path $PSScriptRoot "reg_list.csv"
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] reg_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "reg_list.csv not found")
-}
 
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to read reg_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to read reg_list.csv")
+$allItems = Import-CsvSafe -Path $csvPath -Description "reg_list.csv"
+if ($null -eq $allItems -or $allItems.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load reg_list.csv")
 }
 
 $items = @($allItems | Where-Object { $_.Enabled -eq "1" })
 if ($items.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in reg_list.csv" -ForegroundColor Gray
+    Show-Skip "No enabled entries in reg_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
@@ -43,7 +34,7 @@ if (-not (Test-Path $backupDir)) {
         $null = New-Item -ItemType Directory -Path $backupDir -Force
     }
     catch {
-        Write-Host "[ERROR] Failed to create backup directory: $_" -ForegroundColor Red
+        Show-Error "Failed to create backup directory: $_"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Failed to create backup dir")
     }
@@ -52,7 +43,7 @@ if (-not (Test-Path $backupDir)) {
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
 # --- Display target list ---
-Write-Host "[INFO] Backup targets: $($items.Count) registry keys" -ForegroundColor Cyan
+Show-Info "Backup targets: $($items.Count) registry keys"
 Write-Host ""
 
 $index = 0
@@ -78,7 +69,7 @@ Write-Host ""
 # --- Confirmation ---
 if (-not (Confirm-Execution -Message "Export the above registry keys?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -105,16 +96,16 @@ foreach ($item in $items) {
     try {
         $process = Start-Process reg.exe -ArgumentList "export `"$regPath`" `"$exportFile`" /y" -Wait -PassThru -NoNewWindow
         if ($process.ExitCode -eq 0) {
-            Write-Host "  [SUCCESS] Exported: $([System.IO.Path]::GetFileName($exportFile))" -ForegroundColor Green
+            Show-Success "Exported: $([System.IO.Path]::GetFileName($exportFile))"
             $successCount++
         }
         else {
-            Write-Host "  [ERROR] reg.exe exit code: $($process.ExitCode)" -ForegroundColor Red
+            Show-Error "reg.exe exit code: $($process.ExitCode)"
             $failCount++
         }
     }
     catch {
-        Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$($_.Exception.Message)"
         $failCount++
     }
 
@@ -122,9 +113,9 @@ foreach ($item in $items) {
 }
 
 # --- Summary ---
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Backup Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "  Success: $successCount items" -ForegroundColor Green
 }
@@ -132,7 +123,7 @@ if ($failCount -gt 0) {
     Write-Host "  Failed:  $failCount items" -ForegroundColor Red
 }
 Write-Host "  Location: $backupDir" -ForegroundColor White
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # --- ModuleResult ---

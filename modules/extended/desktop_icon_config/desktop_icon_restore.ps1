@@ -7,17 +7,17 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Desktop Icon Layout Restore" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # --- Find backup files ---
 $backupDir = Join-Path $PSScriptRoot "backup"
 
 if (-not (Test-Path $backupDir)) {
-    Write-Host "[ERROR] backup/ directory not found: $backupDir" -ForegroundColor Red
-    Write-Host "[INFO] Run 'Desktop Icon Backup' first." -ForegroundColor Yellow
+    Show-Error "backup/ directory not found: $backupDir"
+    Show-Info "Run 'Desktop Icon Backup' first."
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "backup/ directory not found")
 }
@@ -26,8 +26,8 @@ $backupFiles = @(Get-ChildItem -Path $backupDir -Filter "DesktopIcons_*.reg" -Fi
                  Sort-Object LastWriteTime -Descending)
 
 if ($backupFiles.Count -eq 0) {
-    Write-Host "[ERROR] No backup files found in: $backupDir" -ForegroundColor Red
-    Write-Host "[INFO] Run 'Desktop Icon Backup' first." -ForegroundColor Yellow
+    Show-Error "No backup files found in: $backupDir"
+    Show-Info "Run 'Desktop Icon Backup' first."
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No backup files found")
 }
@@ -68,12 +68,12 @@ if ($backupFiles.Count -gt 1) {
 }
 
 # --- Confirmation ---
-Write-Host "[WARNING] This will overwrite current desktop icon layout." -ForegroundColor Yellow
-Write-Host "[INFO] Changes take effect after sign-out or restart." -ForegroundColor Yellow
+Show-Warning "This will overwrite current desktop icon layout."
+Show-Info "Changes take effect after sign-out or restart."
 Write-Host ""
 if (-not (Confirm-Execution -Message "Restore desktop icon layout from backup?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -81,32 +81,32 @@ if (-not (Confirm-Execution -Message "Restore desktop icon layout from backup?")
 Write-Host ""
 
 # --- Execute import ---
-Write-Host "[INFO] Importing registry data..." -ForegroundColor Cyan
+Show-Info "Importing registry data..."
 
 try {
     $process = Start-Process reg.exe -ArgumentList "import `"$($latestBackup.FullName)`"" -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -eq 0) {
         Write-Host ""
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host "Restore Results" -ForegroundColor Cyan
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host "  Status:   Success" -ForegroundColor Green
         Write-Host "  File:     $($latestBackup.Name)" -ForegroundColor White
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host ""
-        Write-Host "NOTE: Sign-out or restart required for changes to take effect." -ForegroundColor Yellow
+        Show-Warning "Sign-out or restart required for changes to take effect."
         Write-Host ""
 
         return (New-ModuleResult -Status "Success" -Message "Restore completed (sign-out/restart required)")
     }
     else {
-        Write-Host "[ERROR] reg.exe exit code: $($process.ExitCode)" -ForegroundColor Red
+        Show-Error "reg.exe exit code: $($process.ExitCode)"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "reg.exe failed (exit: $($process.ExitCode))")
     }
 }
 catch {
-    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "$($_.Exception.Message)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Import failed: $($_.Exception.Message)")
 }

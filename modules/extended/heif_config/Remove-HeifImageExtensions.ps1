@@ -12,16 +12,16 @@ If ($HeifAppxBundle) {
     try {
         $HeifAppxBundle | Remove-AppxProvisionedPackage -Online -ErrorAction Stop
 
-        Write-Host "The HEIF Image Extensions Microsoft Store Package has been Successfully Unprovisioned on this System" -ForegroundColor Green
+        Show-Success "HEIF Image Extensions unprovisioned"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to unprovision HEIF Image Extensions: $_" -ForegroundColor Red
+        Show-Error "Failed to unprovision HEIF Image Extensions: $_"
         $failCount++
     }
 } Else {
 
-    Write-Host "The HEIF Image Extensions Microsoft Store Package has Not been Provisioned on this System" -ForegroundColor Yellow
+    Show-Skip "HEIF Image Extensions not provisioned"
     $skipCount++
 }
 
@@ -29,16 +29,16 @@ If ($HeifAppx) {
     try {
         $HeifAppx | Remove-AppxPackage -AllUsers -ErrorAction Stop
 
-        Write-Host "The HEIF Image Extensions Microsoft Store Package has been Successfully Removed for All Users" -ForegroundColor Green
+        Show-Success "HEIF Image Extensions removed for all users"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to remove HEIF Image Extensions for all users: $_" -ForegroundColor Red
+        Show-Error "Failed to remove HEIF Image Extensions for all users: $_"
         $failCount++
     }
 } Else {
 
-    Write-Host "The HEIF Image Extensions Microsoft Store Package is Not Installed for All Users" -ForegroundColor Yellow
+    Show-Skip "HEIF Image Extensions not installed for all users"
     $skipCount++
 }
 
@@ -46,16 +46,16 @@ If ($HeifExt) {
     try {
         $HeifExt | Remove-AppxPackage -ErrorAction Stop
 
-        Write-Host "The HEIF Image Extensions Microsoft Store Package has been Successfully Removed for this User" -ForegroundColor Green
+        Show-Success "HEIF Image Extensions removed for current user"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to remove HEIF Image Extensions for current user: $_" -ForegroundColor Red
+        Show-Error "Failed to remove HEIF Image Extensions for current user: $_"
         $failCount++
     }
 } Else {
 
-    Write-Host "The HEIF Image Extensions Microsoft Store Package is Not Installed for this User" -ForegroundColor Yellow
+    Show-Skip "HEIF Image Extensions not installed for current user"
     $skipCount++
 }
 

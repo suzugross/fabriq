@@ -3,9 +3,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "History Destroyer" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -34,15 +34,15 @@ Write-Host "    - Windows Search index" -ForegroundColor Gray
 Write-Host "    - Thumbnail cache" -ForegroundColor Gray
 Write-Host "    - Prefetch data" -ForegroundColor Gray
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Yellow
+Show-Separator
 Write-Host ""
-Write-Host "[WARNING] Explorer will be temporarily stopped during cleanup." -ForegroundColor Red
+Show-Warning "Explorer will be temporarily stopped during cleanup."
 Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
 Write-Host ""
 
 if (-not (Confirm-Execution -Message "Proceed with history destruction?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -72,7 +72,7 @@ function Invoke-CleanupAction {
         return "Success"
     }
     catch {
-        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$($_.Exception.Message)"
         return "Error"
     }
 }
@@ -84,10 +84,10 @@ Write-Host "[1/$totalSteps] Stopping Explorer process..." -ForegroundColor Yello
 
 try {
     Stop-Process -Name "explorer" -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] Explorer stopped" -ForegroundColor Green
+    Show-Success "Explorer stopped"
 }
 catch {
-    Write-Host "[WARNING] Failed to stop Explorer: $($_.Exception.Message)" -ForegroundColor Yellow
+    Show-Warning "Failed to stop Explorer: $($_.Exception.Message)"
     Write-Host "          Some locked files may not be deleted" -ForegroundColor Yellow
 }
 
@@ -140,11 +140,11 @@ foreach ($regPath in $registryPaths) {
 }
 
 if ($step2Errors -eq 0) {
-    Write-Host "[SUCCESS] Explorer history cleaned" -ForegroundColor Green
+    Show-Success "Explorer history cleaned"
     $successCount++
 }
 else {
-    Write-Host "[PARTIAL] Explorer history cleaned ($step2Errors items failed - likely locked)" -ForegroundColor Yellow
+    Show-Warning "Explorer history cleaned ($step2Errors items failed - likely locked)"
     $successCount++
 }
 
@@ -162,11 +162,11 @@ try {
         $wevtResult = & wevtutil.exe cl $log.LogName 2>&1
         if ($LASTEXITCODE -eq 0) { $clearedCount++ }
     }
-    Write-Host "[SUCCESS] Cleared $clearedCount event logs" -ForegroundColor Green
+    Show-Success "Cleared $clearedCount event logs"
     $successCount++
 }
 catch {
-    Write-Host "[ERROR] Failed to clear event logs: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to clear event logs: $($_.Exception.Message)"
     $errorCount++
 }
 
@@ -181,16 +181,16 @@ $imePath = "$env:APPDATA\Microsoft\InputMethod"
 if (Test-Path $imePath) {
     try {
         Remove-Item "$imePath\*" -Recurse -Force -ErrorAction Stop
-        Write-Host "[SUCCESS] IME cache cleaned" -ForegroundColor Green
+        Show-Success "IME cache cleaned"
         $successCount++
     }
     catch {
-        Write-Host "[WARNING] Some IME cache files could not be deleted (in use)" -ForegroundColor Yellow
+        Show-Warning "Some IME cache files could not be deleted (in use)"
         $successCount++
     }
 }
 else {
-    Write-Host "[SKIP] IME cache folder not found" -ForegroundColor Gray
+    Show-Skip "IME cache folder not found"
     $skipCount++
 }
 
@@ -216,10 +216,10 @@ try {
 catch { $tempErrors++ }
 
 if ($tempErrors -eq 0) {
-    Write-Host "[SUCCESS] Temporary files cleaned" -ForegroundColor Green
+    Show-Success "Temporary files cleaned"
 }
 else {
-    Write-Host "[PARTIAL] Temporary files cleaned (some locked files skipped)" -ForegroundColor Yellow
+    Show-Warning "Temporary files cleaned (some locked files skipped)"
 }
 $successCount++
 
@@ -232,18 +232,18 @@ Write-Host "[6/$totalSteps] Clearing clipboard and DNS cache..." -ForegroundColo
 
 try {
     Set-Clipboard $null
-    Write-Host "[SUCCESS] Clipboard cleared" -ForegroundColor Green
+    Show-Success "Clipboard cleared"
 }
 catch {
-    Write-Host "[WARNING] Failed to clear clipboard" -ForegroundColor Yellow
+    Show-Warning "Failed to clear clipboard"
 }
 
 try {
     Clear-DnsClientCache
-    Write-Host "[SUCCESS] DNS cache cleared" -ForegroundColor Green
+    Show-Success "DNS cache cleared"
 }
 catch {
-    Write-Host "[WARNING] Failed to clear DNS cache" -ForegroundColor Yellow
+    Show-Warning "Failed to clear DNS cache"
 }
 
 $successCount++
@@ -262,11 +262,11 @@ try {
     Add-Type -MemberDefinition $shellCode -Name Win32RecycleBin -Namespace HistoryDestroyer -ErrorAction SilentlyContinue
     # Flags: SHERB_NOCONFIRMATION(1) | SHERB_NOPROGRESSUI(2) | SHERB_NOSOUND(4) = 7
     $null = [HistoryDestroyer.Win32RecycleBin]::SHEmptyRecycleBin([IntPtr]::Zero, $null, 7)
-    Write-Host "[SUCCESS] Recycle Bin emptied" -ForegroundColor Green
+    Show-Success "Recycle Bin emptied"
     $successCount++
 }
 catch {
-    Write-Host "[ERROR] Failed to empty Recycle Bin: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to empty Recycle Bin: $($_.Exception.Message)"
     $errorCount++
 }
 
@@ -297,11 +297,11 @@ if (Test-Path $officeBase) {
             }
         }
     }
-    Write-Host "[SUCCESS] Office MRU cleaned ($officeCleaned entries)" -ForegroundColor Green
+    Show-Success "Office MRU cleaned ($officeCleaned entries)"
     $successCount++
 }
 else {
-    Write-Host "[SKIP] Office registry not found" -ForegroundColor Gray
+    Show-Skip "Office registry not found"
     $skipCount++
 }
 
@@ -343,11 +343,11 @@ if (Test-Path $edgeBase) {
         }
     }
 
-    Write-Host "[SUCCESS] Edge data cleaned ($edgeCleaned items)" -ForegroundColor Green
+    Show-Success "Edge data cleaned ($edgeCleaned items)"
     $successCount++
 }
 else {
-    Write-Host "[SKIP] Edge not found" -ForegroundColor Gray
+    Show-Skip "Edge not found"
     $skipCount++
 }
 
@@ -388,11 +388,11 @@ if (Test-Path $chromeBase) {
         }
     }
 
-    Write-Host "[SUCCESS] Chrome data cleaned ($chromeCleaned items)" -ForegroundColor Green
+    Show-Success "Chrome data cleaned ($chromeCleaned items)"
     $successCount++
 }
 else {
-    Write-Host "[SKIP] Chrome not found" -ForegroundColor Gray
+    Show-Skip "Chrome not found"
     $skipCount++
 }
 
@@ -414,22 +414,22 @@ try {
         $searchDbPath = "$env:ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb"
         if (Test-Path $searchDbPath) {
             Remove-Item $searchDbPath -Force -ErrorAction Stop
-            Write-Host "[SUCCESS] Search index deleted" -ForegroundColor Green
+            Show-Success "Search index deleted"
         }
         else {
-            Write-Host "[SKIP] Search index file not found" -ForegroundColor Gray
+            Show-Skip "Search index file not found"
         }
 
         Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
         $successCount++
     }
     else {
-        Write-Host "[SKIP] Windows Search service not found" -ForegroundColor Gray
+        Show-Skip "Windows Search service not found"
         $skipCount++
     }
 }
 catch {
-    Write-Host "[ERROR] Failed to reset search index: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to reset search index: $($_.Exception.Message)"
     # Try to restart WSearch even on error
     Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
     $errorCount++
@@ -464,7 +464,7 @@ if (Test-Path $thumbPath) {
         catch { }
     }
 }
-Write-Host "[SUCCESS] Thumbnail cache cleaned ($thumbCleaned files)" -ForegroundColor Green
+Show-Success "Thumbnail cache cleaned ($thumbCleaned files)"
 
 # Prefetch
 $prefetchPath = "$env:windir\Prefetch"
@@ -479,7 +479,7 @@ if (Test-Path $prefetchPath) {
         catch { }
     }
 }
-Write-Host "[SUCCESS] Prefetch cleaned ($prefetchCleaned files)" -ForegroundColor Green
+Show-Success "Prefetch cleaned ($prefetchCleaned files)"
 
 $successCount++
 Write-Host ""
@@ -487,17 +487,17 @@ Write-Host ""
 # ========================================
 # Restart Explorer
 # ========================================
-Write-Host "[INFO] Restarting Explorer..." -ForegroundColor Cyan
+Show-Info "Restarting Explorer..."
 
 Start-Process "explorer.exe"
 Start-Sleep -Seconds 2
 
 $explorerRunning = Get-Process -Name "explorer" -ErrorAction SilentlyContinue
 if ($explorerRunning) {
-    Write-Host "[SUCCESS] Explorer restarted" -ForegroundColor Green
+    Show-Success "Explorer restarted"
 }
 else {
-    Write-Host "[WARNING] Explorer may not have restarted - please check manually" -ForegroundColor Yellow
+    Show-Warning "Explorer may not have restarted - please check manually"
 }
 
 Write-Host ""
@@ -505,9 +505,9 @@ Write-Host ""
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "History Destroyer - Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "Success: $successCount categories" -ForegroundColor Green
 }

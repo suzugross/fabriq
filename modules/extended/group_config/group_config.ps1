@@ -6,16 +6,15 @@
 # ========================================
 
 # Check Administrator Privileges
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Administrator privileges are required."
-    Write-Warning "Please run PowerShell as Administrator and try again."
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Local Group Member Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -77,37 +76,21 @@ function Test-LocalGroupExists {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "group_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] group_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "group_list.csv not found")
-}
-
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load group_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load group_list.csv: $_")
-}
-
-if ($allItems.Count -eq 0) {
-    Write-Host "[ERROR] group_list.csv contains no data" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "group_list.csv contains no data")
+$allItems = Import-CsvSafe -Path $csvPath -Description "group_list.csv"
+if ($null -eq $allItems -or $allItems.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load group_list.csv")
 }
 
 # Filter enabled entries
 $items = @($allItems | Where-Object { $_.Enabled -eq "1" })
 
 if ($items.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in group_list.csv" -ForegroundColor Yellow
+    Show-Skip "No enabled entries in group_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
-Write-Host "[INFO] Loaded $($items.Count) enabled entries (total: $($allItems.Count))" -ForegroundColor Cyan
+Show-Info "Loaded $($items.Count) enabled entries (total: $($allItems.Count))"
 Write-Host ""
 
 # ========================================
@@ -155,7 +138,7 @@ Write-Host ""
 # ========================================
 if (-not (Confirm-Execution -Message "Apply the above group member settings?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -165,7 +148,7 @@ Write-Host ""
 # ========================================
 # Apply Settings
 # ========================================
-Write-Host "--- Applying Group Member Settings ---" -ForegroundColor Cyan
+Show-Info "Applying group member settings..."
 Write-Host ""
 
 $successCount = 0
@@ -181,7 +164,7 @@ foreach ($item in $items) {
 
     # Check if local group exists
     if (-not (Test-LocalGroupExists -GroupName $item.LocalGroup)) {
-        Write-Host "  [ERROR] Local group '$($item.LocalGroup)' not found" -ForegroundColor Red
+        Show-Error "Local group '$($item.LocalGroup)' not found"
         $failCount++
         Write-Host ""
         continue
@@ -189,7 +172,7 @@ foreach ($item in $items) {
 
     # Idempotency check
     if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $item.MemberName -MemberType $item.MemberType) {
-        Write-Host "  [SKIP] Already a member" -ForegroundColor Gray
+        Show-Skip "Already a member"
         $skipCount++
         Write-Host ""
         continue
@@ -198,11 +181,11 @@ foreach ($item in $items) {
     # Add member
     try {
         Add-LocalGroupMember -Group $item.LocalGroup -Member $memberDisplay -ErrorAction Stop
-        Write-Host "  [SUCCESS] Member added" -ForegroundColor Green
+        Show-Success "Member added"
         $successCount++
     }
     catch {
-        Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$($_.Exception.Message)"
         $failCount++
     }
 
@@ -212,13 +195,13 @@ foreach ($item in $items) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  Success: $successCount items" -ForegroundColor Green
 Write-Host "  Skipped: $skipCount items (Already configured)" -ForegroundColor $(if ($skipCount -gt 0) { "Gray" } else { "Green" })
 Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Return ModuleResult
