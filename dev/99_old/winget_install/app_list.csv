@@ -1,5 +1,0 @@
-Enabled,AppID,Options,Description
-1,Google.Chrome,,Google Chrome
-1,Adobe.Acrobat.Reader.64-bit,,Adobe Acrobat Reader DC
-0,Microsoft.VisualStudioCode,,VS Code (Skip)
-0,Git.Git,"--override ""/VERYSILENT""",Git for Windows

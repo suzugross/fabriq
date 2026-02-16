@@ -1,4 +1,0 @@
-Order,ScriptPath,Enabled,Description
-10,standard\hostname_config\hostname_config.ps1,1,Change Hostname
-20,standard\ipaddress_config\ipaddress_config.ps1,1,IP Address Settings
-30,standard\domain_join\domain_join.ps1,1,Domain Join

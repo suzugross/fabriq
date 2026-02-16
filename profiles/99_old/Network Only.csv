@@ -1,3 +1,0 @@
-Order,ScriptPath,Enabled,Description
-10,standard\ipaddress_config\ipaddress_config.ps1,1,IP Address Settings
-20,standard\hostname_config\hostname_config.ps1,1,Change Hostname
