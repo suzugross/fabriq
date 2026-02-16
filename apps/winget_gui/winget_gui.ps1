@@ -33,7 +33,7 @@ $bgInput      = [System.Drawing.Color]::FromArgb(50, 50, 50)
 # ========================================
 # Default CSV Path
 # ========================================
-$script:defaultCsvPath = Join-Path $PSScriptRoot "..\..\modules\extended\winget_install\app_list.csv"
+$script:defaultCsvPath = Join-Path $PSScriptRoot "..\..\modules\standard\winget_install\app_list.csv"
 $script:defaultCsvPath = [System.IO.Path]::GetFullPath($script:defaultCsvPath)
 
 # ========================================
@@ -283,7 +283,7 @@ $panelTop.Controls.Add($btnShowDetails)
 $gridSearch = New-Object System.Windows.Forms.DataGridView
 $gridSearch.Location = New-Object System.Drawing.Point(10, 65)
 $gridSearch.Size = New-Object System.Drawing.Size(1010, 230)
-$gridSearch.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right -bor [System.Windows.Forms.AnchorStyles]::Bottom
+$gridSearch.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 $gridSearch.SelectionMode = "FullRowSelect"
 $gridSearch.MultiSelect = $true
 $gridSearch.ReadOnly = $true
@@ -316,18 +316,15 @@ $lblOptions.Text = "Options:"
 $lblOptions.Location = New-Object System.Drawing.Point(10, 305)
 $lblOptions.Size = New-Object System.Drawing.Size(60, 20)
 $lblOptions.ForeColor = $fgText
-$lblOptions.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left
 $panelTop.Controls.Add($lblOptions)
 
 $txtOptions = New-Object System.Windows.Forms.TextBox
 $txtOptions.Location = New-Object System.Drawing.Point(68, 303)
 $txtOptions.Size = New-Object System.Drawing.Size(350, 25)
-$txtOptions.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left
 Set-TextBoxStyle $txtOptions
 $panelTop.Controls.Add($txtOptions)
 
 $btnAdd = New-StyledButton -Text "Add to CSV" -X 425 -Y 301 -Width 110 -BgColor $bgAdd
-$btnAdd.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left
 $panelTop.Controls.Add($btnAdd)
 
 # --- Search result count label ---
@@ -388,7 +385,39 @@ $gridCsv.SelectionMode = "FullRowSelect"
 $gridCsv.MultiSelect = $true
 Set-GridStyle $gridCsv
 $gridCsv.AllowUserToAddRows = $true
+$gridCsv.AutoGenerateColumns = $false
 $gridCsv.DataSource = $dt
+
+# Enabled column as ComboBox (0/1 dropdown)
+$colEnabled = New-Object System.Windows.Forms.DataGridViewComboBoxColumn
+$colEnabled.HeaderText = "Enabled"
+$colEnabled.DataPropertyName = "Enabled"
+$colEnabled.Name = "Enabled"
+$colEnabled.Items.AddRange("1", "0")
+$colEnabled.FlatStyle = "Flat"
+$colEnabled.Width = 70
+$null = $gridCsv.Columns.Add($colEnabled)
+
+# AppID column
+$colAppID = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colAppID.HeaderText = "AppID"
+$colAppID.DataPropertyName = "AppID"
+$colAppID.Name = "AppID"
+$null = $gridCsv.Columns.Add($colAppID)
+
+# Options column
+$colOptions = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colOptions.HeaderText = "Options"
+$colOptions.DataPropertyName = "Options"
+$colOptions.Name = "Options"
+$null = $gridCsv.Columns.Add($colOptions)
+
+# Description column
+$colDesc = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colDesc.HeaderText = "Description"
+$colDesc.DataPropertyName = "Description"
+$colDesc.Name = "Description"
+$null = $gridCsv.Columns.Add($colDesc)
 
 $panelBottom.Controls.Add($gridCsv)
 
