@@ -9,8 +9,30 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ========================================
+# Step 0: Load Configuration from CSV
+# ========================================
+$csvPath = Join-Path $PSScriptRoot "firewall_list.csv"
+$autoConfig = $null
+
+if (Test-Path $csvPath) {
+    $csvData = Import-CsvSafe $csvPath
+    if ($csvData -and (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled","status","id","description") -CsvName "firewall_list.csv")) {
+        $activeConfig = $csvData | Where-Object { $_.Enabled -eq '1' } | Select-Object -First 1
+        if ($activeConfig) {
+            Write-Host "[INFO] Loaded configuration from firewall_list.csv" -ForegroundColor Cyan
+            $autoConfig = $activeConfig.status
+        } else {
+            Write-Host "[INFO] firewall_list.csv found but no enabled entries. Switching to manual mode." -ForegroundColor Gray
+        }
+    }
+} else {
+    Write-Host "[INFO] firewall_list.csv not found. Switching to manual mode." -ForegroundColor Gray
+}
+
+# ========================================
 # Step 1: Get Current Status
 # ========================================
+Write-Host ""
 Write-Host "[INFO] Getting current firewall status..." -ForegroundColor Cyan
 Write-Host ""
 
@@ -45,28 +67,47 @@ $allEnabled = ($profiles | Where-Object { $_.Enabled -eq $true }).Count -eq $pro
 $allDisabled = ($profiles | Where-Object { $_.Enabled -eq $false }).Count -eq $profiles.Count
 
 # ========================================
-# Step 2: Select Operation
+# Step 2: Select Operation (Auto/Manual)
 # ========================================
-Write-Host "Please select an operation:" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  [1] Disable all profiles (OFF)" -ForegroundColor White
-Write-Host "  [2] Enable all profiles (ON)" -ForegroundColor White
-Write-Host "  [0] Cancel" -ForegroundColor White
-Write-Host ""
+$choice = $null
 
-if ($allDisabled) {
-    Write-Host "  * Currently all disabled" -ForegroundColor Gray
-}
-elseif ($allEnabled) {
-    Write-Host "  * Currently all enabled" -ForegroundColor Gray
-}
-else {
-    Write-Host "  * Status varies by profile" -ForegroundColor Yellow
+if ($autoConfig) {
+    Write-Host "Auto-configuration selected from CSV: " -NoNewline -ForegroundColor Cyan
+    Write-Host $autoConfig.ToUpper() -ForegroundColor Yellow
+    Write-Host ""
+
+    if ($autoConfig -eq 'off') {
+        $choice = '1'
+    } elseif ($autoConfig -eq 'on') {
+        $choice = '2'
+    } else {
+        Write-Host "[WARNING] Unknown status in CSV: $autoConfig. Falling back to manual." -ForegroundColor Yellow
+    }
 }
 
-Write-Host ""
-Write-Host -NoNewline "Enter number: "
-$choice = Read-Host
+# Manual Selection (Fallback)
+if ([string]::IsNullOrEmpty($choice)) {
+    Write-Host "Please select an operation:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  [1] Disable all profiles (OFF)" -ForegroundColor White
+    Write-Host "  [2] Enable all profiles (ON)" -ForegroundColor White
+    Write-Host "  [0] Cancel" -ForegroundColor White
+    Write-Host ""
+
+    if ($allDisabled) {
+        Write-Host "  * Currently all disabled" -ForegroundColor Gray
+    }
+    elseif ($allEnabled) {
+        Write-Host "  * Currently all enabled" -ForegroundColor Gray
+    }
+    else {
+        Write-Host "  * Status varies by profile" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host -NoNewline "Enter number: "
+    $choice = Read-Host
+}
 
 if ($choice -eq '0') {
     Write-Host ""
@@ -93,6 +134,19 @@ switch ($choice) {
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Invalid number")
     }
+}
+
+# ========================================
+# Idempotency Check
+# ========================================
+$targetBool = ($targetEnabled -eq "True")
+$alreadyMatch = ($profiles | Where-Object { $_.Enabled -eq $targetBool }).Count -eq $profiles.Count
+
+if ($alreadyMatch) {
+    Write-Host ""
+    Write-Host "[INFO] All profiles are already $actionText. Skipping." -ForegroundColor Green
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "Already $actionText")
 }
 
 # ========================================
