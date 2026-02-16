@@ -654,18 +654,29 @@ function Main {
     try {
         # Initialization
         Initialize-Script
-        
+
         # Import CSV
         $profiles = Import-PowerSettingsCsv
-        
-        # Menu Display & Selection
-        $selectedProfile = Show-ProfileMenu -Profiles $profiles
-        
+
+        # Auto-selection: check for Enabled=1 entry
+        $selectedProfile = $null
+        $activeConfig = $profiles | Where-Object { $_.Enabled -eq '1' } | Select-Object -First 1
+
+        if ($activeConfig) {
+            $selectedProfile = $activeConfig
+            Write-Host "[INFO] Auto-selected profile from CSV: " -NoNewline -ForegroundColor Cyan
+            Write-Host "'$($selectedProfile.ProfileName)'" -ForegroundColor Yellow
+            Write-Host ""
+        } else {
+            # Manual Selection (Fallback)
+            $selectedProfile = Show-ProfileMenu -Profiles $profiles
+        }
+
         if ($null -eq $selectedProfile) {
             Write-Host "Exiting process`n" -ForegroundColor Gray
             return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
         }
-        
+
         # Confirmation
         if (-not (Confirm-ApplySettings -Profile $selectedProfile)) {
             Write-Host "Canceled`n" -ForegroundColor Gray

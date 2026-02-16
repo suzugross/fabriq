@@ -1,6 +1,6 @@
-﻿ProfileName,Description,PowerPlan,Display_TurnOff_AC,Display_TurnOff_Battery,Sleep_After_AC,Sleep_After_Battery,Hibernate_After_AC,Hibernate_After_Battery,PowerButton_AC,PowerButton_Battery,SleepButton_AC,SleepButton_Battery,LidClose_AC,LidClose_Battery,HardDisk_TurnOff_AC,HardDisk_TurnOff_Battery,Processor_MinState_AC,Processor_MinState_Battery,Processor_MaxState_AC,Processor_MaxState_Battery
-バランス,標準的なバランス設定,BALANCED,10,5,15,10,30,20,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,20,10,5,5,100,100
-高性能,パフォーマンス優先,HIGH_PERFORMANCE,30,10,0,15,0,30,NOTHING,SLEEP,SLEEP,SLEEP,NOTHING,SLEEP,0,10,100,50,100,100
-省電力,バッテリー長持ち,POWER_SAVER,5,3,10,5,15,10,SLEEP,HIBERNATE,SLEEP,SLEEP,SLEEP,HIBERNATE,10,5,0,0,50,50
-プレゼン用,画面常時点灯,BALANCED,0,0,0,0,0,0,NOTHING,SLEEP,-,-,NOTHING,SLEEP,0,10,-,-,-,-
-カスタム1,カスタム設定例,BALANCED,15,8,20,12,-,-,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,25,15,10,5,95,80
+﻿Enabled,ProfileName,Description,PowerPlan,Display_TurnOff_AC,Display_TurnOff_Battery,Sleep_After_AC,Sleep_After_Battery,Hibernate_After_AC,Hibernate_After_Battery,PowerButton_AC,PowerButton_Battery,SleepButton_AC,SleepButton_Battery,LidClose_AC,LidClose_Battery,HardDisk_TurnOff_AC,HardDisk_TurnOff_Battery,Processor_MinState_AC,Processor_MinState_Battery,Processor_MaxState_AC,Processor_MaxState_Battery
+1,バランス,標準的なバランス設定,BALANCED,10,5,15,10,30,20,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,20,10,5,5,100,100
+0,高性能,パフォーマンス優先,HIGH_PERFORMANCE,30,10,0,15,0,30,NOTHING,SLEEP,SLEEP,SLEEP,NOTHING,SLEEP,0,10,100,50,100,100
+0,省電力,バッテリー長持ち,POWER_SAVER,5,3,10,5,15,10,SLEEP,HIBERNATE,SLEEP,SLEEP,SLEEP,HIBERNATE,10,5,0,0,50,50
+0,プレゼン用,画面常時点灯,BALANCED,0,0,0,0,0,0,NOTHING,SLEEP,-,-,NOTHING,SLEEP,0,10,-,-,-,-
+0,カスタム1,カスタム設定例,BALANCED,15,8,20,12,-,-,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,25,15,10,5,95,80
