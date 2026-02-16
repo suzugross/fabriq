@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Batch Runner,Scripts,batch_runner.ps1,60,1

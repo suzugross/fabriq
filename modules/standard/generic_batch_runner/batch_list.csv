@@ -1,0 +1,2 @@
+Enabled,Description,BatchPath,Arguments,TimeoutSec,SuccessCodes,Encoding
+1,test,assets\test.bat,,,,
