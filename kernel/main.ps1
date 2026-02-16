@@ -12,6 +12,12 @@ if (Test-Path $commonPath) {
     . $commonPath
 }
 
+# Load Manifesto GUI function
+$manifestoPath = ".\kernel\ps1\manifesto.ps1"
+if (Test-Path $manifestoPath) {
+    . $manifestoPath
+}
+
 # Enable sleep suppression while Fabriq is running
 Enable-SleepSuppression
 
@@ -1122,11 +1128,9 @@ while ($true) {
         exit 0
     }
 
-    # Manifeste du Surkitinisme (placeholder)
+    # Manifeste du Surkitinisme
     if ($choice -eq 'M' -or $choice -eq 'm') {
-        Write-Host ""
-        Show-Info "Manifeste du Surkitinisme - Coming soon..."
-        Wait-KeyPress
+        Show-Manifesto
         Clear-Host
         continue
     }
