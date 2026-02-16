@@ -361,6 +361,7 @@ function Invoke-KittingScript {
 
             Add-ExecutionResult -Operation $ModuleName -Status $status -Message $message
             $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status $status -Message $message
+            Capture-ScreenEvidence -ModuleName $ModuleName -Status $status
             return ($status -eq "Success")
         }
         else {
@@ -370,6 +371,7 @@ function Invoke-KittingScript {
             Show-Warning "Script execution completed (status unverified)"
             Add-ExecutionResult -Operation $ModuleName -Status "Success" -Message "(legacy - unverified)"
             $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status "Success" -Message "(legacy - unverified)"
+            Capture-ScreenEvidence -ModuleName $ModuleName -Status "Success"
             return $true
         }
     }
@@ -378,6 +380,7 @@ function Invoke-KittingScript {
         Show-Error "Error occurred during script execution: $_"
         Add-ExecutionResult -Operation $ModuleName -Status "Error" -Message $_.Exception.Message
         $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status "Error" -Message $_.Exception.Message
+        Capture-ScreenEvidence -ModuleName $ModuleName -Status "Error"
         return $false
     }
 }
@@ -554,6 +557,7 @@ function Invoke-BatchExecution {
 
         Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message
         $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message
+        Capture-ScreenEvidence -ModuleName $module.MenuName -Status $result.Status
 
         # Track completed results for resume state
         $completedResults += @{ MenuName = $module.MenuName; Status = $result.Status }
