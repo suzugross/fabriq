@@ -1,10 +1,102 @@
-﻿# ========================================
+# ========================================
 # Function: Show Manifesto GUI
 # ========================================
 Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
 
+# ========================================
+# Parse manifesto.csv (multiline body)
+# Format: Enabled,title,main(multiline),id
+# Each entry ends with a line ",<id>"
+# ========================================
+function Load-ManifestoEntries {
+    $csvPath = ".\kernel\csv\manifesto.csv"
+    if (-not (Test-Path $csvPath)) { return @() }
+
+    $lines = @(Get-Content -Path $csvPath -Encoding Default)
+    if ($lines.Count -lt 2) { return @() }
+
+    $entries = @()
+    $currentTitle = ""
+    $currentBody = ""
+    $currentEnabled = ""
+    $inEntry = $false
+
+    # Skip header (line 0)
+    for ($i = 1; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+
+        # Detect end-of-entry: line is just ",<number>"
+        if ($line -match '^,(\d+)\s*$') {
+            if ($inEntry) {
+                $entries += [PSCustomObject]@{
+                    Enabled = $currentEnabled
+                    Title   = $currentTitle.Trim()
+                    Main    = $currentBody.Trim()
+                    Id      = $Matches[1]
+                }
+            }
+            $inEntry = $false
+            $currentTitle = ""
+            $currentBody = ""
+            continue
+        }
+
+        # Detect start of new entry: line begins with "1," or "0,"
+        if (-not $inEntry -and $line -match '^([01]),(.*)') {
+            $inEntry = $true
+            $currentEnabled = $Matches[1]
+            $rest = $Matches[2]
+
+            # Split title and body start at the "――," boundary
+            $splitIdx = $rest.IndexOf([string]([char]0x2015 + [char]0x2015 + ","))
+            if ($splitIdx -ge 0) {
+                $currentTitle = $rest.Substring(0, $splitIdx + 2)
+                $currentBody = $rest.Substring($splitIdx + 3)
+            }
+            else {
+                # Fallback: title ends at "――" without comma (entry 1 case)
+                $endIdx = $rest.IndexOf([string]([char]0x2015 + [char]0x2015))
+                if ($endIdx -ge 0) {
+                    $currentTitle = $rest.Substring(0, $endIdx + 2)
+                    $currentBody = $rest.Substring($endIdx + 2)
+                }
+                else {
+                    $currentTitle = $rest
+                    $currentBody = ""
+                }
+            }
+            continue
+        }
+
+        # Continuation line (body text)
+        if ($inEntry) {
+            $currentBody += "`n" + $line
+        }
+    }
+
+    # Return only enabled entries
+    return @($entries | Where-Object { $_.Enabled -eq "1" })
+}
+
+# ========================================
+# Show Manifesto GUI
+# ========================================
 function Show-Manifesto {
+    # Load entries from CSV
+    $entries = @(Load-ManifestoEntries)
+
+    if ($entries.Count -eq 0) {
+        Write-Host "[WARN] No manifesto entries found" -ForegroundColor Yellow
+        return
+    }
+
+    # Random selection: pick one entry each time
+    $selected = $entries | Get-Random
+
+    $manifestoTitle = $selected.Title
+    $manifestoText  = $selected.Main
+
     # Borderless form with paper-white theme
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Manifeste du Surkitinisme"
@@ -43,7 +135,7 @@ function Show-Manifesto {
     $pnlHeader.Add_MouseDown($dragAction)
     $form.Controls.Add($pnlHeader)
 
-    # Title label
+    # Title label (fixed)
     $lblTitle = New-Object System.Windows.Forms.Label
     $lblTitle.Text = "Manifeste du Surkitinisme"
     $lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(0, 220, 220)
@@ -56,9 +148,9 @@ function Show-Manifesto {
     $lblTitle.Add_MouseDown($dragAction)
     $pnlHeader.Controls.Add($lblTitle)
 
-    # Subtitle
+    # Subtitle (from CSV title field)
     $lblSub = New-Object System.Windows.Forms.Label
-    $lblSub.Text = [char]0x2015 + [char]0x2015 + " " + [char]0x30B7 + [char]0x30E5 + [char]0x30EB + [char]0x30AD + [char]0x30C6 + [char]0x30A3 + [char]0x30CB + [char]0x30B9 + [char]0x30E0 + [char]0x5BA3 + [char]0x8A00 + " " + [char]0x2015 + [char]0x2015
+    $lblSub.Text = $manifestoTitle
     $lblSub.ForeColor = [System.Drawing.Color]::FromArgb(190, 190, 190)
     $lblSub.Font = $fontSub
     $lblSub.AutoSize = $false
@@ -69,22 +161,7 @@ function Show-Manifesto {
     $lblSub.Add_MouseDown($dragAction)
     $pnlHeader.Controls.Add($lblSub)
 
-    # --- Body area ---
-    $manifestoText = @"
-キッティングエンジニアとして生きるということに対する、その構築という上での最も不確実な部分、つまり、いうまでもなく、その「手動によるOS設定」に対する信仰が高じすぎると、最後には、その信仰は失われてしまう。キッティングという名のこの決定的な夢想家は、日に日に自分の環境構築への不満を募らせ、仕方なく叩く羽目に至ってきたコマンド群を、苦労して調べまわしてみるのである。
-
-そういうパラメータ群は、無頓着なマニュアル更新によって、あるいは「根性」という名の努力によって、いや、たいていはこの不毛な努力によってもたらされたものである。というのは、彼は泥臭い作業に同意したからであり、少なくとも「現場の運」（運と称しているものを！）を賭けることをいとわなかったからである。
-
-そうなると、エンジニアの得られる分け前はとてもつつましいものである。どんなレガシーなドライバを掴まされたか、どんなくだらぬ不具合修正に足を突っ込んできたか、これは各自みなご承知の通りである。スキルの有無も全く関係なく、この点においては誰もみな「工場出荷状態のPC」と変わりなく、それにまた標準化意識を口にしてみたところで、そんなものなどなくても人間は平気で（ただ漫然と）作業を続けられることを認めよう。
-
-いくらかでも効率化の正気をとどめていれば、このとき、エンジニアは自分の「最初のコード（プロトタイプ）」を頼りにするしかない。これだけは、保守管理者たちのおせっかいのせいで、どれほどスパゲッティコードにされていたとしても、彼の目にはやはり魅力溢れたオートメーションとして映るからだ。
-そこでは、不整合として知られているものが一切存在しないため、同時にいくつもの展開プロファイルの展望を許される。エンジニアはその「完全自動化」という幻想の中に根を下ろし、もはやあらゆる設定の、つかの間の、極端な容易さしか認めようとしない。
-
-毎朝、キッティングエンジニアたちは不安なしに Fabriq.bat を叩く。すべては hostlist.csv にあり、最悪のネットワーク条件でさえも素晴らしい。進捗ステータスは緑にもなれば赤にもなる。
-プロセスは決して眠らないだろう。
-"@
-
-    # RichTextBox for body text (scrollbar pushed to far right, away from text)
+    # --- Body area (from CSV main field) ---
     $txtContent = New-Object System.Windows.Forms.RichTextBox
     $txtContent.Text = $manifestoText
     $txtContent.Font = $fontBody
@@ -114,6 +191,15 @@ function Show-Manifesto {
     $btnClose.Cursor = [System.Windows.Forms.Cursors]::Hand
     $btnClose.Add_Click({ $form.Close() })
     $form.Controls.Add($btnClose)
+
+    # Entry ID display (bottom-right, subtle)
+    $lblId = New-Object System.Windows.Forms.Label
+    $lblId.Text = "#$($selected.Id)"
+    $lblId.ForeColor = [System.Drawing.Color]::FromArgb(200, 200, 200)
+    $lblId.Font = New-Object System.Drawing.Font("Meiryo UI", 8)
+    $lblId.AutoSize = $true
+    $lblId.Location = New-Object System.Drawing.Point(840, 655)
+    $form.Controls.Add($lblId)
 
     # Keyboard shortcut (ESC to close)
     $form.KeyPreview = $true
