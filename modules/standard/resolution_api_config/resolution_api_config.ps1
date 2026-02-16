@@ -7,9 +7,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Resolution Configuration (Live)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -111,7 +111,7 @@ if ($null -eq $csvData) {
 $enabledItems = @($csvData | Where-Object { $_.Enabled -eq "1" })
 
 if ($enabledItems.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in resolution_list.csv" -ForegroundColor Yellow
+    Show-Skip "No enabled entries in resolution_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
@@ -123,7 +123,7 @@ $current = [ResolutionHandler]::GetCurrentResolution()
 $currentW = $current[0]
 $currentH = $current[1]
 
-Write-Host "[INFO] Current resolution: $currentW x $currentH" -ForegroundColor Cyan
+Show-Info "Current resolution: $currentW x $currentH"
 Write-Host ""
 
 # ========================================
@@ -159,7 +159,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 if (-not $hasChanges) {
-    Write-Host "[INFO] All resolutions already match current settings" -ForegroundColor Green
+    Show-Skip "All resolutions already match current settings"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "All resolutions already match")
 }
@@ -169,7 +169,7 @@ if (-not $hasChanges) {
 # ========================================
 if (-not (Confirm-Execution -Message "Apply the above resolution settings?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -188,19 +188,19 @@ foreach ($item in $enabledItems) {
     $desc    = if ($item.Description) { " ($($item.Description))" } else { "" }
 
     if ($targetW -eq $currentW -and $targetH -eq $currentH) {
-        Write-Host "[SKIP] $targetW x $targetH$desc - already set" -ForegroundColor Gray
+        Show-Skip "$targetW x $targetH$desc - already set"
         $skipCount++
         continue
     }
 
-    Write-Host "[INFO] Changing resolution to $targetW x $targetH$desc..." -ForegroundColor Cyan
+    Show-Info "Changing resolution to $targetW x $targetH$desc..."
 
     try {
         $result = [ResolutionHandler]::ChangeRes($targetW, $targetH)
 
         switch ($result) {
             ([ResolutionHandler]::DISP_CHANGE_SUCCESSFUL) {
-                Write-Host "[SUCCESS] Resolution changed to $targetW x $targetH" -ForegroundColor Green
+                Show-Success "Resolution changed to $targetW x $targetH"
                 $successCount++
 
                 # Update current resolution for subsequent checks
@@ -208,17 +208,17 @@ foreach ($item in $enabledItems) {
                 $currentH = $targetH
             }
             ([ResolutionHandler]::DISP_CHANGE_RESTART) {
-                Write-Host "[WARNING] Resolution set but restart required to take effect" -ForegroundColor Yellow
+                Show-Warning "Resolution set but restart required to take effect"
                 $successCount++
             }
             default {
-                Write-Host "[ERROR] Failed to change resolution - unsupported resolution or hardware limitation" -ForegroundColor Red
+                Show-Error "Failed to change resolution - unsupported resolution or hardware limitation"
                 $errorCount++
             }
         }
     }
     catch {
-        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$($_.Exception.Message)"
         $errorCount++
     }
 
@@ -228,9 +228,9 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Resolution Configuration Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "Success: $successCount items" -ForegroundColor Green
 }

@@ -7,9 +7,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "DPI Scaling Configuration (Live)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -222,7 +222,7 @@ try {
     Add-Type -TypeDefinition $dpiSource -Language CSharp -ErrorAction SilentlyContinue
 }
 catch {
-    Write-Host "[ERROR] Failed to compile NativeDpiHelper: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to compile NativeDpiHelper: $($_.Exception.Message)"
     return (New-ModuleResult -Status "Error" -Message "C# compilation failed")
 }
 
@@ -239,7 +239,7 @@ if ($null -eq $csvData) {
 $enabledItems = @($csvData | Where-Object { $_.Enabled -eq "1" })
 
 if ($enabledItems.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in dpi_list.csv" -ForegroundColor Yellow
+    Show-Skip "No enabled entries in dpi_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
@@ -248,12 +248,12 @@ if ($enabledItems.Count -eq 0) {
 # Show Current DPI & Monitor Info
 # ========================================
 $monitorCount = [NativeDpiHelper]::GetMonitorCount()
-Write-Host "[INFO] Active monitors: $monitorCount" -ForegroundColor Cyan
+Show-Info "Active monitors: $monitorCount"
 
 for ($i = 0; $i -lt $monitorCount; $i++) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($i)
     $dpiStr = if ($currentDpi -gt 0) { "${currentDpi}%" } else { "Unknown" }
-    Write-Host "[INFO] Monitor[$i] current DPI: $dpiStr" -ForegroundColor Cyan
+    Show-Info "Monitor[$i] current DPI: $dpiStr"
 }
 
 Write-Host ""
@@ -294,7 +294,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 if (-not $hasChanges) {
-    Write-Host "[INFO] All DPI settings already match current values" -ForegroundColor Green
+    Show-Skip "All DPI settings already match current values"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "All DPI settings already match")
 }
@@ -304,7 +304,7 @@ if (-not $hasChanges) {
 # ========================================
 if (-not (Confirm-Execution -Message "Apply the above DPI settings?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -325,27 +325,27 @@ foreach ($item in $enabledItems) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($idx)
 
     if ($currentDpi -eq $scale) {
-        Write-Host "[SKIP] Monitor[$idx] -> ${scale}%$desc - already set" -ForegroundColor Gray
+        Show-Skip "Monitor[$idx] -> ${scale}%$desc - already set"
         $skipCount++
         continue
     }
 
-    Write-Host "[INFO] Setting Monitor[$idx] -> ${scale}%$desc..." -ForegroundColor Cyan
+    Show-Info "Setting Monitor[$idx] -> ${scale}%$desc..."
 
     try {
         $result = [NativeDpiHelper]::SetDpi($idx, $scale)
 
         if ($result -eq "Success") {
-            Write-Host "[SUCCESS] Monitor[$idx] DPI changed to ${scale}%" -ForegroundColor Green
+            Show-Success "Monitor[$idx] DPI changed to ${scale}%"
             $successCount++
         }
         else {
-            Write-Host "[ERROR] $result" -ForegroundColor Red
+            Show-Error "$result"
             $errorCount++
         }
     }
     catch {
-        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$($_.Exception.Message)"
         $errorCount++
     }
 
@@ -355,9 +355,9 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "DPI Scaling Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "Success: $successCount items" -ForegroundColor Green
 }

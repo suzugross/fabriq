@@ -3,15 +3,15 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Printer Registration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
 # Step 1: Get Printer Info from Environment Variables
 # ========================================
-Write-Host "[INFO] Loading printer settings..." -ForegroundColor Cyan
+Show-Info "Loading printer settings..."
 
 $printers = @()
 
@@ -31,7 +31,7 @@ for ($i = 1; $i -le 10; $i++) {
 }
 
 if ($printers.Count -eq 0) {
-    Write-Host "[INFO] No printers to register (No printer settings in hostlist)" -ForegroundColor Yellow
+    Show-Info "No printers to register (No printer settings in hostlist)"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No printers to register")
 }
@@ -57,14 +57,14 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 # Driver Check
-Write-Host "[INFO] Checking driver existence..." -ForegroundColor Cyan
+Show-Info "Checking driver existence..."
 
 $installedDrivers = @()
 try {
     $installedDrivers = Get-PrinterDriver -ErrorAction Stop | Select-Object -ExpandProperty Name
 }
 catch {
-    Write-Host "[WARNING] Failed to list drivers: $_" -ForegroundColor Yellow
+    Show-Warning "Failed to list drivers: $_"
 }
 
 $missingDrivers = @()
@@ -76,7 +76,7 @@ foreach ($p in $printers) {
 
 if ($missingDrivers.Count -gt 0) {
     Write-Host ""
-    Write-Host "[WARNING] The following drivers are not installed:" -ForegroundColor Yellow
+    Show-Warning "The following drivers are not installed:"
     foreach ($m in $missingDrivers) {
         Write-Host "  - $($m.Driver) (Printer $($m.No): $($m.Name))" -ForegroundColor Yellow
     }
@@ -87,7 +87,7 @@ if ($missingDrivers.Count -gt 0) {
 
 if (-not (Confirm-Execution -Message "Do you want to proceed with registration?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -109,19 +109,19 @@ foreach ($p in $printers) {
     $portName = "IP_$($p.Port)"
 
     # --- Create Port ---
-    Write-Host "[INFO] Creating TCP/IP Port: $portName ($($p.Port))" -ForegroundColor Cyan
+    Show-Info "Creating TCP/IP Port: $portName ($($p.Port))"
 
     $existingPort = Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue
     if ($existingPort) {
-        Write-Host "[INFO] Port already exists: $portName (Skipping)" -ForegroundColor Cyan
+        Show-Info "Port already exists: $portName (Skipping)"
     }
     else {
         try {
             Add-PrinterPort -Name $portName -PrinterHostAddress $($p.Port) -ErrorAction Stop
-            Write-Host "[SUCCESS] Port created: $portName" -ForegroundColor Green
+            Show-Success "Port created: $portName"
         }
         catch {
-            Write-Host "[ERROR] Failed to create port: $portName - $_" -ForegroundColor Red
+            Show-Error "Failed to create port: $portName - $_"
             $errorCount++
             Write-Host ""
             continue
@@ -129,11 +129,11 @@ foreach ($p in $printers) {
     }
 
     # --- Create Printer ---
-    Write-Host "[INFO] Creating printer: $($p.Name)" -ForegroundColor Cyan
+    Show-Info "Creating printer: $($p.Name)"
 
     $existingPrinter = Get-Printer -Name $p.Name -ErrorAction SilentlyContinue
     if ($existingPrinter) {
-        Write-Host "[SKIP] Printer already exists: $($p.Name)" -ForegroundColor Gray
+        Show-Skip "Printer already exists: $($p.Name)"
         $skipCount++
         Write-Host ""
         continue
@@ -141,11 +141,11 @@ foreach ($p in $printers) {
 
     try {
         Add-Printer -Name $p.Name -DriverName $p.Driver -PortName $portName -ErrorAction Stop
-        Write-Host "[SUCCESS] Printer created: $($p.Name)" -ForegroundColor Green
+        Show-Success "Printer created: $($p.Name)"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to create printer: $($p.Name) - $_" -ForegroundColor Red
+        Show-Error "Failed to create printer: $($p.Name) - $_"
         $errorCount++
     }
 
@@ -155,9 +155,9 @@ foreach ($p in $printers) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registration Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "Success: $successCount items" -ForegroundColor Green
 }

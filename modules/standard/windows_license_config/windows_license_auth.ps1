@@ -9,14 +9,14 @@
 # Check Administrator Privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "[ERROR] This script requires administrator privileges." -ForegroundColor Red
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  Activate Windows License" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -48,8 +48,8 @@ $osLicense = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction Si
              Select-Object -First 1
 
 if ($null -eq $osLicense) {
-    Write-Host "  [ERROR] No Windows product key found on this system." -ForegroundColor Red
-    Write-Host "  [INFO] Please install a product key first." -ForegroundColor Cyan
+    Show-Error "No Windows product key found on this system."
+    Show-Info "Please install a product key first."
     Write-Host "----------------------------------------" -ForegroundColor White
     return (New-ModuleResult -Status "Error" -Message "No product key installed")
 }
@@ -65,7 +65,7 @@ Write-Host ""
 # Step 2: Idempotency Check
 # ========================================
 if ($osLicense.LicenseStatus -eq 1) {
-    Write-Host "[SKIP] Windows is already activated." -ForegroundColor Gray
+    Show-Skip "Windows is already activated."
     return (New-ModuleResult -Status "Skipped" -Message "Already activated ($editionName)")
 }
 
@@ -80,7 +80,7 @@ if (-not (Confirm-Execution -Message "Activate Windows license?")) {
 # Step 4: Trigger Activation
 # ========================================
 Write-Host ""
-Write-Host "[INFO] Triggering Windows activation..." -ForegroundColor Cyan
+Show-Info "Triggering Windows activation..."
 
 try {
     $service = Get-CimInstance -ClassName SoftwareLicensingService
@@ -88,7 +88,7 @@ try {
     Write-Host "[INFO] Activation request sent. Waiting for result..." -ForegroundColor Gray
 }
 catch {
-    Write-Host "[ERROR] Failed to trigger activation: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to trigger activation: $($_.Exception.Message)"
     return (New-ModuleResult -Status "Error" -Message "Activation failed: $($_.Exception.Message)")
 }
 
@@ -107,7 +107,7 @@ Write-Host "Activation Result" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor White
 
 if ($null -eq $finalLicense) {
-    Write-Host "  [ERROR] Could not retrieve license status" -ForegroundColor Red
+    Show-Error "Could not retrieve license status"
     Write-Host "========================================" -ForegroundColor White
     return (New-ModuleResult -Status "Error" -Message "Could not verify activation")
 }

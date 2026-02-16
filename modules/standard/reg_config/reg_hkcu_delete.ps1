@@ -6,16 +6,16 @@ $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Deletion (HKCU + Default Profile)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Find CSV files
 $csvFiles = @(Get-ChildItem -Path $PSScriptRoot -Filter "reg_hkcu_list*.csv" -File | Sort-Object Name)
 
 if ($csvFiles.Count -eq 0) {
-    Write-Host "[ERROR] No files matching reg_hkcu_list*.csv found" -ForegroundColor Red
+    Show-Error "No files matching reg_hkcu_list*.csv found"
     return (New-ModuleResult -Status "Error" -Message "No files matching reg_hkcu_list*.csv found")
 }
 
@@ -27,16 +27,16 @@ foreach ($csvFile in $csvFiles) {
     try {
         $items = @(Import-Csv -Path $csvFile.FullName -Encoding Default)
         $allItems += $items
-        Write-Host "[INFO] Loaded $($csvFile.Name) ($($items.Count) items)" -ForegroundColor Cyan
+        Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
         $loadedFileCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to load $($csvFile.Name): $_" -ForegroundColor Red
+        Show-Error "Failed to load $($csvFile.Name): $_"
     }
 }
 
 if ($loadedFileCount -eq 0) {
-    Write-Host "[ERROR] Failed to load any CSV files" -ForegroundColor Red
+    Show-Error "Failed to load any CSV files"
     return (New-ModuleResult -Status "Error" -Message "Failed to load any CSV files")
 }
 
@@ -52,7 +52,7 @@ Write-Host "" -ForegroundColor Cyan
 Write-Host ""
 
 if ($regItems.Count -eq 0) {
-    Write-Host "[INFO] No valid registry settings found" -ForegroundColor Yellow
+    Show-Info "No valid registry settings found"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No valid registry settings found")
 }
@@ -86,13 +86,13 @@ Write-Host ""
 # Confirmation
 if (-not (Confirm-Execution -Message "Delete the above registry values?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
 
 Write-Host ""
-Write-Host "[INFO] Starting registry deletion..." -ForegroundColor Cyan
+Show-Info "Starting registry deletion..."
 Write-Host ""
 
 # ========================================
@@ -101,23 +101,23 @@ Write-Host ""
 $hiveLoaded = $false
 
 if (Test-Path $HIVE_PATH) {
-    Write-Host "[INFO] Loading Default Profile Hive..." -ForegroundColor Cyan
+    Show-Info "Loading Default Profile Hive..."
     & reg load $HIVE_KEY $HIVE_PATH 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive loaded: $HIVE_KEY" -ForegroundColor Green
+        Show-Success "Hive loaded: $HIVE_KEY"
         $hiveLoaded = $true
         if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
             New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null
         }
     }
     else {
-        Write-Host "[ERROR] Failed to load Hive" -ForegroundColor Red
-        Write-Host "[INFO] Deleting from HKCU only" -ForegroundColor Yellow
+        Show-Error "Failed to load Hive"
+        Show-Info "Deleting from HKCU only"
     }
 }
 else {
-    Write-Host "[ERROR] ntuser.dat not found: $HIVE_PATH" -ForegroundColor Red
-    Write-Host "[INFO] Deleting from HKCU only" -ForegroundColor Yellow
+    Show-Error "ntuser.dat not found: $HIVE_PATH"
+    Show-Info "Deleting from HKCU only"
 }
 Write-Host ""
 
@@ -201,7 +201,7 @@ foreach ($item in $regItems) {
 # Unload Hive
 # ========================================
 if ($hiveLoaded) {
-    Write-Host "[INFO] Unloading Hive..." -ForegroundColor Cyan
+    Show-Info "Unloading Hive..."
 
     if (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue) {
         Remove-PSDrive -Name HKU -Force
@@ -212,27 +212,27 @@ if ($hiveLoaded) {
 
     & reg unload $HIVE_KEY 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive unloaded" -ForegroundColor Green
+        Show-Success "Hive unloaded"
     }
     else {
-        Write-Host "[ERROR] Failed to unload Hive. Retrying..." -ForegroundColor Yellow
+        Show-Warning "Failed to unload Hive. Retrying..."
         Start-Sleep -Seconds 2
         [gc]::Collect()
         & reg unload $HIVE_KEY 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[SUCCESS] Hive unloaded (Retry success)" -ForegroundColor Green
+            Show-Success "Hive unloaded (Retry success)"
         }
         else {
-            Write-Host "[ERROR] Failed to unload Hive. Please unload manually." -ForegroundColor Red
+            Show-Error "Failed to unload Hive. Please unload manually."
         }
     }
     Write-Host ""
 }
 
 # Summary
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Deletion Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Success: $successCount items" -ForegroundColor Green
 if ($errorCount -gt 0) {
     Write-Host "Failed: $errorCount items" -ForegroundColor Red

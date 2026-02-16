@@ -3,9 +3,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Firewall Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -19,28 +19,28 @@ if (Test-Path $csvPath) {
     if ($csvData -and (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled","status","id","description") -CsvName "firewall_list.csv")) {
         $activeConfig = $csvData | Where-Object { $_.Enabled -eq '1' } | Select-Object -First 1
         if ($activeConfig) {
-            Write-Host "[INFO] Loaded configuration from firewall_list.csv" -ForegroundColor Cyan
+            Show-Info "Loaded configuration from firewall_list.csv"
             $autoConfig = $activeConfig.status
         } else {
-            Write-Host "[INFO] firewall_list.csv found but no enabled entries. Switching to manual mode." -ForegroundColor Gray
+            Show-Info "firewall_list.csv found but no enabled entries. Switching to manual mode."
         }
     }
 } else {
-    Write-Host "[INFO] firewall_list.csv not found. Switching to manual mode." -ForegroundColor Gray
+    Show-Info "firewall_list.csv not found. Switching to manual mode."
 }
 
 # ========================================
 # Step 1: Get Current Status
 # ========================================
 Write-Host ""
-Write-Host "[INFO] Getting current firewall status..." -ForegroundColor Cyan
+Show-Info "Getting current firewall status..."
 Write-Host ""
 
 try {
     $profiles = Get-NetFirewallProfile -ErrorAction Stop
 }
 catch {
-    Write-Host "[ERROR] Failed to get firewall info: $_" -ForegroundColor Red
+    Show-Error "Failed to get firewall info: $_"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Failed to get firewall info: $_")
 }
@@ -81,7 +81,7 @@ if ($autoConfig) {
     } elseif ($autoConfig -eq 'on') {
         $choice = '2'
     } else {
-        Write-Host "[WARNING] Unknown status in CSV: $autoConfig. Falling back to manual." -ForegroundColor Yellow
+        Show-Warning "Unknown status in CSV: $autoConfig. Falling back to manual."
     }
 }
 
@@ -111,7 +111,7 @@ if ([string]::IsNullOrEmpty($choice)) {
 
 if ($choice -eq '0') {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -130,7 +130,7 @@ switch ($choice) {
     }
     default {
         Write-Host ""
-        Write-Host "[ERROR] Invalid number" -ForegroundColor Red
+        Show-Error "Invalid number"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Invalid number")
     }
@@ -144,7 +144,7 @@ $alreadyMatch = ($profiles | Where-Object { $_.Enabled -eq $targetBool }).Count 
 
 if ($alreadyMatch) {
     Write-Host ""
-    Write-Host "[INFO] All profiles are already $actionText. Skipping." -ForegroundColor Green
+    Show-Skip "All profiles are already $actionText. Skipping."
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "Already $actionText")
 }
@@ -160,7 +160,7 @@ Write-Host ""
 
 if (-not (Confirm-Execution -Message "Are you sure you want to execute?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -175,15 +175,15 @@ $errorCount = 0
 
 foreach ($p in $profiles) {
     $profileName = $p.Name
-    Write-Host "[INFO] Changing $profileName profile to $actionText..." -ForegroundColor Cyan
+    Show-Info "Changing $profileName profile to $actionText..."
 
     try {
         Set-NetFirewallProfile -Name $profileName -Enabled $targetEnabled -ErrorAction Stop
-        Write-Host "[SUCCESS] ${profileName}: $actionText" -ForegroundColor Green
+        Show-Success "${profileName}: $actionText"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] ${profileName}: $_" -ForegroundColor Red
+        Show-Error "${profileName}: $_"
         $errorCount++
     }
 }
@@ -193,15 +193,15 @@ Write-Host ""
 # ========================================
 # Step 5: Verify Status After Change
 # ========================================
-Write-Host "[INFO] Verifying status after change..." -ForegroundColor Cyan
+Show-Info "Verifying status after change..."
 Write-Host ""
 
 try {
     $afterProfiles = Get-NetFirewallProfile -ErrorAction Stop
 
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Firewall Status After Change" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host ""
 
     foreach ($p in $afterProfiles) {
@@ -214,13 +214,13 @@ try {
     Write-Host ""
 }
 catch {
-    Write-Host "[WARNING] Failed to verify status after change" -ForegroundColor Yellow
+    Show-Warning "Failed to verify status after change"
 }
 
 # Result Summary
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Configuration Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Success: $successCount items" -ForegroundColor Green
 if ($errorCount -gt 0) {
     Write-Host "Failed: $errorCount items" -ForegroundColor Red

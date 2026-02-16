@@ -3,16 +3,16 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Configuration (HKLM)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Find CSV files (matches reg_hklm_list*.csv)
 $csvFiles = @(Get-ChildItem -Path $PSScriptRoot -Filter "reg_hklm_list*.csv" -File | Sort-Object Name)
 
 if ($csvFiles.Count -eq 0) {
-    Write-Host "[ERROR] No files matching reg_hklm_list*.csv found" -ForegroundColor Red
+    Show-Error "No files matching reg_hklm_list*.csv found"
     return (New-ModuleResult -Status "Error" -Message "No files matching reg_hklm_list*.csv found")
 }
 
@@ -24,16 +24,16 @@ foreach ($csvFile in $csvFiles) {
     try {
         $items = @(Import-Csv -Path $csvFile.FullName -Encoding Default)
         $allItems += $items
-        Write-Host "[INFO] Loaded $($csvFile.Name) ($($items.Count) items)" -ForegroundColor Cyan
+        Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
         $loadedFileCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to load $($csvFile.Name): $_" -ForegroundColor Red
+        Show-Error "Failed to load $($csvFile.Name): $_"
     }
 }
 
 if ($loadedFileCount -eq 0) {
-    Write-Host "[ERROR] Failed to load any CSV files" -ForegroundColor Red
+    Show-Error "Failed to load any CSV files"
     return (New-ModuleResult -Status "Error" -Message "Failed to load any CSV files")
 }
 
@@ -49,7 +49,7 @@ Write-Host "" -ForegroundColor Cyan
 Write-Host ""
 
 if ($regItems.Count -eq 0) {
-    Write-Host "[INFO] No valid registry settings found" -ForegroundColor Yellow
+    Show-Info "No valid registry settings found"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No valid registry settings found")
 }
@@ -130,13 +130,13 @@ Write-Host ""
 # Confirmation
 if (-not (Confirm-Execution -Message "Apply the above registry changes?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
 
 Write-Host ""
-Write-Host "[INFO] Starting registry configuration..." -ForegroundColor Cyan
+Show-Info "Starting registry configuration..."
 Write-Host ""
 
 # Apply Settings
@@ -171,7 +171,7 @@ foreach ($item in $regItems) {
 
         # Idempotency check: skip if current value matches target
         if (Test-RegistryValueMatch -Path $regPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $regType) {
-            Write-Host "  [SKIP] Already configured" -ForegroundColor Gray
+            Show-Skip "Already configured"
             $skipCount++
             Write-Host ""
             continue
@@ -201,11 +201,11 @@ foreach ($item in $regItems) {
             New-ItemProperty -Path $regPath -Name $item.'KeyName' -Value $regValue -PropertyType $regType -Force -ErrorAction Stop | Out-Null
         }
 
-        Write-Host "  [SUCCESS] Configured" -ForegroundColor Green
+        Show-Success "Configured"
         $successCount++
     }
     catch {
-        Write-Host "  [ERROR] $_" -ForegroundColor Red
+        Show-Error "$_"
         $errorCount++
     }
 
@@ -213,9 +213,9 @@ foreach ($item in $regItems) {
 }
 
 # Summary
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Configuration Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Success: $successCount items" -ForegroundColor Green
 if ($skipCount -gt 0) {
     Write-Host "Skipped: $skipCount items (Already configured)" -ForegroundColor Gray

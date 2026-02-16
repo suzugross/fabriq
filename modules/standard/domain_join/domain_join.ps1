@@ -5,7 +5,7 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-Write-Host "Executing domain join process..." -ForegroundColor Cyan
+Show-Info "Executing domain join process..."
 Write-Host ""
 
 # ========================================
@@ -14,7 +14,7 @@ Write-Host ""
 $csvPath = Join-Path $PSScriptRoot "domain.csv"
 
 if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] domain.csv not found: $csvPath" -ForegroundColor Red
+    Show-Error "domain.csv not found: $csvPath"
     return (New-ModuleResult -Status "Error" -Message "domain.csv not found")
 }
 
@@ -22,12 +22,12 @@ try {
     $domainList = @(Import-Csv -Path $csvPath -Encoding Default)
 }
 catch {
-    Write-Host "[ERROR] Failed to load domain.csv: $_" -ForegroundColor Red
+    Show-Error "Failed to load domain.csv: $_"
     return (New-ModuleResult -Status "Error" -Message "Failed to load domain.csv: $_")
 }
 
 if ($domainList.Count -eq 0) {
-    Write-Host "[ERROR] domain.csv contains no data" -ForegroundColor Red
+    Show-Error "domain.csv contains no data"
     return (New-ModuleResult -Status "Error" -Message "domain.csv contains no data")
 }
 
@@ -96,7 +96,7 @@ while ($true) {
     Write-Host "----------------------------------------" -ForegroundColor White
     Write-Host ""
 
-    Write-Host "[INFO] Checking connection to DNS server ($DNS)..." -ForegroundColor Cyan
+    Show-Info "Checking connection to DNS server ($DNS)..."
 
     $dnsOk = $false
     try {
@@ -110,7 +110,7 @@ while ($true) {
     }
 
     if (-not $dnsOk) {
-        Write-Host "[ERROR] Ping to DNS server failed" -ForegroundColor Red
+        Show-Error "Ping to DNS server failed"
 
         $inputText = Show-ErrorDialog -Title "DNS Connection Failed" -Message @"
 Ping to DNS server ($DNS) failed.
@@ -125,16 +125,16 @@ Type 'adminstop' to abort and return to main menu.
 "@
 
         if ($inputText -eq "adminstop") {
-            Write-Host "[INFO] Aborted by administrator (adminstop)" -ForegroundColor Yellow
+            Show-Info "Aborted by administrator (adminstop)"
             return (New-ModuleResult -Status "Error" -Message "Aborted by administrator (adminstop)")
         }
 
-        Write-Host "[INFO] Retrying DNS connection..." -ForegroundColor Cyan
+        Show-Info "Retrying DNS connection..."
         Write-Host ""
         continue
     }
 
-    Write-Host "[SUCCESS] Ping to DNS server succeeded" -ForegroundColor Green
+    Show-Success "Ping to DNS server succeeded"
     Write-Host ""
 
     # ========================================
@@ -159,14 +159,14 @@ Type 'adminstop' to abort and return to main menu.
         Add-Computer -DomainName $DOMAIN -Credential $credential -Force
 
         Write-Host ""
-        Write-Host "[SUCCESS] Domain join completed" -ForegroundColor Green
+        Show-Success "Domain join completed"
         Write-Host ""
         return (New-ModuleResult -Status "Success" -Message "Domain join completed")
     }
     catch {
         $errorMsg = $_.Exception.Message
         Write-Host ""
-        Write-Host "[ERROR] Domain join failed: $errorMsg" -ForegroundColor Red
+        Show-Error "Domain join failed: $errorMsg"
         Write-Host ""
 
         $inputText = Show-ErrorDialog -Title "Domain Join Failed" -Message @"
@@ -186,11 +186,11 @@ Type 'adminstop' to abort and return to main menu.
 "@
 
         if ($inputText -eq "adminstop") {
-            Write-Host "[INFO] Aborted by administrator (adminstop)" -ForegroundColor Yellow
+            Show-Info "Aborted by administrator (adminstop)"
             return (New-ModuleResult -Status "Error" -Message "Domain join failed (aborted by admin): $errorMsg")
         }
 
-        Write-Host "[INFO] Returning to DNS connection check..." -ForegroundColor Cyan
+        Show-Info "Returning to DNS connection check..."
         Write-Host ""
         continue
     }

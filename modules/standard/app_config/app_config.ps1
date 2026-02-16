@@ -2,7 +2,7 @@
 # Application Installation Script
 # ========================================
 
-Write-Host "Executing application installation..." -ForegroundColor Cyan
+Show-Info "Executing application installation..."
 Write-Host ""
 
 # ========================================
@@ -11,7 +11,7 @@ Write-Host ""
 $csvPath = Join-Path $PSScriptRoot "app_list.csv"
 
 if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] app_list.csv not found: $csvPath" -ForegroundColor Red
+    Show-Error "app_list.csv not found: $csvPath"
     return (New-ModuleResult -Status "Error" -Message "app_list.csv not found")
 }
 
@@ -19,16 +19,16 @@ try {
     $appList = @(Import-Csv -Path $csvPath -Encoding Default)
 }
 catch {
-    Write-Host "[ERROR] Failed to load app_list.csv: $_" -ForegroundColor Red
+    Show-Error "Failed to load app_list.csv: $_"
     return (New-ModuleResult -Status "Error" -Message "Failed to load app_list.csv: $_")
 }
 
 if ($appList.Count -eq 0) {
-    Write-Host "[ERROR] app_list.csv contains no data" -ForegroundColor Red
+    Show-Error "app_list.csv contains no data"
     return (New-ModuleResult -Status "Error" -Message "app_list.csv contains no data")
 }
 
-Write-Host "[INFO] Loaded $($appList.Count) application definitions" -ForegroundColor Cyan
+Show-Info "Loaded $($appList.Count) application definitions"
 Write-Host ""
 
 # ========================================
@@ -37,7 +37,7 @@ Write-Host ""
 $fileDir = Join-Path $PSScriptRoot "file"
 
 if (-not (Test-Path $fileDir)) {
-    Write-Host "[ERROR] 'file' directory not found: $fileDir" -ForegroundColor Red
+    Show-Error "'file' directory not found: $fileDir"
     return (New-ModuleResult -Status "Error" -Message "'file' directory not found")
 }
 
@@ -71,8 +71,8 @@ Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
 if ($missingCount -gt 0) {
-    Write-Host "[WARNING] $missingCount installers are missing" -ForegroundColor Yellow
-    Write-Host "[INFO] Missing applications will be skipped" -ForegroundColor Yellow
+    Show-Warning "$missingCount installers are missing"
+    Show-Info "Missing applications will be skipped"
     Write-Host ""
 }
 
@@ -81,7 +81,7 @@ if ($missingCount -gt 0) {
 # ========================================
 if (-not (Confirm-Execution -Message "Proceed with installation?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -105,7 +105,7 @@ foreach ($app in $appList) {
 
     # File existence check
     if (-not (Test-Path $installerPath)) {
-        Write-Host "[SKIP] Installer not found: $($app.FileName)" -ForegroundColor Yellow
+        Show-Skip "Installer not found: $($app.FileName)"
         Write-Host ""
         $skipCount++
         continue
@@ -116,16 +116,16 @@ foreach ($app in $appList) {
 
         switch ($app.Type.ToLower()) {
             "msi" {
-                Write-Host "[INFO] Executing MSI installation..." -ForegroundColor Gray
+                Show-Info "Executing MSI installation..."
                 $msiArgs = "/i `"$installerPath`" $($app.SilentArgs)"
                 $process = Start-Process msiexec -ArgumentList $msiArgs -Wait -PassThru
             }
             "exe" {
-                Write-Host "[INFO] Executing EXE installation..." -ForegroundColor Gray
+                Show-Info "Executing EXE installation..."
                 $process = Start-Process $installerPath -ArgumentList $app.SilentArgs -Wait -PassThru
             }
             default {
-                Write-Host "[ERROR] Unsupported type: $($app.Type)" -ForegroundColor Red
+                Show-Error "Unsupported type: $($app.Type)"
                 $failCount++
                 Write-Host ""
                 continue
@@ -133,16 +133,16 @@ foreach ($app in $appList) {
         }
 
         if ($process.ExitCode -eq 0) {
-            Write-Host "[SUCCESS] Installed $appName (ExitCode: 0)" -ForegroundColor Green
+            Show-Success "Installed $appName (ExitCode: 0)"
             $successCount++
         }
         else {
-            Write-Host "[ERROR] Failed to install $appName (ExitCode: $($process.ExitCode))" -ForegroundColor Red
+            Show-Error "Failed to install $appName (ExitCode: $($process.ExitCode))"
             $failCount++
         }
     }
     catch {
-        Write-Host "[ERROR] Error during installation of $appName : $_" -ForegroundColor Red
+        Show-Error "Error during installation of $appName : $_"
         $failCount++
     }
 
@@ -152,13 +152,13 @@ foreach ($app in $appList) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  Success: $successCount items" -ForegroundColor Green
 Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
 Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Return ModuleResult

@@ -5,14 +5,14 @@
 $INF_DIR = Join-Path $PSScriptRoot "INF"
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Printer Driver Installation" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Check INF folder existence
 if (-not (Test-Path $INF_DIR)) {
-    Write-Host "[ERROR] INF folder not found: $INF_DIR" -ForegroundColor Red
+    Show-Error "INF folder not found: $INF_DIR"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "INF folder not found")
 }
@@ -20,7 +20,7 @@ if (-not (Test-Path $INF_DIR)) {
 # Get subfolders in INF (assumed as model names)
 $modelFolders = Get-ChildItem -Path $INF_DIR -Directory
 if ($modelFolders.Count -eq 0) {
-    Write-Host "[ERROR] No model folders found in INF directory" -ForegroundColor Red
+    Show-Error "No model folders found in INF directory"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No model folders found in INF directory")
 }
@@ -43,7 +43,7 @@ $modelChoice = Read-Host
 
 if ($modelChoice -eq '0') {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -51,7 +51,7 @@ if ($modelChoice -eq '0') {
 $modelNum = 0
 if (-not [int]::TryParse($modelChoice, [ref]$modelNum) -or $modelNum -lt 1 -or $modelNum -gt $modelFolders.Count) {
     Write-Host ""
-    Write-Host "[ERROR] Invalid number" -ForegroundColor Red
+    Show-Error "Invalid number"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Invalid number")
 }
@@ -60,19 +60,19 @@ $selectedFolder = $modelFolders[$modelNum - 1]
 $modelName = $selectedFolder.Name
 
 Write-Host ""
-Write-Host "[INFO] Selected: $modelName" -ForegroundColor Cyan
+Show-Info "Selected: $modelName"
 Write-Host ""
 
 # ========================================
 # Step 2: Search INF Files & Check Architecture
 # ========================================
-Write-Host "[INFO] Searching for INF files..." -ForegroundColor Cyan
+Show-Info "Searching for INF files..."
 
 # Recursive search for INF in selected folder
 $allInfFiles = Get-ChildItem -Path $selectedFolder.FullName -Recurse -Filter "*.inf"
 
 if ($allInfFiles.Count -eq 0) {
-    Write-Host "[ERROR] INF files not found" -ForegroundColor Red
+    Show-Error "INF files not found"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "INF files not found")
 }
@@ -152,7 +152,7 @@ foreach ($inf in $allInfFiles) {
 }
 
 if ($validInfFiles.Count -eq 0) {
-    Write-Host "[ERROR] No INF files found for current architecture ($arch)" -ForegroundColor Red
+    Show-Error "No INF files found for current architecture ($arch)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No INF files found for current architecture ($arch)")
 }
@@ -162,7 +162,7 @@ $selectedInf = $null
 
 if ($validInfFiles.Count -eq 1) {
     $selectedInf = $validInfFiles[0]
-    Write-Host "[INFO] INF File: $($selectedInf.Name) (Auto-selected)" -ForegroundColor Cyan
+    Show-Info "INF File: $($selectedInf.Name) (Auto-selected)"
 }
 else {
     Write-Host ""
@@ -184,7 +184,7 @@ else {
 
     if ($infChoice -eq '0') {
         Write-Host ""
-        Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+        Show-Info "Canceled"
         Write-Host ""
         return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
     }
@@ -192,7 +192,7 @@ else {
     $infNum = 0
     if (-not [int]::TryParse($infChoice, [ref]$infNum) -or $infNum -lt 1 -or $infNum -gt $validInfFiles.Count) {
         Write-Host ""
-        Write-Host "[ERROR] Invalid number" -ForegroundColor Red
+        Show-Error "Invalid number"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Invalid number")
     }
@@ -219,7 +219,7 @@ Write-Host ""
 
 if (-not (Confirm-Execution -Message "Do you want to install?")) {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -229,7 +229,7 @@ Write-Host ""
 # ========================================
 # Step 3: Register to Driver Store with pnputil
 # ========================================
-Write-Host "[INFO] Registering to Driver Store..." -ForegroundColor Cyan
+Show-Info "Registering to Driver Store..."
 
 $pnpResult = & pnputil /add-driver "$($selectedInf.Path)" /install 2>&1
 $pnpExitCode = $LASTEXITCODE
@@ -239,7 +239,7 @@ $pnpOutput = ($pnpResult | Out-String)
 $alreadyExists = $pnpOutput -match 'already exists|既にシステムに存在'
 
 if ($pnpExitCode -ne 0 -and -not $alreadyExists) {
-    Write-Host "[ERROR] Failed to register driver with pnputil" -ForegroundColor Red
+    Show-Error "Failed to register driver with pnputil"
     foreach ($line in $pnpResult) {
         Write-Host "  $line" -ForegroundColor Gray
     }
@@ -248,17 +248,17 @@ if ($pnpExitCode -ne 0 -and -not $alreadyExists) {
 }
 
 if ($alreadyExists) {
-    Write-Host "[SKIP] Driver already exists in Driver Store" -ForegroundColor Gray
+    Show-Skip "Driver already exists in Driver Store"
 }
 else {
-    Write-Host "[SUCCESS] Registered to Driver Store" -ForegroundColor Green
+    Show-Success "Registered to Driver Store"
 }
 Write-Host ""
 
 # ========================================
 # Step 4: Resolve INF Path in Driver Store
 # ========================================
-Write-Host "[INFO] Resolving Driver Store path..." -ForegroundColor Cyan
+Show-Info "Resolving Driver Store path..."
 
 $infBaseName = $selectedInf.Name.ToLower() -replace '\.inf$', ''
 $storeDir = Get-ChildItem "C:\WINDOWS\System32\DriverStore\FileRepository" -Directory -Filter "${infBaseName}.inf_amd64_*" |
@@ -266,7 +266,7 @@ $storeDir = Get-ChildItem "C:\WINDOWS\System32\DriverStore\FileRepository" -Dire
     Select-Object -First 1
 
 if (-not $storeDir) {
-    Write-Host "[ERROR] INF not found in Driver Store" -ForegroundColor Red
+    Show-Error "INF not found in Driver Store"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "INF not found in Driver Store")
 }
@@ -274,7 +274,7 @@ if (-not $storeDir) {
 $storeInfPath = Join-Path $storeDir.FullName $selectedInf.Name
 
 if (-not (Test-Path $storeInfPath)) {
-    Write-Host "[ERROR] INF file not found in Driver Store: $storeInfPath" -ForegroundColor Red
+    Show-Error "INF file not found in Driver Store: $storeInfPath"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "INF file not found in Driver Store")
 }
@@ -290,23 +290,23 @@ $skipCount = 0
 $errorCount = 0
 
 foreach ($driverName in $selectedInf.ModelNames) {
-    Write-Host "[INFO] Registering printer driver: $driverName" -ForegroundColor Cyan
+    Show-Info "Registering printer driver: $driverName"
 
     # Check if driver already registered
     $existingDriver = Get-PrinterDriver -Name $driverName -ErrorAction SilentlyContinue
     if ($existingDriver) {
-        Write-Host "[SKIP] Driver already registered: $driverName" -ForegroundColor Gray
+        Show-Skip "Driver already registered: $driverName"
         $skipCount++
         continue
     }
 
     try {
         Add-PrinterDriver -Name $driverName -InfPath $storeInfPath -ErrorAction Stop
-        Write-Host "[SUCCESS] Registration complete: $driverName" -ForegroundColor Green
+        Show-Success "Registration complete: $driverName"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Registration failed: $driverName - $_" -ForegroundColor Red
+        Show-Error "Registration failed: $driverName - $_"
         $errorCount++
     }
 }
@@ -316,9 +316,9 @@ Write-Host ""
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Installation Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($successCount -gt 0) {
     Write-Host "Success: $successCount items" -ForegroundColor Green
 }
