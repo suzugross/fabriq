@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Delete Printers,Printer,printer_delete.ps1,34,1
