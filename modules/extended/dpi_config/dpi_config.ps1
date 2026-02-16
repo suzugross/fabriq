@@ -485,7 +485,7 @@ foreach ($target in $targets) {
     if ($target.InteractiveDisplay) {
         $selectedName = Select-DisplayInteractive -Description $item.Description
         if ($null -eq $selectedName) {
-            Write-Host "  [SKIP] No display selected"
+            Show-Skip "No display selected"
             $skipCount++
             Write-Host ""
             continue
@@ -495,7 +495,7 @@ foreach ($target in $targets) {
     else {
         if ($target.MatchedKeyNames.Count -eq 0) {
             Write-Host "[$index] $($item.HardwareID)"
-            Write-Host "  [ERROR] No display found matching '$($item.HardwareID)'"
+            Show-Error "No display found matching '$($item.HardwareID)'"
             $failCount++
             Write-Host ""
             continue
@@ -508,7 +508,7 @@ foreach ($target in $targets) {
     if ($target.InteractiveScale) {
         $scalePercent = Select-ScaleInteractive
         if ($null -eq $scalePercent) {
-            Write-Host "  [SKIP] No scale selected"
+            Show-Skip "No scale selected"
             $skipCount++
             Write-Host ""
             continue

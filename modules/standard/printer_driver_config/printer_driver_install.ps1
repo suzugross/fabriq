@@ -279,7 +279,7 @@ if (-not (Test-Path $storeInfPath)) {
     return (New-ModuleResult -Status "Error" -Message "INF file not found in Driver Store")
 }
 
-Write-Host "[INFO] Store Path: $storeInfPath" -ForegroundColor Gray
+Show-Info "Store Path: $storeInfPath"
 Write-Host ""
 
 # ========================================

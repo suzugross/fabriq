@@ -84,7 +84,7 @@ Show-Info "Triggering Windows activation..."
 try {
     $service = Get-CimInstance -ClassName SoftwareLicensingService
     $null = Invoke-CimMethod -InputObject $service -MethodName RefreshLicenseStatus
-    Write-Host "[INFO] Activation request sent. Waiting for result..." -ForegroundColor Gray
+    Show-Info "Activation request sent. Waiting for result..."
 }
 catch {
     Show-Error "Failed to trigger activation: $($_.Exception.Message)"

@@ -188,7 +188,7 @@ Show-Separator
 Write-Host "  Success: $successCount items" -ForegroundColor Green
 Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
 Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Return ModuleResult

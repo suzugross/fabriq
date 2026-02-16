@@ -75,7 +75,7 @@ foreach ($app in $enabledApps) {
     # Check if already installed via winget list
     $listOutput = & winget list --id $app.AppID --exact --accept-source-agreements 2>&1 | Out-String
     if ($listOutput -match [regex]::Escape($app.AppID)) {
-        Write-Host "  [SKIP] $appName ($($app.AppID)) - already installed" -ForegroundColor Gray
+        Show-Skip "$appName ($($app.AppID)) - already installed"
         $alreadyInstalled += $app
     }
     else {

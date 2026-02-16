@@ -280,7 +280,7 @@ foreach ($item in $enabledItems) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($idx)
 
     if ($currentDpi -eq $scale) {
-        Write-Host "  [SKIP] Monitor[$idx] -> ${scale}%  $desc (already set)" -ForegroundColor Gray
+        Show-Skip "Monitor[$idx] -> ${scale}%  $desc (already set)"
     }
     else {
         $currentStr = if ($currentDpi -gt 0) { "${currentDpi}%" } else { "Unknown" }

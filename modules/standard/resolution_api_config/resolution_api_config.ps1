@@ -146,7 +146,7 @@ foreach ($item in $enabledItems) {
     $desc    = if ($item.Description) { $item.Description } else { "" }
 
     if ($targetW -eq $currentW -and $targetH -eq $currentH) {
-        Write-Host "  [SKIP] $targetW x $targetH  $desc (already set)" -ForegroundColor Gray
+        Show-Skip "$targetW x $targetH  $desc (already set)"
     }
     else {
         Write-Host "  [CHANGE] $targetW x $targetH  $desc" -ForegroundColor White

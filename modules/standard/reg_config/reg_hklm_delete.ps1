@@ -107,7 +107,7 @@ foreach ($item in $regItems) {
 
         # Check path existence
         if (-not (Test-Path $regPath)) {
-            Write-Host "  [INFO] Path not found (Skipped)" -ForegroundColor Gray
+            Show-Skip "Path not found"
             $skipCount++
             Write-Host ""
             continue
@@ -116,7 +116,7 @@ foreach ($item in $regItems) {
         # Check value existence
         $existingValue = Get-ItemProperty -Path $regPath -Name $item.'KeyName' -ErrorAction SilentlyContinue
         if (-not $existingValue) {
-            Write-Host "  [INFO] Value not found (Skipped)" -ForegroundColor Gray
+            Show-Skip "Value not found"
             $skipCount++
             Write-Host ""
             continue

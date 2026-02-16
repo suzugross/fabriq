@@ -1896,11 +1896,11 @@ function Register-FabriqRunOnce {
         $runOnceValue = "cmd /c `"$fabriqBat`""
         New-ItemProperty -Path $runOncePath -Name "FabriqAutoStart" `
             -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-        Write-Host "[SUCCESS] RunOnce registered" -ForegroundColor Green
+        Show-Success "RunOnce registered"
         return $true
     }
     catch {
-        Write-Host "[ERROR] Failed to register RunOnce: $_" -ForegroundColor Red
+        Show-Error "Failed to register RunOnce: $_"
         return $false
     }
 }
