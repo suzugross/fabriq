@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Winget App Install,Applications,winget_install.ps1,20,1
