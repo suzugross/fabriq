@@ -91,24 +91,9 @@ catch {
 # ========================================
 # Countdown and Restart
 # ========================================
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host "The computer will restart in 10 seconds..." -ForegroundColor Yellow
-Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host ""
-
-for ($i = 10; $i -ge 1; $i--) {
-    Write-Host "`r  Restarting in $i seconds... " -NoNewline -ForegroundColor Yellow
-    Start-Sleep -Seconds 1
-}
-Write-Host ""
-Write-Host ""
-
-Show-Info "Restarting computer..."
-
 # Write result before restart (execution history will be saved by the framework)
 $result = New-ModuleResult -Status "Success" -Message "RunOnce registered, restarting computer"
 
-Restart-Computer -Force
+Invoke-CountdownRestart -Seconds 10
 
 return $result
