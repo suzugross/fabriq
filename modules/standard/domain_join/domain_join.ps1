@@ -13,22 +13,9 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "domain.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Show-Error "domain.csv not found: $csvPath"
-    return (New-ModuleResult -Status "Error" -Message "domain.csv not found")
-}
-
-try {
-    $domainList = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Show-Error "Failed to load domain.csv: $_"
-    return (New-ModuleResult -Status "Error" -Message "Failed to load domain.csv: $_")
-}
-
-if ($domainList.Count -eq 0) {
-    Show-Error "domain.csv contains no data"
-    return (New-ModuleResult -Status "Error" -Message "domain.csv contains no data")
+$domainList = Import-CsvSafe -Path $csvPath -Description "domain.csv"
+if ($null -eq $domainList -or $domainList.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load domain.csv")
 }
 
 # Note: CSV headers must match these keys exactly

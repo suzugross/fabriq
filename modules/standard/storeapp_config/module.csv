@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-Remove Store Apps,Applications,storeapp_remove.ps1,75,1
+Remove Store Apps,Applications,storeapp_config.ps1,75,1

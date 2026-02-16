@@ -10,21 +10,11 @@ Write-Host "Hostname Change" -ForegroundColor Cyan
 Show-Separator
 Write-Host ""
 
-# Check if CSV file exists
-if (-not (Test-Path $HOSTLIST_CSV)) {
-    Show-Error "hostlist.csv not found: $HOSTLIST_CSV"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "hostlist.csv not found")
-}
-
 # Load CSV
-try {
-    $hostItems = Import-Csv -Path $HOSTLIST_CSV -Encoding Default
-}
-catch {
-    Show-Error "Failed to load CSV: $_"
+$hostItems = Import-CsvSafe -Path $HOSTLIST_CSV -Description "hostlist.csv"
+if ($null -eq $hostItems) {
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load CSV: $_")
+    return (New-ModuleResult -Status "Error" -Message "Failed to load hostlist.csv")
 }
 
 # Filter items with NewPCName

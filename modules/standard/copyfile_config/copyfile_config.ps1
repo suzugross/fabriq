@@ -16,19 +16,11 @@ Write-Host ""
 # Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "copy_list.csv"
-if (-not (Test-Path $csvPath)) {
-    Show-Error "copy_list.csv not found: $csvPath"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "copy_list.csv not found")
-}
 
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Show-Error "Failed to read copy_list.csv: $_"
+$allItems = Import-CsvSafe -Path $csvPath -Description "copy_list.csv"
+if ($null -eq $allItems) {
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to read copy_list.csv")
+    return (New-ModuleResult -Status "Error" -Message "Failed to load copy_list.csv")
 }
 
 # ========================================

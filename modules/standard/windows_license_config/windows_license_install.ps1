@@ -6,8 +6,7 @@
 # ========================================
 
 # Check Administrator Privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
+if (-not (Test-AdminPrivilege)) {
     Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
@@ -43,8 +42,8 @@ $keySource = ""
 
 $csvPath = Join-Path $PSScriptRoot "license_key.csv"
 if (Test-Path $csvPath) {
-    try {
-        $allKeys = @(Import-Csv -Path $csvPath -Encoding Default)
+    $allKeys = Import-CsvSafe -Path $csvPath -Description "license_key.csv"
+    if ($null -ne $allKeys -and $allKeys.Count -gt 0) {
         $enabledKeys = @($allKeys | Where-Object { $_.Enabled -eq "1" })
 
         if ($enabledKeys.Count -gt 0) {
@@ -63,15 +62,12 @@ if (Test-Path $csvPath) {
             }
         }
         else {
-            Write-Host "[INFO] No enabled keys in license_key.csv" -ForegroundColor Gray
+            Show-Info "No enabled keys in license_key.csv"
         }
-    }
-    catch {
-        Show-Warning "Failed to read license_key.csv: $_"
     }
 }
 else {
-    Write-Host "[INFO] license_key.csv not found" -ForegroundColor Gray
+    Show-Info "license_key.csv not found (manual input mode)"
 }
 
 # Manual input fallback

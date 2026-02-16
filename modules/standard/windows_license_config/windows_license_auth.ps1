@@ -7,8 +7,7 @@
 # ========================================
 
 # Check Administrator Privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
+if (-not (Test-AdminPrivilege)) {
     Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }

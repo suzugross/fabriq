@@ -65,35 +65,19 @@ $script:ChangeCount = 0
 # ========================================
 function Initialize-Script {
     Write-Host "Starting Power Option Configuration Script`n" -ForegroundColor Cyan
-    
-    # Check CSV File Existence
-    if (-not (Test-Path $script:CsvPath)) {
-        Show-Error "CSV file not found: $script:CsvPath"
-        throw "CSV file does not exist"
-    }
-    
-    Write-Host "CSV file confirmed: $script:CsvPath`n" -ForegroundColor Green
 }
 
 # ========================================
 # CSV Import Function
 # ========================================
 function Import-PowerSettingsCsv {
-    try {
-        Write-Host "Loading CSV file..." -ForegroundColor Gray
-        $csvData = Import-Csv -Path $script:CsvPath -Encoding Default
-        
-        if ($csvData.Count -eq 0) {
-            throw "No data in CSV file"
-        }
-        
-        Write-Host "Loaded $($csvData.Count) profiles`n" -ForegroundColor Green
-        return $csvData
+    $csvData = Import-CsvSafe -Path $script:CsvPath -Description "power_list.csv"
+    if ($null -eq $csvData -or $csvData.Count -eq 0) {
+        throw "Failed to load power_list.csv"
     }
-    catch {
-        Show-Error "Failed to load CSV - $($_.Exception.Message)"
-        throw
-    }
+
+    Write-Host "Loaded $($csvData.Count) profiles`n" -ForegroundColor Green
+    return $csvData
 }
 
 # ========================================
@@ -227,12 +211,7 @@ function Confirm-ApplySettings {
     Show-Separator
     Write-Host ""
 
-    while ($true) {
-        $confirmation = Read-Host "Apply these settings? (Y/N)"
-        if ($confirmation -eq 'Y' -or $confirmation -eq 'y') { return $true }
-        if ($confirmation -eq 'N' -or $confirmation -eq 'n') { return $false }
-        Show-Info "Please enter Y or N"
-    }
+    return (Confirm-Execution -Message "Apply these settings?")
 }
 
 # ========================================

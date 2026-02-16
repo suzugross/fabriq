@@ -10,22 +10,9 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "storeapp_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Show-Error "storeapp_list.csv not found: $csvPath"
-    return (New-ModuleResult -Status "Error" -Message "storeapp_list.csv not found")
-}
-
-try {
-    $appList = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Show-Error "Failed to load storeapp_list.csv: $_"
-    return (New-ModuleResult -Status "Error" -Message "Failed to load storeapp_list.csv: $_")
-}
-
-if ($appList.Count -eq 0) {
-    Show-Error "storeapp_list.csv contains no data"
-    return (New-ModuleResult -Status "Error" -Message "storeapp_list.csv contains no data")
+$appList = Import-CsvSafe -Path $csvPath -Description "storeapp_list.csv"
+if ($null -eq $appList -or $appList.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load storeapp_list.csv")
 }
 
 Show-Info "Loaded $($appList.Count) app definitions"

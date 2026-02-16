@@ -24,14 +24,11 @@ $allItems = @()
 $loadedFileCount = 0
 
 foreach ($csvFile in $csvFiles) {
-    try {
-        $items = @(Import-Csv -Path $csvFile.FullName -Encoding Default)
+    $items = Import-CsvSafe -Path $csvFile.FullName -Description $csvFile.Name
+    if ($null -ne $items) {
         $allItems += $items
         Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
         $loadedFileCount++
-    }
-    catch {
-        Show-Error "Failed to load $($csvFile.Name): $_"
     }
 }
 

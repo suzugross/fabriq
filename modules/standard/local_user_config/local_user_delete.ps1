@@ -10,22 +10,9 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Show-Error "local_user_list.csv not found: $csvPath"
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv not found")
-}
-
-try {
-    $userList = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Show-Error "Failed to load local_user_list.csv: $_"
-    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv: $_")
-}
-
-if ($userList.Count -eq 0) {
-    Show-Error "local_user_list.csv contains no data"
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv contains no data")
+$userList = Import-CsvSafe -Path $csvPath -Description "local_user_list.csv"
+if ($null -eq $userList -or $userList.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
 Show-Info "Loaded $($userList.Count) user definitions"
