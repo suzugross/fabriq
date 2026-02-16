@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Brightness Config,Display,brightness_config.ps1,30,1
