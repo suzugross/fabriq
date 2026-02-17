@@ -2,103 +2,57 @@
 # Hostname Change Script
 # ========================================
 
-$HOSTLIST_CSV = Join-Path $PSScriptRoot "..\..\..\kernel\csv\hostlist.csv"
-
-Write-Host ""
-Show-Separator
-Write-Host "Hostname Change" -ForegroundColor Cyan
-Show-Separator
+Show-Info "Executing hostname change..."
 Write-Host ""
 
-# Load CSV
-$hostItems = Import-CsvSafe -Path $HOSTLIST_CSV -Description "hostlist.csv"
-if ($null -eq $hostItems) {
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load hostlist.csv")
+# ========================================
+# Get Target Hostname from Environment
+# ========================================
+$newHostname = $env:SELECTED_NEW_PCNAME
+
+if ([string]::IsNullOrWhiteSpace($newHostname)) {
+    Show-Error "No host selected. Please select a host from the main menu first."
+    return (New-ModuleResult -Status "Error" -Message "No host selected (SELECTED_NEW_PCNAME is empty)")
 }
 
-# Filter items with NewPCName
-$validItems = @()
-foreach ($item in $hostItems) {
-    if (-not [string]::IsNullOrEmpty($item.'NewPCName')) {
-        $validItems += $item
-    }
-}
-
-if ($validItems.Count -eq 0) {
-    Show-Error "No NewPCName registered in hostlist.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "No NewPCName registered in hostlist.csv")
-}
-
-# Current Hostname
 $currentHostname = $env:COMPUTERNAME
-Write-Host "  Current Hostname: $currentHostname" -ForegroundColor White
+
+# ========================================
+# Display Change Info
+# ========================================
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host "Hostname Change" -ForegroundColor Cyan
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host ""
+Write-Host "  Current Hostname:  $currentHostname" -ForegroundColor White
+Write-Host "  New Hostname:      $newHostname" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
-# List New PC Names
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host "New Hostname List" -ForegroundColor Yellow
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host ""
-
-for ($i = 0; $i -lt $validItems.Count; $i++) {
-    $no = $validItems[$i].'AdminID'
-    $oldName = $validItems[$i].'OldPCName'
-    $newName = $validItems[$i].'NewPCName'
-    Write-Host "  [$($i + 1)] $newName  (AdminID: $no / OldName: $oldName)" -ForegroundColor White
-}
-
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host ""
-
-# Select Number
-Write-Host -NoNewline "Select the number for the new PC name (0 to cancel): "
-$selection = Read-Host
-
-# Cancel
-if ($selection -eq '0') {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
-
-# Validate Number
-$selNum = 0
-if (-not [int]::TryParse($selection, [ref]$selNum) -or $selNum -lt 1 -or $selNum -gt $validItems.Count) {
-    Write-Host ""
-    Show-Error "Invalid number"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Invalid number")
-}
-
-# Get Selected PC Name
-$newHostname = $validItems[$selNum - 1].'NewPCName'
-
-Write-Host ""
-
-# Check Same Name
+# ========================================
+# Idempotency Check
+# ========================================
 if ($currentHostname -eq $newHostname) {
-    Show-Skip "Current hostname is the same. No change needed."
+    Show-Skip "Current hostname is already '$newHostname'. No change needed."
     Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "Current hostname is the same")
+    return (New-ModuleResult -Status "Skipped" -Message "Current hostname is already $newHostname")
 }
 
-Write-Host "  $currentHostname -> $newHostname" -ForegroundColor White
-Write-Host ""
-
-# Confirm Execution
-$cancelResult = Confirm-ModuleExecution -Message "Do you want to change the hostname?"
+# ========================================
+# Confirmation
+# ========================================
+$cancelResult = Confirm-ModuleExecution -Message "Change hostname: $currentHostname -> $newHostname ?"
 if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
+# ========================================
 # Change Hostname
+# ========================================
 try {
     Rename-Computer -NewName $newHostname -Force -ErrorAction Stop
-    Show-Success "Hostname changed successfully: $currentHostname -> $newHostname"
+    Show-Success "Hostname changed: $currentHostname -> $newHostname"
 }
 catch {
     Show-Error "Failed to change hostname: $_"

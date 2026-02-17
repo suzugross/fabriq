@@ -2,6 +2,60 @@
 # BitLocker Configuration Script
 # ========================================
 
+# ========================================
+# Helper: Build Evidence Content
+# ========================================
+function New-BitLockerEvidence {
+    param(
+        [object]$Volume,
+        [object]$RecoveryKey,
+        [string]$PCName
+    )
+
+    # Key Protectors summary
+    $protectorLines = @()
+    foreach ($kp in $Volume.KeyProtector) {
+        $line = "  Type: $($kp.KeyProtectorType)  ID: $($kp.KeyProtectorId)"
+        if ($kp.KeyProtectorType -eq "RecoveryPassword") {
+            $line += "  Password: $($kp.RecoveryPassword)"
+        }
+        $protectorLines += $line
+    }
+    $protectorSection = $protectorLines -join "`r`n"
+
+    $content = @(
+        "========================================"
+        "BitLocker Evidence Report"
+        "========================================"
+        ""
+        "[General]"
+        "Date:                    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        "Computer:                $PCName"
+        ""
+        "[Volume]"
+        "Mount Point:             $($Volume.MountPoint)"
+        "Volume Type:             $($Volume.VolumeType)"
+        "Volume Status:           $($Volume.VolumeStatus)"
+        "Encryption Percentage:   $($Volume.EncryptionPercentage)%"
+        "Encryption Method:       $($Volume.EncryptionMethod)"
+        "Protection Status:       $($Volume.ProtectionStatus)"
+        "Lock Status:             $($Volume.LockStatus)"
+        "Auto Unlock Enabled:     $($Volume.AutoUnlockEnabled)"
+        "Auto Unlock Key Stored:  $($Volume.AutoUnlockKeyStored)"
+        ""
+        "[Recovery Key]"
+        "Identifier:              $($RecoveryKey.KeyProtectorId)"
+        "Recovery Password:       $($RecoveryKey.RecoveryPassword)"
+        ""
+        "[All Key Protectors]"
+        $protectorSection
+        ""
+        "========================================"
+    ) -join "`r`n"
+
+    return $content
+}
+
 Show-Info "Executing BitLocker configuration..."
 Write-Host ""
 
@@ -142,14 +196,7 @@ foreach ($drive in $validDrives) {
         $existingKey = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "RecoveryPassword" } | Select-Object -First 1
         if ($null -ne $existingKey) {
             $evidencePath = Join-Path $evidenceDir "${pcName}_${driveLabel}.txt"
-            $evidenceContent = @(
-                "BitLocker Recovery Key"
-                "Date:           $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-                "Computer:       $pcName"
-                "Drive:          $driveLetter"
-                "Identifier:     $($existingKey.KeyProtectorId)"
-                "Recovery Key:   $($existingKey.RecoveryPassword)"
-            ) -join "`r`n"
+            $evidenceContent = New-BitLockerEvidence -Volume $blVolume -RecoveryKey $existingKey -PCName $pcName
             $evidenceContent | Out-File -FilePath $evidencePath -Encoding UTF8 -Force
             Show-Info "Recovery key saved: $evidencePath"
         }
@@ -214,14 +261,7 @@ foreach ($drive in $validDrives) {
     Show-Info "Saving recovery key to evidence..."
 
     $evidencePath = Join-Path $evidenceDir "${pcName}_${driveLabel}.txt"
-    $evidenceContent = @(
-        "BitLocker Recovery Key"
-        "Date:           $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        "Computer:       $pcName"
-        "Drive:          $driveLetter"
-        "Identifier:     $($recoveryKey.KeyProtectorId)"
-        "Recovery Key:   $($recoveryKey.RecoveryPassword)"
-    ) -join "`r`n"
+    $evidenceContent = New-BitLockerEvidence -Volume $blVolume -RecoveryKey $recoveryKey -PCName $pcName
 
     try {
         $evidenceContent | Out-File -FilePath $evidencePath -Encoding UTF8 -Force
