@@ -1481,6 +1481,23 @@ function Resolve-ProfileModules {
             continue
         }
 
+        # __AUTO_to_(No)__ pattern: resolve to autologon_config module with parameter
+        if ($path -match '^__AUTO_to_(.+)__$') {
+            $autoLogonNo = $Matches[1]
+            $autoLogonModule = $AllModules | Where-Object { $_.ModuleDir -eq 'autologon_config' } | Select-Object -First 1
+            if ($autoLogonModule) {
+                $moduleWithOrder = $autoLogonModule.PSObject.Copy()
+                $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
+                $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonNo" -NotePropertyValue $autoLogonNo
+                $moduleWithOrder.MenuName = "[AUTO:$autoLogonNo] $($autoLogonModule.MenuName)"
+                $validModules += $moduleWithOrder
+            }
+            else {
+                $invalidPaths += $path
+            }
+            continue
+        }
+
         # Special markers
         $specialMarkers = @{
             '__RESTART__'    = @{ MenuName = "[RESTART]";    Flag = "_IsRestart" }
