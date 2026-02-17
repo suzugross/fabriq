@@ -1,0 +1,3 @@
+Enabled,TargetDrive,EncryptionMethod,UsedSpaceOnly,SkipHardwareTest,AutoUnlock,Description
+1,C:,XtsAes128,FALSE,TRUE,FALSE,System drive
+1,D:,XtsAes128,FALSE,FALSE,TRUE,Data drive
