@@ -18,6 +18,10 @@ $script:WorkersCsvPath = ".\kernel\csv\workers.csv"
 # Session info (populated by Initialize-Session)
 $script:SessionInfo = $null
 
+# AutoPilot Mode (Profile execution only)
+$global:AutoPilotMode = $false
+$global:AutoPilotWaitSec = 3
+
 # ========================================
 # Sleep Suppression (SetThreadExecutionState)
 # ========================================
@@ -286,6 +290,12 @@ function Confirm-Execution {
         [string]$Message = "Are you sure you want to execute?"
     )
 
+    # AutoPilot: auto-confirm
+    if ($global:AutoPilotMode) {
+        Write-Host "[AUTOPILOT] $Message -> Y (auto)" -ForegroundColor Magenta
+        return $true
+    }
+
     while ($true) {
         Write-Host -NoNewline "$Message (Y/N): "
         $response = Read-Host
@@ -303,6 +313,12 @@ function Confirm-Execution {
 
 function Wait-KeyPress {
     param([string]$Message = "Press Enter to continue...")
+
+    # AutoPilot: skip wait
+    if ($global:AutoPilotMode) {
+        return
+    }
+
     Write-Host ""
     Write-Host $Message
     Read-Host
@@ -1181,6 +1197,8 @@ function Save-ResumeState {
         ProfilePath      = $ProfilePath
         ProfileName      = $ProfileName
         StopOnError      = $StopOnError
+        AutoPilot        = $global:AutoPilotMode
+        AutoPilotWaitSec = $global:AutoPilotWaitSec
         SessionID        = $script:SessionID
         ResumeAfterOrder = $ResumeAfterOrder
         CompletedModules = @($CompletedModules | ForEach-Object {
@@ -1431,14 +1449,18 @@ function Resolve-ProfileModules {
 
     $validModules = @()
     $invalidPaths = @()
+    $autoPilot = $false
+    $autoPilotWaitSec = 3
 
     try {
         $entries = @(Import-Csv $ProfileCsvPath -Encoding Default)
     }
     catch {
         return [PSCustomObject]@{
-            ValidModules = @()
-            InvalidPaths = @()
+            ValidModules     = @()
+            InvalidPaths     = @()
+            AutoPilot        = $false
+            AutoPilotWaitSec = 3
         }
     }
 
@@ -1449,6 +1471,15 @@ function Resolve-ProfileModules {
     foreach ($entry in $sortedEntries) {
         $path = $entry.ScriptPath.Trim().Replace("/", "\")
         if ([string]::IsNullOrEmpty($path)) { continue }
+
+        # AutoPilot metadata (extracted, not added to module list)
+        if ($path -eq '__AUTOPILOT__') {
+            $autoPilot = $true
+            if ($entry.Description -match 'WaitSec=(\d+)') {
+                $autoPilotWaitSec = [int]$Matches[1]
+            }
+            continue
+        }
 
         # Special markers
         $specialMarkers = @{
@@ -1487,8 +1518,10 @@ function Resolve-ProfileModules {
     }
 
     return [PSCustomObject]@{
-        ValidModules = $validModules
-        InvalidPaths = $invalidPaths
+        ValidModules     = $validModules
+        InvalidPaths     = $invalidPaths
+        AutoPilot        = $autoPilot
+        AutoPilotWaitSec = $autoPilotWaitSec
     }
 }
 
@@ -1516,13 +1549,27 @@ function Show-ProfileConfirmation {
     param(
         [object]$SelectedProfile,
         [array]$Modules,
-        [array]$InvalidPaths
+        [array]$InvalidPaths,
+        [bool]$AutoPilotFromCsv = $false,
+        [int]$AutoPilotWaitSec = 3
     )
 
     Write-Host ""
     Show-Separator
     Write-Host "Profile: $($SelectedProfile.ProfileName)" -ForegroundColor Magenta
     Show-Separator
+
+    # AutoPilot banner (CSV-specified)
+    if ($AutoPilotFromCsv) {
+        Write-Host ""
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host "  AUTOPILOT MODE (from Profile CSV)" -ForegroundColor Magenta
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host "  All confirmations will be auto-approved" -ForegroundColor White
+        Write-Host "  Wait between modules: ${AutoPilotWaitSec}s" -ForegroundColor White
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host ""
+    }
 
     Write-Host "Modules to be executed:" -ForegroundColor Cyan
     $index = 1
@@ -1550,22 +1597,42 @@ function Show-ProfileConfirmation {
     Show-Separator
     Write-Host ""
 
+    # AutoPilot from CSV: require one final confirmation (safety valve)
+    if ($AutoPilotFromCsv) {
+        if (-not (Confirm-Execution -Message "Start AutoPilot execution?")) {
+            return $null
+        }
+
+        return [PSCustomObject]@{
+            Confirmed        = $true
+            StopOnError      = $false
+            AutoPilot        = $true
+            AutoPilotWaitSec = $AutoPilotWaitSec
+        }
+    }
+
+    # Normal flow: confirmation + mode selection
     if (-not (Confirm-Execution -Message "Are you sure you want to execute?")) {
         return $null
     }
 
-    # StopOnError runtime prompt
+    # Execution mode prompt
     Write-Host ""
     Write-Host "  [1] Continue on Error (Default)" -ForegroundColor White
     Write-Host "  [2] Stop on Error" -ForegroundColor White
+    Write-Host "  [3] AutoPilot (Auto-confirm all)" -ForegroundColor Magenta
     Write-Host ""
-    Write-Host -NoNewline "Error handling [1]: "
-    $errorChoice = Read-Host
-    $stopOnError = ($errorChoice -eq "2")
+    Write-Host -NoNewline "Execution mode [1]: "
+    $modeChoice = Read-Host
+
+    $stopOnError = ($modeChoice -eq "2")
+    $autoPilot = ($modeChoice -eq "3")
 
     return [PSCustomObject]@{
-        Confirmed   = $true
-        StopOnError = $stopOnError
+        Confirmed        = $true
+        StopOnError      = $stopOnError
+        AutoPilot        = $autoPilot
+        AutoPilotWaitSec = $AutoPilotWaitSec
     }
 }
 
