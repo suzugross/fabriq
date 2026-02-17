@@ -43,13 +43,10 @@ Write-Host ""
 # ----------------------------------------
 $csvPath = Join-Path $PSScriptRoot "app_list.csv"
 
-$appList = Import-CsvSafe -Path $csvPath -Description "app_list.csv"
+# Load all entries (without -FilterEnabled, needed for disabled app display)
+$appList = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "AppID")
 if ($null -eq $appList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load app_list.csv")
-}
-
-if (-not (Test-CsvColumns -CsvData $appList -RequiredColumns @("Enabled", "AppID") -CsvName "app_list.csv")) {
-    return (New-ModuleResult -Status "Error" -Message "app_list.csv missing required columns")
 }
 
 $enabledApps = @($appList | Where-Object { $_.Enabled -eq "1" -and -not [string]::IsNullOrWhiteSpace($_.AppID) })

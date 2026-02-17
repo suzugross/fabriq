@@ -10,12 +10,19 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
-$userList = Import-CsvSafe -Path $csvPath -Description "local_user_list.csv"
-if ($null -eq $userList -or $userList.Count -eq 0) {
+$userList = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "UserName", "Password")
+if ($null -eq $userList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
-Show-Info "Loaded $($userList.Count) user definitions"
+$enabledUsers = @($userList | Where-Object { $_.Enabled -eq "1" })
+$disabledUsers = @($userList | Where-Object { $_.Enabled -ne "1" })
+
+if ($enabledUsers.Count -eq 0) {
+    Show-Info "No enabled users in local_user_list.csv"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled users")
+}
 Write-Host ""
 
 # ========================================
@@ -26,12 +33,18 @@ Write-Host "User Creation List" -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
-foreach ($user in $userList) {
+foreach ($user in $enabledUsers) {
+    $displayName = if ($user.Description) { "$($user.UserName) ($($user.Description))" } else { $user.UserName }
     $pwdExpire = if ($user.PasswordNeverExpires -eq "1") { "Never" } else { "Expires" }
     $pwdChange = if ($user.UserMayNotChangePassword -eq "1") { "Denied" } else { "Allowed" }
-    Write-Host "  UserName: $($user.UserName)" -ForegroundColor Yellow
+    Write-Host "  UserName: $displayName" -ForegroundColor Yellow
     Write-Host "    Password Expire: $pwdExpire / Change: $pwdChange / Group: $($user.Group)"
     Write-Host ""
+}
+
+foreach ($user in $disabledUsers) {
+    $displayName = if ($user.Description) { "$($user.UserName) ($($user.Description))" } else { $user.UserName }
+    Write-Host "  [DISABLED] $displayName" -ForegroundColor DarkGray
 }
 
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -51,7 +64,7 @@ Write-Host ""
 $successCount = 0
 $failCount = 0
 
-foreach ($user in $userList) {
+foreach ($user in $enabledUsers) {
     Write-Host "----------------------------------------" -ForegroundColor White
     Write-Host "Creating User: $($user.UserName)" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White

@@ -15,11 +15,10 @@ $csvPath = Join-Path $PSScriptRoot "firewall_list.csv"
 $autoConfig = $null
 
 if (Test-Path $csvPath) {
-    $csvData = Import-CsvSafe $csvPath
-    if ($csvData -and (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled","status","id","description") -CsvName "firewall_list.csv")) {
+    $csvData = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "status")
+    if ($null -ne $csvData) {
         $activeConfig = $csvData | Where-Object { $_.Enabled -eq '1' } | Select-Object -First 1
         if ($activeConfig) {
-            Show-Info "Loaded configuration from firewall_list.csv"
             $autoConfig = $activeConfig.status
         } else {
             Show-Info "firewall_list.csv found but no enabled entries. Switching to manual mode."

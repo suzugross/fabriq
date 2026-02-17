@@ -41,11 +41,8 @@ $regItems = @($allItems | Where-Object { $_.'Enabled' -eq '1' })
 $skippedCount = $allItems.Count - $regItems.Count
 
 Write-Host ""
-Write-Host "[INFO] Total: $($regItems.Count) Enabled" -NoNewline -ForegroundColor Cyan
-if ($skippedCount -gt 0) {
-    Write-Host " / $skippedCount Skipped" -NoNewline -ForegroundColor Gray
-}
-Write-Host "" -ForegroundColor Cyan
+$skipMsg = if ($skippedCount -gt 0) { " ($skippedCount skipped)" } else { "" }
+Show-Info "Total: $($regItems.Count) enabled$skipMsg"
 Write-Host ""
 
 if ($regItems.Count -eq 0) {
