@@ -10,12 +10,19 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "app_list.csv"
 
-$appList = Import-CsvSafe -Path $csvPath -Description "app_list.csv"
-if ($null -eq $appList -or $appList.Count -eq 0) {
+$appList = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "AppName", "FileName", "Type")
+if ($null -eq $appList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load app_list.csv")
 }
 
-Show-Info "Loaded $($appList.Count) application definitions"
+$enabledApps = @($appList | Where-Object { $_.Enabled -eq "1" })
+$disabledApps = @($appList | Where-Object { $_.Enabled -ne "1" })
+
+if ($enabledApps.Count -eq 0) {
+    Show-Info "No enabled apps in app_list.csv"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled apps")
+}
 Write-Host ""
 
 # ========================================
@@ -38,20 +45,26 @@ Write-Host ""
 
 $missingCount = 0
 
-foreach ($app in $appList) {
+foreach ($app in $enabledApps) {
+    $appName = if ($app.Description) { $app.Description } else { $app.AppName }
     $installerPath = Join-Path $fileDir $app.FileName
     $exists = Test-Path $installerPath
 
     if ($exists) {
-        Write-Host "  $($app.AppName)" -ForegroundColor Yellow
+        Write-Host "  $appName" -ForegroundColor Yellow
         Write-Host "    File: $($app.FileName) / Type: $($app.Type) / Args: $($app.SilentArgs)"
     }
     else {
-        Write-Host "  $($app.AppName) [NOT FOUND]" -ForegroundColor Red
+        Write-Host "  $appName [NOT FOUND]" -ForegroundColor Red
         Write-Host "    File: $($app.FileName) is missing"
         $missingCount++
     }
     Write-Host ""
+}
+
+foreach ($app in $disabledApps) {
+    $appName = if ($app.Description) { $app.Description } else { $app.AppName }
+    Write-Host "  [DISABLED] $appName ($($app.FileName))" -ForegroundColor DarkGray
 }
 
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -78,8 +91,8 @@ $successCount = 0
 $skipCount = 0
 $failCount = 0
 
-foreach ($app in $appList) {
-    $appName = $app.AppName
+foreach ($app in $enabledApps) {
+    $appName = if ($app.Description) { $app.Description } else { $app.AppName }
     $installerPath = Join-Path $fileDir $app.FileName
 
     Write-Host "----------------------------------------" -ForegroundColor White

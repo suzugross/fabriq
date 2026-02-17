@@ -1,2 +1,2 @@
-domain,user,pass,dns
-example.local,Administrator,P@ssword123,192.168.1.1
+Enabled,domain,user,pass,dns,Description
+1,example.local,Administrator,P@ssword123,192.168.1.1,

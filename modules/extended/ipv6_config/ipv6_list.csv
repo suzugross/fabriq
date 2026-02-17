@@ -1,4 +1,4 @@
-﻿AdapterPattern,Enabled
-イーサネット*,0
-Ethernet*,0
-Wi-Fi*,0
+﻿Enabled,AdapterPattern,IPv6State,Description
+1,イーサネット*,0,
+1,Ethernet*,0,
+1,Wi-Fi*,0,
