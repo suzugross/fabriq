@@ -567,9 +567,19 @@ function Invoke-BatchExecution {
             Start-Sleep -Seconds $global:AutoPilotWaitSec
         }
 
+        # __AUTO_to_xxx__ parameter passing via environment variable
+        if ($module._AutoLogonNo) {
+            $env:FABRIQ_AUTOLOGON_NO = $module._AutoLogonNo
+        }
+
         $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
             & $module.Script
         } -ContinueOnError
+
+        # Clean up AutoLogon environment variable
+        if ($module._AutoLogonNo) {
+            $env:FABRIQ_AUTOLOGON_NO = $null
+        }
 
         Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message
         $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message
