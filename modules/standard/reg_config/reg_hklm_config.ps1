@@ -125,12 +125,8 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 # Confirmation
-if (-not (Confirm-Execution -Message "Apply the above registry changes?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above registry changes?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 Show-Info "Starting registry configuration..."
@@ -139,7 +135,7 @@ Write-Host ""
 # Apply Settings
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
@@ -203,29 +199,11 @@ foreach ($item in $regItems) {
     }
     catch {
         Show-Error "$_"
-        $errorCount++
+        $failCount++
     }
 
     Write-Host ""
 }
 
 # Summary
-Show-Separator
-Write-Host "Configuration Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "Success: $successCount items" -ForegroundColor Green
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (Already configured)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($successCount -gt 0 -and $skipCount -gt 0) { "Success" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results")

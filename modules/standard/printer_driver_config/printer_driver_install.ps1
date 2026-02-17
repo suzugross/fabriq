@@ -217,12 +217,8 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-if (-not (Confirm-Execution -Message "Do you want to install?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to install?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -287,7 +283,7 @@ Write-Host ""
 # ========================================
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($driverName in $selectedInf.ModelNames) {
     Show-Info "Registering printer driver: $driverName"
@@ -307,7 +303,7 @@ foreach ($driverName in $selectedInf.ModelNames) {
     }
     catch {
         Show-Error "Registration failed: $driverName - $_"
-        $errorCount++
+        $failCount++
     }
 }
 
@@ -316,24 +312,4 @@ Write-Host ""
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Installation Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (already installed)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Installation Results")

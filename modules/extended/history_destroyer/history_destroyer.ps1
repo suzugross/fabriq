@@ -40,18 +40,14 @@ Show-Warning "Explorer will be temporarily stopped during cleanup."
 Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
 Write-Host ""
 
-if (-not (Confirm-Execution -Message "Proceed with history destruction?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Proceed with history destruction?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 $totalSteps = 12
 
 # ========================================
@@ -167,7 +163,7 @@ try {
 }
 catch {
     Show-Error "Failed to clear event logs: $($_.Exception.Message)"
-    $errorCount++
+    $failCount++
 }
 
 Write-Host ""
@@ -267,7 +263,7 @@ try {
 }
 catch {
     Show-Error "Failed to empty Recycle Bin: $($_.Exception.Message)"
-    $errorCount++
+    $failCount++
 }
 
 Write-Host ""
@@ -432,7 +428,7 @@ catch {
     Show-Error "Failed to reset search index: $($_.Exception.Message)"
     # Try to restart WSearch even on error
     Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
-    $errorCount++
+    $failCount++
 }
 
 Write-Host ""
@@ -505,24 +501,4 @@ Write-Host ""
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "History Destroyer - Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "Success: $successCount categories" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount categories (not installed)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed:  $errorCount categories" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "History Destroyer - Results")

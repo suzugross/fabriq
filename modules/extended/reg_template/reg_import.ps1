@@ -17,17 +17,9 @@ Write-Host ""
 # --- CSV Loading ---
 $csvPath = Join-Path $PSScriptRoot "reg_list.csv"
 
-$allItems = Import-CsvSafe -Path $csvPath -Description "reg_list.csv"
-if ($null -eq $allItems -or $allItems.Count -eq 0) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load reg_list.csv")
-}
-
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-if ($items.Count -eq 0) {
-    Show-Skip "No enabled entries in reg_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Failed to load reg_list.csv") }
+if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # --- Backup directory check ---
 $backupDir = Join-Path $PSScriptRoot "backup"
@@ -100,12 +92,8 @@ if ($readyTargets.Count -eq 0) {
 # --- Confirmation ---
 Show-Warning "This will merge registry data into the current system."
 Write-Host ""
-if (-not (Confirm-Execution -Message "Import the above registry backups?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Import the above registry backups?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -148,30 +136,8 @@ foreach ($target in $importTargets) {
 }
 
 # --- Summary ---
-Show-Separator
-Write-Host "Registry Import Results" -ForegroundColor Cyan
-Show-Separator
 if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount items (No backup)" -ForegroundColor Gray
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount items" -ForegroundColor Red
-}
-Show-Separator
-
-if ($successCount -gt 0) {
-    Write-Host ""
     Show-Warning "Some changes may require sign-out or restart to take effect."
+    Write-Host ""
 }
-Write-Host ""
-
-# --- ModuleResult ---
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($successCount -gt 0 -and $skipCount -gt 0) { "Success" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Registry Import Results")

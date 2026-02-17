@@ -76,21 +76,9 @@ function Test-LocalGroupExists {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "group_list.csv"
 
-$allItems = Import-CsvSafe -Path $csvPath -Description "group_list.csv"
-if ($null -eq $allItems -or $allItems.Count -eq 0) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load group_list.csv")
-}
-
-# Filter enabled entries
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-
-if ($items.Count -eq 0) {
-    Show-Skip "No enabled entries in group_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
-
-Show-Info "Loaded $($items.Count) enabled entries (total: $($allItems.Count))"
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Failed to load group_list.csv") }
+if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 Write-Host ""
 
 # ========================================
@@ -136,12 +124,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above group member settings?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above group member settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -195,18 +179,4 @@ foreach ($item in $items) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Execution Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items (Already configured)" -ForegroundColor $(if ($skipCount -gt 0) { "Gray" } else { "Green" })
-Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

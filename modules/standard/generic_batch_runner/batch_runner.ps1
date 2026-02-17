@@ -13,24 +13,9 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "batch_list.csv"
 
-$csvData = Import-CsvSafe $csvPath
-if (-not $csvData) {
-    return (New-ModuleResult -Status "Error" -Message "batch_list.csv not found or empty")
-}
-
-if (-not (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled","Description","BatchPath","Arguments","TimeoutSec","SuccessCodes","Encoding") -CsvName "batch_list.csv")) {
-    return (New-ModuleResult -Status "Error" -Message "batch_list.csv has invalid columns")
-}
-
-# Filter enabled entries
-$batchList = @($csvData | Where-Object { $_.Enabled -eq '1' })
-
-if ($batchList.Count -eq 0) {
-    Show-Info "No enabled batch entries found"
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled batch entries")
-}
-
-Show-Info "Loaded $($batchList.Count) batch definition(s)"
+$batchList = Import-ModuleCsv -Path $csvPath -FilterEnabled -RequiredColumns @("Enabled","Description","BatchPath","Arguments","TimeoutSec","SuccessCodes","Encoding")
+if ($null -eq $batchList) { return (New-ModuleResult -Status "Error" -Message "Failed to load batch_list.csv") }
+if ($batchList.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled batch entries") }
 Write-Host ""
 
 # ========================================
@@ -83,12 +68,8 @@ if ($missingCount -gt 0) {
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Proceed with batch execution?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Proceed with batch execution?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -182,18 +163,4 @@ foreach ($batch in $batchList) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Execution Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

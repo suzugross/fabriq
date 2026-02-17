@@ -90,12 +90,8 @@ Write-Host "  $currentHostname -> $newHostname" -ForegroundColor White
 Write-Host ""
 
 # Confirm Execution
-if (-not (Confirm-Execution -Message "Do you want to change the hostname?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to change the hostname?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 

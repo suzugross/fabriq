@@ -81,12 +81,8 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 # Confirmation
-if (-not (Confirm-Execution -Message "Delete the above registry values?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Delete the above registry values?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 Show-Info "Starting registry deletion..."
@@ -122,7 +118,7 @@ Write-Host ""
 # Execute Deletion
 # ========================================
 $successCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
@@ -149,7 +145,7 @@ foreach ($item in $regItems) {
             }
             catch {
                 Write-Host "  [HKCU] Error: $_" -ForegroundColor Red
-                $errorCount++
+                $failCount++
                 Write-Host ""
                 continue
             }
@@ -179,7 +175,7 @@ foreach ($item in $regItems) {
                 }
                 catch {
                     Write-Host "  [HIVE] Error: $_" -ForegroundColor Red
-                    $errorCount++
+                    $failCount++
                     Write-Host ""
                     continue
                 }
@@ -227,17 +223,4 @@ if ($hiveLoaded) {
 }
 
 # Summary
-Show-Separator
-Write-Host "Deletion Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "Success: $successCount items" -ForegroundColor Green
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Fail $failCount -Title "Deletion Results")

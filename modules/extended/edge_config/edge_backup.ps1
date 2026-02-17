@@ -34,12 +34,8 @@ if ($edgeProcesses.Count -gt 0) {
     Show-Info "Edge must be closed before backup"
     Write-Host ""
 
-    if (-not (Confirm-Execution -Message "Terminate Edge and proceed with backup?")) {
-        Write-Host ""
-        Show-Info "Canceled"
-        Write-Host ""
-        return (New-ModuleResult -Status "Cancelled" -Message "User canceled (Edge running)")
-    }
+    $cancelResult = Confirm-ModuleExecution -Message "Terminate Edge and proceed with backup?"
+    if ($null -ne $cancelResult) { return $cancelResult }
 
     Write-Host ""
     Show-Info "Terminating Edge processes..."
@@ -72,12 +68,8 @@ else {
 }
 
 # --- Confirm backup ---
-if (-not (Confirm-Execution -Message "Start Edge profile backup?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Start Edge profile backup?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 

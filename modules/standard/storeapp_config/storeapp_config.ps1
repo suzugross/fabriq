@@ -37,12 +37,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Delete the Store Apps listed above?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Delete the Store Apps listed above?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -112,18 +108,4 @@ foreach ($app in $appList) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Execution Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

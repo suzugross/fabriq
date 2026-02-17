@@ -59,9 +59,4 @@ If ($HeifExt) {
     $skipCount++
 }
 
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount)

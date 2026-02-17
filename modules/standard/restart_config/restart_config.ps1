@@ -55,12 +55,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Register RunOnce and restart the computer?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 

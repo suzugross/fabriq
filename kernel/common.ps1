@@ -165,6 +165,98 @@ function New-ModuleResult {
     return $resultObj
 }
 
+# ========================================
+# Pattern Layer Functions
+# ========================================
+# モジュール共通の定型パターンを関数化
+# New-BatchResult: 結果集計表示 + ModuleResult 返却
+# Confirm-ModuleExecution: 確認 + キャンセル処理
+# Import-ModuleCsv: CSV 読み込み + フィルタ + カラム検証
+
+function New-BatchResult {
+    param(
+        [int]$Success = 0,
+        [int]$Skip = 0,
+        [int]$Fail = 0,
+        [string]$Title = "Execution Results",
+        [string]$MessageSuffix = ""
+    )
+
+    Show-Separator
+    Write-Host $Title -ForegroundColor Cyan
+    Show-Separator
+
+    if ($Success -gt 0) {
+        Write-Host "  Success: $Success items" -ForegroundColor Green
+    }
+    if ($Skip -gt 0) {
+        Write-Host "  Skipped: $Skip items" -ForegroundColor Gray
+    }
+    if ($Fail -gt 0) {
+        Write-Host "  Failed:  $Fail items" -ForegroundColor Red
+    }
+
+    Show-Separator
+    Write-Host ""
+
+    $status = if ($Fail -eq 0 -and $Success -gt 0) { "Success" }
+        elseif ($Success -gt 0 -and $Fail -gt 0) { "Partial" }
+        elseif ($Fail -eq 0 -and $Skip -gt 0 -and $Success -eq 0) { "Skipped" }
+        elseif ($Fail -gt 0 -and $Success -eq 0) { "Error" }
+        else { "Success" }
+
+    $msg = "Success: $Success, Skip: $Skip, Fail: $Fail"
+    if ($MessageSuffix) { $msg += " $MessageSuffix" }
+
+    return (New-ModuleResult -Status $status -Message $msg)
+}
+
+function Confirm-ModuleExecution {
+    param(
+        [string]$Message = "Are you sure you want to execute?"
+    )
+
+    if (-not (Confirm-Execution -Message $Message)) {
+        Write-Host ""
+        Show-Info "Canceled"
+        Write-Host ""
+        return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
+    }
+
+    return $null
+}
+
+function Import-ModuleCsv {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [switch]$FilterEnabled,
+        [string[]]$RequiredColumns
+    )
+
+    $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
+    if ($null -eq $allItems) { return $null }
+    if ($allItems.Count -eq 0) { return $null }
+
+    if ($RequiredColumns) {
+        if (-not (Test-CsvColumns -CsvData $allItems -RequiredColumns $RequiredColumns -CsvName ([System.IO.Path]::GetFileName($Path)))) {
+            return $null
+        }
+    }
+
+    if ($FilterEnabled) {
+        $filtered = @($allItems | Where-Object { $_.Enabled -eq "1" })
+        if ($filtered.Count -eq 0) {
+            Show-Skip "No enabled entries in $([System.IO.Path]::GetFileName($Path))"
+            return @()
+        }
+        Show-Info "Loaded $($filtered.Count) enabled entries (total: $($allItems.Count))"
+        return $filtered
+    }
+
+    return $allItems
+}
+
 function Show-Progress {
     param(
         [string]$Activity,

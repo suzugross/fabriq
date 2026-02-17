@@ -85,12 +85,8 @@ if ($missingDrivers.Count -gt 0) {
     Write-Host ""
 }
 
-if (-not (Confirm-Execution -Message "Do you want to proceed with registration?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to proceed with registration?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -99,7 +95,7 @@ Write-Host ""
 # ========================================
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($p in $printers) {
     Write-Host "========================================" -ForegroundColor Yellow
@@ -122,7 +118,7 @@ foreach ($p in $printers) {
         }
         catch {
             Show-Error "Failed to create port: $portName - $_"
-            $errorCount++
+            $failCount++
             Write-Host ""
             continue
         }
@@ -146,7 +142,7 @@ foreach ($p in $printers) {
     }
     catch {
         Show-Error "Failed to create printer: $($p.Name) - $_"
-        $errorCount++
+        $failCount++
     }
 
     Write-Host ""
@@ -155,24 +151,4 @@ foreach ($p in $printers) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Registration Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (already registered)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Registration Results")

@@ -158,12 +158,8 @@ Write-Host "Set firewall for all profiles to $actionText" -ForegroundColor Yello
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-if (-not (Confirm-Execution -Message "Are you sure you want to execute?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Are you sure you want to execute?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -171,7 +167,7 @@ Write-Host ""
 # Step 4: Apply Settings
 # ========================================
 $successCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($p in $profiles) {
     $profileName = $p.Name
@@ -184,7 +180,7 @@ foreach ($p in $profiles) {
     }
     catch {
         Show-Error "${profileName}: $_"
-        $errorCount++
+        $failCount++
     }
 }
 
@@ -217,18 +213,4 @@ catch {
     Show-Warning "Failed to verify status after change"
 }
 
-# Result Summary
-Show-Separator
-Write-Host "Configuration Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "Success: $successCount items" -ForegroundColor Green
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Fail $failCount -Title "Configuration Results")

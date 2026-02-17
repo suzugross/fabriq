@@ -71,9 +71,8 @@ if ($osLicense.LicenseStatus -eq 1) {
 # ========================================
 # Step 3: Confirm
 # ========================================
-if (-not (Confirm-Execution -Message "Activate Windows license?")) {
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Activate Windows license?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 # ========================================
 # Step 4: Trigger Activation

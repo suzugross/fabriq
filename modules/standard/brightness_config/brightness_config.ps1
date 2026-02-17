@@ -46,21 +46,11 @@ Write-Host ""
 # 3. Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "brightness_list.csv"
-
-$csvData = Import-CsvSafe -Path $csvPath -Description "brightness_list.csv"
-if ($null -eq $csvData) {
+$enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled -RequiredColumns @("Enabled", "Brightness")
+if ($null -eq $enabledItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load brightness_list.csv")
 }
-
-if (-not (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled", "Brightness") -CsvName "brightness_list.csv")) {
-    return (New-ModuleResult -Status "Error" -Message "brightness_list.csv missing required columns")
-}
-
-$enabledItems = @($csvData | Where-Object { $_.Enabled -eq "1" })
-
 if ($enabledItems.Count -eq 0) {
-    Show-Info "No enabled entries in brightness_list.csv"
-    Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
@@ -115,12 +105,8 @@ if (-not $hasChanges) {
 # ========================================
 # 5. Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above brightness setting?")) {
-    Write-Host ""
-    Show-Info "Cancelled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User cancelled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above brightness setting?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -132,7 +118,7 @@ Write-Host ""
 
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($item in $validItems) {
     $brightness = [int]$item.Brightness
@@ -155,7 +141,7 @@ foreach ($item in $validItems) {
     }
     catch {
         Show-Error "Failed to set brightness: $($_.Exception.Message)"
-        $errorCount++
+        $failCount++
     }
 
     Write-Host ""
@@ -164,26 +150,4 @@ foreach ($item in $validItems) {
 # ========================================
 # 7. Result Summary
 # ========================================
-Show-Separator
-Write-Host "Brightness Configuration Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount (already set)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "  Failed:  $errorCount" -ForegroundColor Red
-}
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Brightness Configuration Results")

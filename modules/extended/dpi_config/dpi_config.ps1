@@ -277,21 +277,9 @@ function Write-DpiValue {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "dpi_list.csv"
 
-$allItems = Import-CsvSafe -Path $csvPath -Description "dpi_list.csv"
-if ($null -eq $allItems -or $allItems.Count -eq 0) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv")
-}
-
-# Filter enabled entries
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-
-if ($items.Count -eq 0) {
-    Show-Skip "No enabled entries in dpi_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
-
-Show-Info "Loaded $($items.Count) enabled entries (total: $($allItems.Count))"
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv") }
+if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 Write-Host ""
 
 # ========================================
@@ -429,12 +417,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above DPI scaling settings?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above DPI scaling settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -576,22 +560,8 @@ if ($hiveLoaded) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "Execution Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items (Already configured)" -ForegroundColor $(if ($skipCount -gt 0) { "Gray" } else { "Green" })
-Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Show-Separator
 if ($successCount -gt 0) {
-    Write-Host ""
     Show-Warning "Sign-out or restart may be required for changes to take effect."
+    Write-Host ""
 }
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

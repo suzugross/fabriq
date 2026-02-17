@@ -121,9 +121,8 @@ Write-Host ""
 # ========================================
 # Step 4: Confirm
 # ========================================
-if (-not (Confirm-Execution -Message "Install this product key?")) {
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Install this product key?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 # ========================================
 # Step 5: Install Product Key

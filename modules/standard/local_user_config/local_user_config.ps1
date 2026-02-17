@@ -40,12 +40,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Create users with above settings?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Create users with above settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -118,19 +114,4 @@ foreach ($user in $userList) {
     Write-Host ""
 }
 
-# ========================================
-# Result Summary
-# ========================================
-Show-Separator
-Write-Host "Execution Results" -ForegroundColor Cyan
-Show-Separator
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Fail $failCount)

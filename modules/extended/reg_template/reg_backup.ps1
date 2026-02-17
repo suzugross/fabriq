@@ -15,17 +15,9 @@ Write-Host ""
 # --- CSV Loading ---
 $csvPath = Join-Path $PSScriptRoot "reg_list.csv"
 
-$allItems = Import-CsvSafe -Path $csvPath -Description "reg_list.csv"
-if ($null -eq $allItems -or $allItems.Count -eq 0) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load reg_list.csv")
-}
-
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-if ($items.Count -eq 0) {
-    Show-Skip "No enabled entries in reg_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Failed to load reg_list.csv") }
+if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # --- Backup directory ---
 $backupDir = Join-Path $PSScriptRoot "backup"
@@ -67,12 +59,8 @@ foreach ($item in $items) {
 Write-Host ""
 
 # --- Confirmation ---
-if (-not (Confirm-Execution -Message "Export the above registry keys?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Export the above registry keys?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -113,21 +101,6 @@ foreach ($item in $items) {
 }
 
 # --- Summary ---
-Show-Separator
-Write-Host "Registry Backup Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount items" -ForegroundColor Green
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount items" -ForegroundColor Red
-}
-Write-Host "  Location: $backupDir" -ForegroundColor White
-Show-Separator
+Show-Info "Location: $backupDir"
 Write-Host ""
-
-# --- ModuleResult ---
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Fail $failCount -Title "Registry Backup Results")

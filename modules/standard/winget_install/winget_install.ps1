@@ -110,12 +110,8 @@ if ($toInstall.Count -eq 0) {
 # ----------------------------------------
 # 5. Confirmation
 # ----------------------------------------
-if (-not (Confirm-Execution -Message "Install the above $($toInstall.Count) app(s)?")) {
-    Write-Host ""
-    Show-Info "Cancelled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User cancelled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Install the above $($toInstall.Count) app(s)?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -167,26 +163,4 @@ foreach ($app in $toInstall) {
 # ----------------------------------------
 # 7. Result Summary
 # ----------------------------------------
-Show-Separator
-Write-Host "Installation Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount apps" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount apps (already installed)" -ForegroundColor Gray
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount apps" -ForegroundColor Red
-}
-Show-Separator
-Write-Host ""
-
-# Determine Module Status
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($failCount -gt 0) { "Error" }
-    else { "Skipped" }
-
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Installation Results")

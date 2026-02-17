@@ -231,18 +231,9 @@ catch {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "dpi_list.csv"
 
-$csvData = Import-CsvSafe -Path $csvPath -Description "dpi_list.csv" -RequiredColumns @("Enabled", "MonitorIndex", "ScalePercent")
-if ($null -eq $csvData) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv")
-}
-
-$enabledItems = @($csvData | Where-Object { $_.Enabled -eq "1" })
-
-if ($enabledItems.Count -eq 0) {
-    Show-Skip "No enabled entries in dpi_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
+$enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled -RequiredColumns @("Enabled", "MonitorIndex", "ScalePercent")
+if ($null -eq $enabledItems) { return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv") }
+if ($enabledItems.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # ========================================
 # Show Current DPI & Monitor Info
@@ -268,7 +259,7 @@ Write-Host ""
 
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 $hasChanges = $false
 
@@ -302,12 +293,8 @@ if (-not $hasChanges) {
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above DPI settings?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above DPI settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -341,12 +328,12 @@ foreach ($item in $enabledItems) {
         }
         else {
             Show-Error "$result"
-            $errorCount++
+            $failCount++
         }
     }
     catch {
         Show-Error "$($_.Exception.Message)"
-        $errorCount++
+        $failCount++
     }
 
     Write-Host ""
@@ -355,24 +342,4 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "DPI Scaling Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (already set)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed:  $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "DPI Scaling Results")

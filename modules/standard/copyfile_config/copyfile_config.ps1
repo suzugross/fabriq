@@ -16,11 +16,12 @@ Write-Host ""
 # Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "copy_list.csv"
-
-$allItems = Import-CsvSafe -Path $csvPath -Description "copy_list.csv"
-if ($null -eq $allItems) {
-    Write-Host ""
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load copy_list.csv")
+}
+if ($items.Count -eq 0) {
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
 # ========================================
@@ -31,16 +32,6 @@ if (-not (Test-Path $sourceDir)) {
     Show-Error "source/ directory not found: $sourceDir"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "source/ directory not found")
-}
-
-# ========================================
-# Step 3: Filter enabled entries
-# ========================================
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-if ($items.Count -eq 0) {
-    Show-Skip "No enabled entries in copy_list.csv"
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
 # ========================================
@@ -87,12 +78,8 @@ foreach ($item in $items) {
 # ========================================
 # Step 5: Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Copy the above files?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Copy the above files?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -167,25 +154,4 @@ foreach ($item in $items) {
 # ========================================
 # Result Summary
 # ========================================
-Show-Separator
-Write-Host "File Copy Results" -ForegroundColor Cyan
-Show-Separator
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount items (Already exists)" -ForegroundColor Gray
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount items" -ForegroundColor Red
-}
-Show-Separator
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($successCount -gt 0 -and $skipCount -gt 0) { "Success" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "File Copy Results")

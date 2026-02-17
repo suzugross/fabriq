@@ -32,12 +32,8 @@ Write-Host "       before proceeding with the backup." -ForegroundColor Yellow
 Write-Host ""
 
 # --- Confirmation ---
-if (-not (Confirm-Execution -Message "Backup desktop icon layout?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Backup desktop icon layout?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 

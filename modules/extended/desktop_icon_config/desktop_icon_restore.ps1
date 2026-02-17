@@ -71,12 +71,8 @@ if ($backupFiles.Count -gt 1) {
 Show-Warning "This will overwrite current desktop icon layout."
 Show-Info "Changes take effect after sign-out or restart."
 Write-Host ""
-if (-not (Confirm-Execution -Message "Restore desktop icon layout from backup?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Restore desktop icon layout from backup?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 

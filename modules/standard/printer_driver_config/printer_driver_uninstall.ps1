@@ -141,12 +141,8 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-if (-not (Confirm-Execution -Message "Do you want to uninstall?")) {
-    Write-Host ""
-    Show-Info "Canceled"
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to uninstall?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
