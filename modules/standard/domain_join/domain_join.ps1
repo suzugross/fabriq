@@ -13,13 +13,17 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "domain.csv"
 
-$domainList = Import-CsvSafe -Path $csvPath -Description "domain.csv"
-if ($null -eq $domainList -or $domainList.Count -eq 0) {
+$domainList = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "domain", "user", "pass", "dns")
+if ($null -eq $domainList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load domain.csv")
 }
 
-# Note: CSV headers must match these keys exactly
-$domainEntry = $domainList[0]
+$domainEntry = $domainList | Where-Object { $_.Enabled -eq '1' } | Select-Object -First 1
+if ($null -eq $domainEntry) {
+    Show-Info "No enabled entries in domain.csv"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
 $DOMAIN = $domainEntry.'domain'
 $USER = $domainEntry.'user'
 $PASS = $domainEntry.'pass'

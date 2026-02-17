@@ -19,12 +19,19 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "ipv6_list.csv"
 
-$ipv6List = Import-CsvSafe -Path $csvPath -Description "ipv6_list.csv"
-if ($null -eq $ipv6List -or $ipv6List.Count -eq 0) {
+$ipv6List = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "AdapterPattern", "IPv6State")
+if ($null -eq $ipv6List) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load ipv6_list.csv")
 }
 
-Show-Info "Loaded $($ipv6List.Count) settings"
+$enabledItems = @($ipv6List | Where-Object { $_.Enabled -eq "1" })
+$disabledItems = @($ipv6List | Where-Object { $_.Enabled -ne "1" })
+
+if ($enabledItems.Count -eq 0) {
+    Show-Info "No enabled entries in ipv6_list.csv"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
 Write-Host ""
 
 # ========================================
@@ -35,13 +42,19 @@ Write-Host "Target Adapters List" -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
-foreach ($item in $ipv6List) {
-    $stateStr = if ($item.Enabled -eq "1") { "Enable" } else { "Disable" }
-    $stateColor = if ($item.Enabled -eq "1") { "Green" } else { "Yellow" }
-    
-    Write-Host "  Pattern: $($item.AdapterPattern)" -ForegroundColor White
+foreach ($item in $enabledItems) {
+    $stateStr = if ($item.IPv6State -eq "1") { "Enable" } else { "Disable" }
+    $stateColor = if ($item.IPv6State -eq "1") { "Green" } else { "Yellow" }
+    $descStr = if ($item.Description) { " ($($item.Description))" } else { "" }
+
+    Write-Host "  Pattern: $($item.AdapterPattern)$descStr" -ForegroundColor White
     Write-Host "  Action:  $stateStr" -ForegroundColor $stateColor
     Write-Host ""
+}
+
+foreach ($item in $disabledItems) {
+    $descStr = if ($item.Description) { " ($($item.Description))" } else { "" }
+    Write-Host "  [DISABLED] $($item.AdapterPattern)$descStr" -ForegroundColor DarkGray
 }
 
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -62,9 +75,9 @@ $successCount = 0
 $failCount = 0
 $skipCount = 0
 
-foreach ($item in $ipv6List) {
+foreach ($item in $enabledItems) {
     $pattern = $item.AdapterPattern
-    $targetState = ($item.Enabled -eq "1")
+    $targetState = ($item.IPv6State -eq "1")
     $actionName = if ($targetState) { "Enable" } else { "Disable" }
 
     Write-Host "----------------------------------------" -ForegroundColor White
