@@ -3,22 +3,22 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Printer Driver Uninstallation" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
 # Step 1: Get Installed Drivers List
 # ========================================
-Write-Host "[INFO] Scanning for installed printer drivers..." -ForegroundColor Cyan
+Show-Info "Scanning for installed printer drivers..."
 Write-Host ""
 
 try {
     $allDrivers = Get-PrinterDriver -ErrorAction Stop
 }
 catch {
-    Write-Host "[ERROR] Failed to retrieve printer driver info: $_" -ForegroundColor Red
+    Show-Error "Failed to retrieve printer driver info: $_"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Failed to retrieve printer driver info: $_")
 }
@@ -47,7 +47,7 @@ foreach ($drv in $allDrivers) {
 }
 
 if ($userDrivers.Count -eq 0) {
-    Write-Host "[INFO] No uninstallable printer drivers found" -ForegroundColor Yellow
+    Show-Info "No uninstallable printer drivers found"
     Write-Host "       (Microsoft standard drivers are excluded)" -ForegroundColor Gray
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No uninstallable printer drivers found")
@@ -75,7 +75,7 @@ $choice = Read-Host
 
 if ($choice -eq '0') {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -83,7 +83,7 @@ if ($choice -eq '0') {
 $choiceNum = 0
 if (-not [int]::TryParse($choice, [ref]$choiceNum) -or $choiceNum -lt 1 -or $choiceNum -gt $userDrivers.Count) {
     Write-Host ""
-    Write-Host "[ERROR] Invalid number" -ForegroundColor Red
+    Show-Error "Invalid number"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Invalid number")
 }
@@ -96,7 +96,7 @@ Write-Host ""
 # ========================================
 # Step 3: Check Printers in Use
 # ========================================
-Write-Host "[INFO] Checking driver usage..." -ForegroundColor Cyan
+Show-Info "Checking driver usage..."
 
 $usingPrinters = @()
 try {
@@ -113,7 +113,7 @@ catch {
 
 if ($usingPrinters.Count -gt 0) {
     Write-Host ""
-    Write-Host "[WARNING] This driver is currently used by the following printers:" -ForegroundColor Yellow
+    Show-Warning "This driver is currently used by the following printers:"
     foreach ($p in $usingPrinters) {
         Write-Host "  - $($p.Name)" -ForegroundColor Yellow
     }
@@ -141,12 +141,8 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-if (-not (Confirm-Execution -Message "Do you want to uninstall?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to uninstall?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -154,17 +150,17 @@ Write-Host ""
 # Step 4: Delete Printers in Use
 # ========================================
 if ($usingPrinters.Count -gt 0) {
-    Write-Host "[INFO] Deleting printers in use..." -ForegroundColor Cyan
+    Show-Info "Deleting printers in use..."
 
     foreach ($p in $usingPrinters) {
         try {
             Remove-Printer -Name $p.Name -ErrorAction Stop
-            Write-Host "[SUCCESS] Deleted printer: $($p.Name)" -ForegroundColor Green
+            Show-Success "Deleted printer: $($p.Name)"
         }
         catch {
-            Write-Host "[ERROR] Failed to delete printer: $($p.Name) - $_" -ForegroundColor Red
+            Show-Error "Failed to delete printer: $($p.Name) - $_"
             Write-Host ""
-            Write-Host "[INFO] Aborting driver uninstallation due to printer deletion failure" -ForegroundColor Yellow
+            Show-Info "Aborting driver uninstallation due to printer deletion failure"
             Write-Host ""
             return (New-ModuleResult -Status "Error" -Message "Failed to delete printer: $($p.Name)")
         }
@@ -176,26 +172,26 @@ if ($usingPrinters.Count -gt 0) {
 # ========================================
 # Step 5: Delete Printer Driver
 # ========================================
-Write-Host "[INFO] Deleting printer driver: $driverName" -ForegroundColor Cyan
+Show-Info "Deleting printer driver: $driverName"
 
 # --- Restart Spooler to release locks ---
-Write-Host "[INFO] Restarting Print Spooler to release file locks..." -ForegroundColor Cyan
+Show-Info "Restarting Print Spooler to release file locks..."
 try {
     Restart-Service -Name "spooler" -Force -ErrorAction Stop
     Start-Sleep -Seconds 3
-    Write-Host "[SUCCESS] Print Spooler restarted" -ForegroundColor Green
+    Show-Success "Print Spooler restarted"
 }
 catch {
-    Write-Host "[WARNING] Failed to restart Print Spooler: $_" -ForegroundColor Yellow
+    Show-Warning "Failed to restart Print Spooler: $_"
 }
 # ----------------------------------------
 
 try {
     Remove-PrinterDriver -Name $driverName -ErrorAction Stop
-    Write-Host "[SUCCESS] Deleted printer driver: $driverName" -ForegroundColor Green
+    Show-Success "Deleted printer driver: $driverName"
 }
 catch {
-    Write-Host "[ERROR] Failed to delete printer driver: $_" -ForegroundColor Red
+    Show-Error "Failed to delete printer driver: $_"
     if ($_.Exception.InnerException) {
          Write-Host "       Detail: $($_.Exception.InnerException.Message)" -ForegroundColor Red
     }
@@ -208,7 +204,7 @@ Write-Host ""
 # ========================================
 # Step 6: Remove from Driver Store
 # ========================================
-Write-Host "[INFO] Checking removal from Driver Store..." -ForegroundColor Cyan
+Show-Info "Checking removal from Driver Store..."
 
 # Search for OEM INF in Driver Store with pnputil
 $pnpEnum = & pnputil /enum-drivers 2>&1
@@ -243,23 +239,23 @@ foreach ($line in $pnpEnum) {
 }
 
 if ($oemInfName) {
-    Write-Host "[INFO] Deleting from Driver Store: $oemInfName" -ForegroundColor Cyan
+    Show-Info "Deleting from Driver Store: $oemInfName"
 
     $pnpResult = & pnputil /delete-driver $oemInfName /force 2>&1
     $pnpExitCode = $LASTEXITCODE
 
     if ($pnpExitCode -eq 0) {
-        Write-Host "[SUCCESS] Deleted from Driver Store: $oemInfName" -ForegroundColor Green
+        Show-Success "Deleted from Driver Store: $oemInfName"
     }
     else {
-        Write-Host "[WARNING] Failed to delete from Driver Store (might be in use by others)" -ForegroundColor Yellow
+        Show-Warning "Failed to delete from Driver Store (might be in use by others)"
         foreach ($line in $pnpResult) {
             Write-Host "  $line" -ForegroundColor Gray
         }
     }
 }
 else {
-    Write-Host "[INFO] Could not identify corresponding OEM INF in Driver Store" -ForegroundColor Yellow
+    Show-Info "Could not identify corresponding OEM INF in Driver Store"
     Write-Host "       Please check manually with pnputil /enum-drivers" -ForegroundColor Gray
 }
 
@@ -268,9 +264,9 @@ Write-Host ""
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Uninstallation Completed" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Driver: $driverName" -ForegroundColor Green
 if ($usingPrinters.Count -gt 0) {
     Write-Host "Printers: $($usingPrinters.Count) deleted" -ForegroundColor Green

@@ -3,16 +3,15 @@
 # ========================================
 
 # Check Administrator Privileges
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Administrator privileges are required."
-    Write-Warning "Please run PowerShell as Administrator and try again."
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "IPv6 Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -20,28 +19,12 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "ipv6_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] ipv6_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "ipv6_list.csv not found")
+$ipv6List = Import-CsvSafe -Path $csvPath -Description "ipv6_list.csv"
+if ($null -eq $ipv6List -or $ipv6List.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load ipv6_list.csv")
 }
 
-try {
-    $ipv6List = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load ipv6_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load ipv6_list.csv: $_")
-}
-
-if ($ipv6List.Count -eq 0) {
-    Write-Host "[ERROR] ipv6_list.csv contains no data" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "ipv6_list.csv contains no data")
-}
-
-Write-Host "[INFO] Loaded $($ipv6List.Count) settings" -ForegroundColor Cyan
+Show-Info "Loaded $($ipv6List.Count) settings"
 Write-Host ""
 
 # ========================================
@@ -67,12 +50,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above IPv6 settings?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above IPv6 settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -96,7 +75,7 @@ foreach ($item in $ipv6List) {
     $adapters = Get-NetAdapter | Where-Object { $_.Name -like $pattern }
 
     if (-not $adapters) {
-        Write-Host "[SKIP] No adapters found matching '$pattern'" -ForegroundColor Yellow
+        Show-Skip "No adapters found matching '$pattern'"
         $skipCount++
         Write-Host ""
         continue
@@ -104,15 +83,15 @@ foreach ($item in $ipv6List) {
 
     foreach ($adapter in $adapters) {
         try {
-            Write-Host "[INFO] Configuring: $($adapter.Name)" -ForegroundColor Gray
+            Show-Info "Configuring: $($adapter.Name)"
             
             Set-NetAdapterBinding -Name $adapter.Name -ComponentID ms_tcpip6 -Enabled $targetState -ErrorAction Stop
             
-            Write-Host "[SUCCESS] $($adapter.Name): IPv6 $actionName" -ForegroundColor Green
+            Show-Success "$($adapter.Name): IPv6 $actionName"
             $successCount++
         }
         catch {
-            Write-Host "[ERROR] Failed to configure $($adapter.Name): $_" -ForegroundColor Red
+            Show-Error "Failed to configure $($adapter.Name): $_"
             $failCount++
         }
     }
@@ -122,18 +101,4 @@ foreach ($item in $ipv6List) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount patterns" -ForegroundColor Yellow
-Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

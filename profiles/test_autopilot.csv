@@ -1,0 +1,6 @@
+Order,ScriptPath,Enabled,Description
+0,__AUTOPILOT__,1,WaitSec=3
+10,standard\hostname_config\hostname_config.ps1,1,Change Hostname
+20,standard\reg_config\reg_hklm_config.ps1,1,Registry Config (HKLM)
+30,__RESTART__,1,Restart
+40,standard\reg_config\reg_hkcu_config.ps1,1,Registry Config (HKCU)

@@ -10,9 +10,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Winget Batch Installer" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ----------------------------------------
@@ -20,10 +20,10 @@ Write-Host ""
 # ----------------------------------------
 Write-Host "Checking internet connection..." -ForegroundColor White
 if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet) {
-    Write-Host "[SUCCESS] Internet connection OK" -ForegroundColor Green
+    Show-Success "Internet connection OK"
 }
 else {
-    Write-Host "[ERROR] No internet connection (Ping 8.8.8.8 failed)" -ForegroundColor Red
+    Show-Error "No internet connection (Ping 8.8.8.8 failed)"
     return (New-ModuleResult -Status "Error" -Message "No internet connection")
 }
 
@@ -32,10 +32,10 @@ else {
 # ----------------------------------------
 Write-Host "Checking winget availability..." -ForegroundColor White
 if (-not (Get-Command "winget" -ErrorAction SilentlyContinue)) {
-    Write-Host "[ERROR] 'winget' command not found. Please update App Installer." -ForegroundColor Red
+    Show-Error "'winget' command not found. Please update App Installer."
     return (New-ModuleResult -Status "Error" -Message "winget command not found")
 }
-Write-Host "[SUCCESS] winget is available" -ForegroundColor Green
+Show-Success "winget is available"
 Write-Host ""
 
 # ----------------------------------------
@@ -55,7 +55,7 @@ if (-not (Test-CsvColumns -CsvData $appList -RequiredColumns @("Enabled", "AppID
 $enabledApps = @($appList | Where-Object { $_.Enabled -eq "1" -and -not [string]::IsNullOrWhiteSpace($_.AppID) })
 
 if ($enabledApps.Count -eq 0) {
-    Write-Host "[INFO] No enabled apps in app_list.csv" -ForegroundColor Yellow
+    Show-Info "No enabled apps in app_list.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled apps")
 }
@@ -75,7 +75,7 @@ foreach ($app in $enabledApps) {
     # Check if already installed via winget list
     $listOutput = & winget list --id $app.AppID --exact --accept-source-agreements 2>&1 | Out-String
     if ($listOutput -match [regex]::Escape($app.AppID)) {
-        Write-Host "  [SKIP] $appName ($($app.AppID)) - already installed" -ForegroundColor Gray
+        Show-Skip "$appName ($($app.AppID)) - already installed"
         $alreadyInstalled += $app
     }
     else {
@@ -102,7 +102,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 if ($toInstall.Count -eq 0) {
-    Write-Host "[INFO] All enabled apps are already installed" -ForegroundColor Green
+    Show-Skip "All enabled apps are already installed"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "All apps already installed (Skipped: $($alreadyInstalled.Count))")
 }
@@ -110,12 +110,8 @@ if ($toInstall.Count -eq 0) {
 # ----------------------------------------
 # 5. Confirmation
 # ----------------------------------------
-if (-not (Confirm-Execution -Message "Install the above $($toInstall.Count) app(s)?")) {
-    Write-Host ""
-    Write-Host "[INFO] Cancelled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User cancelled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Install the above $($toInstall.Count) app(s)?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -143,21 +139,21 @@ foreach ($app in $toInstall) {
         $process = Start-Process -FilePath "winget" -ArgumentList $wingetArgs -Wait -NoNewWindow -PassThru
 
         if ($process.ExitCode -eq 0) {
-            Write-Host "[SUCCESS] Installation completed" -ForegroundColor Green
+            Show-Success "Installation completed"
             $successCount++
         }
         elseif ($process.ExitCode -eq 3010) {
             # 3010 = reboot pending, installation itself succeeded
-            Write-Host "[SUCCESS] Installation completed (reboot pending)" -ForegroundColor Green
+            Show-Success "Installation completed (reboot pending)"
             $successCount++
         }
         else {
-            Write-Host "[ERROR] Installation failed. ExitCode: $($process.ExitCode)" -ForegroundColor Red
+            Show-Error "Installation failed. ExitCode: $($process.ExitCode)"
             $failCount++
         }
     }
     catch {
-        Write-Host "[ERROR] Execution error: $_" -ForegroundColor Red
+        Show-Error "Execution error: $_"
         $failCount++
     }
 
@@ -167,26 +163,4 @@ foreach ($app in $toInstall) {
 # ----------------------------------------
 # 7. Result Summary
 # ----------------------------------------
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Installation Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount apps" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount apps (already installed)" -ForegroundColor Gray
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount apps" -ForegroundColor Red
-}
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Determine Module Status
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($failCount -gt 0) { "Error" }
-    else { "Skipped" }
-
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Installation Results")

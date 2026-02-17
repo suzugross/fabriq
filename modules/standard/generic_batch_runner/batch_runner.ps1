@@ -3,9 +3,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Generic Batch Runner" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -13,24 +13,9 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "batch_list.csv"
 
-$csvData = Import-CsvSafe $csvPath
-if (-not $csvData) {
-    return (New-ModuleResult -Status "Error" -Message "batch_list.csv not found or empty")
-}
-
-if (-not (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled","Description","BatchPath","Arguments","TimeoutSec","SuccessCodes","Encoding") -CsvName "batch_list.csv")) {
-    return (New-ModuleResult -Status "Error" -Message "batch_list.csv has invalid columns")
-}
-
-# Filter enabled entries
-$batchList = @($csvData | Where-Object { $_.Enabled -eq '1' })
-
-if ($batchList.Count -eq 0) {
-    Write-Host "[INFO] No enabled batch entries found" -ForegroundColor Yellow
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled batch entries")
-}
-
-Write-Host "[INFO] Loaded $($batchList.Count) batch definition(s)" -ForegroundColor Cyan
+$batchList = Import-ModuleCsv -Path $csvPath -FilterEnabled -RequiredColumns @("Enabled","Description","BatchPath","Arguments","TimeoutSec","SuccessCodes","Encoding")
+if ($null -eq $batchList) { return (New-ModuleResult -Status "Error" -Message "Failed to load batch_list.csv") }
+if ($batchList.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled batch entries") }
 Write-Host ""
 
 # ========================================
@@ -75,20 +60,16 @@ Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
 if ($missingCount -gt 0) {
-    Write-Host "[WARNING] $missingCount batch file(s) not found" -ForegroundColor Yellow
-    Write-Host "[INFO] Missing batches will be skipped" -ForegroundColor Yellow
+    Show-Warning "$missingCount batch file(s) not found"
+    Show-Info "Missing batches will be skipped"
     Write-Host ""
 }
 
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Proceed with batch execution?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Proceed with batch execution?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -116,7 +97,7 @@ foreach ($batch in $batchList) {
 
     # File existence check
     if (-not (Test-Path $fullPath)) {
-        Write-Host "[SKIP] Batch file not found: $batchPath" -ForegroundColor Yellow
+        Show-Skip "Batch file not found: $batchPath"
         Write-Host ""
         $skipCount++
         continue
@@ -140,7 +121,7 @@ foreach ($batch in $batchList) {
         $proc = Start-Process -FilePath "cmd.exe" -ArgumentList $spArgs `
             -WorkingDirectory $PSScriptRoot -PassThru -NoNewWindow
 
-        Write-Host "[INFO] Process started (PID: $($proc.Id))" -ForegroundColor Gray
+        Show-Info "Process started (PID: $($proc.Id))"
 
         # Wait with timeout
         $timedOut = $false
@@ -148,7 +129,7 @@ foreach ($batch in $batchList) {
             $null = $proc | Wait-Process -Timeout $timeoutSec -ErrorAction SilentlyContinue
             if (-not $proc.HasExited) {
                 $timedOut = $true
-                Write-Host "[ERROR] Timeout ($($timeoutSec)s exceeded). Killing process..." -ForegroundColor Red
+                Show-Error "Timeout ($($timeoutSec)s exceeded). Killing process..."
                 $proc | Stop-Process -Force -ErrorAction SilentlyContinue
             }
         } else {
@@ -159,20 +140,20 @@ foreach ($batch in $batchList) {
 
         # Result judgment
         if ($timedOut) {
-            Write-Host "[ERROR] $desc : Timed out after $($timeoutSec)s" -ForegroundColor Red
+            Show-Error "$desc : Timed out after $($timeoutSec)s"
             $failCount++
         }
         elseif ($exitCode -in $successList) {
-            Write-Host "[SUCCESS] $desc (ExitCode: $exitCode)" -ForegroundColor Green
+            Show-Success "$desc (ExitCode: $exitCode)"
             $successCount++
         }
         else {
-            Write-Host "[ERROR] $desc (ExitCode: $exitCode, Expected: $successCodes)" -ForegroundColor Red
+            Show-Error "$desc (ExitCode: $exitCode, Expected: $successCodes)"
             $failCount++
         }
     }
     catch {
-        Write-Host "[ERROR] $desc : $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "$desc : $($_.Exception.Message)"
         $failCount++
     }
 
@@ -182,18 +163,4 @@ foreach ($batch in $batchList) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

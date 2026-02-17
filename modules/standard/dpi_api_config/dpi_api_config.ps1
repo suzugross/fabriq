@@ -7,9 +7,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "DPI Scaling Configuration (Live)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -222,7 +222,7 @@ try {
     Add-Type -TypeDefinition $dpiSource -Language CSharp -ErrorAction SilentlyContinue
 }
 catch {
-    Write-Host "[ERROR] Failed to compile NativeDpiHelper: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to compile NativeDpiHelper: $($_.Exception.Message)"
     return (New-ModuleResult -Status "Error" -Message "C# compilation failed")
 }
 
@@ -231,29 +231,20 @@ catch {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "dpi_list.csv"
 
-$csvData = Import-CsvSafe -Path $csvPath -Description "dpi_list.csv" -RequiredColumns @("Enabled", "MonitorIndex", "ScalePercent")
-if ($null -eq $csvData) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv")
-}
-
-$enabledItems = @($csvData | Where-Object { $_.Enabled -eq "1" })
-
-if ($enabledItems.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in dpi_list.csv" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
+$enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled -RequiredColumns @("Enabled", "MonitorIndex", "ScalePercent")
+if ($null -eq $enabledItems) { return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv") }
+if ($enabledItems.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # ========================================
 # Show Current DPI & Monitor Info
 # ========================================
 $monitorCount = [NativeDpiHelper]::GetMonitorCount()
-Write-Host "[INFO] Active monitors: $monitorCount" -ForegroundColor Cyan
+Show-Info "Active monitors: $monitorCount"
 
 for ($i = 0; $i -lt $monitorCount; $i++) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($i)
     $dpiStr = if ($currentDpi -gt 0) { "${currentDpi}%" } else { "Unknown" }
-    Write-Host "[INFO] Monitor[$i] current DPI: $dpiStr" -ForegroundColor Cyan
+    Show-Info "Monitor[$i] current DPI: $dpiStr"
 }
 
 Write-Host ""
@@ -268,7 +259,7 @@ Write-Host ""
 
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 $hasChanges = $false
 
@@ -280,7 +271,7 @@ foreach ($item in $enabledItems) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($idx)
 
     if ($currentDpi -eq $scale) {
-        Write-Host "  [SKIP] Monitor[$idx] -> ${scale}%  $desc (already set)" -ForegroundColor Gray
+        Show-Skip "Monitor[$idx] -> ${scale}%  $desc (already set)"
     }
     else {
         $currentStr = if ($currentDpi -gt 0) { "${currentDpi}%" } else { "Unknown" }
@@ -294,7 +285,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 if (-not $hasChanges) {
-    Write-Host "[INFO] All DPI settings already match current values" -ForegroundColor Green
+    Show-Skip "All DPI settings already match current values"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "All DPI settings already match")
 }
@@ -302,12 +293,8 @@ if (-not $hasChanges) {
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above DPI settings?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above DPI settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -325,28 +312,28 @@ foreach ($item in $enabledItems) {
     $currentDpi = [NativeDpiHelper]::GetCurrentDpi($idx)
 
     if ($currentDpi -eq $scale) {
-        Write-Host "[SKIP] Monitor[$idx] -> ${scale}%$desc - already set" -ForegroundColor Gray
+        Show-Skip "Monitor[$idx] -> ${scale}%$desc - already set"
         $skipCount++
         continue
     }
 
-    Write-Host "[INFO] Setting Monitor[$idx] -> ${scale}%$desc..." -ForegroundColor Cyan
+    Show-Info "Setting Monitor[$idx] -> ${scale}%$desc..."
 
     try {
         $result = [NativeDpiHelper]::SetDpi($idx, $scale)
 
         if ($result -eq "Success") {
-            Write-Host "[SUCCESS] Monitor[$idx] DPI changed to ${scale}%" -ForegroundColor Green
+            Show-Success "Monitor[$idx] DPI changed to ${scale}%"
             $successCount++
         }
         else {
-            Write-Host "[ERROR] $result" -ForegroundColor Red
-            $errorCount++
+            Show-Error "$result"
+            $failCount++
         }
     }
     catch {
-        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
-        $errorCount++
+        Show-Error "$($_.Exception.Message)"
+        $failCount++
     }
 
     Write-Host ""
@@ -355,24 +342,4 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "DPI Scaling Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-if ($successCount -gt 0) {
-    Write-Host "Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (already set)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed:  $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0 -and $successCount -eq 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -gt 0) { "Error" }
-    else { "Success" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "DPI Scaling Results")

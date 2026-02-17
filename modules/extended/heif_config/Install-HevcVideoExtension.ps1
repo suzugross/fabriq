@@ -4,15 +4,15 @@ If (!$HevcExtensions) {
     try {
         Add-AppxProvisionedPackage -Online -PackagePath "$($PSScriptRoot)\Microsoft.HEVCVideoExtension_2.0.61301.0_neutral_~_8wekyb3d8bbwe.AppxBundle" -SkipLicense -ErrorAction Stop
 
-        Write-Host "The HEVC Video Extensions Store App has been Installed to this System" -ForegroundColor Green
+        Show-Success "HEVC Video Extensions installed"
         return (New-ModuleResult -Status "Success" -Message "HEVC Video Extensions installed")
     }
     catch {
-        Write-Host "[ERROR] Failed to install HEVC Video Extensions: $_" -ForegroundColor Red
+        Show-Error "Failed to install HEVC Video Extensions: $_"
         return (New-ModuleResult -Status "Error" -Message "Installation failed: $_")
     }
 } Else {
 
-    Write-Host "The HEVC Video Extensions Microsoft Store App is already Installed on this System" -ForegroundColor Yellow
+    Show-Skip "HEVC Video Extensions already installed"
     return (New-ModuleResult -Status "Skipped" -Message "Already installed")
 }

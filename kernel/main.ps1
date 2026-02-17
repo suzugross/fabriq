@@ -392,10 +392,20 @@ function Invoke-BatchExecution {
     param(
         [array]$SelectedModules,
         [switch]$StopOnError,
+        [switch]$AutoPilot,
+        [int]$AutoPilotWaitSec = 3,
         # Profile restart support (optional)
         [string]$ProfilePath = "",
         [string]$ProfileName = ""
     )
+
+    # AutoPilot: set global flag (Profile scope, reset in finally)
+    if ($AutoPilot) {
+        $global:AutoPilotMode = $true
+        $global:AutoPilotWaitSec = $AutoPilotWaitSec
+    }
+
+    try {
 
     # Confirm execution
     if (-not (Show-BatchConfirmation -SelectedModules $SelectedModules)) {
@@ -551,6 +561,12 @@ function Invoke-BatchExecution {
         # Normal module execution
         Show-BatchProgress -Current $current -Total $total -ItemName $module.MenuName
 
+        # AutoPilot: inter-module wait
+        if ($global:AutoPilotMode -and $current -gt 1) {
+            Write-Host "[AUTOPILOT] Next module in $($global:AutoPilotWaitSec)s..." -ForegroundColor Magenta
+            Start-Sleep -Seconds $global:AutoPilotWaitSec
+        }
+
         $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
             & $module.Script
         } -ContinueOnError
@@ -610,6 +626,13 @@ function Invoke-BatchExecution {
     }
 
     Wait-KeyPress
+
+    } # end try
+    finally {
+        # AutoPilot: always reset (Profile scope guarantee)
+        $global:AutoPilotMode = $false
+        $global:AutoPilotWaitSec = 3
+    }
 }
 
 # ========================================
@@ -649,13 +672,20 @@ function Invoke-ProfileExecution {
                 continue
             }
 
-            # Confirmation + StopOnError selection
+            # Confirmation + execution mode selection
             Clear-Host
-            $confirmation = Show-ProfileConfirmation -SelectedProfile $selectedProfile -Modules $validation.ValidModules -InvalidPaths $validation.InvalidPaths
+            $confirmation = Show-ProfileConfirmation `
+                -SelectedProfile $selectedProfile `
+                -Modules $validation.ValidModules `
+                -InvalidPaths $validation.InvalidPaths `
+                -AutoPilotFromCsv $validation.AutoPilot `
+                -AutoPilotWaitSec $validation.AutoPilotWaitSec
 
             if ($null -ne $confirmation -and $confirmation.Confirmed) {
                 Invoke-BatchExecution -SelectedModules $validation.ValidModules `
                     -StopOnError:$confirmation.StopOnError `
+                    -AutoPilot:$confirmation.AutoPilot `
+                    -AutoPilotWaitSec $confirmation.AutoPilotWaitSec `
                     -ProfilePath $selectedProfile.FilePath `
                     -ProfileName $selectedProfile.ProfileName
             }
@@ -998,6 +1028,13 @@ if ($isResuming) {
     else {
         Show-Info "Resuming profile: $($resumeState.ProfileName)"
         Show-Info "Remaining modules: $($remainingModules.Count)"
+
+        # Restore AutoPilot mode from resume state
+        $resumeAutoPilot = ($resumeState.AutoPilot -eq $true)
+        $resumeAutoPilotWaitSec = if ($resumeState.AutoPilotWaitSec) { [int]$resumeState.AutoPilotWaitSec } else { 3 }
+        if ($resumeAutoPilot) {
+            Show-Info "AutoPilot mode: ON (restored from resume state)"
+        }
         Write-Host ""
 
         foreach ($cm in $resumeState.CompletedModules) {
@@ -1007,6 +1044,8 @@ if ($isResuming) {
 
         Invoke-BatchExecution -SelectedModules $remainingModules `
             -StopOnError:$resumeState.StopOnError `
+            -AutoPilot:$resumeAutoPilot `
+            -AutoPilotWaitSec $resumeAutoPilotWaitSec `
             -ProfilePath $resumeState.ProfilePath `
             -ProfileName $resumeState.ProfileName
 

@@ -6,22 +6,21 @@
 # ========================================
 
 # Check Administrator Privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "[ERROR] This script requires administrator privileges." -ForegroundColor Red
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  IP Address Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
 # Load Settings from Environment Variables
 # ========================================
-Write-Host "[INFO] Loading configuration..." -ForegroundColor Cyan
+Show-Info "Loading configuration..."
 
 $config = @{
     KanriNo = $env:SELECTED_KANRI_NO
@@ -87,7 +86,7 @@ function Get-NetworkAdapter {
         [string]$Type  # "Ethernet" or "WiFi"
     )
 
-    Write-Host "[INFO] Detecting ${Type} adapter..." -ForegroundColor Cyan
+    Show-Info "Detecting ${Type} adapter..."
 
     # Get physical adapters only (exclude virtual adapters like Hyper-V, VPN)
     # Exclude disabled adapters, but include disconnected ones (cable unplugged)
@@ -109,11 +108,11 @@ function Get-NetworkAdapter {
     }
 
     if ($adapter) {
-        Write-Host "[SUCCESS] ${Type} adapter found: $($adapter.Name) ($($adapter.InterfaceDescription)) [Status: $($adapter.Status)]" -ForegroundColor Green
+        Show-Success "${Type} adapter found: $($adapter.Name) ($($adapter.InterfaceDescription)) [Status: $($adapter.Status)]"
         return $adapter
     }
     else {
-        Write-Host "[WARNING] ${Type} adapter not found" -ForegroundColor Yellow
+        Show-Warning "${Type} adapter not found"
         return $null
     }
 }
@@ -145,23 +144,23 @@ function Set-IPConfiguration {
 
         # Set static IP address
         if ($Gateway -and $Gateway.Trim() -ne '') {
-            Write-Host "[INFO] Setting IP address: $IPAddress / $SubnetMask / Gateway: $Gateway"
+            Show-Info "Setting IP address: $IPAddress / $SubnetMask / Gateway: $Gateway"
             $output = & netsh interface ip set address name="$adapterName" static $IPAddress $SubnetMask $Gateway 2>&1
         }
         else {
-            Write-Host "[INFO] Setting IP address: $IPAddress / $SubnetMask (no gateway)"
+            Show-Info "Setting IP address: $IPAddress / $SubnetMask (no gateway)"
             $output = & netsh interface ip set address name="$adapterName" static $IPAddress $SubnetMask 2>&1
         }
 
         if ($LASTEXITCODE -ne 0) {
             throw "netsh set address failed: $output"
         }
-        Write-Host "[SUCCESS] IP address set" -ForegroundColor Green
+        Show-Success "IP address set"
 
         # Set DNS servers using netsh
         $validDNS = @($DNSServers | Where-Object { $_ -and $_.Trim() -ne '' })
         if ($validDNS.Count -gt 0) {
-            Write-Host "[INFO] Setting DNS servers..."
+            Show-Info "Setting DNS servers..."
 
             # Primary DNS
             $output = & netsh interface ip set dns name="$adapterName" static $($validDNS[0]) primary 2>&1
@@ -173,16 +172,16 @@ function Set-IPConfiguration {
             for ($i = 1; $i -lt $validDNS.Count; $i++) {
                 $output = & netsh interface ip add dns name="$adapterName" $($validDNS[$i]) index=$($i + 1) 2>&1
                 if ($LASTEXITCODE -ne 0) {
-                    Write-Host "[WARNING] Failed to add DNS $($validDNS[$i]): $output" -ForegroundColor Yellow
+                    Show-Warning "Failed to add DNS $($validDNS[$i]): $output"
                 }
             }
 
-            Write-Host "[SUCCESS] DNS servers set: $($validDNS -join ', ')" -ForegroundColor Green
+            Show-Success "DNS servers set: $($validDNS -join ', ')"
         }
 
         # Display configured settings
         Write-Host ""
-        Write-Host "[INFO] Configured settings:" -ForegroundColor Cyan
+        Show-Info "Configured settings:"
         Write-Host "  IP Address:      $IPAddress"
         Write-Host "  Subnet Mask:     $SubnetMask"
         if ($Gateway -and $Gateway.Trim() -ne '') {
@@ -193,12 +192,12 @@ function Set-IPConfiguration {
         }
 
         Write-Host ""
-        Write-Host "[SUCCESS] ${AdapterType} configuration completed" -ForegroundColor Green
+        Show-Success "${AdapterType} configuration completed"
 
         return $true
     }
     catch {
-        Write-Host "[ERROR] Error occurred during ${AdapterType} configuration: $_" -ForegroundColor Red
+        Show-Error "Error occurred during ${AdapterType} configuration: $_"
         return $false
     }
 }
@@ -226,7 +225,7 @@ if ($config.EthIP -and $config.EthIP.Trim() -ne '') {
         if ($result) { $successCount++ }
     }
     else {
-        Write-Host "[WARNING] Ethernet adapter not found. Skipping." -ForegroundColor Yellow
+        Show-Warning "Ethernet adapter not found. Skipping."
     }
 }
 
@@ -239,7 +238,7 @@ if ($config.WiFiIP -and $config.WiFiIP.Trim() -ne '') {
         if ($result) { $successCount++ }
     }
     else {
-        Write-Host "[WARNING] Wi-Fi adapter not found. Skipping." -ForegroundColor Yellow
+        Show-Warning "Wi-Fi adapter not found. Skipping."
     }
 }
 
@@ -251,13 +250,13 @@ Write-Host "========================================" -ForegroundColor White
 Write-Host ""
 
 if ($successCount -eq $totalAdapters -and $totalAdapters -gt 0) {
-    Write-Host "[SUCCESS] All network adapters configured successfully ($successCount/$totalAdapters)" -ForegroundColor Green
+    Show-Success "All network adapters configured successfully ($successCount/$totalAdapters)"
 }
 elseif ($successCount -gt 0) {
-    Write-Host "[WARNING] Some network adapters configured successfully ($successCount/$totalAdapters)" -ForegroundColor Yellow
+    Show-Warning "Some network adapters configured successfully ($successCount/$totalAdapters)"
 }
 else {
-    Write-Host "[ERROR] Failed to configure network adapters" -ForegroundColor Red
+    Show-Error "Failed to configure network adapters"
 }
 
 Write-Host ""

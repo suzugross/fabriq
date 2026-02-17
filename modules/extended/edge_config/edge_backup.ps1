@@ -6,9 +6,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Edge Profile Backup" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # --- Paths ---
@@ -22,7 +22,7 @@ Write-Host ""
 
 # --- Source check ---
 if (-not (Test-Path $sourceDir)) {
-    Write-Host "[ERROR] Edge User Data not found: $sourceDir" -ForegroundColor Red
+    Show-Error "Edge User Data not found: $sourceDir"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Edge User Data not found")
 }
@@ -30,19 +30,15 @@ if (-not (Test-Path $sourceDir)) {
 # --- Edge process check & kill ---
 $edgeProcesses = @(Get-Process -Name "msedge" -ErrorAction SilentlyContinue)
 if ($edgeProcesses.Count -gt 0) {
-    Write-Host "[WARNING] Edge is running ($($edgeProcesses.Count) processes)" -ForegroundColor Yellow
-    Write-Host "[INFO] Edge must be closed before backup" -ForegroundColor Yellow
+    Show-Warning "Edge is running ($($edgeProcesses.Count) processes)"
+    Show-Info "Edge must be closed before backup"
     Write-Host ""
 
-    if (-not (Confirm-Execution -Message "Terminate Edge and proceed with backup?")) {
-        Write-Host ""
-        Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-        Write-Host ""
-        return (New-ModuleResult -Status "Cancelled" -Message "User canceled (Edge running)")
-    }
+    $cancelResult = Confirm-ModuleExecution -Message "Terminate Edge and proceed with backup?"
+    if ($null -ne $cancelResult) { return $cancelResult }
 
     Write-Host ""
-    Write-Host "[INFO] Terminating Edge processes..." -ForegroundColor Cyan
+    Show-Info "Terminating Edge processes..."
 
     try {
         Stop-Process -Name "msedge" -Force -ErrorAction Stop
@@ -51,15 +47,15 @@ if ($edgeProcesses.Count -gt 0) {
         # Verify termination
         $remaining = @(Get-Process -Name "msedge" -ErrorAction SilentlyContinue)
         if ($remaining.Count -gt 0) {
-            Write-Host "[ERROR] Edge processes still running after termination attempt" -ForegroundColor Red
+            Show-Error "Edge processes still running after termination attempt"
             Write-Host ""
             return (New-ModuleResult -Status "Error" -Message "Failed to terminate Edge")
         }
 
-        Write-Host "[SUCCESS] Edge terminated" -ForegroundColor Green
+        Show-Success "Edge terminated"
     }
     catch {
-        Write-Host "[ERROR] Failed to terminate Edge: $_" -ForegroundColor Red
+        Show-Error "Failed to terminate Edge: $_"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Failed to terminate Edge: $_")
     }
@@ -67,17 +63,13 @@ if ($edgeProcesses.Count -gt 0) {
     Write-Host ""
 }
 else {
-    Write-Host "[INFO] Edge is not running" -ForegroundColor Gray
+    Show-Info "Edge is not running"
     Write-Host ""
 }
 
 # --- Confirm backup ---
-if (-not (Confirm-Execution -Message "Start Edge profile backup?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Start Edge profile backup?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -85,17 +77,17 @@ Write-Host ""
 if (-not (Test-Path $backupDir)) {
     try {
         $null = New-Item -ItemType Directory -Path $backupDir -Force
-        Write-Host "[INFO] Created backup directory" -ForegroundColor Gray
+        Show-Info "Created backup directory"
     }
     catch {
-        Write-Host "[ERROR] Failed to create backup directory: $_" -ForegroundColor Red
+        Show-Error "Failed to create backup directory: $_"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Failed to create backup dir: $_")
     }
 }
 
 # --- Execute Robocopy ---
-Write-Host "[INFO] Backup in progress (this may take a few minutes)..." -ForegroundColor Cyan
+Show-Info "Backup in progress (this may take a few minutes)..."
 Write-Host ""
 
 & robocopy.exe "$sourceDir" "$backupDir" /MIR /XJ /MT /R:1 /W:1 /NFL /NDL
@@ -119,19 +111,19 @@ if ($exitCode -lt 8) {
         "{0:N0} KB" -f ($backupSize / 1KB)
     }
 
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Backup Results" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "  Status:    Success (robocopy exit: $exitCode)" -ForegroundColor Green
     Write-Host "  Size:      $sizeStr" -ForegroundColor White
     Write-Host "  Location:  $backupDir" -ForegroundColor White
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host ""
 
     return (New-ModuleResult -Status "Success" -Message "Backup completed ($sizeStr)")
 }
 else {
-    Write-Host "[ERROR] Backup failed (robocopy exit code: $exitCode)" -ForegroundColor Red
+    Show-Error "Backup failed (robocopy exit code: $exitCode)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Robocopy failed (exit: $exitCode)")
 }

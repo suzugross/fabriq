@@ -42,9 +42,12 @@ $specialBg    = [System.Drawing.Color]::FromArgb(80, 60, 0)
 $specialFg    = [System.Drawing.Color]::FromArgb(255, 200, 50)
 $restartBg    = $specialBg
 $restartFg    = $specialFg
+$autoPilotBg  = [System.Drawing.Color]::FromArgb(60, 0, 80)
+$autoPilotFg  = [System.Drawing.Color]::FromArgb(220, 130, 255)
 
 # Special marker definitions
 $script:SpecialMarkers = [ordered]@{
+    "--- AUTOPILOT ---"  = @{ Path = "__AUTOPILOT__";  Desc = "WaitSec=3" }
     "--- RESTART ---"    = @{ Path = "__RESTART__";    Desc = "Restart" }
     "--- REEXPLORER ---" = @{ Path = "__REEXPLORER__"; Desc = "Restart Explorer" }
     "--- STOPLOG ---"    = @{ Path = "__STOPLOG__";    Desc = "Stop Transcript" }
@@ -129,7 +132,11 @@ function Update-RowStyles {
         $row = $script:dgv.Rows[$i]
         if ($row.IsNewRow) { continue }
         $module = $row.Cells["Module"].Value
-        if ($script:SpecialMarkers.Contains($module)) {
+        if ($module -eq "--- AUTOPILOT ---") {
+            $row.DefaultCellStyle.BackColor = $autoPilotBg
+            $row.DefaultCellStyle.ForeColor = $autoPilotFg
+        }
+        elseif ($script:SpecialMarkers.Contains($module)) {
             $row.DefaultCellStyle.BackColor = $specialBg
             $row.DefaultCellStyle.ForeColor = $specialFg
         }
@@ -313,7 +320,7 @@ $footerPanel.Padding = New-Object System.Windows.Forms.Padding(12, 6, 12, 6)
 $footerText = @"
 Profile CSV 解説:
   Order: 実行順序 (自動連番・D&Dで並替可)   Module: モジュール or 特殊コマンドを選択
-  Enabled: 1=有効 0=無効   特殊: RESTART/REEXPLORER/STOPLOG/STARTLOG/PAUSE/SHUTDOWN
+  Enabled: 1=有効 0=無効   特殊: AUTOPILOT/RESTART/REEXPLORER/STOPLOG/STARTLOG/PAUSE/SHUTDOWN
 "@
 
 $footerLabel = New-Object System.Windows.Forms.Label
@@ -464,7 +471,12 @@ $script:dgv.Add_CellValueChanged({
     if ($colName -eq "Module") {
         $row = $sender.Rows[$e.RowIndex]
         $module = $row.Cells["Module"].Value
-        if ($script:SpecialMarkers.Contains($module)) {
+        if ($module -eq "--- AUTOPILOT ---") {
+            $row.Cells["Description"].Value = $script:SpecialMarkers[$module].Desc
+            $row.DefaultCellStyle.BackColor = $autoPilotBg
+            $row.DefaultCellStyle.ForeColor = $autoPilotFg
+        }
+        elseif ($script:SpecialMarkers.Contains($module)) {
             $row.Cells["Description"].Value = $script:SpecialMarkers[$module].Desc
             $row.DefaultCellStyle.BackColor = $specialBg
             $row.DefaultCellStyle.ForeColor = $specialFg

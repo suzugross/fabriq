@@ -2,7 +2,7 @@
 # Local User Deletion Script
 # ========================================
 
-Write-Host "Executing local user deletion..." -ForegroundColor Cyan
+Show-Info "Executing local user deletion..."
 Write-Host ""
 
 # ========================================
@@ -10,25 +10,12 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] local_user_list.csv not found: $csvPath" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv not found")
+$userList = Import-CsvSafe -Path $csvPath -Description "local_user_list.csv"
+if ($null -eq $userList -or $userList.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
-try {
-    $userList = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load local_user_list.csv: $_" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv: $_")
-}
-
-if ($userList.Count -eq 0) {
-    Write-Host "[ERROR] local_user_list.csv contains no data" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv contains no data")
-}
-
-Write-Host "[INFO] Loaded $($userList.Count) user definitions" -ForegroundColor Cyan
+Show-Info "Loaded $($userList.Count) user definitions"
 Write-Host ""
 
 # ========================================
@@ -50,12 +37,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Delete the users listed above?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Delete the users listed above?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -75,7 +58,7 @@ foreach ($user in $userList) {
         # Check User Existence
         $existingUser = Get-LocalUser -Name $user.UserName -ErrorAction SilentlyContinue
         if (-not $existingUser) {
-            Write-Host "[SKIP] User '$($user.UserName)' does not exist" -ForegroundColor Yellow
+            Show-Skip "User '$($user.UserName)' does not exist"
             Write-Host ""
             $skipCount++
             continue
@@ -83,11 +66,11 @@ foreach ($user in $userList) {
 
         # Delete User
         Remove-LocalUser -Name $user.UserName -ErrorAction Stop
-        Write-Host "[SUCCESS] Deleted user '$($user.UserName)'" -ForegroundColor Green
+        Show-Success "Deleted user '$($user.UserName)'"
         $successCount++
     }
     catch {
-        Write-Host "[ERROR] Failed to delete user '$($user.UserName)': $_" -ForegroundColor Red
+        Show-Error "Failed to delete user '$($user.UserName)': $_"
         $failCount++
     }
 
@@ -97,18 +80,4 @@ foreach ($user in $userList) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items" -ForegroundColor Yellow
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($failCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")

@@ -3,16 +3,16 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Deletion (HKLM)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Find CSV files
 $csvFiles = @(Get-ChildItem -Path $PSScriptRoot -Filter "reg_hklm_list*.csv" -File | Sort-Object Name)
 
 if ($csvFiles.Count -eq 0) {
-    Write-Host "[ERROR] No files matching reg_hklm_list*.csv found" -ForegroundColor Red
+    Show-Error "No files matching reg_hklm_list*.csv found"
     return (New-ModuleResult -Status "Error" -Message "No files matching reg_hklm_list*.csv found")
 }
 
@@ -21,19 +21,16 @@ $allItems = @()
 $loadedFileCount = 0
 
 foreach ($csvFile in $csvFiles) {
-    try {
-        $items = @(Import-Csv -Path $csvFile.FullName -Encoding Default)
+    $items = Import-CsvSafe -Path $csvFile.FullName -Description $csvFile.Name
+    if ($null -ne $items) {
         $allItems += $items
-        Write-Host "[INFO] Loaded $($csvFile.Name) ($($items.Count) items)" -ForegroundColor Cyan
+        Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
         $loadedFileCount++
-    }
-    catch {
-        Write-Host "[ERROR] Failed to load $($csvFile.Name): $_" -ForegroundColor Red
     }
 }
 
 if ($loadedFileCount -eq 0) {
-    Write-Host "[ERROR] Failed to load any CSV files" -ForegroundColor Red
+    Show-Error "Failed to load any CSV files"
     return (New-ModuleResult -Status "Error" -Message "Failed to load any CSV files")
 }
 
@@ -49,7 +46,7 @@ Write-Host "" -ForegroundColor Cyan
 Write-Host ""
 
 if ($regItems.Count -eq 0) {
-    Write-Host "[INFO] No valid registry settings found" -ForegroundColor Yellow
+    Show-Info "No valid registry settings found"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No valid registry settings found")
 }
@@ -79,21 +76,17 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 # Confirmation
-if (-not (Confirm-Execution -Message "Delete the above registry values?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Delete the above registry values?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
-Write-Host "[INFO] Starting registry deletion..." -ForegroundColor Cyan
+Show-Info "Starting registry deletion..."
 Write-Host ""
 
 # Execute Deletion
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
@@ -110,7 +103,7 @@ foreach ($item in $regItems) {
 
         # Check path existence
         if (-not (Test-Path $regPath)) {
-            Write-Host "  [INFO] Path not found (Skipped)" -ForegroundColor Gray
+            Show-Skip "Path not found"
             $skipCount++
             Write-Host ""
             continue
@@ -119,7 +112,7 @@ foreach ($item in $regItems) {
         # Check value existence
         $existingValue = Get-ItemProperty -Path $regPath -Name $item.'KeyName' -ErrorAction SilentlyContinue
         if (-not $existingValue) {
-            Write-Host "  [INFO] Value not found (Skipped)" -ForegroundColor Gray
+            Show-Skip "Value not found"
             $skipCount++
             Write-Host ""
             continue
@@ -127,33 +120,16 @@ foreach ($item in $regItems) {
 
         # Delete
         Remove-ItemProperty -Path $regPath -Name $item.'KeyName' -Force -ErrorAction Stop
-        Write-Host "  [SUCCESS] Deleted" -ForegroundColor Green
+        Show-Success "Deleted"
         $successCount++
     }
     catch {
-        Write-Host "  [ERROR] $_" -ForegroundColor Red
-        $errorCount++
+        Show-Error "$_"
+        $failCount++
     }
 
     Write-Host ""
 }
 
 # Summary
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Deletion Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Success: $successCount items" -ForegroundColor Green
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (Not found)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($errorCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Deletion Results")

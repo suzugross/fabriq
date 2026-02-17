@@ -5,26 +5,16 @@
 $HOSTLIST_CSV = Join-Path $PSScriptRoot "..\..\..\kernel\csv\hostlist.csv"
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Hostname Change" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
-# Check if CSV file exists
-if (-not (Test-Path $HOSTLIST_CSV)) {
-    Write-Host "[ERROR] hostlist.csv not found: $HOSTLIST_CSV" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "hostlist.csv not found")
-}
-
 # Load CSV
-try {
-    $hostItems = Import-Csv -Path $HOSTLIST_CSV -Encoding Default
-}
-catch {
-    Write-Host "[ERROR] Failed to load CSV: $_" -ForegroundColor Red
+$hostItems = Import-CsvSafe -Path $HOSTLIST_CSV -Description "hostlist.csv"
+if ($null -eq $hostItems) {
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load CSV: $_")
+    return (New-ModuleResult -Status "Error" -Message "Failed to load hostlist.csv")
 }
 
 # Filter items with NewPCName
@@ -36,7 +26,7 @@ foreach ($item in $hostItems) {
 }
 
 if ($validItems.Count -eq 0) {
-    Write-Host "[ERROR] No NewPCName registered in hostlist.csv" -ForegroundColor Red
+    Show-Error "No NewPCName registered in hostlist.csv"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No NewPCName registered in hostlist.csv")
 }
@@ -70,7 +60,7 @@ $selection = Read-Host
 # Cancel
 if ($selection -eq '0') {
     Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
+    Show-Info "Canceled"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
 }
@@ -79,7 +69,7 @@ if ($selection -eq '0') {
 $selNum = 0
 if (-not [int]::TryParse($selection, [ref]$selNum) -or $selNum -lt 1 -or $selNum -gt $validItems.Count) {
     Write-Host ""
-    Write-Host "[ERROR] Invalid number" -ForegroundColor Red
+    Show-Error "Invalid number"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Invalid number")
 }
@@ -91,7 +81,7 @@ Write-Host ""
 
 # Check Same Name
 if ($currentHostname -eq $newHostname) {
-    Write-Host "[INFO] Current hostname is the same. No change needed." -ForegroundColor Yellow
+    Show-Skip "Current hostname is the same. No change needed."
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "Current hostname is the same")
 }
@@ -100,29 +90,25 @@ Write-Host "  $currentHostname -> $newHostname" -ForegroundColor White
 Write-Host ""
 
 # Confirm Execution
-if (-not (Confirm-Execution -Message "Do you want to change the hostname?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Do you want to change the hostname?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
 # Change Hostname
 try {
     Rename-Computer -NewName $newHostname -Force -ErrorAction Stop
-    Write-Host "[SUCCESS] Hostname changed successfully: $currentHostname -> $newHostname" -ForegroundColor Green
+    Show-Success "Hostname changed successfully: $currentHostname -> $newHostname"
 }
 catch {
-    Write-Host "[ERROR] Failed to change hostname: $_" -ForegroundColor Red
+    Show-Error "Failed to change hostname: $_"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Failed to change hostname: $_")
 }
 
 Write-Host ""
 
-Write-Host "[INFO] Restart is required to apply the hostname change." -ForegroundColor Yellow
+Show-Warning "Restart is required to apply the hostname change."
 Write-Host ""
 
 return (New-ModuleResult -Status "Success" -Message "Hostname changed: $currentHostname -> $newHostname (restart required)")
