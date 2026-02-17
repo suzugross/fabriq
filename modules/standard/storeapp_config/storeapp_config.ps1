@@ -10,12 +10,15 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "storeapp_list.csv"
 
-$appList = Import-CsvSafe -Path $csvPath -Description "storeapp_list.csv"
-if ($null -eq $appList -or $appList.Count -eq 0) {
+$appList = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $appList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load storeapp_list.csv")
 }
+if ($appList.Count -eq 0) {
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
 
-Show-Info "Loaded $($appList.Count) app definitions"
+$appList = @($appList | Sort-Object { [int]$_.No })
 Write-Host ""
 
 # ========================================
@@ -27,7 +30,8 @@ Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
 foreach ($app in $appList) {
-    Write-Host "  $($app.AppName)" -ForegroundColor Yellow
+    Write-Host "  [$($app.No)] $($app.Description)" -ForegroundColor Yellow
+    Write-Host "       $($app.AppName)" -ForegroundColor Gray
 }
 
 Write-Host ""
@@ -52,7 +56,7 @@ $failCount = 0
 foreach ($app in $appList) {
     $appName = $app.AppName
     Write-Host "----------------------------------------" -ForegroundColor White
-    Write-Host "Target: $appName" -ForegroundColor Cyan
+    Write-Host "[$($app.No)] $($app.Description) ($appName)" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
     $removed = $false
