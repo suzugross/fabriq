@@ -118,10 +118,14 @@ Write-Host ""
 # Execute Deletion
 # ========================================
 $successCount = 0
+$skipCount = 0
 $failCount = 0
 
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
+
+    $hkcuDeleted = $false
+    $hiveDeleted = $false
 
     # ========================================
     # 1. Delete from HKCU
@@ -142,6 +146,7 @@ foreach ($item in $regItems) {
             try {
                 Remove-ItemProperty -Path $hkcuPath -Name $item.'KeyName' -Force -ErrorAction Stop
                 Write-Host "  [HKCU] Deleted" -ForegroundColor Green
+                $hkcuDeleted = $true
             }
             catch {
                 Write-Host "  [HKCU] Error: $_" -ForegroundColor Red
@@ -172,6 +177,7 @@ foreach ($item in $regItems) {
                 try {
                     Remove-ItemProperty -Path $hivePsPath -Name $item.'KeyName' -Force -ErrorAction Stop
                     Write-Host "  [HIVE] Deleted" -ForegroundColor Green
+                    $hiveDeleted = $true
                 }
                 catch {
                     Write-Host "  [HIVE] Error: $_" -ForegroundColor Red
@@ -186,7 +192,12 @@ foreach ($item in $regItems) {
         Write-Host "  [HIVE] Skipped (Hive not loaded)" -ForegroundColor Gray
     }
 
-    $successCount++
+    if ($hkcuDeleted -or $hiveDeleted) {
+        $successCount++
+    }
+    else {
+        $skipCount++
+    }
     Write-Host ""
 }
 
@@ -223,4 +234,4 @@ if ($hiveLoaded) {
 }
 
 # Summary
-return (New-BatchResult -Success $successCount -Fail $failCount -Title "Deletion Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Deletion Results")
