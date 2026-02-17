@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Collect Evidence,Evidence,evidence_config.ps1,99,1
