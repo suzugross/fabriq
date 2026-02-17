@@ -13,12 +13,12 @@ Write-Host ""
 # ========================================
 $configPath = ".\kernel\csv\log_destinations.csv"
 
-if (-not (Test-Path $configPath)) {
-    Show-Error "log_destinations.csv not found: $configPath"
-    return (New-ModuleResult -Status Error -Message "log_destinations.csv not found")
+$allDestinations = Import-CsvSafe -Path $configPath -Description "log_destinations.csv"
+if ($null -eq $allDestinations -or $allDestinations.Count -eq 0) {
+    return (New-ModuleResult -Status Error -Message "Failed to load log_destinations.csv")
 }
 
-$destinations = @(Import-Csv -Path $configPath -Encoding Default | Where-Object { $_.Enabled -eq "1" })
+$destinations = @($allDestinations | Where-Object { $_.Enabled -eq "1" })
 
 if ($destinations.Count -eq 0) {
     Show-Warning "No enabled destinations in log_destinations.csv"
@@ -118,7 +118,7 @@ foreach ($dest in $destinations) {
             $destLogs = Join-Path $destBase "logs"
             $null = New-Item -ItemType Directory -Path $destLogs -Force
             $copyResult = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
-            Write-Host "  [OK] logs/ copied" -ForegroundColor Green
+            Show-Success "logs/ copied"
         }
 
         # Copy evidence/
@@ -126,7 +126,7 @@ foreach ($dest in $destinations) {
             $destEvidence = Join-Path $destBase "evidence"
             $null = New-Item -ItemType Directory -Path $destEvidence -Force
             $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
-            Write-Host "  [OK] evidence/ copied" -ForegroundColor Green
+            Show-Success "evidence/ copied"
         }
 
         # Copy session.json as metadata

@@ -8,9 +8,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Printer Delete (GUI)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -32,16 +32,16 @@ if (Test-Path $csvPath) {
             $csvPrinterNames = @($csvData | Where-Object { $_.Enabled -eq "1" -and -not [string]::IsNullOrWhiteSpace($_.PrinterName) } | ForEach-Object { $_.PrinterName })
             if ($csvPrinterNames.Count -gt 0) {
                 $csvMode = $true
-                Write-Host "[INFO] CSV mode: $($csvPrinterNames.Count) printer(s) targeted for deletion" -ForegroundColor Cyan
+                Show-Info "CSV mode: $($csvPrinterNames.Count) printer(s) targeted for deletion"
             }
             else {
-                Write-Host "[INFO] CSV found but no enabled entries. Switching to manual mode." -ForegroundColor Yellow
+                Show-Info "CSV found but no enabled entries. Switching to manual mode."
             }
         }
     }
 }
 else {
-    Write-Host "[INFO] No printer_delete.csv found. Manual selection mode." -ForegroundColor Yellow
+    Show-Info "No printer_delete.csv found. Manual selection mode."
 }
 
 Write-Host ""
@@ -362,7 +362,7 @@ Refresh-Grid
 # ========================================
 # Show Form
 # ========================================
-Write-Host "[INFO] Opening Printer Delete GUI..." -ForegroundColor Cyan
+Show-Info "Opening Printer Delete GUI..."
 Write-Host ""
 
 $form.ShowDialog() | Out-Null
@@ -374,21 +374,21 @@ $form.Dispose()
 Write-Host ""
 
 if (-not $script:deleted) {
-    Write-Host "[INFO] No printers were deleted" -ForegroundColor Yellow
+    Show-Info "No printers were deleted"
     Write-Host ""
     return (New-ModuleResult -Status "Cancelled" -Message "No deletions performed")
 }
 
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Printer Delete Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 if ($script:successCount -gt 0) {
     Write-Host "  Success: $($script:successCount) printer(s)" -ForegroundColor Green
 }
 if ($script:failCount -gt 0) {
     Write-Host "  Failed:  $($script:failCount) printer(s)" -ForegroundColor Red
 }
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 $overallStatus = if ($script:failCount -eq 0 -and $script:successCount -gt 0) { "Success" }

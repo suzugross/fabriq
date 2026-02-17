@@ -18,6 +18,10 @@ $script:WorkersCsvPath = ".\kernel\csv\workers.csv"
 # Session info (populated by Initialize-Session)
 $script:SessionInfo = $null
 
+# AutoPilot Mode (Profile execution only)
+$global:AutoPilotMode = $false
+$global:AutoPilotWaitSec = 3
+
 # ========================================
 # Sleep Suppression (SetThreadExecutionState)
 # ========================================
@@ -165,6 +169,98 @@ function New-ModuleResult {
     return $resultObj
 }
 
+# ========================================
+# Pattern Layer Functions
+# ========================================
+# モジュール共通の定型パターンを関数化
+# New-BatchResult: 結果集計表示 + ModuleResult 返却
+# Confirm-ModuleExecution: 確認 + キャンセル処理
+# Import-ModuleCsv: CSV 読み込み + フィルタ + カラム検証
+
+function New-BatchResult {
+    param(
+        [int]$Success = 0,
+        [int]$Skip = 0,
+        [int]$Fail = 0,
+        [string]$Title = "Execution Results",
+        [string]$MessageSuffix = ""
+    )
+
+    Show-Separator
+    Write-Host $Title -ForegroundColor Cyan
+    Show-Separator
+
+    if ($Success -gt 0) {
+        Write-Host "  Success: $Success items" -ForegroundColor Green
+    }
+    if ($Skip -gt 0) {
+        Write-Host "  Skipped: $Skip items" -ForegroundColor Gray
+    }
+    if ($Fail -gt 0) {
+        Write-Host "  Failed:  $Fail items" -ForegroundColor Red
+    }
+
+    Show-Separator
+    Write-Host ""
+
+    $status = if ($Fail -eq 0 -and $Success -gt 0) { "Success" }
+        elseif ($Success -gt 0 -and $Fail -gt 0) { "Partial" }
+        elseif ($Fail -eq 0 -and $Skip -gt 0 -and $Success -eq 0) { "Skipped" }
+        elseif ($Fail -gt 0 -and $Success -eq 0) { "Error" }
+        else { "Success" }
+
+    $msg = "Success: $Success, Skip: $Skip, Fail: $Fail"
+    if ($MessageSuffix) { $msg += " $MessageSuffix" }
+
+    return (New-ModuleResult -Status $status -Message $msg)
+}
+
+function Confirm-ModuleExecution {
+    param(
+        [string]$Message = "Are you sure you want to execute?"
+    )
+
+    if (-not (Confirm-Execution -Message $Message)) {
+        Write-Host ""
+        Show-Info "Canceled"
+        Write-Host ""
+        return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
+    }
+
+    return $null
+}
+
+function Import-ModuleCsv {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [switch]$FilterEnabled,
+        [string[]]$RequiredColumns
+    )
+
+    $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
+    if ($null -eq $allItems) { return $null }
+    if ($allItems.Count -eq 0) { return $null }
+
+    if ($RequiredColumns) {
+        if (-not (Test-CsvColumns -CsvData $allItems -RequiredColumns $RequiredColumns -CsvName ([System.IO.Path]::GetFileName($Path)))) {
+            return $null
+        }
+    }
+
+    if ($FilterEnabled) {
+        $filtered = @($allItems | Where-Object { $_.Enabled -eq "1" })
+        if ($filtered.Count -eq 0) {
+            Show-Skip "No enabled entries in $([System.IO.Path]::GetFileName($Path))"
+            return @()
+        }
+        Show-Info "Loaded $($filtered.Count) enabled entries (total: $($allItems.Count))"
+        return $filtered
+    }
+
+    return $allItems
+}
+
 function Show-Progress {
     param(
         [string]$Activity,
@@ -194,6 +290,12 @@ function Confirm-Execution {
         [string]$Message = "Are you sure you want to execute?"
     )
 
+    # AutoPilot: auto-confirm
+    if ($global:AutoPilotMode) {
+        Write-Host "[AUTOPILOT] $Message -> Y (auto)" -ForegroundColor Magenta
+        return $true
+    }
+
     while ($true) {
         Write-Host -NoNewline "$Message (Y/N): "
         $response = Read-Host
@@ -211,6 +313,12 @@ function Confirm-Execution {
 
 function Wait-KeyPress {
     param([string]$Message = "Press Enter to continue...")
+
+    # AutoPilot: skip wait
+    if ($global:AutoPilotMode) {
+        return
+    }
+
     Write-Host ""
     Write-Host $Message
     Read-Host
@@ -1089,6 +1197,8 @@ function Save-ResumeState {
         ProfilePath      = $ProfilePath
         ProfileName      = $ProfileName
         StopOnError      = $StopOnError
+        AutoPilot        = $global:AutoPilotMode
+        AutoPilotWaitSec = $global:AutoPilotWaitSec
         SessionID        = $script:SessionID
         ResumeAfterOrder = $ResumeAfterOrder
         CompletedModules = @($CompletedModules | ForEach-Object {
@@ -1339,14 +1449,18 @@ function Resolve-ProfileModules {
 
     $validModules = @()
     $invalidPaths = @()
+    $autoPilot = $false
+    $autoPilotWaitSec = 3
 
     try {
         $entries = @(Import-Csv $ProfileCsvPath -Encoding Default)
     }
     catch {
         return [PSCustomObject]@{
-            ValidModules = @()
-            InvalidPaths = @()
+            ValidModules     = @()
+            InvalidPaths     = @()
+            AutoPilot        = $false
+            AutoPilotWaitSec = 3
         }
     }
 
@@ -1357,6 +1471,15 @@ function Resolve-ProfileModules {
     foreach ($entry in $sortedEntries) {
         $path = $entry.ScriptPath.Trim().Replace("/", "\")
         if ([string]::IsNullOrEmpty($path)) { continue }
+
+        # AutoPilot metadata (extracted, not added to module list)
+        if ($path -eq '__AUTOPILOT__') {
+            $autoPilot = $true
+            if ($entry.Description -match 'WaitSec=(\d+)') {
+                $autoPilotWaitSec = [int]$Matches[1]
+            }
+            continue
+        }
 
         # Special markers
         $specialMarkers = @{
@@ -1395,8 +1518,10 @@ function Resolve-ProfileModules {
     }
 
     return [PSCustomObject]@{
-        ValidModules = $validModules
-        InvalidPaths = $invalidPaths
+        ValidModules     = $validModules
+        InvalidPaths     = $invalidPaths
+        AutoPilot        = $autoPilot
+        AutoPilotWaitSec = $autoPilotWaitSec
     }
 }
 
@@ -1424,13 +1549,27 @@ function Show-ProfileConfirmation {
     param(
         [object]$SelectedProfile,
         [array]$Modules,
-        [array]$InvalidPaths
+        [array]$InvalidPaths,
+        [bool]$AutoPilotFromCsv = $false,
+        [int]$AutoPilotWaitSec = 3
     )
 
     Write-Host ""
     Show-Separator
     Write-Host "Profile: $($SelectedProfile.ProfileName)" -ForegroundColor Magenta
     Show-Separator
+
+    # AutoPilot banner (CSV-specified)
+    if ($AutoPilotFromCsv) {
+        Write-Host ""
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host "  AUTOPILOT MODE (from Profile CSV)" -ForegroundColor Magenta
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host "  All confirmations will be auto-approved" -ForegroundColor White
+        Write-Host "  Wait between modules: ${AutoPilotWaitSec}s" -ForegroundColor White
+        Write-Host "========================================" -ForegroundColor Magenta
+        Write-Host ""
+    }
 
     Write-Host "Modules to be executed:" -ForegroundColor Cyan
     $index = 1
@@ -1458,22 +1597,42 @@ function Show-ProfileConfirmation {
     Show-Separator
     Write-Host ""
 
+    # AutoPilot from CSV: require one final confirmation (safety valve)
+    if ($AutoPilotFromCsv) {
+        if (-not (Confirm-Execution -Message "Start AutoPilot execution?")) {
+            return $null
+        }
+
+        return [PSCustomObject]@{
+            Confirmed        = $true
+            StopOnError      = $false
+            AutoPilot        = $true
+            AutoPilotWaitSec = $AutoPilotWaitSec
+        }
+    }
+
+    # Normal flow: confirmation + mode selection
     if (-not (Confirm-Execution -Message "Are you sure you want to execute?")) {
         return $null
     }
 
-    # StopOnError runtime prompt
+    # Execution mode prompt
     Write-Host ""
     Write-Host "  [1] Continue on Error (Default)" -ForegroundColor White
     Write-Host "  [2] Stop on Error" -ForegroundColor White
+    Write-Host "  [3] AutoPilot (Auto-confirm all)" -ForegroundColor Magenta
     Write-Host ""
-    Write-Host -NoNewline "Error handling [1]: "
-    $errorChoice = Read-Host
-    $stopOnError = ($errorChoice -eq "2")
+    Write-Host -NoNewline "Execution mode [1]: "
+    $modeChoice = Read-Host
+
+    $stopOnError = ($modeChoice -eq "2")
+    $autoPilot = ($modeChoice -eq "3")
 
     return [PSCustomObject]@{
-        Confirmed   = $true
-        StopOnError = $stopOnError
+        Confirmed        = $true
+        StopOnError      = $stopOnError
+        AutoPilot        = $autoPilot
+        AutoPilotWaitSec = $AutoPilotWaitSec
     }
 }
 
@@ -1896,11 +2055,11 @@ function Register-FabriqRunOnce {
         $runOnceValue = "cmd /c `"$fabriqBat`""
         New-ItemProperty -Path $runOncePath -Name "FabriqAutoStart" `
             -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-        Write-Host "[SUCCESS] RunOnce registered" -ForegroundColor Green
+        Show-Success "RunOnce registered"
         return $true
     }
     catch {
-        Write-Host "[ERROR] Failed to register RunOnce: $_" -ForegroundColor Red
+        Show-Error "Failed to register RunOnce: $_"
         return $false
     }
 }

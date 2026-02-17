@@ -65,35 +65,19 @@ $script:ChangeCount = 0
 # ========================================
 function Initialize-Script {
     Write-Host "Starting Power Option Configuration Script`n" -ForegroundColor Cyan
-    
-    # Check CSV File Existence
-    if (-not (Test-Path $script:CsvPath)) {
-        Write-Host "Error: CSV file not found: $script:CsvPath" -ForegroundColor Red
-        throw "CSV file does not exist"
-    }
-    
-    Write-Host "CSV file confirmed: $script:CsvPath`n" -ForegroundColor Green
 }
 
 # ========================================
 # CSV Import Function
 # ========================================
 function Import-PowerSettingsCsv {
-    try {
-        Write-Host "Loading CSV file..." -ForegroundColor Gray
-        $csvData = Import-Csv -Path $script:CsvPath -Encoding Default
-        
-        if ($csvData.Count -eq 0) {
-            throw "No data in CSV file"
-        }
-        
-        Write-Host "Loaded $($csvData.Count) profiles`n" -ForegroundColor Green
-        return $csvData
+    $csvData = Import-CsvSafe -Path $script:CsvPath -Description "power_list.csv"
+    if ($null -eq $csvData -or $csvData.Count -eq 0) {
+        throw "Failed to load power_list.csv"
     }
-    catch {
-        Write-Host "Error: Failed to load CSV - $($_.Exception.Message)" -ForegroundColor Red
-        throw
-    }
+
+    Write-Host "Loaded $($csvData.Count) profiles`n" -ForegroundColor Green
+    return $csvData
 }
 
 # ========================================
@@ -175,9 +159,10 @@ function Show-ProfileMenu {
         [array]$Profiles
     )
     
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "  Select Power Option Profile" -ForegroundColor Cyan
-    Write-Host "========================================`n" -ForegroundColor Cyan
+    Show-Separator
+    Write-Host ""
     
     for ($i = 0; $i -lt $Profiles.Count; $i++) {
         $profile = $Profiles[$i]
@@ -214,23 +199,19 @@ function Confirm-ApplySettings {
         [PSCustomObject]$Profile
     )
     
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "  Settings to Apply" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Profile Name: " -NoNewline
     Write-Host $Profile.ProfileName -ForegroundColor Yellow
     Write-Host "Description: " -NoNewline
     Write-Host $Profile.Description -ForegroundColor Gray
     Write-Host "Power Plan: " -NoNewline
     Write-Host $Profile.PowerPlan -ForegroundColor Green
-    Write-Host "========================================`n" -ForegroundColor Cyan
-    
-    while ($true) {
-        $confirmation = Read-Host "Apply these settings? (Y/N)"
-        if ($confirmation -eq 'Y' -or $confirmation -eq 'y') { return $true }
-        if ($confirmation -eq 'N' -or $confirmation -eq 'n') { return $false }
-        Write-Host "[INFO] Please enter Y or N" -ForegroundColor Yellow
-    }
+    Show-Separator
+    Write-Host ""
+
+    return (Confirm-Execution -Message "Apply these settings?")
 }
 
 # ========================================
@@ -246,14 +227,14 @@ function Set-PowerPlan {
         $planGuid = $script:PowerPlanGuids[$PlanName]
 
         if (-not $planGuid) {
-            Write-Host "Warning: Unknown power plan: $PlanName" -ForegroundColor Yellow
+            Show-Warning "Unknown power plan: $PlanName"
             return $false
         }
 
         # Idempotency check
         $currentGuid = Get-ActivePowerPlanGuid
         if ($currentGuid -eq $planGuid) {
-            Write-Host "[SKIP] Power plan already '$PlanName'" -ForegroundColor Gray
+            Show-Skip "Power plan already '$PlanName'"
             $script:SkipCount++
             return $true
         }
@@ -263,17 +244,17 @@ function Set-PowerPlan {
         $result = & powercfg /S $planGuid 2>&1
 
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] Changed power plan to '$PlanName'" -ForegroundColor Green
+            Show-Success "Changed power plan to '$PlanName'"
             $script:ChangeCount++
             return $true
         }
         else {
-            Write-Host "[ERROR] Failed to change power plan: $result" -ForegroundColor Red
+            Show-Error "Failed to change power plan: $result"
             return $false
         }
     }
     catch {
-        Write-Host "Error: Failed to set power plan - $($_.Exception.Message)" -ForegroundColor Red
+        Show-Error "Failed to set power plan - $($_.Exception.Message)"
         return $false
     }
 }
@@ -289,7 +270,7 @@ function Get-ActivePowerPlanGuid {
         }
     }
     catch {
-        Write-Host "Warning: Failed to get current power plan" -ForegroundColor Yellow
+        Show-Warning "Failed to get current power plan"
     }
     return $null
 }
@@ -309,17 +290,17 @@ function Set-DisplaySettings {
     if ($null -ne $acValue) {
         $current = Get-TimeoutValue -TimeoutType 'monitor-ac' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$acValue) {
-            Write-Host "[SKIP] Display Turn Off (AC): already ${acValue} min" -ForegroundColor Gray
+            Show-Skip "Display Turn Off (AC): already ${acValue} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE monitor-timeout-ac $acValue | Out-Null
-                Write-Host "[OK] Display Turn Off (AC): ${acValue} min" -ForegroundColor Green
+                Show-Success "Display Turn Off (AC): ${acValue} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set display (AC)" -ForegroundColor Yellow
+                Show-Warning "Failed to set display (AC)"
             }
         }
     }
@@ -329,17 +310,17 @@ function Set-DisplaySettings {
     if ($null -ne $batteryValue) {
         $current = Get-TimeoutValue -TimeoutType 'monitor-dc' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$batteryValue) {
-            Write-Host "[SKIP] Display Turn Off (Battery): already ${batteryValue} min" -ForegroundColor Gray
+            Show-Skip "Display Turn Off (Battery): already ${batteryValue} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE monitor-timeout-dc $batteryValue | Out-Null
-                Write-Host "[OK] Display Turn Off (Battery): ${batteryValue} min" -ForegroundColor Green
+                Show-Success "Display Turn Off (Battery): ${batteryValue} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set display (Battery)" -ForegroundColor Yellow
+                Show-Warning "Failed to set display (Battery)"
             }
         }
     }
@@ -360,17 +341,17 @@ function Set-SleepSettings {
     if ($null -ne $sleepAc) {
         $current = Get-TimeoutValue -TimeoutType 'standby-ac' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$sleepAc) {
-            Write-Host "[SKIP] Sleep After (AC): already ${sleepAc} min" -ForegroundColor Gray
+            Show-Skip "Sleep After (AC): already ${sleepAc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE standby-timeout-ac $sleepAc | Out-Null
-                Write-Host "[OK] Sleep After (AC): ${sleepAc} min" -ForegroundColor Green
+                Show-Success "Sleep After (AC): ${sleepAc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set sleep (AC)" -ForegroundColor Yellow
+                Show-Warning "Failed to set sleep (AC)"
             }
         }
     }
@@ -380,17 +361,17 @@ function Set-SleepSettings {
     if ($null -ne $sleepDc) {
         $current = Get-TimeoutValue -TimeoutType 'standby-dc' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$sleepDc) {
-            Write-Host "[SKIP] Sleep After (Battery): already ${sleepDc} min" -ForegroundColor Gray
+            Show-Skip "Sleep After (Battery): already ${sleepDc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE standby-timeout-dc $sleepDc | Out-Null
-                Write-Host "[OK] Sleep After (Battery): ${sleepDc} min" -ForegroundColor Green
+                Show-Success "Sleep After (Battery): ${sleepDc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set sleep (Battery)" -ForegroundColor Yellow
+                Show-Warning "Failed to set sleep (Battery)"
             }
         }
     }
@@ -400,17 +381,17 @@ function Set-SleepSettings {
     if ($null -ne $hibernateAc) {
         $current = Get-TimeoutValue -TimeoutType 'hibernate-ac' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$hibernateAc) {
-            Write-Host "[SKIP] Hibernate After (AC): already ${hibernateAc} min" -ForegroundColor Gray
+            Show-Skip "Hibernate After (AC): already ${hibernateAc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE hibernate-timeout-ac $hibernateAc | Out-Null
-                Write-Host "[OK] Hibernate After (AC): ${hibernateAc} min" -ForegroundColor Green
+                Show-Success "Hibernate After (AC): ${hibernateAc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set hibernate (AC)" -ForegroundColor Yellow
+                Show-Warning "Failed to set hibernate (AC)"
             }
         }
     }
@@ -420,17 +401,17 @@ function Set-SleepSettings {
     if ($null -ne $hibernateDc) {
         $current = Get-TimeoutValue -TimeoutType 'hibernate-dc' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$hibernateDc) {
-            Write-Host "[SKIP] Hibernate After (Battery): already ${hibernateDc} min" -ForegroundColor Gray
+            Show-Skip "Hibernate After (Battery): already ${hibernateDc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE hibernate-timeout-dc $hibernateDc | Out-Null
-                Write-Host "[OK] Hibernate After (Battery): ${hibernateDc} min" -ForegroundColor Green
+                Show-Success "Hibernate After (Battery): ${hibernateDc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set hibernate (Battery)" -ForegroundColor Yellow
+                Show-Warning "Failed to set hibernate (Battery)"
             }
         }
     }
@@ -447,7 +428,7 @@ function Set-ButtonActions {
     
     $activePlanGuid = Get-ActivePowerPlanGuid
     if (-not $activePlanGuid) {
-        Write-Host "Warning: Skipping button settings because power plan GUID could not be retrieved" -ForegroundColor Yellow
+        Show-Warning "Skipping button settings because power plan GUID could not be retrieved"
         return
     }
     
@@ -517,17 +498,17 @@ function Set-HardDiskSettings {
     if ($null -ne $hddAc) {
         $current = Get-TimeoutValue -TimeoutType 'disk-ac' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$hddAc) {
-            Write-Host "[SKIP] HDD Turn Off (AC): already ${hddAc} min" -ForegroundColor Gray
+            Show-Skip "HDD Turn Off (AC): already ${hddAc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE disk-timeout-ac $hddAc | Out-Null
-                Write-Host "[OK] HDD Turn Off (AC): ${hddAc} min" -ForegroundColor Green
+                Show-Success "HDD Turn Off (AC): ${hddAc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set HDD (AC)" -ForegroundColor Yellow
+                Show-Warning "Failed to set HDD (AC)"
             }
         }
     }
@@ -537,17 +518,17 @@ function Set-HardDiskSettings {
     if ($null -ne $hddDc) {
         $current = Get-TimeoutValue -TimeoutType 'disk-dc' -PlanGuid $PlanGuid
         if ($null -ne $current -and $current -eq [int]$hddDc) {
-            Write-Host "[SKIP] HDD Turn Off (Battery): already ${hddDc} min" -ForegroundColor Gray
+            Show-Skip "HDD Turn Off (Battery): already ${hddDc} min"
             $script:SkipCount++
         }
         else {
             try {
                 & powercfg /CHANGE disk-timeout-dc $hddDc | Out-Null
-                Write-Host "[OK] HDD Turn Off (Battery): ${hddDc} min" -ForegroundColor Green
+                Show-Success "HDD Turn Off (Battery): ${hddDc} min"
                 $script:ChangeCount++
             }
             catch {
-                Write-Host "[WARN] Failed to set HDD (Battery)" -ForegroundColor Yellow
+                Show-Warning "Failed to set HDD (Battery)"
             }
         }
     }
@@ -564,7 +545,7 @@ function Set-ProcessorSettings {
     
     $activePlanGuid = Get-ActivePowerPlanGuid
     if (-not $activePlanGuid) {
-        Write-Host "Warning: Skipping processor settings because power plan GUID could not be retrieved" -ForegroundColor Yellow
+        Show-Warning "Skipping processor settings because power plan GUID could not be retrieved"
         return
     }
     
@@ -621,7 +602,7 @@ function Set-PowerConfigValue {
     $current = Get-PowerConfigValue -PlanGuid $PlanGuid -SubGroupGuid $SubGroupGuid `
                 -SettingGuid $SettingGuid -PowerSource $PowerSource
     if ($null -ne $current -and $current -eq $Value) {
-        Write-Host "[SKIP] $Description (already set)" -ForegroundColor Gray
+        Show-Skip "$Description (already set)"
         $script:SkipCount++
         return
     }
@@ -635,15 +616,15 @@ function Set-PowerConfigValue {
         }
 
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] $Description" -ForegroundColor Green
+            Show-Success "$Description"
             $script:ChangeCount++
         }
         else {
-            Write-Host "[FAIL] $Description" -ForegroundColor Yellow
+            Show-Warning "$Description (failed)"
         }
     }
     catch {
-        Write-Host "[ERROR] $Description" -ForegroundColor Yellow
+        Show-Error "$Description"
     }
 }
 
@@ -721,8 +702,10 @@ function Main {
         return (New-ModuleResult -Status "Success" -Message "Changed: $($script:ChangeCount), Skip: $($script:SkipCount)")
     }
     catch {
-        Write-Host "`nError: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host "Error occurred while applying settings`n" -ForegroundColor Red
+        Write-Host ""
+        Show-Error "$($_.Exception.Message)"
+        Show-Error "Error occurred while applying settings"
+        Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Power settings failed: $($_.Exception.Message)")
     }
 }

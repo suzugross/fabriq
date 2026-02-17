@@ -6,16 +6,16 @@ $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Registry Config (HKCU + Default Profile)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # Find CSV files
 $csvFiles = @(Get-ChildItem -Path $PSScriptRoot -Filter "reg_hkcu_list*.csv" -File | Sort-Object Name)
 
 if ($csvFiles.Count -eq 0) {
-    Write-Host "[ERROR] No files matching reg_hkcu_list*.csv found" -ForegroundColor Red
+    Show-Error "No files matching reg_hkcu_list*.csv found"
     return (New-ModuleResult -Status "Error" -Message "No files matching reg_hkcu_list*.csv found")
 }
 
@@ -24,19 +24,16 @@ $allItems = @()
 $loadedFileCount = 0
 
 foreach ($csvFile in $csvFiles) {
-    try {
-        $items = @(Import-Csv -Path $csvFile.FullName -Encoding Default)
+    $items = Import-CsvSafe -Path $csvFile.FullName -Description $csvFile.Name
+    if ($null -ne $items) {
         $allItems += $items
-        Write-Host "[INFO] Loaded $($csvFile.Name) ($($items.Count) items)" -ForegroundColor Cyan
+        Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
         $loadedFileCount++
-    }
-    catch {
-        Write-Host "[ERROR] Failed to load $($csvFile.Name): $_" -ForegroundColor Red
     }
 }
 
 if ($loadedFileCount -eq 0) {
-    Write-Host "[ERROR] Failed to load any CSV files" -ForegroundColor Red
+    Show-Error "Failed to load any CSV files"
     return (New-ModuleResult -Status "Error" -Message "Failed to load any CSV files")
 }
 
@@ -52,7 +49,7 @@ Write-Host "" -ForegroundColor Cyan
 Write-Host ""
 
 if ($regItems.Count -eq 0) {
-    Write-Host "[INFO] No valid registry settings found" -ForegroundColor Yellow
+    Show-Info "No valid registry settings found"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No valid registry settings found")
 }
@@ -132,15 +129,11 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 # Confirmation
-if (-not (Confirm-Execution -Message "Apply the above registry changes?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above registry changes?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
-Write-Host "[INFO] Starting registry configuration..." -ForegroundColor Cyan
+Show-Info "Starting registry configuration..."
 Write-Host ""
 
 # ========================================
@@ -149,10 +142,10 @@ Write-Host ""
 $hiveLoaded = $false
 
 if (Test-Path $HIVE_PATH) {
-    Write-Host "[INFO] Loading Default Profile Hive..." -ForegroundColor Cyan
+    Show-Info "Loading Default Profile Hive..."
     & reg load $HIVE_KEY $HIVE_PATH 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive loaded: $HIVE_KEY" -ForegroundColor Green
+        Show-Success "Hive loaded: $HIVE_KEY"
         $hiveLoaded = $true
         # Create PSDrive for HKU access
         if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
@@ -160,13 +153,13 @@ if (Test-Path $HIVE_PATH) {
         }
     }
     else {
-        Write-Host "[ERROR] Failed to load Hive" -ForegroundColor Red
-        Write-Host "[INFO] Configuring HKCU only" -ForegroundColor Yellow
+        Show-Error "Failed to load Hive"
+        Show-Info "Configuring HKCU only"
     }
 }
 else {
-    Write-Host "[ERROR] ntuser.dat not found: $HIVE_PATH" -ForegroundColor Red
-    Write-Host "[INFO] Configuring HKCU only" -ForegroundColor Yellow
+    Show-Error "ntuser.dat not found: $HIVE_PATH"
+    Show-Info "Configuring HKCU only"
 }
 Write-Host ""
 
@@ -175,7 +168,7 @@ Write-Host ""
 # ========================================
 $successCount = 0
 $skipCount = 0
-$errorCount = 0
+$failCount = 0
 
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
@@ -235,7 +228,7 @@ foreach ($item in $regItems) {
         }
         catch {
             Write-Host "  [HKCU] Error: $_" -ForegroundColor Red
-            $errorCount++
+            $failCount++
             $hasError = $true
             Write-Host ""
             continue
@@ -273,7 +266,7 @@ foreach ($item in $regItems) {
             }
             catch {
                 Write-Host "  [HIVE] Error: $_" -ForegroundColor Red
-                $errorCount++
+                $failCount++
                 $hasError = $true
                 Write-Host ""
                 continue
@@ -299,7 +292,7 @@ foreach ($item in $regItems) {
 # Unload Hive
 # ========================================
 if ($hiveLoaded) {
-    Write-Host "[INFO] Unloading Hive..." -ForegroundColor Cyan
+    Show-Info "Unloading Hive..."
 
     if (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue) {
         Remove-PSDrive -Name HKU -Force
@@ -310,40 +303,22 @@ if ($hiveLoaded) {
 
     & reg unload $HIVE_KEY 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive unloaded" -ForegroundColor Green
+        Show-Success "Hive unloaded"
     }
     else {
-        Write-Host "[ERROR] Failed to unload Hive. Retrying..." -ForegroundColor Yellow
+        Show-Warning "Failed to unload Hive. Retrying..."
         Start-Sleep -Seconds 2
         [gc]::Collect()
         & reg unload $HIVE_KEY 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[SUCCESS] Hive unloaded (Retry success)" -ForegroundColor Green
+            Show-Success "Hive unloaded (Retry success)"
         }
         else {
-            Write-Host "[ERROR] Failed to unload Hive. Please unload manually." -ForegroundColor Red
+            Show-Error "Failed to unload Hive. Please unload manually."
         }
     }
     Write-Host ""
 }
 
 # Summary
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Configuration Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Success: $successCount items" -ForegroundColor Green
-if ($skipCount -gt 0) {
-    Write-Host "Skipped: $skipCount items (Already configured)" -ForegroundColor Gray
-}
-if ($errorCount -gt 0) {
-    Write-Host "Failed: $errorCount items" -ForegroundColor Red
-}
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($errorCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($errorCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $errorCount -gt 0) { "Partial" }
-    elseif ($successCount -gt 0 -and $skipCount -gt 0) { "Success" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $errorCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results")

@@ -4,15 +4,15 @@ If (!$HeifExtensions) {
     try {
         Add-AppxProvisionedPackage -Online -PackagePath "$($PSScriptRoot)\Microsoft.HEIFImageExtension_1.0.61171.0_neutral_~_8wekyb3d8bbwe.AppxBundle" -SkipLicense -ErrorAction Stop
 
-        Write-Host "The HEIF Image Extensions Store App has been Installed to this System" -ForegroundColor Green
+        Show-Success "HEIF Image Extensions installed"
         return (New-ModuleResult -Status "Success" -Message "HEIF Image Extensions installed")
     }
     catch {
-        Write-Host "[ERROR] Failed to install HEIF Image Extensions: $_" -ForegroundColor Red
+        Show-Error "Failed to install HEIF Image Extensions: $_"
         return (New-ModuleResult -Status "Error" -Message "Installation failed: $_")
     }
 } Else {
 
-    Write-Host "The HEIF Image Extensions Microsoft Store App is already Installed on this System" -ForegroundColor Yellow
+    Show-Skip "HEIF Image Extensions already installed"
     return (New-ModuleResult -Status "Skipped" -Message "Already installed")
 }

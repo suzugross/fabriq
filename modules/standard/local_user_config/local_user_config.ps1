@@ -2,7 +2,7 @@
 # Local User Creation Script
 # ========================================
 
-Write-Host "Executing local user creation..." -ForegroundColor Cyan
+Show-Info "Executing local user creation..."
 Write-Host ""
 
 # ========================================
@@ -10,25 +10,12 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] local_user_list.csv not found: $csvPath" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv not found")
+$userList = Import-CsvSafe -Path $csvPath -Description "local_user_list.csv"
+if ($null -eq $userList -or $userList.Count -eq 0) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
-try {
-    $userList = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load local_user_list.csv: $_" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv: $_")
-}
-
-if ($userList.Count -eq 0) {
-    Write-Host "[ERROR] local_user_list.csv contains no data" -ForegroundColor Red
-    return (New-ModuleResult -Status "Error" -Message "local_user_list.csv contains no data")
-}
-
-Write-Host "[INFO] Loaded $($userList.Count) user definitions" -ForegroundColor Cyan
+Show-Info "Loaded $($userList.Count) user definitions"
 Write-Host ""
 
 # ========================================
@@ -53,12 +40,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Create users with above settings?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Create users with above settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -78,7 +61,7 @@ foreach ($user in $userList) {
         # Check existing user
         $existingUser = Get-LocalUser -Name $user.UserName -ErrorAction SilentlyContinue
         if ($existingUser) {
-            Write-Host "[SKIP] User '$($user.UserName)' already exists" -ForegroundColor Yellow
+            Show-Skip "User '$($user.UserName)' already exists"
             Write-Host ""
             continue
         }
@@ -101,10 +84,10 @@ foreach ($user in $userList) {
 
         # Create user
         New-LocalUser @params | Out-Null
-        Write-Host "[SUCCESS] Created user '$($user.UserName)'" -ForegroundColor Green
+        Show-Success "Created user '$($user.UserName)'"
     }
     catch {
-        Write-Host "[ERROR] Failed to create user '$($user.UserName)': $_" -ForegroundColor Red
+        Show-Error "Failed to create user '$($user.UserName)': $_"
         Write-Host ""
         $failCount++
         continue
@@ -119,10 +102,10 @@ foreach ($user in $userList) {
 
             try {
                 Add-LocalGroupMember -Group $group -Member $user.UserName -ErrorAction Stop
-                Write-Host "[SUCCESS] Added to group '$group'" -ForegroundColor Green
+                Show-Success "Added to group '$group'"
             }
             catch {
-                Write-Host "[ERROR] Failed to add to group '$group': $_" -ForegroundColor Red
+                Show-Error "Failed to add to group '$group': $_"
             }
         }
     }
@@ -131,19 +114,4 @@ foreach ($user in $userList) {
     Write-Host ""
 }
 
-# ========================================
-# Result Summary
-# ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Failed: $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Fail $failCount)

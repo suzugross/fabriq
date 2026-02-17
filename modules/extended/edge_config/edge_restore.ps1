@@ -7,9 +7,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Edge Profile Restore" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # --- Paths ---
@@ -23,8 +23,8 @@ Write-Host ""
 
 # --- Backup existence check ---
 if (-not (Test-Path $backupDir)) {
-    Write-Host "[ERROR] Backup directory not found: $backupDir" -ForegroundColor Red
-    Write-Host "[INFO] Run 'Edge Profile Backup' first to create a backup." -ForegroundColor Yellow
+    Show-Error "Backup directory not found: $backupDir"
+    Show-Info "Run 'Edge Profile Backup' first to create a backup."
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Backup directory not found")
 }
@@ -32,7 +32,7 @@ if (-not (Test-Path $backupDir)) {
 # Verify backup has content
 $backupFiles = @(Get-ChildItem $backupDir -Recurse -File -ErrorAction SilentlyContinue)
 if ($backupFiles.Count -eq 0) {
-    Write-Host "[ERROR] Backup directory is empty: $backupDir" -ForegroundColor Red
+    Show-Error "Backup directory is empty: $backupDir"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Backup directory is empty")
 }
@@ -52,19 +52,15 @@ Write-Host ""
 # --- Edge process check & kill ---
 $edgeProcesses = @(Get-Process -Name "msedge" -ErrorAction SilentlyContinue)
 if ($edgeProcesses.Count -gt 0) {
-    Write-Host "[WARNING] Edge is running ($($edgeProcesses.Count) processes)" -ForegroundColor Yellow
-    Write-Host "[INFO] Edge must be closed before restore" -ForegroundColor Yellow
+    Show-Warning "Edge is running ($($edgeProcesses.Count) processes)"
+    Show-Info "Edge must be closed before restore"
     Write-Host ""
 
-    if (-not (Confirm-Execution -Message "Terminate Edge and proceed with restore?")) {
-        Write-Host ""
-        Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-        Write-Host ""
-        return (New-ModuleResult -Status "Cancelled" -Message "User canceled (Edge running)")
-    }
+    $cancelResult = Confirm-ModuleExecution -Message "Terminate Edge and proceed with restore?"
+    if ($null -ne $cancelResult) { return $cancelResult }
 
     Write-Host ""
-    Write-Host "[INFO] Terminating Edge processes..." -ForegroundColor Cyan
+    Show-Info "Terminating Edge processes..."
 
     try {
         Stop-Process -Name "msedge" -Force -ErrorAction Stop
@@ -72,15 +68,15 @@ if ($edgeProcesses.Count -gt 0) {
 
         $remaining = @(Get-Process -Name "msedge" -ErrorAction SilentlyContinue)
         if ($remaining.Count -gt 0) {
-            Write-Host "[ERROR] Edge processes still running after termination attempt" -ForegroundColor Red
+            Show-Error "Edge processes still running after termination attempt"
             Write-Host ""
             return (New-ModuleResult -Status "Error" -Message "Failed to terminate Edge")
         }
 
-        Write-Host "[SUCCESS] Edge terminated" -ForegroundColor Green
+        Show-Success "Edge terminated"
     }
     catch {
-        Write-Host "[ERROR] Failed to terminate Edge: $_" -ForegroundColor Red
+        Show-Error "Failed to terminate Edge: $_"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Failed to terminate Edge: $_")
     }
@@ -88,24 +84,20 @@ if ($edgeProcesses.Count -gt 0) {
     Write-Host ""
 }
 else {
-    Write-Host "[INFO] Edge is not running" -ForegroundColor Gray
+    Show-Info "Edge is not running"
     Write-Host ""
 }
 
 # --- Confirm restore (with overwrite warning) ---
-Write-Host "[WARNING] This will OVERWRITE current Edge settings completely." -ForegroundColor Red
+Show-Warning "This will OVERWRITE current Edge settings completely."
 Write-Host ""
-if (-not (Confirm-Execution -Message "Restore Edge profile from backup?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Restore Edge profile from backup?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
 # --- Execute Robocopy ---
-Write-Host "[INFO] Restore in progress (this may take a few minutes)..." -ForegroundColor Cyan
+Show-Info "Restore in progress (this may take a few minutes)..."
 Write-Host ""
 
 & robocopy.exe "$backupDir" "$targetDir" /MIR /XJ /MT /R:1 /W:1 /NFL /NDL
@@ -115,18 +107,18 @@ Write-Host ""
 
 # --- Result ---
 if ($exitCode -lt 8) {
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Restore Results" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "  Status:   Success (robocopy exit: $exitCode)" -ForegroundColor Green
     Write-Host "  Restored: $sizeStr" -ForegroundColor White
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host ""
 
     return (New-ModuleResult -Status "Success" -Message "Restore completed ($sizeStr)")
 }
 else {
-    Write-Host "[ERROR] Restore failed (robocopy exit code: $exitCode)" -ForegroundColor Red
+    Show-Error "Restore failed (robocopy exit code: $exitCode)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Robocopy failed (exit: $exitCode)")
 }

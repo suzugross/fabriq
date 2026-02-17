@@ -3,9 +3,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Restart with AutoRun" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -15,12 +15,12 @@ $fabriqRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
 if (-not (Test-Path $fabriqBat)) {
-    Write-Host "[ERROR] Fabriq.bat not found: $fabriqBat" -ForegroundColor Red
+    Show-Error "Fabriq.bat not found: $fabriqBat"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Fabriq.bat not found: $fabriqBat")
 }
 
-Write-Host "[INFO] Fabriq.bat: $fabriqBat" -ForegroundColor Cyan
+Show-Info "Fabriq.bat: $fabriqBat"
 Write-Host ""
 
 # ========================================
@@ -55,12 +55,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Cyan
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Register RunOnce and restart the computer?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -79,11 +75,11 @@ try {
         New-ItemProperty -Path $runOncePath -Name $runOnceName -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
     }
 
-    Write-Host "[SUCCESS] RunOnce registered: $runOnceName" -ForegroundColor Green
+    Show-Success "RunOnce registered: $runOnceName"
     Write-Host ""
 }
 catch {
-    Write-Host "[ERROR] Failed to register RunOnce: $_" -ForegroundColor Red
+    Show-Error "Failed to register RunOnce: $_"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Failed to register RunOnce: $_")
 }
@@ -91,24 +87,9 @@ catch {
 # ========================================
 # Countdown and Restart
 # ========================================
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host "The computer will restart in 10 seconds..." -ForegroundColor Yellow
-Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-Write-Host "========================================" -ForegroundColor Yellow
-Write-Host ""
-
-for ($i = 10; $i -ge 1; $i--) {
-    Write-Host "`r  Restarting in $i seconds... " -NoNewline -ForegroundColor Yellow
-    Start-Sleep -Seconds 1
-}
-Write-Host ""
-Write-Host ""
-
-Write-Host "[INFO] Restarting computer..." -ForegroundColor Cyan
-
 # Write result before restart (execution history will be saved by the framework)
 $result = New-ModuleResult -Status "Success" -Message "RunOnce registered, restarting computer"
 
-Restart-Computer -Force
+Invoke-CountdownRestart -Seconds 10
 
 return $result

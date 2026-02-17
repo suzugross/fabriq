@@ -6,16 +6,15 @@
 # ========================================
 
 # Check Administrator Privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "[ERROR] This script requires administrator privileges." -ForegroundColor Red
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "  Install Windows Product Key" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -43,8 +42,8 @@ $keySource = ""
 
 $csvPath = Join-Path $PSScriptRoot "license_key.csv"
 if (Test-Path $csvPath) {
-    try {
-        $allKeys = @(Import-Csv -Path $csvPath -Encoding Default)
+    $allKeys = Import-CsvSafe -Path $csvPath -Description "license_key.csv"
+    if ($null -ne $allKeys -and $allKeys.Count -gt 0) {
         $enabledKeys = @($allKeys | Where-Object { $_.Enabled -eq "1" })
 
         if ($enabledKeys.Count -gt 0) {
@@ -53,25 +52,22 @@ if (Test-Path $csvPath) {
             $keyDesc = $enabledKeys[0].Description
 
             if ($enabledKeys.Count -gt 1) {
-                Write-Host "[WARNING] Multiple enabled keys found. Using first entry." -ForegroundColor Yellow
+                Show-Warning "Multiple enabled keys found. Using first entry."
             }
 
-            Write-Host "[INFO] Product key loaded from CSV" -ForegroundColor Cyan
+            Show-Info "Product key loaded from CSV"
             Write-Host "  Key:         $productKey" -ForegroundColor White
             if ($keyDesc) {
                 Write-Host "  Description: $keyDesc" -ForegroundColor Gray
             }
         }
         else {
-            Write-Host "[INFO] No enabled keys in license_key.csv" -ForegroundColor Gray
+            Show-Info "No enabled keys in license_key.csv"
         }
-    }
-    catch {
-        Write-Host "[WARNING] Failed to read license_key.csv: $_" -ForegroundColor Yellow
     }
 }
 else {
-    Write-Host "[INFO] license_key.csv not found" -ForegroundColor Gray
+    Show-Info "license_key.csv not found (manual input mode)"
 }
 
 # Manual input fallback
@@ -91,7 +87,7 @@ if ([string]::IsNullOrWhiteSpace($productKey)) {
 # Step 2: Validate Key Format
 # ========================================
 if ($productKey -notmatch '^[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}$') {
-    Write-Host "[ERROR] Invalid key format: $productKey" -ForegroundColor Red
+    Show-Error "Invalid key format: $productKey"
     return (New-ModuleResult -Status "Error" -Message "Invalid product key format")
 }
 
@@ -125,9 +121,8 @@ Write-Host ""
 # ========================================
 # Step 4: Confirm
 # ========================================
-if (-not (Confirm-Execution -Message "Install this product key?")) {
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Install this product key?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 # ========================================
 # Step 5: Install Product Key
@@ -138,25 +133,25 @@ try {
 
     # Uninstall existing key if present (optional, InstallProductKey overwrites anyway)
     if ($currentProduct) {
-        Write-Host "[INFO] Uninstalling existing key..." -ForegroundColor Cyan
+        Show-Info "Uninstalling existing key..."
         try {
             $null = Invoke-CimMethod -InputObject $service -MethodName UninstallProductKey `
                 -Arguments @{ProductKeyID = $currentProduct.ID} -ErrorAction Stop
-            Write-Host "[SUCCESS] Existing key uninstalled" -ForegroundColor Green
+            Show-Success "Existing key uninstalled"
         }
         catch {
-            Write-Host "[WARNING] Could not uninstall existing key (will overwrite): $($_.Exception.Message)" -ForegroundColor Yellow
+            Show-Warning "Could not uninstall existing key (will overwrite): $($_.Exception.Message)"
         }
     }
 
     # Install new key
-    Write-Host "[INFO] Installing new product key..." -ForegroundColor Cyan
+    Show-Info "Installing new product key..."
     $null = Invoke-CimMethod -InputObject $service -MethodName InstallProductKey `
         -Arguments @{ProductKey = $productKey} -ErrorAction Stop
-    Write-Host "[SUCCESS] Product key installed" -ForegroundColor Green
+    Show-Success "Product key installed"
 }
 catch {
-    Write-Host "[ERROR] Failed to install product key: $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "Failed to install product key: $($_.Exception.Message)"
     return (New-ModuleResult -Status "Error" -Message "Install failed: $($_.Exception.Message)")
 }
 
@@ -184,7 +179,7 @@ if ($finalCheck) {
     return (New-ModuleResult -Status "Success" -Message "Key installed (Partial: $($finalCheck.PartialProductKey))")
 }
 else {
-    Write-Host "  [WARNING] Could not verify installation" -ForegroundColor Yellow
+    Show-Warning "Could not verify installation"
     Write-Host "========================================" -ForegroundColor White
 
     return (New-ModuleResult -Status "Success" -Message "Key installed (verification pending)")

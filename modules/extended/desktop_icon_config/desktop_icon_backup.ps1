@@ -7,9 +7,9 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Desktop Icon Layout Backup" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 $registryPath = 'HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Bags\1\Desktop'
@@ -27,17 +27,13 @@ else {
 }
 Write-Host ""
 
-Write-Host "[INFO] Arrange your desktop icons in the desired layout" -ForegroundColor Yellow
+Show-Info "Arrange your desktop icons in the desired layout"
 Write-Host "       before proceeding with the backup." -ForegroundColor Yellow
 Write-Host ""
 
 # --- Confirmation ---
-if (-not (Confirm-Execution -Message "Backup desktop icon layout?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Backup desktop icon layout?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -48,7 +44,7 @@ if (-not (Test-Path $backupDir)) {
         $null = New-Item -ItemType Directory -Path $backupDir -Force
     }
     catch {
-        Write-Host "[ERROR] Failed to create backup directory: $_" -ForegroundColor Red
+        Show-Error "Failed to create backup directory: $_"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "Failed to create backup dir")
     }
@@ -58,7 +54,7 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $exportFile = Join-Path $backupDir "DesktopIcons_${timestamp}.reg"
 
 # --- Execute backup ---
-Write-Host "[INFO] Exporting registry key..." -ForegroundColor Cyan
+Show-Info "Exporting registry key..."
 
 try {
     $process = Start-Process reg.exe -ArgumentList "export `"$registryPath`" `"$exportFile`" /y" -Wait -PassThru -NoNewWindow
@@ -72,26 +68,26 @@ try {
         }
 
         Write-Host ""
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host "Backup Results" -ForegroundColor Cyan
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host "  Status:   Success" -ForegroundColor Green
         Write-Host "  File:     $([System.IO.Path]::GetFileName($exportFile))" -ForegroundColor White
         Write-Host "  Size:     $sizeStr" -ForegroundColor White
         Write-Host "  Location: $backupDir" -ForegroundColor White
-        Write-Host "========================================" -ForegroundColor Cyan
+        Show-Separator
         Write-Host ""
 
         return (New-ModuleResult -Status "Success" -Message "Backup completed ($sizeStr)")
     }
     else {
-        Write-Host "[ERROR] reg.exe exit code: $($process.ExitCode)" -ForegroundColor Red
+        Show-Error "reg.exe exit code: $($process.ExitCode)"
         Write-Host ""
         return (New-ModuleResult -Status "Error" -Message "reg.exe failed (exit: $($process.ExitCode))")
     }
 }
 catch {
-    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Show-Error "$($_.Exception.Message)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Export failed: $($_.Exception.Message)")
 }

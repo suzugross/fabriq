@@ -7,28 +7,21 @@
 # ========================================
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "File Copy Config" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
 # Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "copy_list.csv"
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] copy_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "copy_list.csv not found")
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load copy_list.csv")
 }
-
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to read copy_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to read copy_list.csv")
+if ($items.Count -eq 0) {
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
 # ========================================
@@ -36,25 +29,15 @@ catch {
 # ========================================
 $sourceDir = Join-Path $PSScriptRoot "source"
 if (-not (Test-Path $sourceDir)) {
-    Write-Host "[ERROR] source/ directory not found: $sourceDir" -ForegroundColor Red
+    Show-Error "source/ directory not found: $sourceDir"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "source/ directory not found")
 }
 
 # ========================================
-# Step 3: Filter enabled entries
-# ========================================
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-if ($items.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in copy_list.csv" -ForegroundColor Gray
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
-
-# ========================================
 # Step 4: Display copy targets with status
 # ========================================
-Write-Host "[INFO] Copy targets: $($items.Count) items" -ForegroundColor Cyan
+Show-Info "Copy targets: $($items.Count) items"
 Write-Host ""
 
 $index = 0
@@ -95,12 +78,8 @@ foreach ($item in $items) {
 # ========================================
 # Step 5: Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Copy the above files?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Copy the above files?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -123,7 +102,7 @@ foreach ($item in $items) {
 
     # Source existence check
     if (-not (Test-Path $srcPath)) {
-        Write-Host "  [ERROR] Source not found: $srcPath" -ForegroundColor Red
+        Show-Error "Source not found: $srcPath"
         $failCount++
         Write-Host ""
         continue
@@ -133,10 +112,10 @@ foreach ($item in $items) {
     if (-not (Test-Path $item.DestPath)) {
         try {
             $null = New-Item -ItemType Directory -Path $item.DestPath -Force
-            Write-Host "  [INFO] Created directory: $($item.DestPath)" -ForegroundColor Gray
+            Show-Info "Created directory: $($item.DestPath)"
         }
         catch {
-            Write-Host "  [ERROR] Failed to create directory: $($item.DestPath) - $_" -ForegroundColor Red
+            Show-Error "Failed to create directory: $($item.DestPath) - $_"
             $failCount++
             Write-Host ""
             continue
@@ -146,7 +125,7 @@ foreach ($item in $items) {
     # Overwrite control
     if (Test-Path $destPath) {
         if (-not $isOverwrite) {
-            Write-Host "  [SKIP] File already exists (overwrite disabled)" -ForegroundColor Gray
+            Show-Skip "File already exists (overwrite disabled)"
             $skipCount++
             Write-Host ""
             continue
@@ -157,15 +136,15 @@ foreach ($item in $items) {
     try {
         Copy-Item -Path $srcPath -Destination $item.DestPath -Recurse -Force -ErrorAction Stop
         if (Test-Path $destPath) {
-            Write-Host "  [SUCCESS] Copied" -ForegroundColor Green
+            Show-Success "Copied"
         }
         else {
-            Write-Host "  [SUCCESS] Copied" -ForegroundColor Green
+            Show-Success "Copied"
         }
         $successCount++
     }
     catch {
-        Write-Host "  [ERROR] Copy failed: $_" -ForegroundColor Red
+        Show-Error "Copy failed: $_"
         $failCount++
     }
 
@@ -175,25 +154,4 @@ foreach ($item in $items) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "File Copy Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-if ($successCount -gt 0) {
-    Write-Host "  Success: $successCount items" -ForegroundColor Green
-}
-if ($skipCount -gt 0) {
-    Write-Host "  Skipped: $skipCount items (Already exists)" -ForegroundColor Gray
-}
-if ($failCount -gt 0) {
-    Write-Host "  Failed:  $failCount items" -ForegroundColor Red
-}
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    elseif ($successCount -gt 0 -and $skipCount -gt 0) { "Success" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "File Copy Results")

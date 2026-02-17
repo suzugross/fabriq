@@ -8,16 +8,15 @@
 # ========================================
 
 # Check Administrator Privileges
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "Administrator privileges are required."
-    Write-Warning "Please run PowerShell as Administrator and try again."
+if (-not (Test-AdminPrivilege)) {
+    Show-Error "This script requires administrator privileges."
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host "Display DPI Scaling Configuration" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Show-Separator
 Write-Host ""
 
 # ========================================
@@ -130,14 +129,14 @@ function Select-DisplayInteractive {
     }
 
     if ($allDisplays.Count -eq 0) {
-        Write-Host "[ERROR] No display keys found in registry" -ForegroundColor Red
+        Show-Error "No display keys found in registry"
         return $null
     }
 
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host "Available Displays" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Show-Separator
     Write-Host ""
 
     $idx = 0
@@ -156,12 +155,12 @@ function Select-DisplayInteractive {
     $selection = Read-Host "Select display number (or 0 to skip)"
     $selNum = 0
     if (-not [int]::TryParse($selection, [ref]$selNum)) {
-        Write-Host "[INFO] Invalid input, skipping" -ForegroundColor Yellow
+        Show-Info "Invalid input, skipping"
         return $null
     }
 
     if ($selNum -le 0 -or $selNum -gt $allDisplays.Count) {
-        Write-Host "[INFO] Skipped" -ForegroundColor Yellow
+        Show-Info "Skipped"
         return $null
     }
 
@@ -181,13 +180,13 @@ function Select-ScaleInteractive {
     $selection = Read-Host "Select scale (or 0 to skip)"
     $selNum = 0
     if (-not [int]::TryParse($selection, [ref]$selNum)) {
-        Write-Host "[INFO] Invalid input, skipping" -ForegroundColor Yellow
+        Show-Info "Invalid input, skipping"
         return $null
     }
 
     $scaleOptions = @(100, 125, 150, 175, 200)
     if ($selNum -le 0 -or $selNum -gt $scaleOptions.Count) {
-        Write-Host "[INFO] Skipped" -ForegroundColor Yellow
+        Show-Info "Skipped"
         return $null
     }
 
@@ -228,7 +227,7 @@ function Write-DpiValue {
             $hkcuChanged = $true
         }
         catch {
-            Write-Host "  [HKCU] Error: $_" -ForegroundColor Red
+            Write-Host "  [HKCU] Error: $_"
             $hasError = $true
         }
     }
@@ -257,7 +256,7 @@ function Write-DpiValue {
                 $hiveChanged = $true
             }
             catch {
-                Write-Host "  [HIVE] Error: $_" -ForegroundColor Red
+                Write-Host "  [HIVE] Error: $_"
                 $hasError = $true
             }
         }
@@ -278,37 +277,9 @@ function Write-DpiValue {
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "dpi_list.csv"
 
-if (-not (Test-Path $csvPath)) {
-    Write-Host "[ERROR] dpi_list.csv not found: $csvPath" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "dpi_list.csv not found")
-}
-
-try {
-    $allItems = @(Import-Csv -Path $csvPath -Encoding Default)
-}
-catch {
-    Write-Host "[ERROR] Failed to load dpi_list.csv: $_" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv: $_")
-}
-
-if ($allItems.Count -eq 0) {
-    Write-Host "[ERROR] dpi_list.csv contains no data" -ForegroundColor Red
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "dpi_list.csv contains no data")
-}
-
-# Filter enabled entries
-$items = @($allItems | Where-Object { $_.Enabled -eq "1" })
-
-if ($items.Count -eq 0) {
-    Write-Host "[INFO] No enabled entries in dpi_list.csv" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
-
-Write-Host "[INFO] Loaded $($items.Count) enabled entries (total: $($allItems.Count))" -ForegroundColor Cyan
+$items = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Failed to load dpi_list.csv") }
+if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 Write-Host ""
 
 # ========================================
@@ -326,18 +297,18 @@ foreach ($item in $items) {
 
     $spNum = 0
     if (-not [int]::TryParse($sp, [ref]$spNum)) {
-        Write-Host "[WARN] Invalid ScalePercent for '$($item.Description)': '$sp' — skipping" -ForegroundColor Yellow
+        Show-Warning "Invalid ScalePercent for '$($item.Description)': '$sp' — skipping"
         continue
     }
     if (-not $script:DpiValueMap.ContainsKey($spNum)) {
-        Write-Host "[WARN] Unsupported ScalePercent '$spNum' for '$($item.Description)' (valid: 100,125,150,175,200) — skipping" -ForegroundColor Yellow
+        Show-Warning "Unsupported ScalePercent '$spNum' for '$($item.Description)' (valid: 100,125,150,175,200) — skipping"
         continue
     }
     $validItems += $item
 }
 
 if ($validItems.Count -eq 0) {
-    Write-Host "[ERROR] No valid entries after validation" -ForegroundColor Red
+    Show-Error "No valid entries after validation"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "No valid entries after validation")
 }
@@ -397,7 +368,7 @@ foreach ($target in $targets) {
     $scaleStr = if ($target.InteractiveScale) { "TBD (Interactive)" } else { "${sp}%" }
 
     if ($target.InteractiveDisplay) {
-        Write-Host "[$index] (Interactive Selection) -> $scaleStr" -ForegroundColor Yellow
+        Write-Host "[$index] (Interactive Selection) -> $scaleStr"
         Write-Host "    Display and/or scale will be selected during apply phase" -ForegroundColor Gray
         Write-Host "    $($item.Description)" -ForegroundColor Gray
         Write-Host ""
@@ -405,8 +376,8 @@ foreach ($target in $targets) {
     }
 
     if ($target.MatchedKeyNames.Count -eq 0) {
-        Write-Host "[$index] $($item.HardwareID) -> $scaleStr  [ERROR]" -ForegroundColor Red
-        Write-Host "    No display found matching '$($item.HardwareID)'" -ForegroundColor Red
+        Write-Host "[$index] $($item.HardwareID) -> $scaleStr  [ERROR]"
+        Write-Host "    No display found matching '$($item.HardwareID)'"
         Write-Host "    $($item.Description)" -ForegroundColor Gray
         Write-Host ""
         continue
@@ -446,12 +417,8 @@ Write-Host ""
 # ========================================
 # Confirmation
 # ========================================
-if (-not (Confirm-Execution -Message "Apply the above DPI scaling settings?")) {
-    Write-Host ""
-    Write-Host "[INFO] Canceled" -ForegroundColor Yellow
-    Write-Host ""
-    return (New-ModuleResult -Status "Cancelled" -Message "User canceled")
-}
+$cancelResult = Confirm-ModuleExecution -Message "Apply the above DPI scaling settings?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
@@ -461,30 +428,30 @@ Write-Host ""
 $hiveLoaded = $false
 
 if (Test-Path $HIVE_PATH) {
-    Write-Host "[INFO] Loading Default Profile Hive..." -ForegroundColor Cyan
+    Show-Info "Loading Default Profile Hive..."
     & reg load $HIVE_KEY $HIVE_PATH 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive loaded: $HIVE_KEY" -ForegroundColor Green
+        Show-Success "Hive loaded: $HIVE_KEY"
         $hiveLoaded = $true
         if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
             $null = New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS
         }
     }
     else {
-        Write-Host "[ERROR] Failed to load Hive" -ForegroundColor Red
-        Write-Host "[INFO] Configuring HKCU only" -ForegroundColor Yellow
+        Show-Error "Failed to load Hive"
+        Show-Info "Configuring HKCU only"
     }
 }
 else {
-    Write-Host "[ERROR] ntuser.dat not found: $HIVE_PATH" -ForegroundColor Red
-    Write-Host "[INFO] Configuring HKCU only" -ForegroundColor Yellow
+    Show-Error "ntuser.dat not found: $HIVE_PATH"
+    Show-Info "Configuring HKCU only"
 }
 Write-Host ""
 
 # ========================================
 # Apply Settings
 # ========================================
-Write-Host "--- Applying DPI Scaling Settings ---" -ForegroundColor Cyan
+Show-Info "Applying DPI scaling settings..."
 Write-Host ""
 
 $successCount = 0
@@ -502,7 +469,7 @@ foreach ($target in $targets) {
     if ($target.InteractiveDisplay) {
         $selectedName = Select-DisplayInteractive -Description $item.Description
         if ($null -eq $selectedName) {
-            Write-Host "  [SKIP] No display selected" -ForegroundColor Yellow
+            Show-Skip "No display selected"
             $skipCount++
             Write-Host ""
             continue
@@ -511,8 +478,8 @@ foreach ($target in $targets) {
     }
     else {
         if ($target.MatchedKeyNames.Count -eq 0) {
-            Write-Host "[$index] $($item.HardwareID)" -ForegroundColor Red
-            Write-Host "  [ERROR] No display found matching '$($item.HardwareID)'" -ForegroundColor Red
+            Write-Host "[$index] $($item.HardwareID)"
+            Show-Error "No display found matching '$($item.HardwareID)'"
             $failCount++
             Write-Host ""
             continue
@@ -525,7 +492,7 @@ foreach ($target in $targets) {
     if ($target.InteractiveScale) {
         $scalePercent = Select-ScaleInteractive
         if ($null -eq $scalePercent) {
-            Write-Host "  [SKIP] No scale selected" -ForegroundColor Yellow
+            Show-Skip "No scale selected"
             $skipCount++
             Write-Host ""
             continue
@@ -562,7 +529,7 @@ foreach ($target in $targets) {
 # Unload Hive
 # ========================================
 if ($hiveLoaded) {
-    Write-Host "[INFO] Unloading Hive..." -ForegroundColor Cyan
+    Show-Info "Unloading Hive..."
 
     if (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue) {
         Remove-PSDrive -Name HKU -Force
@@ -573,18 +540,18 @@ if ($hiveLoaded) {
 
     & reg unload $HIVE_KEY 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Hive unloaded" -ForegroundColor Green
+        Show-Success "Hive unloaded"
     }
     else {
-        Write-Host "[ERROR] Failed to unload Hive. Retrying..." -ForegroundColor Yellow
+        Show-Warning "Failed to unload Hive. Retrying..."
         Start-Sleep -Seconds 2
         [gc]::Collect()
         & reg unload $HIVE_KEY 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[SUCCESS] Hive unloaded (Retry success)" -ForegroundColor Green
+            Show-Success "Hive unloaded (Retry success)"
         }
         else {
-            Write-Host "[ERROR] Failed to unload Hive. Please unload manually." -ForegroundColor Red
+            Show-Error "Failed to unload Hive. Please unload manually."
         }
     }
     Write-Host ""
@@ -593,22 +560,8 @@ if ($hiveLoaded) {
 # ========================================
 # Result Summary
 # ========================================
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Results" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Success: $successCount items" -ForegroundColor Green
-Write-Host "  Skipped: $skipCount items (Already configured)" -ForegroundColor $(if ($skipCount -gt 0) { "Gray" } else { "Green" })
-Write-Host "  Failed:  $failCount items" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host "========================================" -ForegroundColor Cyan
 if ($successCount -gt 0) {
+    Show-Warning "Sign-out or restart may be required for changes to take effect."
     Write-Host ""
-    Write-Host "NOTE: Sign-out or restart may be required for changes to take effect." -ForegroundColor Yellow
 }
-Write-Host ""
-
-# Return ModuleResult
-$overallStatus = if ($failCount -eq 0 -and $successCount -gt 0) { "Success" }
-    elseif ($failCount -eq 0 -and $successCount -eq 0 -and $skipCount -gt 0) { "Skipped" }
-    elseif ($successCount -gt 0 -and $failCount -gt 0) { "Partial" }
-    else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount, Skip: $skipCount, Fail: $failCount")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")
