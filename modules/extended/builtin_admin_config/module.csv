@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Built-in Admin Config,User Management,builtin_admin_config.ps1,62,1
