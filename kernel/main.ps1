@@ -658,7 +658,7 @@ function Invoke-BatchExecution {
         # HTML checklist
         Write-Host "[INFO] Generating HTML checklist..." -ForegroundColor Cyan
         $checklistModules = if ($null -ne $FullProfileModules) { $FullProfileModules } else { $SelectedModules }
-        $null = Export-HtmlChecklist `
+        $checklistPath = Export-HtmlChecklist `
             -ProfileName      $ProfileName `
             -ProfilePath      $ProfilePath `
             -DefinedModules   $checklistModules `
@@ -686,6 +686,21 @@ function Invoke-BatchExecution {
                 }
                 catch {
                     Show-Warning "Log upload failed: $($_.Exception.Message)"
+                }
+            }
+        }
+
+        # Launch HTML checklist viewer
+        if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+            Write-Host ""
+            Write-Host "[INFO] Opening HTML checklist viewer..." -ForegroundColor Cyan
+            $viewerScript = ".\kernel\ps1\view_report.ps1"
+            if (Test-Path $viewerScript) {
+                try {
+                    & $viewerScript -HtmlPath $checklistPath
+                }
+                catch {
+                    Show-Warning "Failed to open report viewer: $($_.Exception.Message)"
                 }
             }
         }
