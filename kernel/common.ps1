@@ -1288,6 +1288,95 @@ function Remove-ResumeState {
     }
 }
 
+function Reset-FabriqState {
+    # ========================================
+    # Resets all in-memory session state so that a new kitting
+    # session can begin on the same Fabriq process instance.
+    # Evidence files on disk are NOT deleted.
+    # ========================================
+
+    Show-Info "Resetting Fabriq session state..."
+    Write-Host ""
+
+    # ----------------------------------------
+    # 1. Transcript: stop current → start new
+    # ----------------------------------------
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+
+    $logDir = ".\logs"
+    if (-not (Test-Path $logDir)) { $null = New-Item -ItemType Directory -Path $logDir -Force }
+    $newTs  = Get-Date -Format "yyyy_MM_dd_HHmmss"
+    $uid    = $global:FabriqUniqueId    # hardware ID unchanged between sessions
+    $hn     = $env:COMPUTERNAME
+    $newLog = Join-Path $logDir "${newTs}_${uid}_${hn}.log"
+    $global:FabriqTranscriptPath   = $newLog
+    $global:FabriqSessionTimestamp = $newTs
+    Start-Transcript -Path $newLog -Append | Out-Null
+
+    # ----------------------------------------
+    # 2. Execution Results & Session ID
+    # ----------------------------------------
+    $script:ExecutionResults = @()
+    $script:SessionID        = Get-Date -Format "yyyyMMdd_HHmmss"
+
+    # ----------------------------------------
+    # 2b. Execution History CSV
+    # Evidence export already ran at profile completion, so the CSV is no longer
+    # needed for audit purposes. Delete it so Restore-ExecutionHistory finds nothing
+    # and the status monitor shows a clean state on the next session.
+    # ----------------------------------------
+    if (Test-Path $script:HistoryPath) {
+        Remove-Item $script:HistoryPath -Force -ErrorAction SilentlyContinue
+    }
+    $historyBak = "$($script:HistoryPath).bak"
+    if (Test-Path $historyBak) {
+        Remove-Item $historyBak -Force -ErrorAction SilentlyContinue
+    }
+
+    # ----------------------------------------
+    # 3. Session Info + session.json (force worker re-selection)
+    # ----------------------------------------
+    $script:SessionInfo = $null
+    if (Test-Path $script:SessionFilePath) {
+        Remove-Item $script:SessionFilePath -Force -ErrorAction SilentlyContinue
+    }
+
+    # ----------------------------------------
+    # 4. Global Flags
+    # ----------------------------------------
+    $global:AutoPilotMode     = $false
+    $global:AutoPilotWaitSec  = 3
+    $global:_LastModuleResult = $null
+
+    # ----------------------------------------
+    # 5. Environment Variables (selected host)
+    # ----------------------------------------
+    $envKeys = @(
+        "SELECTED_KANRI_NO", "SELECTED_OLD_PCNAME", "SELECTED_NEW_PCNAME",
+        "SELECTED_ETH_IP", "SELECTED_ETH_SUBNET", "SELECTED_ETH_GATEWAY",
+        "SELECTED_WIFI_IP", "SELECTED_WIFI_SUBNET", "SELECTED_WIFI_GATEWAY",
+        "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4",
+        "FABRIQ_AUTOLOGON_NO"
+    )
+    foreach ($key in $envKeys) {
+        [Environment]::SetEnvironmentVariable($key, $null, "Process")
+    }
+    for ($i = 1; $i -le 10; $i++) {
+        foreach ($suffix in @("NAME", "DRIVER", "PORT")) {
+            [Environment]::SetEnvironmentVariable("SELECTED_PRINTER_${i}_${suffix}", $null, "Process")
+        }
+    }
+
+    # ----------------------------------------
+    # 6. Resume State + Status File
+    # ----------------------------------------
+    Remove-ResumeState
+    Write-StatusFile -Phase "idle"
+
+    Show-Success "Session state reset. New log: $newLog"
+    Write-Host ""
+}
+
 function Restore-HostEnvironment {
     param([object]$HostEnv)
     $HostEnv.PSObject.Properties | ForEach-Object {

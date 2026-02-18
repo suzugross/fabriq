@@ -54,10 +54,15 @@ if ($enabledItems.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Mes
 
 # ========================================
 # Validate wallpaper/ directory
+# Only required when relative-path entries exist
 # ========================================
 $wallpaperDir = Join-Path $PSScriptRoot "wallpaper"
 
-if (-not (Test-Path $wallpaperDir)) {
+$hasRelativePaths = @($enabledItems | Where-Object {
+    -not [System.IO.Path]::IsPathRooted($_.FileName)
+}).Count -gt 0
+
+if ($hasRelativePaths -and -not (Test-Path $wallpaperDir)) {
     Show-Error "'wallpaper' directory not found: $wallpaperDir"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "'wallpaper' directory not found")
@@ -74,7 +79,11 @@ Write-Host ""
 $invalidCount = 0
 
 foreach ($item in $enabledItems) {
-    $imagePath = Join-Path $wallpaperDir $item.FileName
+    $imagePath = if ([System.IO.Path]::IsPathRooted($item.FileName)) {
+        $item.FileName
+    } else {
+        Join-Path $wallpaperDir $item.FileName
+    }
     $ext       = [System.IO.Path]::GetExtension($item.FileName).ToLower()
     $desc      = if ($item.Description) { "  ($($item.Description))" } else { "" }
     $style     = if ($item.Style) { $item.Style } else { "Fill" }
@@ -120,7 +129,11 @@ $skipCount    = 0
 $failCount    = 0
 
 foreach ($item in $enabledItems) {
-    $imagePath = Join-Path $wallpaperDir $item.FileName
+    $imagePath = if ([System.IO.Path]::IsPathRooted($item.FileName)) {
+        $item.FileName
+    } else {
+        Join-Path $wallpaperDir $item.FileName
+    }
     $ext       = [System.IO.Path]::GetExtension($item.FileName).ToLower()
     $desc      = if ($item.Description) { $item.Description } else { $item.FileName }
     $styleKey  = if ($item.Style -and $styleMap.ContainsKey($item.Style)) { $item.Style } else { "Fill" }
