@@ -146,6 +146,45 @@ function Set-SelectedHostEnvironment {
 }
 
 # ========================================
+# Function: New Kitting Session
+# ========================================
+function Invoke-NewKittingSession {
+    Write-Host ""
+    Show-Separator
+    Write-Host "New Kitting Session" -ForegroundColor Magenta
+    Show-Separator
+    Write-Host ""
+
+    # Reset all in-memory state and start a new transcript
+    Reset-FabriqState
+
+    # Re-initialize session (worker selection)
+    Initialize-Session
+    Write-Host ""
+
+    # Re-load host list and re-select target device
+    Show-Info "Loading hostlist.csv..."
+    $hostListNew = Load-HostList
+    if (-not $hostListNew) {
+        Show-Error "Failed to load hostlist.csv - returning to main menu"
+        Write-Host ""
+        return
+    }
+    Write-Host ""
+
+    $selectedHostNew = Select-Host -HostList $hostListNew
+    Write-Host ""
+    Set-SelectedHostEnvironment -SelectedHost $selectedHostNew
+    Write-Host ""
+
+    Restore-ExecutionHistory
+    Write-Host ""
+
+    Show-Success "New session ready. Target: $env:SELECTED_NEW_PCNAME"
+    Write-Host ""
+}
+
+# ========================================
 # Function: Show Main Menu (Navigation Hub)
 # ========================================
 function Show-MainMenu {
@@ -160,6 +199,7 @@ function Show-MainMenu {
     Write-Host "  [A] FabriqApps" -ForegroundColor White
     Write-Host "  [C] Command" -ForegroundColor White
     Write-Host "  [P] Run Profile" -ForegroundColor White
+    Write-Host "  [N] New Session" -ForegroundColor White
     Write-Host "  [R] History" -ForegroundColor White
     Write-Host ""
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
@@ -629,7 +669,7 @@ function Invoke-BatchExecution {
                 Write-Host ""
                 Write-Host "[INFO] Auto-uploading logs and evidence..." -ForegroundColor Cyan
                 try {
-                    & $logUploaderScript
+                    $null = & $logUploaderScript
                 }
                 catch {
                     Show-Warning "Log upload failed: $($_.Exception.Message)"
@@ -1067,6 +1107,17 @@ if ($isResuming) {
             -ProfileName $resumeState.ProfileName
 
         Remove-ResumeState
+
+        # Offer new session after resume completion (same as [P] handler)
+        Write-Host ""
+        Show-Separator
+        Write-Host "Profile Execution Completed" -ForegroundColor Green
+        Show-Separator
+        Write-Host ""
+        if (Confirm-Execution -Message "Start a new kitting session for another device?") {
+            Invoke-NewKittingSession
+        }
+        Clear-Host
     }
 }
 
@@ -1116,6 +1167,22 @@ while ($true) {
     if ($choice -eq 'P' -or $choice -eq 'p') {
         Clear-Host
         Invoke-ProfileExecution -AllModules $allModules
+        Write-Host ""
+        Show-Separator
+        Write-Host "Profile Execution Completed" -ForegroundColor Green
+        Show-Separator
+        Write-Host ""
+        if (Confirm-Execution -Message "Start a new kitting session for another device?") {
+            Invoke-NewKittingSession
+        }
+        Clear-Host
+        continue
+    }
+
+    # New Kitting Session
+    if ($choice -eq 'N' -or $choice -eq 'n') {
+        Clear-Host
+        Invoke-NewKittingSession
         Clear-Host
         continue
     }
