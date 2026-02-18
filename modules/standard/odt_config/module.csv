@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+ODT Install,Applications,odt_install.ps1,25,1
