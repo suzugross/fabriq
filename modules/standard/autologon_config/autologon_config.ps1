@@ -40,16 +40,16 @@ $targetEntry = $null
 
 if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_AUTOLOGON_NO)) {
     # Profile mode: __AUTO_to_xxx__ specified
-    $targetNo = $env:FABRIQ_AUTOLOGON_NO
-    $targetEntry = $enabledEntries | Where-Object { $_.No -eq $targetNo } | Select-Object -First 1
+    $targetUser = $env:FABRIQ_AUTOLOGON_NO
+    $targetEntry = $enabledEntries | Where-Object { $_.User -eq $targetUser } | Select-Object -First 1
 
     if ($null -eq $targetEntry) {
-        Show-Error "No enabled entry found with No='$targetNo' in autologon_list.csv"
+        Show-Error "No enabled entry found with User='$targetUser' in autologon_list.csv"
         Write-Host ""
-        return (New-ModuleResult -Status "Error" -Message "Entry No='$targetNo' not found or disabled")
+        return (New-ModuleResult -Status "Error" -Message "Entry User='$targetUser' not found or disabled")
     }
 
-    Show-Info "Target specified from Profile: No=$targetNo"
+    Show-Info "Target specified from Profile: User=$targetUser"
 }
 else {
     # Script Menu mode: manual selection or first entry

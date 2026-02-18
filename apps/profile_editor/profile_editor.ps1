@@ -44,6 +44,8 @@ $restartBg    = $specialBg
 $restartFg    = $specialFg
 $autoPilotBg  = [System.Drawing.Color]::FromArgb(60, 0, 80)
 $autoPilotFg  = [System.Drawing.Color]::FromArgb(220, 130, 255)
+$autoLogonBg  = [System.Drawing.Color]::FromArgb(0, 60, 70)
+$autoLogonFg  = [System.Drawing.Color]::FromArgb(80, 210, 190)
 
 # Special marker definitions
 $script:SpecialMarkers = [ordered]@{
@@ -59,6 +61,28 @@ $script:SpecialMarkers = [ordered]@{
 $script:MarkerPathToDisplay = @{}
 foreach ($key in $script:SpecialMarkers.Keys) {
     $script:MarkerPathToDisplay[$script:SpecialMarkers[$key].Path] = $key
+}
+
+# ========================================
+# AutoLogon entries from autologon_list.csv
+# ========================================
+function Get-AutoLogonEntries {
+    $result = [ordered]@{}
+    $csvPath = Join-Path $script:FabriqRoot "modules\standard\autologon_config\autologon_list.csv"
+    if (-not (Test-Path $csvPath)) { return $result }
+    try {
+        $rows = @(Import-Csv -Path $csvPath -Encoding Default |
+                  Where-Object { $_.Enabled -eq "1" -and -not [string]::IsNullOrWhiteSpace($_.User) })
+        foreach ($row in $rows) {
+            $displayName = "--- AUTO: $($row.User) ---"
+            $result[$displayName] = @{
+                Path = "__AUTO_to_$($row.User)__"
+                Desc = if ($row.Description) { $row.Description } else { "AutoLogon as $($row.User)" }
+            }
+        }
+    }
+    catch { }
+    return $result
 }
 
 # ========================================
@@ -110,6 +134,15 @@ foreach ($m in $script:AllModules) {
     $script:PathToDescription[$m.ScriptPath] = $m.MenuName
 }
 
+# Build AutoLogon entries and add to lookup tables
+$script:AutoLogonEntries = Get-AutoLogonEntries
+foreach ($key in $script:AutoLogonEntries.Keys) {
+    $path = $script:AutoLogonEntries[$key].Path
+    $script:PathToDisplay[$path] = $key
+    $script:DisplayToPath[$key]  = $path
+    $script:MarkerPathToDisplay[$path] = $key
+}
+
 # Build display list for ComboBox
 $script:ModuleDisplayList = @($script:AllModules | ForEach-Object { $_.DisplayName })
 
@@ -135,6 +168,10 @@ function Update-RowStyles {
         if ($module -eq "--- AUTOPILOT ---") {
             $row.DefaultCellStyle.BackColor = $autoPilotBg
             $row.DefaultCellStyle.ForeColor = $autoPilotFg
+        }
+        elseif ($script:AutoLogonEntries.Contains($module)) {
+            $row.DefaultCellStyle.BackColor = $autoLogonBg
+            $row.DefaultCellStyle.ForeColor = $autoLogonFg
         }
         elseif ($script:SpecialMarkers.Contains($module)) {
             $row.DefaultCellStyle.BackColor = $specialBg
@@ -429,6 +466,10 @@ $colModule.SortMode = "NotSortable"
 foreach ($markerName in $script:SpecialMarkers.Keys) {
     $null = $colModule.Items.Add($markerName)
 }
+# Add AutoLogon entries
+foreach ($key in $script:AutoLogonEntries.Keys) {
+    $null = $colModule.Items.Add($key)
+}
 # Add all discovered modules
 foreach ($m in $script:ModuleDisplayList) {
     $null = $colModule.Items.Add($m)
@@ -475,6 +516,11 @@ $script:dgv.Add_CellValueChanged({
             $row.Cells["Description"].Value = $script:SpecialMarkers[$module].Desc
             $row.DefaultCellStyle.BackColor = $autoPilotBg
             $row.DefaultCellStyle.ForeColor = $autoPilotFg
+        }
+        elseif ($script:AutoLogonEntries.Contains($module)) {
+            $row.Cells["Description"].Value = $script:AutoLogonEntries[$module].Desc
+            $row.DefaultCellStyle.BackColor = $autoLogonBg
+            $row.DefaultCellStyle.ForeColor = $autoLogonFg
         }
         elseif ($script:SpecialMarkers.Contains($module)) {
             $row.Cells["Description"].Value = $script:SpecialMarkers[$module].Desc
