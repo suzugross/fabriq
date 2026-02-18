@@ -2188,11 +2188,12 @@ function Capture-ScreenEvidence {
 "@ -ErrorAction SilentlyContinue
         $null = [DPIUtil]::SetProcessDPIAware()
 
-        # Build save directory: yyyy_MM_dd_HHmmss_{SN}_{PCname}
-        $pcName    = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
-        $sessionTs = if ($global:FabriqSessionTimestamp) { $global:FabriqSessionTimestamp } else { Get-Date -Format "yyyy_MM_dd_HHmmss" }
-        $uid       = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-        $saveDir = Join-Path $PSScriptRoot "..\evidence\auto_capture\${sessionTs}_${uid}_${pcName}"
+        # Build save directory: yyyy_MM_dd_{SN}_{PCname}
+        # Date-only (no time) so all captures within the same day share one directory
+        $pcName  = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+        $dateOnly = Get-Date -Format "yyyy_MM_dd"
+        $uid      = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+        $saveDir = Join-Path $PSScriptRoot "..\evidence\auto_capture\${dateOnly}_${uid}_${pcName}"
         if (-not (Test-Path $saveDir)) {
             New-Item -Path $saveDir -ItemType Directory -Force | Out-Null
         }

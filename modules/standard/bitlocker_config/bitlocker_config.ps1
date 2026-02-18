@@ -165,7 +165,7 @@ $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
 } else {
     $env:COMPUTERNAME
 }
-$dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
+$dateStr = Get-Date -Format "yyyy_MM_dd"
 $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
 $evidenceDir = Join-Path $PSScriptRoot "..\..\..\evidence\bitlocker\${dateStr}_${uid}_${pcName}"
 
