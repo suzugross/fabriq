@@ -508,7 +508,10 @@ function Invoke-BatchExecution {
             try {
                 $transcriptPath = $global:FabriqTranscriptPath
                 if ([string]::IsNullOrEmpty($transcriptPath)) {
-                    $transcriptPath = ".\logs\log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+                    $ts  = Get-Date -Format "yyyy_MM_dd_HHmmss"
+                    $uid = Get-HardwareUniqueId
+                    $hn  = $env:COMPUTERNAME
+                    $transcriptPath = ".\logs\${ts}_${uid}_${hn}.log"
                     $global:FabriqTranscriptPath = $transcriptPath
                 }
                 Start-Transcript -Path $transcriptPath -Append | Out-Null
@@ -928,9 +931,13 @@ $logDir = ".\logs"
 if (-not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 }
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$logFile = Join-Path $logDir "log_$timestamp.txt"
-$global:FabriqTranscriptPath = $logFile
+$timestamp  = Get-Date -Format "yyyy_MM_dd_HHmmss"
+$uniqueId   = Get-HardwareUniqueId
+$hostname   = $env:COMPUTERNAME
+$logFile    = Join-Path $logDir "${timestamp}_${uniqueId}_${hostname}.log"
+$global:FabriqTranscriptPath   = $logFile
+$global:FabriqUniqueId         = $uniqueId   # hardware unique ID (BIOS SN or MAC)
+$global:FabriqSessionTimestamp = $timestamp  # session start time (yyyy_MM_dd_HHmmss)
 Start-Transcript -Path $logFile -Append | Out-Null
 
 Write-Host ""
