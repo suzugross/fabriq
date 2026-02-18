@@ -1014,6 +1014,261 @@ function Export-ExecutionHistory {
     return $exportPath
 }
 
+function Export-HtmlChecklist {
+    param(
+        [string]$ProfileName,
+        [string]$ProfilePath,
+        [array] $DefinedModules,
+        [array] $ExecutionResults,
+        [System.TimeSpan]$ElapsedTime = [System.TimeSpan]::Zero
+    )
+
+    # Load System.Web for HtmlEncode (not loaded by default in PS5.1)
+    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
+
+    # ----------------------------------------
+    # Output path (same convention as history export)
+    # ----------------------------------------
+    $outputDir = ".\evidence\checklist"
+    if (-not (Test-Path $outputDir)) {
+        $null = New-Item -ItemType Directory -Path $outputDir -Force
+    }
+
+    $dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
+    $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+    $pcName  = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+    $outPath = Join-Path $outputDir "checklist_${dateStr}_${uid}_${pcName}.html"
+
+    # ----------------------------------------
+    # Session metadata
+    # ----------------------------------------
+    $workerName  = if ($script:SessionInfo) { $script:SessionInfo.WorkerName }  else { "-" }
+    $mediaSerial = if ($script:SessionInfo) { $script:SessionInfo.MediaSerial } else { "-" }
+    $kanriNo     = if ($env:SELECTED_KANRI_NO)    { $env:SELECTED_KANRI_NO }    else { "-" }
+    $oldPcName   = if ($env:SELECTED_OLD_PCNAME)  { $env:SELECTED_OLD_PCNAME }  else { "-" }
+    $ethernetIp  = if ($env:SELECTED_ETH_IP)      { $env:SELECTED_ETH_IP }      else { "-" }
+    $generatedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int]$ElapsedTime.TotalHours, $ElapsedTime.Minutes, $ElapsedTime.Seconds
+
+    # ----------------------------------------
+    # Read profile CSV Description column (supplemental)
+    # ----------------------------------------
+    $descriptionMap = @{}
+    if (-not [string]::IsNullOrEmpty($ProfilePath) -and (Test-Path $ProfilePath)) {
+        try {
+            $profileRows = @(Import-Csv $ProfilePath -Encoding Default)
+            foreach ($row in $profileRows) {
+                if ($row.ScriptPath -and $row.Description) {
+                    $descriptionMap[$row.ScriptPath.Trim()] = $row.Description
+                }
+            }
+        }
+        catch { }
+    }
+
+    # ----------------------------------------
+    # Build checklist rows (profile definition vs actual result)
+    # ----------------------------------------
+    # Include IsRestored entries: pre-restart results are restored from CSV with IsRestored=true.
+    # Select-Object -Last 1 ensures the most recent result wins when a module name appears
+    # multiple times (across restarts or repeated sessions for the same KanriNo).
+    $currentResults = @($ExecutionResults | Where-Object { $_.Status -ne "Separator" })
+
+    $successTotal   = 0
+    $skipTotal      = 0
+    $errorTotal     = 0
+    $notRunTotal    = 0
+
+    $rowsHtml = ""
+    foreach ($module in $DefinedModules) {
+        # Match by MenuName (last occurrence wins for duplicated names)
+        $result = $currentResults | Where-Object { $_.Operation -eq $module.MenuName } | Select-Object -Last 1
+
+        $statusLabel = "Not Run"
+        $statusClass = "notrun"
+        $message     = "-"
+
+        if ($null -ne $result) {
+            switch ($result.Status) {
+                "Success"   { $statusLabel = "OK";      $statusClass = "ok";      $successTotal++ }
+                "Partial"   { $statusLabel = "Partial"; $statusClass = "partial"; $successTotal++ }
+                "Skipped"   { $statusLabel = "Skip";    $statusClass = "skip";    $skipTotal++ }
+                "Skip"      { $statusLabel = "Skip";    $statusClass = "skip";    $skipTotal++ }
+                "Cancelled" { $statusLabel = "Cancel";  $statusClass = "skip";    $skipTotal++ }
+                "Warning"   { $statusLabel = "Warn";    $statusClass = "partial"; $successTotal++ }
+                "Error"     { $statusLabel = "NG";      $statusClass = "ng";      $errorTotal++ }
+                default     { $statusLabel = $result.Status; $statusClass = "notrun" }
+            }
+            $message = if ($result.Message) { [System.Web.HttpUtility]::HtmlEncode($result.Message) } else { "-" }
+            $ts      = if ($result.Timestamp) { $result.Timestamp.ToString("HH:mm:ss") } else { "-" }
+        }
+        else {
+            $notRunTotal++
+            $ts = "-"
+        }
+
+        # Description from profile CSV, fallback to MenuName
+        $relPath = if ($module.RelativePath) { $module.RelativePath } else { "" }
+        $desc    = if ($descriptionMap.ContainsKey($relPath)) { [System.Web.HttpUtility]::HtmlEncode($descriptionMap[$relPath]) } else { "" }
+
+        # Marker row (RESTART / REEXPLORER etc.) - lighter styling
+        $isMarker   = $module.MenuName -match '^\[.+\]$'
+        $rowClass   = if ($isMarker) { ' class="marker-row"' } else { "" }
+
+        $rowsHtml += @"
+        <tr$rowClass>
+            <td class="col-order">$($module.Order)</td>
+            <td class="col-name">$([System.Web.HttpUtility]::HtmlEncode($module.MenuName))$(if($desc){"<br><span class='desc'>$desc</span>"})</td>
+            <td class="col-cat">$([System.Web.HttpUtility]::HtmlEncode($module.Category))</td>
+            <td class="col-status"><span class="badge $statusClass">$statusLabel</span></td>
+            <td class="col-time">$ts</td>
+            <td class="col-msg">$message</td>
+        </tr>
+"@
+    }
+
+    $overallClass = if ($errorTotal -gt 0) { "overall-ng" } elseif ($notRunTotal -gt 0) { "overall-partial" } else { "overall-ok" }
+    $overallLabel = if ($errorTotal -gt 0) { "NG" } elseif ($notRunTotal -gt 0) { "Incomplete" } else { "OK" }
+
+    # ----------------------------------------
+    # HTML document
+    # ----------------------------------------
+    $html = @"
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Fabriq Checklist - $([System.Web.HttpUtility]::HtmlEncode($pcName))</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Meiryo, sans-serif; font-size: 13px; background: #f5f5f5; color: #222; }
+  .page { max-width: 1100px; margin: 24px auto; padding: 0 16px 40px; }
+
+  /* Header */
+  .header { background: #1a1a2e; color: #fff; padding: 20px 24px; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: flex-start; }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.05em; }
+  .header .subtitle { font-size: 11px; color: #aaa; margin-top: 4px; }
+  .overall-badge { font-size: 22px; font-weight: 700; padding: 4px 18px; border-radius: 4px; }
+  .overall-ok      { background: #27ae60; color: #fff; }
+  .overall-ng      { background: #c0392b; color: #fff; }
+  .overall-partial { background: #e67e22; color: #fff; }
+
+  /* Meta cards */
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px; background: #ddd; border: 1px solid #ddd; }
+  .meta-card { background: #fff; padding: 10px 14px; }
+  .meta-card .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+  .meta-card .value { font-size: 13px; font-weight: 600; word-break: break-all; }
+
+  /* Summary bar */
+  .summary-bar { display: flex; gap: 12px; padding: 10px 14px; background: #fff; border: 1px solid #ddd; border-top: none; align-items: center; }
+  .summary-bar .label { font-size: 11px; color: #666; margin-right: 4px; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .chip-ok      { background: #d4edda; color: #155724; }
+  .chip-skip    { background: #e2e3e5; color: #383d41; }
+  .chip-ng      { background: #f8d7da; color: #721c24; }
+  .chip-notrun  { background: #fff3cd; color: #856404; }
+
+  /* Table */
+  .table-wrap { background: #fff; border: 1px solid #ddd; border-top: none; border-radius: 0 0 6px 6px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #2c3e50; color: #fff; }
+  thead th { padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; white-space: nowrap; }
+  tbody tr { border-bottom: 1px solid #eee; }
+  tbody tr:hover { background: #fafafa; }
+  tbody tr.marker-row { background: #f8f8f8; }
+  tbody tr.marker-row td { color: #888; font-style: italic; }
+  td { padding: 8px 12px; vertical-align: middle; }
+
+  .col-order  { width: 52px; text-align: center; color: #999; font-size: 12px; }
+  .col-name   { min-width: 200px; }
+  .col-cat    { width: 120px; color: #555; font-size: 12px; }
+  .col-status { width: 72px; text-align: center; }
+  .col-time   { width: 72px; text-align: center; color: #666; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .col-msg    { color: #555; font-size: 12px; word-break: break-all; }
+
+  .desc { font-size: 11px; color: #999; font-weight: 400; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 3px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+  .ok      { background: #d4edda; color: #155724; }
+  .partial { background: #fff3cd; color: #856404; }
+  .skip    { background: #e2e3e5; color: #383d41; }
+  .ng      { background: #f8d7da; color: #721c24; }
+  .notrun  { background: #fff3cd; color: #856404; }
+
+  .footer { text-align: center; font-size: 11px; color: #aaa; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="h1">Fabriq Kitting Checklist</div>
+      <div class="subtitle">$([System.Web.HttpUtility]::HtmlEncode($ProfileName))</div>
+    </div>
+    <div class="overall-badge $overallClass">$overallLabel</div>
+  </div>
+
+  <!-- Meta -->
+  <div class="meta-grid">
+    <div class="meta-card"><div class="label">Target PC (New)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($pcName))</div></div>
+    <div class="meta-card"><div class="label">Target PC (Old)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($oldPcName))</div></div>
+    <div class="meta-card"><div class="label">Admin ID (KanriNo)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($kanriNo))</div></div>
+    <div class="meta-card"><div class="label">Ethernet IP</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($ethernetIp))</div></div>
+    <div class="meta-card"><div class="label">Worker</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($workerName))</div></div>
+    <div class="meta-card"><div class="label">Media Serial</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($mediaSerial))</div></div>
+    <div class="meta-card"><div class="label">Hardware ID</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($uid))</div></div>
+    <div class="meta-card"><div class="label">Generated At</div><div class="value">$generatedAt</div></div>
+    <div class="meta-card"><div class="label">Elapsed Time</div><div class="value">$elapsedStr</div></div>
+  </div>
+
+  <!-- Summary bar -->
+  <div class="summary-bar">
+    <span class="label">Summary:</span>
+    <span class="chip chip-ok">OK $successTotal</span>
+    <span class="chip chip-skip">Skip $skipTotal</span>
+    <span class="chip chip-ng">NG $errorTotal</span>
+    <span class="chip chip-notrun">Not Run $notRunTotal</span>
+    <span style="margin-left:auto; font-size:11px; color:#888;">Total: $($DefinedModules.Count) items</span>
+  </div>
+
+  <!-- Checklist table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-order">#</th>
+          <th class="col-name">Module</th>
+          <th class="col-cat">Category</th>
+          <th class="col-status">Result</th>
+          <th class="col-time">Time</th>
+          <th class="col-msg">Message</th>
+        </tr>
+      </thead>
+      <tbody>
+$rowsHtml      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">Generated by Fabriq ver2.1 &mdash; $generatedAt</div>
+</div>
+</body>
+</html>
+"@
+
+    try {
+        $html | Out-File -FilePath $outPath -Encoding UTF8 -Force
+        Show-Success "Checklist HTML: $outPath"
+        return $outPath
+    }
+    catch {
+        Show-Warning "Failed to generate HTML checklist: $_"
+        return $null
+    }
+}
+
 function Clear-AllLogs {
     Write-Host ""
     Show-Separator

@@ -436,7 +436,10 @@ function Invoke-BatchExecution {
         [int]$AutoPilotWaitSec = 3,
         # Profile restart support (optional)
         [string]$ProfilePath = "",
-        [string]$ProfileName = ""
+        [string]$ProfileName = "",
+        # Full profile module list for checklist (covers pre-restart modules in resume)
+        # If omitted, $SelectedModules is used as-is
+        [array]$FullProfileModules = $null
     )
 
     # AutoPilot: set global flag (Profile scope, reset in finally)
@@ -651,6 +654,16 @@ function Invoke-BatchExecution {
         Write-Host ""
         Write-Host "[INFO] Auto-exporting execution history as evidence..." -ForegroundColor Cyan
         $null = Export-ExecutionHistory
+
+        # HTML checklist
+        Write-Host "[INFO] Generating HTML checklist..." -ForegroundColor Cyan
+        $checklistModules = if ($null -ne $FullProfileModules) { $FullProfileModules } else { $SelectedModules }
+        $null = Export-HtmlChecklist `
+            -ProfileName      $ProfileName `
+            -ProfilePath      $ProfilePath `
+            -DefinedModules   $checklistModules `
+            -ExecutionResults $script:ExecutionResults `
+            -ElapsedTime      $batchElapsed
 
         # Auto-run log upload
         $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
@@ -1104,7 +1117,8 @@ if ($isResuming) {
             -AutoPilot:$resumeAutoPilot `
             -AutoPilotWaitSec $resumeAutoPilotWaitSec `
             -ProfilePath $resumeState.ProfilePath `
-            -ProfileName $resumeState.ProfileName
+            -ProfileName $resumeState.ProfileName `
+            -FullProfileModules $validation.ValidModules
 
         Remove-ResumeState
 
