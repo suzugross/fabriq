@@ -24,6 +24,11 @@ if ($items.Count -eq 0) {
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
+# Expand Windows-style environment variables in DestPath (%USERPROFILE%, etc.)
+foreach ($item in $items) {
+    $item.DestPath = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+}
+
 # ========================================
 # Step 2: Validate source directory
 # ========================================
