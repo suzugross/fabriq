@@ -113,17 +113,30 @@ foreach ($app in $enabledApps) {
         switch ($app.Type.ToLower()) {
             "msi" {
                 Show-Info "Executing MSI installation..."
+                $installerDir = Split-Path $installerPath -Parent
                 $msiArgs = "/i `"$installerPath`" $($app.SilentArgs)"
-                $process = Start-Process msiexec -ArgumentList $msiArgs -Wait -PassThru
+                $process = Start-Process msiexec -ArgumentList $msiArgs -WorkingDirectory $installerDir -Wait -PassThru
             }
             "exe" {
                 Show-Info "Executing EXE installation..."
+                $installerDir = Split-Path $installerPath -Parent
                 if ([string]::IsNullOrWhiteSpace($app.SilentArgs)) {
-                    $process = Start-Process $installerPath -Wait -PassThru
+                    $process = Start-Process $installerPath -WorkingDirectory $installerDir -Wait -PassThru
                 }
                 else {
-                    $process = Start-Process $installerPath -ArgumentList $app.SilentArgs -Wait -PassThru
+                    $process = Start-Process $installerPath -ArgumentList $app.SilentArgs -WorkingDirectory $installerDir -Wait -PassThru
                 }
+            }
+            "bat" {
+                Show-Info "Executing BAT installation..."
+                $installerDir = Split-Path $installerPath -Parent
+                if ([string]::IsNullOrWhiteSpace($app.SilentArgs)) {
+                    $batArgs = "/c `"$installerPath`""
+                }
+                else {
+                    $batArgs = "/c `"$installerPath`" $($app.SilentArgs)"
+                }
+                $process = Start-Process cmd.exe -ArgumentList $batArgs -WorkingDirectory $installerDir -Wait -PassThru
             }
             default {
                 Show-Error "Unsupported type: $($app.Type)"
