@@ -75,58 +75,23 @@ function Show-ErrorDialog {
 }
 
 # ========================================
-# DNS Ping + Domain Join Loop
+# DNS Connection Check
 # ========================================
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host "DNS Connection Check" -ForegroundColor Cyan
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host ""
+
+Wait-NetworkReady -Target $DNS -PingCount 2
+
+Write-Host ""
+
+# ========================================
+# Domain Join Loop
+# ========================================
+$ErrorActionPreference = 'Stop'
+
 while ($true) {
-
-    # ========================================
-    # Check DNS Connection
-    # ========================================
-    Write-Host "----------------------------------------" -ForegroundColor White
-    Write-Host "DNS Connection Check" -ForegroundColor Cyan
-    Write-Host "----------------------------------------" -ForegroundColor White
-    Write-Host ""
-
-    Show-Info "Checking connection to DNS server ($DNS)..."
-
-    $dnsOk = $false
-    try {
-        $pingResult = Test-Connection -ComputerName $DNS -Count 2 -Quiet
-        if ($pingResult) {
-            $dnsOk = $true
-        }
-    }
-    catch {
-        $dnsOk = $false
-    }
-
-    if (-not $dnsOk) {
-        Show-Error "Ping to DNS server failed"
-
-        $inputText = Show-ErrorDialog -Title "DNS Connection Failed" -Message @"
-Ping to DNS server ($DNS) failed.
-
-Please check the following and press Retry:
-  - LAN cable is securely connected
-  - Network adapter is enabled
-  - Correct VLAN / network segment
-  - DNS server ($DNS) is reachable from this network
-
-Type 'adminstop' to abort and return to main menu.
-"@
-
-        if ($inputText -eq "adminstop") {
-            Show-Info "Aborted by administrator (adminstop)"
-            return (New-ModuleResult -Status "Error" -Message "Aborted by administrator (adminstop)")
-        }
-
-        Show-Info "Retrying DNS connection..."
-        Write-Host ""
-        continue
-    }
-
-    Show-Success "Ping to DNS server succeeded"
-    Write-Host ""
 
     # ========================================
     # Domain Join Process
@@ -138,8 +103,6 @@ Type 'adminstop' to abort and return to main menu.
 
     Write-Host "Executing domain join: $DOMAIN / $USER" -ForegroundColor Yellow
     Write-Host ""
-
-    $ErrorActionPreference = 'Stop'
 
     try {
         # Create credentials
@@ -181,7 +144,9 @@ Type 'adminstop' to abort and return to main menu.
             return (New-ModuleResult -Status "Error" -Message "Domain join failed (aborted by admin): $errorMsg")
         }
 
-        Show-Info "Returning to DNS connection check..."
+        Show-Info "Rechecking DNS connectivity before retry..."
+        Write-Host ""
+        Wait-NetworkReady -Target $DNS -PingCount 2
         Write-Host ""
         continue
     }
