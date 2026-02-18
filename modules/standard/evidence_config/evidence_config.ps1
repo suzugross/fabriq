@@ -13,9 +13,10 @@ $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
 } else {
     $env:COMPUTERNAME
 }
-$dateStr = Get-Date -Format "yyyyMMdd_HHmmss"
-$folderName = "${pcName}_${dateStr}"
-$targetDir = Join-Path $PSScriptRoot "..\..\..\evidence\pc_information\$folderName"
+$dateStr    = Get-Date -Format "yyyy_MM_dd_HHmmss"
+$uid        = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+$folderName = "${dateStr}_${uid}_${pcName}"
+$targetDir  = Join-Path $PSScriptRoot "..\..\..\evidence\pc_information\$folderName"
 
 if (-not (Test-Path $targetDir)) {
     $null = New-Item -ItemType Directory -Path $targetDir -Force

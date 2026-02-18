@@ -343,6 +343,48 @@ function Wait-NetworkReady {
     }
 }
 
+function Get-HardwareUniqueId {
+    # ========================================
+    # Returns a hardware-unique ID for use in log file names.
+    # Priority 1: BIOS Serial Number (Win32_BIOS)
+    # Priority 2: Physical NIC MAC Address (first Up adapter)
+    # Fallback:   "UNKNOWN"
+    # ========================================
+
+    $invalidSerials = @(
+        "", "None", "N/A", "INVALID",
+        "To be filled by O.E.M.", "To Be Filled By O.E.M.",
+        "Default string", "System Serial Number", "00000000"
+    )
+
+    # --- Priority 1: BIOS Serial Number ---
+    try {
+        $bios   = Get-WmiObject -Class Win32_BIOS -ErrorAction SilentlyContinue
+        $serial = if ($bios) { $bios.SerialNumber } else { "" }
+        if (-not [string]::IsNullOrWhiteSpace($serial) -and
+            $serial.Trim() -notin $invalidSerials) {
+            # Replace characters invalid in file names with hyphens; trim leading/trailing hyphens
+            $sanitized = ($serial.Trim() -replace '[^a-zA-Z0-9\-]', '-').Trim('-')
+            if ($sanitized.Length -gt 0) { return $sanitized }
+        }
+    }
+    catch { }
+
+    # --- Priority 2: Physical NIC MAC Address (first Up adapter) ---
+    try {
+        $nic = Get-NetAdapter -Physical -ErrorAction SilentlyContinue |
+               Where-Object { $_.Status -eq "Up" } |
+               Select-Object -First 1
+        if ($nic -and $nic.MacAddress) {
+            # Normalize AA-BB-CC-DD-EE-FF and AA:BB:CC:DD:EE:FF to AABBCCDDEEFF
+            return ($nic.MacAddress -replace '[-:]', '')
+        }
+    }
+    catch { }
+
+    return "UNKNOWN"
+}
+
 # ========================================
 # CSV Operations
 # ========================================
@@ -958,7 +1000,9 @@ function Export-ExecutionHistory {
         $null = New-Item -ItemType Directory -Path $evidenceExportDir -Force
     }
 
-    $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${pcName}_$dateStr.csv"
+    $evidenceDateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
+    $uid = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+    $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${evidenceDateStr}_${uid}_${pcName}.csv"
     try {
         Copy-Item $script:HistoryPath $evidenceExportPath -Force
         Show-Success "Evidence copy:    $evidenceExportPath"
@@ -998,9 +1042,9 @@ function Clear-AllLogs {
         }
     }
 
-    # 3. Transcript Logs (logs/log_*.txt)
+    # 3. Transcript Logs (logs/*.log)
     if (Test-Path ".\logs") {
-        $transcripts = @(Get-ChildItem ".\logs" -Filter "log_*.txt" -File -ErrorAction SilentlyContinue)
+        $transcripts = @(Get-ChildItem ".\logs" -Filter "*.log" -File -ErrorAction SilentlyContinue)
         foreach ($f in $transcripts) {
             $targets += [PSCustomObject]@{ Type = "Transcript Log"; Path = $f.FullName; IsDir = $false }
         }
@@ -2144,9 +2188,12 @@ function Capture-ScreenEvidence {
 "@ -ErrorAction SilentlyContinue
         $null = [DPIUtil]::SetProcessDPIAware()
 
-        # Build save directory with PC name subdirectory
-        $pcName = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
-        $saveDir = Join-Path $PSScriptRoot "..\evidence\auto_capture\$pcName"
+        # Build save directory: yyyy_MM_dd_{SN}_{PCname}
+        # Date-only (no time) so all captures within the same day share one directory
+        $pcName  = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+        $dateOnly = Get-Date -Format "yyyy_MM_dd"
+        $uid      = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+        $saveDir = Join-Path $PSScriptRoot "..\evidence\auto_capture\${dateOnly}_${uid}_${pcName}"
         if (-not (Test-Path $saveDir)) {
             New-Item -Path $saveDir -ItemType Directory -Force | Out-Null
         }
