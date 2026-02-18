@@ -1,2 +1,3 @@
 MenuName,Category,Script,Order,Enabled
+Winget App Installer Update,Applications,winget_update.ps1,19,1
 Winget App Install,Applications,winget_install.ps1,20,1

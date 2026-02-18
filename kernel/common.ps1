@@ -324,6 +324,25 @@ function Wait-KeyPress {
     Read-Host
 }
 
+function Wait-NetworkReady {
+    param(
+        [string]$Target        = "8.8.8.8",
+        [int]$RetryIntervalSec = 10,
+        [int]$PingCount        = 1
+    )
+    while ($true) {
+        Write-Host "Checking network connectivity ($Target)..." -ForegroundColor White
+        $reachable = Test-Connection -ComputerName $Target -Count $PingCount `
+                        -Quiet -ErrorAction SilentlyContinue
+        if ($reachable) {
+            Show-Success "Network connectivity OK ($Target)"
+            return
+        }
+        Show-Warning "Network unreachable. Retrying in ${RetryIntervalSec}s... (Ctrl+C to abort)"
+        Start-Sleep -Seconds $RetryIntervalSec
+    }
+}
+
 # ========================================
 # CSV Operations
 # ========================================

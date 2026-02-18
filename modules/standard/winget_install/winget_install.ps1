@@ -18,14 +18,7 @@ Write-Host ""
 # ----------------------------------------
 # 1. Internet Connection Check
 # ----------------------------------------
-Write-Host "Checking internet connection..." -ForegroundColor White
-if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet) {
-    Show-Success "Internet connection OK"
-}
-else {
-    Show-Error "No internet connection (Ping 8.8.8.8 failed)"
-    return (New-ModuleResult -Status "Error" -Message "No internet connection")
-}
+Wait-NetworkReady
 
 # ----------------------------------------
 # 2. Check Winget Availability
@@ -36,6 +29,22 @@ if (-not (Get-Command "winget" -ErrorAction SilentlyContinue)) {
     return (New-ModuleResult -Status "Error" -Message "winget command not found")
 }
 Show-Success "winget is available"
+Write-Host ""
+
+# ----------------------------------------
+# 2.5. Winget Source Reset
+# ----------------------------------------
+Show-Info "Resetting winget sources..."
+$resetProcess = Start-Process -FilePath "winget" `
+    -ArgumentList "source reset --force" `
+    -Wait -NoNewWindow -PassThru
+
+if ($resetProcess.ExitCode -eq 0) {
+    Show-Success "winget source reset completed"
+}
+else {
+    Show-Warning "winget source reset exited with code $($resetProcess.ExitCode) - continuing anyway"
+}
 Write-Host ""
 
 # ----------------------------------------
