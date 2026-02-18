@@ -118,7 +118,12 @@ foreach ($app in $enabledApps) {
             }
             "exe" {
                 Show-Info "Executing EXE installation..."
-                $process = Start-Process $installerPath -ArgumentList $app.SilentArgs -Wait -PassThru
+                if ([string]::IsNullOrWhiteSpace($app.SilentArgs)) {
+                    $process = Start-Process $installerPath -Wait -PassThru
+                }
+                else {
+                    $process = Start-Process $installerPath -ArgumentList $app.SilentArgs -Wait -PassThru
+                }
             }
             default {
                 Show-Error "Unsupported type: $($app.Type)"
