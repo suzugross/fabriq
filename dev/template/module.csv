@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Template Module,System,_template_script.ps1,99,1
