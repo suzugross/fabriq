@@ -1051,6 +1051,62 @@ function Export-HtmlChecklist {
     $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int]$ElapsedTime.TotalHours, $ElapsedTime.Minutes, $ElapsedTime.Seconds
 
     # ----------------------------------------
+    # System info: Printers (from env vars)
+    # ----------------------------------------
+    $printerList = @()
+    for ($i = 1; $i -le 10; $i++) {
+        $pName = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_NAME")
+        if (-not [string]::IsNullOrEmpty($pName)) {
+            $pDriver = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_DRIVER")
+            $pPort   = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_PORT")
+            $printerList += [PSCustomObject]@{
+                Name   = $pName
+                Driver = if ($pDriver) { $pDriver } else { "-" }
+                Port   = if ($pPort)   { $pPort }   else { "-" }
+            }
+        }
+    }
+
+    # ----------------------------------------
+    # System info: Windows License status (WMI)
+    # ----------------------------------------
+    $licenseStatus  = "N/A"
+    $licenseClass   = "notrun"
+    $licenseProduct = ""
+    try {
+        $slp = @(Get-WmiObject SoftwareLicensingProduct -ErrorAction SilentlyContinue |
+                 Where-Object { $_.PartialProductKey -and $_.Name -match "Windows" }) |
+               Select-Object -First 1
+        if ($slp) {
+            $licMap = @{ 0="Unlicensed"; 1="Licensed"; 2="OOB Grace"; 3="OOT Grace"; 4="Non-Genuine Grace"; 5="Notification"; 6="Extended Grace" }
+            $licenseStatus  = if ($licMap.ContainsKey([int]$slp.LicenseStatus)) { $licMap[[int]$slp.LicenseStatus] } else { "Unknown ($($slp.LicenseStatus))" }
+            $licenseClass   = switch ([int]$slp.LicenseStatus) { 1 { "ok" } 0 { "ng" } default { "partial" } }
+            $licenseProduct = if ($slp.Name) { $slp.Name } else { "" }
+        }
+    }
+    catch { }
+
+    # ----------------------------------------
+    # System info: BitLocker status (C:)
+    # ----------------------------------------
+    $blProtection = "N/A"
+    $blVolume     = "N/A"
+    $blClass      = "notrun"
+    try {
+        $blv = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
+        if ($blv) {
+            $blProtection = "$($blv.ProtectionStatus)"
+            $blVolume     = "$($blv.VolumeStatus)"
+            $blClass      = switch ("$($blv.ProtectionStatus)") {
+                "On"    { "ok" }
+                "Off"   { "partial" }
+                default { "notrun" }
+            }
+        }
+    }
+    catch { }
+
+    # ----------------------------------------
     # Read profile CSV Description column (supplemental)
     # ----------------------------------------
     $descriptionMap = @{}
@@ -1131,6 +1187,35 @@ function Export-HtmlChecklist {
     $overallLabel = if ($errorTotal -gt 0) { "NG" } elseif ($notRunTotal -gt 0) { "Incomplete" } else { "OK" }
 
     # ----------------------------------------
+    # Build supplemental section HTML
+    # ----------------------------------------
+    $licProductRow = if ($licenseProduct) {
+        "<div class='sysinfo-row'><span class='sysinfo-label'>Product</span><span style='font-size:11px;color:#555;word-break:break-all;'>$([System.Web.HttpUtility]::HtmlEncode($licenseProduct))</span></div>"
+    } else { "" }
+
+    $printerRowsHtml = ""
+    if ($printerList.Count -gt 0) {
+        foreach ($p in $printerList) {
+            $pn = [System.Web.HttpUtility]::HtmlEncode($p.Name)
+            $pd = [System.Web.HttpUtility]::HtmlEncode($p.Driver)
+            $pp = [System.Web.HttpUtility]::HtmlEncode($p.Port)
+            $printerRowsHtml += "        <tr><td>$pn</td><td>$pd</td><td>$pp</td></tr>`n"
+        }
+        $printerSectionHtml = @"
+  <div class="section">
+    <div class="section-hd">Configured Printers ($($printerList.Count))</div>
+    <table class="printer-table">
+      <thead><tr><th>Name</th><th>Driver</th><th>Port</th></tr></thead>
+      <tbody>
+$printerRowsHtml      </tbody>
+    </table>
+  </div>
+"@
+    } else {
+        $printerSectionHtml = ""
+    }
+
+    # ----------------------------------------
     # HTML document
     # ----------------------------------------
     $html = @"
@@ -1196,6 +1281,20 @@ function Export-HtmlChecklist {
   .ng      { background: #f8d7da; color: #721c24; }
   .notrun  { background: #fff3cd; color: #856404; }
 
+  /* System Info sections */
+  .section { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; margin-top: 20px; }
+  .section-hd { background: #2c3e50; color: #fff; padding: 9px 14px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+  .sysinfo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1px; background: #ddd; }
+  .sysinfo-card { background: #fff; padding: 12px 16px; }
+  .sysinfo-card-title { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #f0f0f0; }
+  .sysinfo-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+  .sysinfo-label { font-size: 11px; color: #888; min-width: 80px; flex-shrink: 0; }
+  .printer-table { width: 100%; border-collapse: collapse; background: #fff; }
+  .printer-table thead tr { background: #f5f5f5; }
+  .printer-table th { padding: 7px 14px; text-align: left; font-size: 11px; color: #555; font-weight: 600; border-bottom: 1px solid #e0e0e0; }
+  .printer-table td { padding: 7px 14px; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
+  .printer-table tr:last-child td { border-bottom: none; }
+
   .footer { text-align: center; font-size: 11px; color: #aaa; margin-top: 16px; }
 </style>
 </head>
@@ -1252,6 +1351,32 @@ $rowsHtml      </tbody>
     </table>
   </div>
 
+  <!-- System Status -->
+  <div class="section">
+    <div class="section-hd">System Status</div>
+    <div class="sysinfo-grid">
+      <div class="sysinfo-card">
+        <div class="sysinfo-card-title">Windows License</div>
+        <div class="sysinfo-row">
+          <span class="sysinfo-label">Activation</span>
+          <span class="badge $licenseClass">$licenseStatus</span>
+        </div>
+        $licProductRow
+      </div>
+      <div class="sysinfo-card">
+        <div class="sysinfo-card-title">BitLocker (C:)</div>
+        <div class="sysinfo-row">
+          <span class="sysinfo-label">Protection</span>
+          <span class="badge $blClass">$blProtection</span>
+        </div>
+        <div class="sysinfo-row">
+          <span class="sysinfo-label">Volume</span>
+          <span style="font-size:12px;">$blVolume</span>
+        </div>
+      </div>
+    </div>
+  </div>
+$printerSectionHtml
   <div class="footer">Generated by Fabriq ver2.1 &mdash; $generatedAt</div>
 </div>
 </body>
