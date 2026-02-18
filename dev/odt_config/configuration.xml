@@ -1,0 +1,18 @@
+<Configuration ID="e6be8ac5-ea58-4cdd-9fd6-30cc2eb042bb">
+  <Add OfficeClientEdition="64" Channel="Current" SourcePath="C:\" AllowCdnFallback="FALSE">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="ja-jp" />
+      <ExcludeApp ID="Groove" />
+      <ExcludeApp ID="Lync" />
+      <ExcludeApp ID="OneDrive" />
+      <ExcludeApp ID="OutlookForWindows" />
+    </Product>
+  </Add>
+  <Updates Enabled="TRUE" />
+  <RemoveMSI />
+  <AppSettings>
+    <User Key="software\microsoft\office\16.0\excel\options" Name="defaultformat" Value="51" Type="REG_DWORD" App="excel16" Id="L_SaveExcelfilesas" />
+    <User Key="software\microsoft\office\16.0\powerpoint\options" Name="defaultformat" Value="27" Type="REG_DWORD" App="ppt16" Id="L_SavePowerPointfilesas" />
+    <User Key="software\microsoft\office\16.0\word\options" Name="defaultformat" Value="" Type="REG_SZ" App="word16" Id="L_SaveWordfilesas" />
+  </AppSettings>
+</Configuration>
