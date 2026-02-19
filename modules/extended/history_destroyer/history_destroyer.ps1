@@ -469,7 +469,7 @@ if (Test-Path $prefetchPath) {
     $pfFiles = Get-ChildItem $prefetchPath -ErrorAction SilentlyContinue
     foreach ($f in $pfFiles) {
         try {
-            Remove-Item $f.FullName -Force -ErrorAction Stop
+            Remove-Item $f.FullName -Recurse -Force -ErrorAction Stop
             $prefetchCleaned++
         }
         catch { }
