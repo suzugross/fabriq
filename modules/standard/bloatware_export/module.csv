@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+App Inventory Export,Maintenance,bloatware_export.ps1,99,1
