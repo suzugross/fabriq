@@ -48,7 +48,7 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
-$totalSteps = 12
+$totalSteps = 13
 
 # ========================================
 # Helper: Execute cleanup action
@@ -478,6 +478,79 @@ if (Test-Path $prefetchPath) {
 Show-Success "Prefetch cleaned ($prefetchCleaned files)"
 
 $successCount++
+Write-Host ""
+
+# ========================================
+# Step 13: Kitting SSID Deletion
+# ========================================
+Write-Host "[13/$totalSteps] Deleting kitting Wi-Fi profiles..." -ForegroundColor Yellow
+
+$ssidCsvPath = Join-Path $PSScriptRoot "ssid_list.csv"
+
+if (-not (Test-Path $ssidCsvPath)) {
+    Show-Skip "ssid_list.csv not found — skipping SSID cleanup"
+    $skipCount++
+}
+else {
+    $ssidItems = Import-ModuleCsv -Path $ssidCsvPath -FilterEnabled
+
+    if ($null -eq $ssidItems -or $ssidItems.Count -eq 0) {
+        Show-Skip "No enabled SSID entries in ssid_list.csv"
+        $skipCount++
+    }
+    else {
+        # Check Wi-Fi service availability (absent on desktop PCs)
+        $wlanSvc = Get-Service -Name "WlanSvc" -ErrorAction SilentlyContinue
+        if (-not $wlanSvc -or $wlanSvc.Status -ne "Running") {
+            Show-Skip "Wi-Fi service (WlanSvc) not available on this device"
+            $skipCount++
+        }
+        else {
+            $ssidDeleted = 0
+            $ssidSkipped = 0
+            $ssidErrors  = 0
+
+            foreach ($ssidItem in $ssidItems) {
+                $ssidName = $ssidItem.SSID
+                $label    = if ($ssidItem.Description) { "$ssidName  ($($ssidItem.Description))" } else { $ssidName }
+
+                # Idempotency: check if profile exists before attempting deletion
+                $null = & netsh wlan show profile name="$ssidName" 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Show-Skip "Not found: $label"
+                    $ssidSkipped++
+                    continue
+                }
+
+                # Delete the profile
+                try {
+                    $null = & netsh wlan delete profile name="$ssidName" 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Show-Success "Deleted: $label"
+                        $ssidDeleted++
+                    }
+                    else {
+                        Show-Error "Failed to delete: $label"
+                        $ssidErrors++
+                    }
+                }
+                catch {
+                    Show-Error "Error: $label — $($_.Exception.Message)"
+                    $ssidErrors++
+                }
+            }
+
+            Show-Info "SSID cleanup: $ssidDeleted deleted, $ssidSkipped not found, $ssidErrors failed"
+            if ($ssidErrors -eq 0) {
+                $successCount++
+            }
+            else {
+                $failCount++
+            }
+        }
+    }
+}
+
 Write-Host ""
 
 # ========================================
