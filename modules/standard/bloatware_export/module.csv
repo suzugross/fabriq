@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-Bloatware Export,Applications,bloatware_export.ps1,99,1
+Bloatware Export,Applications,bloatware_export.ps1,99,0
