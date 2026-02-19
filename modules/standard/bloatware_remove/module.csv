@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-Bloatware Remove,Maintenance,bloatware_remove.ps1,99,1
+Bloatware Remove,Applications,bloatware_remove.ps1,99,1

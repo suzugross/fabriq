@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-File Copy Config,System,copyfile_config.ps1,85,1
+File Copy Config,Maintenance,copyfile_config.ps1,85,1
