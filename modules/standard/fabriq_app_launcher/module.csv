@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Fabriq App Launcher,Applications,fabriq_app_launcher.ps1,10,1
