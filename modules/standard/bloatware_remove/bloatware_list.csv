@@ -1,0 +1,2 @@
+Enabled,DisplayName,Publisher,DisplayVersion,Architecture,WindowsInstaller,QuietUninstallString,UninstallString,NoRemove,SystemComponent,InstallDate,RegistryKey
+0,Example App,Example Publisher,1.0.0,64bit,0,,C:\Program Files\Example\uninstall.exe,0,0,20240101,HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ExampleApp
