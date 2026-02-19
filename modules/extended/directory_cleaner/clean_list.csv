@@ -1,0 +1,5 @@
+Enabled,TargetPath,Mode,Description
+0,%LOCALAPPDATA%\Temp,contents,User Temp Files
+0,%WINDIR%\Temp,contents,Windows Temp Files
+0,%LOCALAPPDATA%\Microsoft\Windows\INetCache,contents,IE / Edge Legacy Cache
+0,C:\Logs\OldLogs,directory,Old Log Directory (example)
