@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Directory Cleaner,Maintenance,directory_cleaner.ps1,60,1
