@@ -99,7 +99,8 @@ foreach ($rp in $regPaths) {
                 NoRemove             = if ($entry.NoRemove)             { "$($entry.NoRemove)" }        else { "0" }
                 SystemComponent      = if ($entry.SystemComponent)      { "$($entry.SystemComponent)" } else { "0" }
                 InstallDate          = if ($entry.InstallDate)          { $entry.InstallDate }          else { "" }
-                RegistryKey          = $entry.PSPath -replace "Microsoft.PowerShell.Core\\Registry::", ""
+                RegistryKey          = $entry.PSPath -replace "Microsoft.PowerShell.Core\\Registry::HKEY_LOCAL_MACHINE", "HKLM:" `
+                                                    -replace "Microsoft.PowerShell.Core\\Registry::HKEY_CURRENT_USER",  "HKCU:"
             }
         }
     }
