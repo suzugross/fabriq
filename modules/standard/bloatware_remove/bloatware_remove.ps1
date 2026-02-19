@@ -22,6 +22,51 @@ Write-Host ""
 
 
 # ========================================
+# Helper: Normalize registry path to PS drive format
+# Converts HKEY_LOCAL_MACHINE\... → HKLM:\...  etc.
+# Ensures Test-Path works regardless of CSV origin.
+# ========================================
+function ConvertTo-PsRegistryPath {
+    param([string]$Path)
+    return $Path `
+        -replace '^HKEY_LOCAL_MACHINE\\', 'HKLM:\' `
+        -replace '^HKEY_CURRENT_USER\\',  'HKCU:\' `
+        -replace '^HKEY_CLASSES_ROOT\\',  'HKCR:\' `
+        -replace '^HKEY_USERS\\',         'HKU:\'
+}
+
+
+# ========================================
+# Helper: Auto-quote unquoted executable paths
+# Some registry UninstallStrings omit quotes around
+# paths that contain spaces. cmd.exe /c splits on
+# the first space and fails to locate the binary.
+# Already-quoted strings are returned unchanged.
+# ========================================
+function Invoke-QuoteUninstallPath {
+    param([string]$CmdString)
+
+    # Already quoted → return as-is (covers most entries)
+    if ($CmdString -match '^"') { return $CmdString }
+
+    # Drive-rooted path: extract up to the .exe/.bat/.cmd/.msi boundary,
+    # then quote the executable portion, preserving any trailing arguments.
+    if ($CmdString -match '^([A-Za-z]:\\.+?\.(?:exe|bat|cmd|msi))(\s+.*)?$') {
+        $exePart = $Matches[1].Trim()
+        $argPart = if ($Matches[2]) { $Matches[2].Trim() } else { "" }
+        if ($argPart) {
+            return "`"$exePart`" $argPart"
+        } else {
+            return "`"$exePart`""
+        }
+    }
+
+    # Not a recognized pattern (e.g. bare command name) → return unchanged
+    return $CmdString
+}
+
+
+# ========================================
 # Step 1: CSV load
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "bloatware_list.csv"
@@ -75,7 +120,8 @@ foreach ($item in $enabledItems) {
     # Idempotency check
     $isInstalled = $true
     if (-not [string]::IsNullOrWhiteSpace($item.RegistryKey)) {
-        $isInstalled = Test-Path $item.RegistryKey
+        $psRegKey    = ConvertTo-PsRegistryPath $item.RegistryKey
+        $isInstalled = Test-Path $psRegKey
     }
 
     # Determine display method label
@@ -145,7 +191,8 @@ foreach ($item in $enabledItems) {
 
     # Idempotency: verify still installed
     if (-not [string]::IsNullOrWhiteSpace($item.RegistryKey)) {
-        if (-not (Test-Path $item.RegistryKey)) {
+        $psRegKey = ConvertTo-PsRegistryPath $item.RegistryKey
+        if (-not (Test-Path $psRegKey)) {
             Show-Skip "Already uninstalled (registry key not found)"
             Write-Host ""
             $skipCount++
@@ -193,10 +240,11 @@ foreach ($item in $enabledItems) {
 
         switch ($useMethod) {
             "quiet" {
+                $cmdToRun = Invoke-QuoteUninstallPath $cmdString
                 Show-Info "Method: QuietUninstall"
-                Show-Info "Command: $cmdString"
+                Show-Info "Command: $cmdToRun"
                 $proc = Start-Process -FilePath "cmd.exe" `
-                    -ArgumentList @("/c", $cmdString) `
+                    -ArgumentList @("/c", $cmdToRun) `
                     -Wait -NoNewWindow -PassThru -ErrorAction Stop
             }
             "msi" {
@@ -208,10 +256,11 @@ foreach ($item in $enabledItems) {
                     -Wait -NoNewWindow -PassThru -ErrorAction Stop
             }
             "standard" {
+                $cmdToRun = Invoke-QuoteUninstallPath $cmdString
                 Show-Info "Method: Uninstall"
-                Show-Info "Command: $cmdString"
+                Show-Info "Command: $cmdToRun"
                 $proc = Start-Process -FilePath "cmd.exe" `
-                    -ArgumentList @("/c", $cmdString) `
+                    -ArgumentList @("/c", $cmdToRun) `
                     -Wait -NoNewWindow -PassThru -ErrorAction Stop
             }
         }
