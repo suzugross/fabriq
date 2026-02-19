@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-AutoLogon Config,Security,autologon_config.ps1,55,1
+AutoLogon Config,System,autologon_config.ps1,55,1
