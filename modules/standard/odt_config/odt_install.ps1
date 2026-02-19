@@ -3,9 +3,18 @@
 # ========================================
 # Reads odt_list.csv to determine which XML
 # configuration(s) to use, rewrites the <Add>
-# SourcePath attribute to the absolute assets
+# SourcePath attribute to the resolved assets
 # folder path, then invokes setup.exe /configure.
 # Temp XML is always cleaned up via finally block.
+#
+# odt_list.csv columns:
+#   Enabled     : 1 to enable
+#   XmlFileName : ODT config XML filename (resolved under AssetsFolder)
+#   Description : Display name
+#   AssetsFolder: (optional) Per-entry assets folder containing XmlFileName
+#                 and the Office\ offline source. Relative paths are resolved
+#                 from the module root. If omitted, defaults to assets\.
+#                 setup.exe is always loaded from assets\ regardless.
 # ========================================
 
 Write-Host ""
@@ -54,17 +63,28 @@ if (-not (Test-Path $SetupExePath)) {
 }
 
 foreach ($entry in $enabledEntries) {
-    $desc        = if ($entry.Description) { $entry.Description } else { $entry.XmlFileName }
-    $xmlPath     = Join-Path $AssetsDir $entry.XmlFileName
-    $xmlExists   = Test-Path $xmlPath
+    $desc           = if ($entry.Description) { $entry.Description } else { $entry.XmlFileName }
+    $entryAssetsDir = if (-not [string]::IsNullOrWhiteSpace($entry.AssetsFolder)) {
+        if ([System.IO.Path]::IsPathRooted($entry.AssetsFolder)) {
+            $entry.AssetsFolder
+        } else {
+            Join-Path $PSScriptRoot $entry.AssetsFolder
+        }
+    } else {
+        $AssetsDir
+    }
+    $xmlPath   = Join-Path $entryAssetsDir $entry.XmlFileName
+    $xmlExists = Test-Path $xmlPath
 
     if ($xmlExists) {
         Write-Host "  $desc" -ForegroundColor Yellow
-        Write-Host "    XML: $($entry.XmlFileName)"
+        Write-Host "    XML:    $($entry.XmlFileName)"
+        Write-Host "    Assets: $entryAssetsDir"
     }
     else {
         Write-Host "  $desc [XML NOT FOUND]" -ForegroundColor Red
-        Write-Host "    XML: $($entry.XmlFileName)"
+        Write-Host "    XML:    $($entry.XmlFileName)"
+        Write-Host "    Assets: $entryAssetsDir"
         $missingCount++
     }
     Write-Host ""
@@ -100,8 +120,17 @@ $skipCount    = 0
 $failCount    = 0
 
 foreach ($entry in $enabledEntries) {
-    $desc          = if ($entry.Description) { $entry.Description } else { $entry.XmlFileName }
-    $ConfigXmlPath = Join-Path $AssetsDir $entry.XmlFileName
+    $desc           = if ($entry.Description) { $entry.Description } else { $entry.XmlFileName }
+    $entryAssetsDir = if (-not [string]::IsNullOrWhiteSpace($entry.AssetsFolder)) {
+        if ([System.IO.Path]::IsPathRooted($entry.AssetsFolder)) {
+            $entry.AssetsFolder
+        } else {
+            Join-Path $PSScriptRoot $entry.AssetsFolder
+        }
+    } else {
+        $AssetsDir
+    }
+    $ConfigXmlPath = Join-Path $entryAssetsDir $entry.XmlFileName
     $TempXmlPath   = Join-Path $env:TEMP "fabriq_odt_$(Get-Date -Format 'yyyyMMddHHmmss').xml"
 
     Write-Host "----------------------------------------" -ForegroundColor White
@@ -134,9 +163,9 @@ foreach ($entry in $enabledEntries) {
             continue
         }
 
-        $AddNode.SetAttribute("SourcePath", $AssetsDir)
+        $AddNode.SetAttribute("SourcePath", $entryAssetsDir)
         $XmlContent.Save($TempXmlPath)
-        Show-Info "SourcePath set to: $AssetsDir"
+        Show-Info "SourcePath set to: $entryAssetsDir"
 
         # (b) Execute setup.exe /configure
         Show-Info "Starting setup.exe. This may take several minutes..."

@@ -1,2 +1,3 @@
-Enabled,XmlFileName,Description
-1,configuration.xml,Office LTSC 2021 Install
+Enabled,XmlFileName,Description,AssetsFolder
+1,configuration.xml,Microsoft 365 Install,assets\M365
+1,configuration.xml,Visio Install,assets\VISIO
