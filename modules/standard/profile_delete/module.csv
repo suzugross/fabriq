@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Delete User Profiles,User Management,profile_delete.ps1,62,1
