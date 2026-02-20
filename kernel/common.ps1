@@ -2706,3 +2706,28 @@ function Invoke-CountdownShutdown {
     Stop-Computer -Force
     Start-Sleep -Seconds 30
 }
+
+function Invoke-CountdownSignout {
+    param([int]$Seconds = 7)
+
+    Write-Host ""
+    Write-Host "Signing out in $Seconds seconds..." -ForegroundColor Yellow
+    Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
+    Write-Host ""
+    for ($i = $Seconds; $i -ge 1; $i--) {
+        Write-Host "`r  Signing out in $i seconds... " -NoNewline -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+    }
+    Write-Host ""
+    try { Stop-Transcript | Out-Null } catch { }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class FabriqSignOut {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ExitWindowsEx(uint uFlags, uint dwReason);
+}
+'@ -ErrorAction SilentlyContinue
+    [FabriqSignOut]::ExitWindowsEx(4, 0)
+    Start-Sleep -Seconds 30
+}
