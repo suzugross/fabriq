@@ -1052,7 +1052,19 @@ if ($null -ne $resumeState) {
     Write-Host "  Progress: $completedCount modules completed" -ForegroundColor White
     Write-Host ""
 
-    if (Confirm-Execution -Message "Resume profile execution?") {
+    $resumeIsAutoPilot = ($resumeState.AutoPilot -eq $true)
+
+    if ($resumeIsAutoPilot) {
+        # AutoPilot resume: wait for system stability, then countdown
+        Wait-SystemReady
+        $shouldResume = Invoke-AutoResumeCountdown -Seconds 60
+    }
+    else {
+        # Manual profile: keep existing Y/N prompt
+        $shouldResume = Confirm-Execution -Message "Resume profile execution?"
+    }
+
+    if ($shouldResume) {
         $isResuming = $true
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"

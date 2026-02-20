@@ -343,6 +343,53 @@ function Wait-NetworkReady {
     }
 }
 
+function Wait-SystemReady {
+    # ========================================
+    # Waits until required Windows services are running
+    # and (optionally) network is reachable.
+    # Designed for post-reboot AutoPilot resume.
+    # Always exits after MaxWaitSec to prevent hangs.
+    # ========================================
+    param(
+        [int]$MaxWaitSec        = 120,
+        [string[]]$RequiredServices = @("LanmanWorkstation", "Dnscache"),
+        [string]$NetworkTarget  = "",
+        [int]$CheckIntervalSec  = 5
+    )
+
+    Show-Info "Waiting for system readiness (max ${MaxWaitSec}s)..."
+    $deadline = (Get-Date).AddSeconds($MaxWaitSec)
+
+    while ((Get-Date) -lt $deadline) {
+        $notReady = @()
+
+        foreach ($svcName in $RequiredServices) {
+            $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+            if ($null -eq $svc -or $svc.Status -ne "Running") {
+                $notReady += $svcName
+            }
+        }
+
+        if ($notReady.Count -eq 0 -and $NetworkTarget -ne "") {
+            $reachable = Test-Connection -ComputerName $NetworkTarget -Count 1 `
+                            -Quiet -ErrorAction SilentlyContinue
+            if (-not $reachable) {
+                $notReady += "Network:$NetworkTarget"
+            }
+        }
+
+        if ($notReady.Count -eq 0) {
+            Show-Success "System ready"
+            return
+        }
+
+        Show-Info "Not ready yet: $($notReady -join ', ') — retrying in ${CheckIntervalSec}s..."
+        Start-Sleep -Seconds $CheckIntervalSec
+    }
+
+    Show-Warning "System readiness timeout (${MaxWaitSec}s). Proceeding anyway."
+}
+
 function Get-HardwareUniqueId {
     # ========================================
     # Returns a hardware-unique ID for use in log file names.
@@ -2627,6 +2674,53 @@ function Invoke-CountdownRestart {
     Write-Host ""
     Restart-Computer -Force
     Start-Sleep -Seconds 30
+}
+
+function Invoke-AutoResumeCountdown {
+    # ========================================
+    # Countdown for AutoPilot post-reboot resume.
+    # Returns $true  → resume execution
+    # Returns $false → abort (clear resume state)
+    # Keys during countdown:
+    #   Enter / Y → immediate resume
+    #   Esc   / N → abort
+    #   Other     → ignored (countdown continues)
+    # ========================================
+    param([int]$Seconds = 60)
+
+    Write-Host ""
+    Write-Host "[AUTOPILOT] Auto-resume countdown" -ForegroundColor Magenta
+    Write-Host "  [Enter] = Resume now   [Esc] = Abort" -ForegroundColor DarkGray
+    Write-Host ""
+
+    for ($i = $Seconds; $i -ge 1; $i--) {
+        Write-Host "`r  Resuming in $i seconds...   " -NoNewline -ForegroundColor Magenta
+        Start-Sleep -Milliseconds 900
+
+        if ($Host.UI.RawUI.KeyAvailable) {
+            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            # Enter (13) or Y
+            if ($key.VirtualKeyCode -eq 13 -or
+                $key.Character -eq 'Y' -or $key.Character -eq 'y') {
+                Write-Host ""
+                Show-Success "Resuming now"
+                return $true
+            }
+            # Escape (27) or N / Q
+            if ($key.VirtualKeyCode -eq 27 -or
+                $key.Character -eq 'N' -or $key.Character -eq 'n' -or
+                $key.Character -eq 'Q' -or $key.Character -eq 'q') {
+                Write-Host ""
+                Show-Warning "Auto-resume aborted by operator"
+                return $false
+            }
+            # Other key: drain buffer and continue countdown
+        }
+    }
+
+    Write-Host ""
+    Show-Info "Countdown complete. Auto-resuming..."
+    return $true
 }
 
 # ========================================
