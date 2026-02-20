@@ -1,0 +1,4 @@
+Enabled,Script,Description
+0,modules\standard\hostname_config\hostname_config.ps1,Hostname Setting
+0,modules\standard\local_user_config\local_user_config.ps1,Local User Creation
+0,modules\standard\local_user_config\local_user_delete.ps1,Local User Deletion
