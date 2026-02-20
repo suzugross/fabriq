@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+File Delete,Maintenance,file_delete.ps1,86,1
