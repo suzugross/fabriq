@@ -1,4 +1,4 @@
-Enabled,Description,TargetPath,IfNotFound
+﻿Enabled,Description,TargetPath,IfNotFound
 0,一時ファイルのサンプル,%TEMP%\example_temp_file.txt,Skip
 0,デスクトップのショートカット例,%USERPROFILE%\Desktop\example_shortcut.lnk,Skip
 0,キャッシュフォルダ例,%LOCALAPPDATA%\ExampleApp\Cache,Skip
