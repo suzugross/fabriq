@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Sign-Out,System,signout_config.ps1,100,1
