@@ -169,6 +169,34 @@ foreach ($item in $validItems) {
             Interactive   = $true
         }
     }
+    elseif ($hwId -eq "AUTO") {
+        # Auto-detect: enumerate all display config keys
+        $allKeys = Find-DisplayConfigKeys -HardwareID ""
+        if ($allKeys.Count -eq 0) {
+            Show-Warning "AUTO: No display config keys found for '$($item.Description)' — falling back to Interactive mode"
+            $targets += [PSCustomObject]@{
+                Item        = $item
+                MatchedKeys = @()
+                Interactive = $true
+            }
+        }
+        elseif ($allKeys.Count -eq 1) {
+            Show-Info "AUTO: Single display detected — '$($allKeys[0].PSChildName)'"
+            $targets += [PSCustomObject]@{
+                Item        = $item
+                MatchedKeys = $allKeys
+                Interactive = $false
+            }
+        }
+        else {
+            Show-Info "AUTO: Multiple displays detected ($($allKeys.Count)) — falling back to Interactive mode"
+            $targets += [PSCustomObject]@{
+                Item        = $item
+                MatchedKeys = @()
+                Interactive = $true
+            }
+        }
+    }
     else {
         $matched = Find-DisplayConfigKeys -HardwareID $hwId
         $targets += [PSCustomObject]@{

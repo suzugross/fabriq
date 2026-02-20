@@ -322,15 +322,50 @@ foreach ($item in $validItems) {
     $hwId = $item.HardwareID.Trim()
     $sp = $item.ScalePercent.Trim()
 
-    $interactiveDisplay = [string]::IsNullOrWhiteSpace($hwId)
     $interactiveScale = [string]::IsNullOrWhiteSpace($sp)
 
-    if ($interactiveDisplay) {
+    if ([string]::IsNullOrWhiteSpace($hwId)) {
         $targets += [PSCustomObject]@{
             Item               = $item
             MatchedKeyNames    = @()
             InteractiveDisplay = $true
             InteractiveScale   = $interactiveScale
+        }
+    }
+    elseif ($hwId -eq "AUTO") {
+        # Auto-detect: PerMonitorSettings first, then GraphicsDrivers fallback
+        $pmKeys = Find-PerMonitorKeys -HardwareID ""
+        $allKeyNames = @($pmKeys | ForEach-Object { $_.PSChildName })
+        if ($allKeyNames.Count -eq 0) {
+            $allKeyNames = Find-DisplayKeyNames -HardwareID ""
+        }
+
+        if ($allKeyNames.Count -eq 0) {
+            Show-Warning "AUTO: No display keys found for '$($item.Description)' — falling back to Interactive mode"
+            $targets += [PSCustomObject]@{
+                Item               = $item
+                MatchedKeyNames    = @()
+                InteractiveDisplay = $true
+                InteractiveScale   = $interactiveScale
+            }
+        }
+        elseif ($allKeyNames.Count -eq 1) {
+            Show-Info "AUTO: Single display detected — '$($allKeyNames[0])'"
+            $targets += [PSCustomObject]@{
+                Item               = $item
+                MatchedKeyNames    = $allKeyNames
+                InteractiveDisplay = $false
+                InteractiveScale   = $interactiveScale
+            }
+        }
+        else {
+            Show-Info "AUTO: Multiple displays detected ($($allKeyNames.Count)) — falling back to Interactive mode"
+            $targets += [PSCustomObject]@{
+                Item               = $item
+                MatchedKeyNames    = @()
+                InteractiveDisplay = $true
+                InteractiveScale   = $interactiveScale
+            }
         }
     }
     else {
