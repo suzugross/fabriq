@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Manual Kitting Assistant,ManualWorks,manual_kitting_assistant.ps1,95,0
