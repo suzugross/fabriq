@@ -84,10 +84,10 @@ echo [SUCCESS] Saved source_media.id: %VOL_SERIAL%
 echo.
 
 REM ===== Select destination =====
-set "DEFAULT_DEST=C:\Users\%USERNAME%\Desktop\fabriq"
+set "DEFAULT_DEST=C:\Windows\work\fabriq"
 
 echo Destination folder:
-echo   [1] Desktop (%DEFAULT_DEST%) (Default)
+echo   [1] %DEFAULT_DEST% (Default)
 echo   [2] Custom path
 echo.
 set /p "DEST_CHOICE=Select [1]: "
@@ -145,6 +145,16 @@ echo   Media ID:    %VOL_SERIAL%
 echo.
 echo You can now run Fabriq.bat from:
 echo   %DEST_DIR%\Fabriq.bat
+echo.
+
+set /p "RUN_FABRIQ=続けて Fabriq.bat を実行しますか？ (Y/N): "
+if /i "%RUN_FABRIQ%"=="Y" (
+    echo [INFO] Fabriq.bat を起動します...
+    cd /d "%DEST_DIR%"
+    start "" "%DEST_DIR%\Fabriq.bat"
+    exit /b 0
+)
+
 echo.
 pause
 exit /b 0
