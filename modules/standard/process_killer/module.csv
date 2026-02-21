@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Process Killer,System,process_killer.ps1,100,1
