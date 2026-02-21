@@ -32,17 +32,26 @@ catch {
     return
 }
 
-Start-Sleep -Seconds 1
+Write-Host "[INFO] Waiting for Windows to restart Explorer automatically..." -ForegroundColor Cyan
 
-Write-Host "[INFO] Starting explorer.exe..." -ForegroundColor Cyan
+$maxWait  = 15
+$interval = 1
+$elapsed  = 0
+$restarted = $false
 
-try {
-    Start-Process explorer.exe -ErrorAction Stop
-    Write-Host "[SUCCESS] Started explorer.exe" -ForegroundColor Green
+while ($elapsed -lt $maxWait) {
+    Start-Sleep -Seconds $interval
+    $elapsed += $interval
+    if (@(Get-Process -Name explorer -ErrorAction SilentlyContinue).Count -gt 0) {
+        $restarted = $true
+        break
+    }
 }
-catch {
-    Write-Host "[ERROR] Failed to start explorer.exe: $_" -ForegroundColor Red
-    Write-Host "[INFO] Please start explorer.exe manually" -ForegroundColor Yellow
+
+if ($restarted) {
+    Write-Host "[SUCCESS] Explorer restarted (${elapsed}s)" -ForegroundColor Green
+} else {
+    Write-Host "[WARNING] Explorer did not restart within ${maxWait}s. Please check manually." -ForegroundColor Yellow
 }
 
 Write-Host ""

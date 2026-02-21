@@ -558,15 +558,21 @@ Write-Host ""
 # ========================================
 Show-Info "Restarting Explorer..."
 
-Start-Process "explorer.exe"
-Start-Sleep -Seconds 2
-
-$explorerRunning = Get-Process -Name "explorer" -ErrorAction SilentlyContinue
-if ($explorerRunning) {
-    Show-Success "Explorer restarted"
+$maxWait = 15; $interval = 1; $elapsed = 0; $restarted = $false
+while ($elapsed -lt $maxWait) {
+    Start-Sleep -Seconds $interval
+    $elapsed += $interval
+    if (@(Get-Process -Name "explorer" -ErrorAction SilentlyContinue).Count -gt 0) {
+        $restarted = $true; break
+    }
+}
+if ($restarted) {
+    Show-Success "Explorer restarted (${elapsed}s)"
 }
 else {
-    Show-Warning "Explorer may not have restarted - please check manually"
+    # Windowsの自動再起動が間に合わなかった場合のみ明示的に起動
+    Start-Process "explorer.exe"
+    Show-Warning "Explorer auto-restart timed out. Started manually."
 }
 
 Write-Host ""
