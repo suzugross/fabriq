@@ -511,11 +511,16 @@ function Invoke-BatchExecution {
             Show-Info "Restarting Explorer..."
             try {
                 Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 2
-                # Explorer usually auto-restarts; ensure it does
-                if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
-                    Start-Process explorer.exe
+                $maxWait = 15; $interval = 1; $elapsed = 0; $restarted = $false
+                while ($elapsed -lt $maxWait) {
+                    Start-Sleep -Seconds $interval
+                    $elapsed += $interval
+                    if (@(Get-Process -Name explorer -ErrorAction SilentlyContinue).Count -gt 0) {
+                        $restarted = $true; break
+                    }
                 }
+                # Windowsの自動再起動が間に合わなかった場合のみ明示的に起動
+                if (-not $restarted) { Start-Process explorer.exe }
                 Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted"
                 $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted"
             }
