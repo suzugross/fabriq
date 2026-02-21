@@ -1,0 +1,22 @@
+【SMBv1を無効化】
+
+LanmanServer\Parameters の SMB1 = 0 に設定することで、
+SMBv1プロトコルを無効化します。
+
+■ 背景
+  SMBv1は古いプロトコルであり、WannaCry等のランサムウェアが悪用した
+  脆弱性（EternalBlue / MS17-010）の対象となっています。
+  Windows 10 1709以降では既定で無効化されていますが、
+  アップグレード環境では有効のままになっている場合があります。
+
+■ 確認方法（PowerShell）
+  Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol
+
+■ 注意事項
+  古い複合機・NAS・FAXサーバーがSMBv1のみ対応している場合、
+  この設定後にファイル共有・スキャン送信が機能しなくなる可能性があります。
+  適用前に周辺機器の対応プロトコルを確認してください。
+
+■ 既定値
+  Windows 10 1709以降: SMB1 = 0（無効）
+  それ以前のOSや一部アップグレード環境: SMB1 = 1（有効）

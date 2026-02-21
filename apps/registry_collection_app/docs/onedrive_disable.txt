@@ -1,0 +1,20 @@
+【OneDriveを無効化（ポリシー）】
+
+OneDriveポリシーの DisableFileSyncNGSC = 1 に設定することで、
+OneDriveのファイル同期機能をポリシーレベルで無効化します。
+
+■ 効果
+  - OneDriveの同期が停止し、設定UIにアクセスできなくなります
+  - タスクトレイのOneDriveアイコンが非表示になります
+  - 「個人用 Vault」を含むOneDrive機能全般が無効化されます
+
+■ キッティングでの用途
+  機密情報の外部クラウドへのアップロードを防止するセキュリティポリシー対応や、
+  OneDriveを使用しない企業環境での不要機能の無効化に使用します。
+
+■ 注意事項
+  Microsoft 365（SharePoint / OneDrive for Business）の同期クライアントも
+  合わせて制御する場合は、別途グループポリシーでの設定が推奨されます。
+
+■ 既定値
+  DisableFileSyncNGSC = 0（OneDriveを許可）、または キーが存在しない

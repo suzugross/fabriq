@@ -1,0 +1,24 @@
+【Windows Copilotを無効化（ポリシー）】
+
+WindowsCopilotポリシーの TurnOffWindowsCopilot = 1 に設定することで、
+Windows Copilot（AIアシスタント）をポリシーレベルで無効化します。
+
+■ 対象
+  Windows 11 23H2以降に搭載されたWindows Copilot機能が対象です。
+
+■ 効果
+  - タスクバーのCopilotボタンが非表示になります
+  - Win + C キーショートカットが無効になります
+  - Copilotパネルが起動できなくなります
+
+■ キッティングでの用途
+  セキュリティポリシーに基づきAIアシスタントへのデータ送信を制限する場合や、
+  業務端末でのCopilot利用を制御したい場合に使用します。
+
+■ 注意事項
+  このキーは HKCU（ユーザーポリシー）に設定します。
+  端末全体への適用（全ユーザー）が必要な場合は
+  HKLM の対応するポリシーキーを合わせて設定してください。
+
+■ 既定値
+  TurnOffWindowsCopilot キーが存在しない（Copilot有効）
