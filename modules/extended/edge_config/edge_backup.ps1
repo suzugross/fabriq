@@ -1,7 +1,7 @@
 # ========================================
 # Edge Profile Backup (with Auto Kill)
 # ========================================
-# Backs up Edge User Data directory using robocopy mirror.
+# Backs up Edge folder (entire) using robocopy mirror.
 # Automatically terminates Edge processes before backup.
 # ========================================
 
@@ -12,8 +12,8 @@ Show-Separator
 Write-Host ""
 
 # --- Paths ---
-$sourceDir = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
-$backupDir = Join-Path $PSScriptRoot "backup"
+$sourceDir = "$env:LOCALAPPDATA\Microsoft\Edge"
+$backupDir = Join-Path $PSScriptRoot "backup\Edge"
 
 Write-Host "  Source:      $sourceDir" -ForegroundColor White
 Write-Host "  Destination: $backupDir" -ForegroundColor White
@@ -22,9 +22,9 @@ Write-Host ""
 
 # --- Source check ---
 if (-not (Test-Path $sourceDir)) {
-    Show-Error "Edge User Data not found: $sourceDir"
+    Show-Error "Edge folder not found: $sourceDir"
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Edge User Data not found")
+    return (New-ModuleResult -Status "Error" -Message "Edge folder not found")
 }
 
 # --- Edge process check & kill ---

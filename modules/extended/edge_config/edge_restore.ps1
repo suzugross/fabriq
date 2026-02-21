@@ -1,7 +1,7 @@
 # ========================================
 # Edge Profile Restore (with Auto Kill)
 # ========================================
-# Restores Edge User Data from backup directory using robocopy mirror.
+# Restores Edge folder to destinations defined in restore_dest.csv.
 # Automatically terminates Edge processes before restore.
 # WARNING: This overwrites current Edge settings completely.
 # ========================================
@@ -13,17 +13,32 @@ Show-Separator
 Write-Host ""
 
 # --- Paths ---
-$backupDir = Join-Path $PSScriptRoot "backup"
-$targetDir = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
+$backupDir = Join-Path $PSScriptRoot "backup\Edge"
+$csvPath   = Join-Path $PSScriptRoot "restore_dest.csv"
 
-Write-Host "  Source:      $backupDir" -ForegroundColor White
-Write-Host "  Destination: $targetDir" -ForegroundColor White
-Write-Host "  Mode:        MIRROR (Overwrite)" -ForegroundColor Gray
+Write-Host "  Source:  $backupDir" -ForegroundColor White
+Write-Host "  Dest CSV: $csvPath" -ForegroundColor White
+Write-Host "  Mode:    MIRROR (Overwrite)" -ForegroundColor Gray
+Write-Host ""
+
+# --- Load destination CSV ---
+$destList = Import-ModuleCsv -Path $csvPath -FilterEnabled
+if ($null -eq $destList -or $destList.Count -eq 0) {
+    Show-Error "No enabled destinations found in: $csvPath"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "No enabled destinations in restore_dest.csv")
+}
+
+Show-Info "Restore destinations ($($destList.Count)):"
+foreach ($item in $destList) {
+    $expanded = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+    Write-Host "    -> $expanded\Edge  ($($item.Description))" -ForegroundColor Gray
+}
 Write-Host ""
 
 # --- Backup existence check ---
 if (-not (Test-Path $backupDir)) {
-    Show-Error "Backup directory not found: $backupDir"
+    Show-Error "Backup not found: $backupDir"
     Show-Info "Run 'Edge Profile Backup' first to create a backup."
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Backup directory not found")
@@ -89,36 +104,60 @@ else {
 }
 
 # --- Confirm restore (with overwrite warning) ---
-Show-Warning "This will OVERWRITE current Edge settings completely."
+Show-Warning "This will OVERWRITE Edge settings at all destination paths."
 Write-Host ""
-$cancelResult = Confirm-ModuleExecution -Message "Restore Edge profile from backup?"
+$cancelResult = Confirm-ModuleExecution -Message "Restore Edge profile to all destinations?"
 if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
-# --- Execute Robocopy ---
-Show-Info "Restore in progress (this may take a few minutes)..."
-Write-Host ""
+# --- Execute Robocopy to each destination ---
+$successCount = 0
+$failCount    = 0
 
-& robocopy.exe "$backupDir" "$targetDir" /MIR /XJ /MT /R:1 /W:1 /NFL /NDL
-$exitCode = $LASTEXITCODE
+foreach ($item in $destList) {
+    $expandedDest = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+    $targetDir    = Join-Path $expandedDest "Edge"
 
-Write-Host ""
+    Show-Info "Restoring to: $targetDir"
+
+    # Create destination directory if needed
+    if (-not (Test-Path $targetDir)) {
+        try {
+            $null = New-Item -ItemType Directory -Path $targetDir -Force
+        }
+        catch {
+            Show-Error "  Failed to create directory: $targetDir - $_"
+            $failCount++
+            continue
+        }
+    }
+
+    & robocopy.exe "$backupDir" "$targetDir" /MIR /XJ /MT /R:1 /W:1 /NFL /NDL
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -lt 8) {
+        Show-Success "  OK (robocopy exit: $exitCode)"
+        $successCount++
+    }
+    else {
+        Show-Error "  Failed (robocopy exit: $exitCode)"
+        $failCount++
+    }
+
+    Write-Host ""
+}
 
 # --- Result ---
-if ($exitCode -lt 8) {
-    Show-Separator
-    Write-Host "Restore Results" -ForegroundColor Cyan
-    Show-Separator
-    Write-Host "  Status:   Success (robocopy exit: $exitCode)" -ForegroundColor Green
-    Write-Host "  Restored: $sizeStr" -ForegroundColor White
-    Show-Separator
-    Write-Host ""
+Show-Separator
+Write-Host "Restore Results" -ForegroundColor Cyan
+Show-Separator
+Write-Host "  Backup size: $sizeStr" -ForegroundColor White
+Write-Host "  Success:     $successCount / $($destList.Count)" -ForegroundColor $(if ($failCount -eq 0) { "Green" } else { "Yellow" })
+if ($failCount -gt 0) {
+    Write-Host "  Failed:      $failCount" -ForegroundColor Red
+}
+Show-Separator
+Write-Host ""
 
-    return (New-ModuleResult -Status "Success" -Message "Restore completed ($sizeStr)")
-}
-else {
-    Show-Error "Restore failed (robocopy exit code: $exitCode)"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Robocopy failed (exit: $exitCode)")
-}
+return (New-BatchResult -Success $successCount -Skip 0 -Fail $failCount -Title "Edge Restore")
