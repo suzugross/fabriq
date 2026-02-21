@@ -1,0 +1,20 @@
+【Cortanaを無効化（ポリシー）】
+
+Windows Search ポリシーの AllowCortana = 0 に設定することで、
+Cortanaを無効化します。
+
+■ 対象Windowsバージョン
+  Windows 10 全バージョン：有効
+  Windows 11：Cortanaは標準でインストールされなくなったため、
+              このキーの効果は環境によって異なります。
+
+■ 確認方法（Windows 10）
+  設定 → プライバシー → 音声認識
+  またはタスクバーの検索ボックスでCortanaのアイコンが表示されなくなります。
+
+■ 注意事項
+  このポリシーはCortanaのみを対象とし、Windowsの検索機能自体は無効化されません。
+  検索機能の制御は別のポリシーが必要です。
+
+■ 既定値
+  AllowCortana = 1（Cortanaを許可）

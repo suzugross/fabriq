@@ -1,0 +1,21 @@
+Category,Title,Hive,KeyPath,KeyName,Type,Value,DocFile,Tags
+Security,リモートデスクトップを有効化,HKLM,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server,fDenyTSConnections,REG_DWORD,0,rdp_enable.txt,RDP;リモートデスクトップ;接続
+Security,UACをサイレントモードに設定（昇格ダイアログを非表示）,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,ConsentPromptBehaviorAdmin,REG_DWORD,0,uac_silent.txt,UAC;セキュリティ;管理者
+Security,UAC昇格時の画面暗転を無効化,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,PromptOnSecureDesktop,REG_DWORD,0,uac_no_dimming.txt,UAC;セキュリティ
+Security,SMBv1を無効化,HKLM,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters,SMB1,REG_DWORD,0,smb1_disable.txt,SMB;ネットワーク;セキュリティ
+Security,ログオン画面に最後のユーザー名を表示しない,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,DontDisplayLastUserName,REG_DWORD,1,hide_last_user.txt,ログオン;セキュリティ;プライバシー
+Security,Windowsエラー報告を無効化,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Windows Error Reporting,Disabled,REG_DWORD,1,wer_disable.txt,エラー報告;プライバシー
+Security,Windows Defenderリアルタイム保護を無効化（ポリシー）,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection,DisableRealtimeMonitoring,REG_DWORD,1,defender_realtime_disable.txt,Defender;セキュリティ;ポリシー
+Desktop,隠しファイルとフォルダを表示する,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced,Hidden,REG_DWORD,1,show_hidden_files.txt,エクスプローラ;隠しファイル
+Desktop,タスクバーのウィジェットボタンを非表示,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced,TaskbarDa,REG_DWORD,0,,タスクバー;ウィジェット
+Desktop,タスクバーのチャット（Microsoft Teams）を非表示,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced,TaskbarMn,REG_DWORD,0,,タスクバー;Teams;チャット
+Desktop,タスクビューボタンをタスクバーから非表示,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced,ShowTaskViewButton,REG_DWORD,0,,タスクバー;タスクビュー
+Desktop,タスクバーの検索をアイコンのみ表示,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Search,SearchboxTaskbarMode,REG_DWORD,1,,タスクバー;検索
+Desktop,タスクバーボタンを結合しない（Windows 10スタイル）,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced,TaskbarGlomLevel,REG_DWORD,2,,タスクバー;ボタン;結合
+Desktop,デスクトップにごみ箱アイコンを表示,HKCU,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel,{645FF040-5081-101B-9F08-00AA002F954E},REG_DWORD,0,,デスクトップ;ごみ箱;アイコン
+Applications,Cortanaを無効化（ポリシー）,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Windows Search,AllowCortana,REG_DWORD,0,cortana_disable.txt,Cortana;検索;ポリシー
+Applications,OneDriveを無効化（ポリシー）,HKLM,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\OneDrive,DisableFileSyncNGSC,REG_DWORD,1,onedrive_disable.txt,OneDrive;ポリシー;同期
+Applications,Windows Copilotを無効化（ポリシー）,HKCU,HKEY_CURRENT_USER\Software\Policies\Microsoft\Windows\WindowsCopilot,TurnOffWindowsCopilot,REG_DWORD,1,copilot_disable.txt,Copilot;AI;ポリシー
+Power,高速スタートアップを無効化,HKLM,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Power,HiberbootEnabled,REG_DWORD,0,fast_startup_disable.txt,電源;高速スタートアップ;休止
+Network,IPv6を無効化（レジストリ方式）,HKLM,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters,DisabledComponents,REG_DWORD,255,ipv6_disable_reg.txt,IPv6;ネットワーク
+System,システム障害時の自動再起動を無効化,HKLM,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CrashControl,AutoReboot,REG_DWORD,0,auto_reboot_disable.txt,BSOD;クラッシュダンプ;自動再起動
