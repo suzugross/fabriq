@@ -1,2 +1,0 @@
-﻿Enabled,AdminID,SettingTitle,KeyPath,KeyName,Type,Value
-1,1,Ctrl+Alt+Delを必要としない有効化,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,DisableCAD,REG_DWORD,1

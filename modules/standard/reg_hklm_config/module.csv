@@ -1,5 +1,3 @@
 MenuName,Category,Script,Order,Enabled
 Registry Config (HKLM),Registry,reg_hklm_config.ps1,20,1
 Registry Delete (HKLM),Registry,reg_hklm_delete.ps1,21,1
-Registry Config (HKCU),Registry,reg_hkcu_config.ps1,22,1
-Registry Delete (HKCU),Registry,reg_hkcu_delete.ps1,23,1
