@@ -1,0 +1,7 @@
+﻿Enabled,AdminID,SettingTitle,KeyPath,KeyName,Type,Value
+1,1,Ctrl+Alt+Delを必要としない有効化,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,DisableCAD,REG_DWORD,1
+1,1,ファイアウォール無効化(ドメイン),HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile,EnableFirewall,REG_DWORD,0
+1,2,ファイアウォール無効化(プライベート),HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile,EnableFirewall,REG_DWORD,0
+1,3,ファイアウォール無効化(パブリック),HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile,EnableFirewall,REG_DWORD,0
+1,4,ファイアウォールの通知無効,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications,DisableNotifications,REG_DWORD,1
+1,1,高速スタートアップを無効にする,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Power,HiberbootEnabled,REG_DWORD,0

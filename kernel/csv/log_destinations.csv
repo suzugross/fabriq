@@ -1,3 +1,3 @@
 Path,Type,Enabled,Description
 \\SERVER01\share\fabriq_logs,UNC,0,File server log share
-C:\FabriqBackup,Local,1,Local backup
+C:\FabriqBackup,Local,0,Local backup

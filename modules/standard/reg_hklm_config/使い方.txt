@@ -1,0 +1,61 @@
+================================================================================
+レジストリ設定リスト (CSV) 利用ガイド
+================================================================================
+
+■ 概要
+  レジストリの設定/削除を一括で行うためのCSV定義ファイルです。
+  HKLM用とHKCU用でそれぞれ別ファイルとなります。
+
+■ ファイル配置場所
+  modules\reg_config\ フォルダ直下
+
+■ ファイル命名規則
+  HKLM用: reg_hklm_list*.csv  (例: reg_hklm_list.csv, reg_hklm_list_firewall.csv)
+  HKCU用: reg_hkcu_list*.csv  (例: reg_hkcu_list.csv, reg_hkcu_list_ui.csv)
+
+  ※ パターンに一致する全CSVファイルが自動的に読み込まれます。
+  ※ ジャンルごとにファイルを分けて管理できます。
+  ※ ファイル名のアルファベット順に読み込まれます。
+
+■ CSV列定義 (ヘッダー行必須)
+
+  有効,管理番号,設定タイトル,パス,キー名,型,値
+
+  有効          ... 1: 処理対象  0: スキップ (処理から除外)
+  管理番号      ... 任意の番号 (表示用、重複しても動作に影響なし)
+  設定タイトル  ... 設定内容の説明 (表示用)
+  パス          ... レジストリパス (フルパスで記載)
+                    HKLM例: HKEY_LOCAL_MACHINE\SOFTWARE\Policies\...
+                    HKCU例: HKEY_CURRENT_USER\SOFTWARE\...
+  キー名        ... レジストリ値の名前
+  型            ... 以下のいずれか
+                    REG_DWORD     ... 32ビット整数 (最もよく使う)
+                    REG_SZ        ... 文字列
+                    REG_EXPAND_SZ ... 展開可能な文字列 (%SystemRoot% 等)
+                    REG_QWORD     ... 64ビット整数
+                    REG_BINARY    ... バイナリ
+                    REG_MULTI_SZ  ... 複数行文字列
+  値            ... 設定する値
+                    REG_DWORD/QWORD の場合は数値 (例: 0, 1)
+                    REG_SZ の場合は文字列
+
+■ 記載例
+
+  有効,管理番号,設定タイトル,パス,キー名,型,値
+  1,1,ファイアウォール無効化(ドメイン),HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile,EnableFirewall,REG_DWORD,0
+  0,2,Ctrl+Alt+Delを必要としない,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System,DisableCAD,REG_DWORD,1
+
+■ 注意事項
+  - エンコーディングは Shift-JIS (ANSI) で保存してください。
+  - 値にカンマや改行を含む場合はダブルクォートで囲んでください。
+    半角スペースはそのまま記載可能です。
+  - パスが存在しない場合は自動的に作成されます (設定時のみ)。
+  - 有効列を 0 にすると設定/削除の両方でスキップされます。
+    一時的に無効にしたい場合に便利です。
+  - HKCU用ファイルの設定は、現在のユーザー (HKCU) と
+    デフォルトプロファイル (新規ユーザー用) の両方に適用されます。
+
+■ 対応スクリプト
+  設定: reg_hklm_config.ps1 / reg_hkcu_config.ps1
+  削除: reg_hklm_delete.ps1 / reg_hkcu_delete.ps1
+================================================================================
