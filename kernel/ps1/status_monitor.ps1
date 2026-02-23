@@ -148,6 +148,7 @@ function Set-ColorizedText {
     )
     $RichTextBox.Text = $Text
     $RichTextBox.SelectAll()
+    $RichTextBox.SelectionFont = $fontNormal
     $RichTextBox.SelectionColor = $textWhite
 
     # [OK] -> green
@@ -240,6 +241,12 @@ function Update-StatusDisplay {
         $pc  = $status.PCInfo
         $cur = $status.CurrentPCInfo
         $pcText = ""
+
+        # Worker name (if available)
+        $workerName = $status.WorkerName
+        if (-not [string]::IsNullOrEmpty($workerName)) {
+            $pcText += "Worker:    $workerName`r`n`r`n"
+        }
 
         # CurrentPCInfo が存在しない場合は従来表示にフォールバック
         if ($null -eq $cur) {

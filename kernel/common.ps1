@@ -1834,8 +1834,9 @@ function Initialize-Session {
         try {
             $json = Get-Content $script:SessionFilePath -Raw -Encoding UTF8
             $script:SessionInfo = $json | ConvertFrom-Json
+            $env:FABRIQ_WORKER_NAME = $script:SessionInfo.WorkerName
             Show-Success "Session loaded: Worker=$($script:SessionInfo.WorkerName), MediaSerial=$($script:SessionInfo.MediaSerial)"
-            return
+            return $true
         }
         catch {
             Show-Warning "Failed to load session.json, re-initializing..."
@@ -1879,12 +1880,17 @@ function Initialize-Session {
                 }
                 Write-Host ""
                 Write-Host "  [0] Manual input" -ForegroundColor Yellow
+                Write-Host "  [Q] Quit" -ForegroundColor DarkGray
                 Show-Separator
                 Write-Host ""
 
                 while ($true) {
                     Write-Host -NoNewline "Select worker: "
                     $wChoice = Read-Host
+
+                    if ($wChoice -eq 'q' -or $wChoice -eq 'Q') {
+                        return $false
+                    }
 
                     if ($wChoice -eq '0') {
                         Write-Host -NoNewline "Worker name: "
@@ -1939,7 +1945,9 @@ function Initialize-Session {
         Show-Warning "Failed to save session.json: $_"
     }
 
+    $env:FABRIQ_WORKER_NAME = $workerName
     Show-Success "Session initialized: Worker=$workerName, MediaSerial=$mediaSerial"
+    return $true
 }
 
 # ========================================
@@ -2448,6 +2456,7 @@ function Write-StatusFile {
 
         $statusData = @{
             UpdatedAt     = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            WorkerName    = $env:FABRIQ_WORKER_NAME
             PCInfo        = $pcInfo
             CurrentPCInfo = $currentPC
             Execution     = $executionInfo
@@ -2525,6 +2534,32 @@ function Stop-StatusMonitor {
         catch { }
     }
     Remove-StatusFile
+}
+
+# ========================================
+# Function: Exit Fabriq (Centralized Cleanup)
+# ========================================
+function Exit-Fabriq {
+    # Idempotency guard: safe to call multiple times
+    if ($global:_FabriqExitCalled) { return }
+    $global:_FabriqExitCalled = $true
+
+    Write-Host ""
+    Show-Separator
+    Show-Info "Exiting Fabriq..."
+    Show-Separator
+
+    # Stop Status Monitor (if running)
+    if ($null -ne $global:FabriqStatusMonitorProcess) {
+        Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
+        $global:FabriqStatusMonitorProcess = $null
+    }
+
+    # Disable sleep suppression
+    Disable-SleepSuppression
+
+    # Stop transcript
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 }
 
 # ========================================

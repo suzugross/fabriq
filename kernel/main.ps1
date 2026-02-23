@@ -85,12 +85,17 @@ function Select-Host {
         Write-Host "[$($pc.'AdminID')] $($pc.'OldPCName') -> $($pc.'NewPCName')"
     }
 
+    Write-Host "  [Q] Quit" -ForegroundColor DarkGray
     Show-Separator
     Write-Host ""
 
     while ($true) {
         Write-Host -NoNewline "Please enter the ID: "
         $userInput = Read-Host
+
+        if ($userInput -eq 'q' -or $userInput -eq 'Q') {
+            return $null
+        }
 
         $selected = $HostList | Where-Object { $_.'AdminID' -eq $userInput }
 
@@ -159,7 +164,12 @@ function Invoke-NewKittingSession {
     Reset-FabriqState
 
     # Re-initialize session (worker selection)
-    Initialize-Session
+    $sessionResult = Initialize-Session
+    if ($sessionResult -eq $false) {
+        Show-Info "New session canceled - returning to main menu"
+        Write-Host ""
+        return
+    }
     Write-Host ""
 
     # Re-load host list and re-select target device
@@ -173,6 +183,11 @@ function Invoke-NewKittingSession {
     Write-Host ""
 
     $selectedHostNew = Select-Host -HostList $hostListNew
+    if ($null -eq $selectedHostNew) {
+        Show-Info "New session canceled - returning to main menu"
+        Write-Host ""
+        return
+    }
     Write-Host ""
     Set-SelectedHostEnvironment -SelectedHost $selectedHostNew
     Write-Host ""
@@ -208,6 +223,8 @@ function Show-MainMenu {
     Write-Host "  [rf] Refabriq" -ForegroundColor DarkGray
     Write-Host "  [m]  Manifeste du Surkitinisme" -ForegroundColor DarkGray
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  [Q]  Quit" -ForegroundColor DarkGray
 }
 
 # ========================================
@@ -1025,7 +1042,11 @@ Write-Host ""
 Initialize-ExecutionHistory
 
 # Initialize session (worker, media serial)
-Initialize-Session
+$sessionResult = Initialize-Session
+if ($sessionResult -eq $false) {
+    Exit-Fabriq
+    exit 0
+}
 
 # Load hostlist.csv
 Show-Info "Loading hostlist.csv..."
@@ -1033,7 +1054,7 @@ $hostList = Load-HostList
 if (-not $hostList) {
     Write-Host ""
     Show-Error "Aborting process"
-    Stop-Transcript | Out-Null
+    Exit-Fabriq
     exit 1
 }
 Write-Host ""
@@ -1087,6 +1108,10 @@ if ($null -ne $resumeState) {
 # ========================================
 if (-not $isResuming) {
     $selectedHost = Select-Host -HostList $hostList
+    if ($null -eq $selectedHost) {
+        Exit-Fabriq
+        exit 0
+    }
     Write-Host ""
     Set-SelectedHostEnvironment -SelectedHost $selectedHost
     Write-Host ""
@@ -1112,7 +1137,7 @@ $groupedModules = $moduleSystem.GroupedModules
 # ========================================
 # Status Monitor
 # ========================================
-$script:StatusMonitorProcess = Start-StatusMonitor
+$global:FabriqStatusMonitorProcess = Start-StatusMonitor
 
 # ========================================
 # Resume Execution (if resuming)
@@ -1178,10 +1203,7 @@ while ($true) {
 
     # Quit
     if ($choice -eq "Q" -or $choice -eq "q" -or $choice -eq "0") {
-        Write-Host ""
-        Show-Info "Exiting"
-        Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
-        Disable-SleepSuppression
+        Exit-Fabriq
         break
     }
 
@@ -1282,7 +1304,7 @@ while ($true) {
         Write-Host ""
         Show-Info "Restarting Fabriq..."
 
-        Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
+        Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
 
         $fabriqRoot = (Resolve-Path ".").Path
         $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
@@ -1314,11 +1336,5 @@ while ($true) {
     Write-Host ""
 }
 
-Write-Host ""
-Show-Separator
-
-# Ensure Status Monitor is closed (safety net)
-Stop-StatusMonitor -MonitorProcess $script:StatusMonitorProcess
-
-# Stop Logging
-Stop-Transcript | Out-Null
+# Safety net: Exit-Fabriq is idempotent, safe to call even if already called
+Exit-Fabriq
