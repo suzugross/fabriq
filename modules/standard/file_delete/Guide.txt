@@ -1,0 +1,23 @@
+■ 概要
+指定したファイルやフォルダを一括削除します。
+
+■ 設定ファイル
+[delete_list.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  Description : 説明（表示用）
+  TargetPath  : 削除対象のパス（%USERPROFILE% 等の環境変数使用可）
+  IfNotFound  : 対象が存在しない場合の動作（Skip=スキップ / Error=エラー）
+
+[記載例]
+  1,一時ファイル,%TEMP%\example_temp_file.txt,Skip
+  1,キャッシュフォルダ,%LOCALAPPDATA%\ExampleApp\Cache,Skip
+  1,必須ファイル,C:\Windows\Temp\required_cleanup.log,Error
+
+■ IfNotFound の使い分け
+・Skip（デフォルト）：対象が存在しなくても正常終了
+・Error：対象が存在しない場合はエラーとして記録
+
+■ 動作の流れ
+1. delete_list.csv を読み込み、各パスの存在状況を表示
+2. 実行確認（Y/N）
+3. 各対象を順に削除（フォルダの場合は再帰削除）

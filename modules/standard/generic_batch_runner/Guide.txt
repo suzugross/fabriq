@@ -1,0 +1,27 @@
+■ 概要
+バッチファイル（.bat）をCSV定義に従って順に実行します。
+タイムアウトや成功判定コードを個別に設定できます。
+
+■ 設定ファイル
+[batch_list.csv]
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  Description  : 説明（表示用）
+  BatchPath    : バッチファイルのパス（相対パスはモジュールルート基準）
+  Arguments    : 引数（省略可）
+  TimeoutSec   : タイムアウト秒数（0 または空欄=無制限）
+  SuccessCodes : 成功とみなすExitCode（カンマ区切り、省略時は 0）
+  Encoding     : エンコーディング（省略可）
+
+[記載例]
+  1,初期設定,assets\setup.bat,,60,0,
+  1,ドライバー導入,assets\driver_install.bat,/silent,300,"0,3010",
+  1,カスタムスクリプト,C:\scripts\custom.bat,,0,,
+
+■ バッチファイルの配置
+・相対パスの場合はモジュールディレクトリからの相対です
+・絶対パスも指定可能です
+
+■ 動作の流れ
+1. batch_list.csv を読み込み、ファイルの存在を確認
+2. 実行確認（Y/N）
+3. 各バッチを順に実行し、ExitCode で成否判定

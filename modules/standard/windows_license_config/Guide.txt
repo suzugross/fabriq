@@ -1,0 +1,34 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Install Product Key]
+  Windowsプロダクトキーをインストールします。
+
+[Activate Windows License]
+  Windowsライセンスのオンライン認証を実行します。
+
+■ 設定ファイル
+[license_key.csv]（Install Product Key で使用）
+  Enabled    : 有効フラグ（1=実行, 0=スキップ）
+  ProductKey : プロダクトキー（XXXXX-XXXXX-XXXXX-XXXXX-XXXXX 形式）
+  Description : 説明（表示用）
+
+[記載例]
+  1,XXXXX-XXXXX-XXXXX-XXXXX-XXXXX,Windows 11 Pro VL
+
+■ プロダクトキーの入力
+・CSVにキーが定義されている場合はそちらを使用します
+・CSVがない場合や有効なエントリがない場合は手動入力になります
+
+■ 前提条件
+・管理者権限が必要です
+・ライセンス認証にはインターネット接続が必要です
+
+■ 動作の流れ（Install Product Key）
+1. license_key.csv からキーを読み込み（または手動入力）
+2. 現在のライセンス状態を表示
+3. 実行確認（Y/N）後、プロダクトキーをインストール
+
+■ 動作の流れ（Activate Windows License）
+1. 現在のライセンス状態を表示
+2. 実行確認（Y/N）後、オンライン認証を実行

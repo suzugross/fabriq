@@ -1,0 +1,32 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Registry Backup (Template)]
+  指定したレジストリキーを .reg ファイルにバックアップします。
+
+[Registry Import (Template)]
+  バックアップした .reg ファイルをインポートして復元します。
+
+■ 設定ファイル
+[reg_list.csv]
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  RegistryPath : レジストリパス（フルパス）
+  Description  : 説明（表示用）
+
+[記載例]
+  1,HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Bags\1\Desktop,デスクトップアイコン配置
+  1,HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate,Windows Update ポリシー
+
+■ バックアップの保存先
+backup/ ディレクトリにタイムスタンプ付きの .reg ファイルが作成されます。
+同じキーの複数バックアップが保持され、インポート時は最新が使用されます。
+
+■ 動作の流れ（Backup）
+1. reg_list.csv を読み込み、レジストリキーの存在を確認
+2. 実行確認（Y/N）
+3. reg.exe export で各キーを .reg ファイルに出力
+
+■ 動作の流れ（Import）
+1. backup/ 内の .reg ファイルを検索し、各キーの最新バックアップを特定
+2. 実行確認（Y/N）
+3. reg.exe import で各 .reg ファイルをインポート

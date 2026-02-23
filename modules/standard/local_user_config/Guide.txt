@@ -1,0 +1,32 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Create Local Users]
+  ローカルユーザーアカウントを作成し、グループに追加します。
+
+[Delete Local Users]
+  ローカルユーザーアカウントを削除します。
+
+■ 設定ファイル
+[local_user_list.csv]
+  Enabled                  : 有効フラグ（1=実行, 0=スキップ）
+  UserName                 : ユーザー名
+  Password                 : パスワード
+  PasswordNeverExpires     : パスワード無期限（1=無期限, 0=有効期限あり）
+  UserMayNotChangePassword : パスワード変更禁止（1=禁止, 0=変更可）
+  Group                    : 所属グループ（セミコロン区切りで複数指定可）
+  Description              : 説明（表示用）
+
+[記載例]
+  1,admin_user,P@ssw0rd,1,1,Administrators,管理者ユーザー
+  1,standard_user,Pass1234,0,0,Users,一般ユーザー
+  1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,リモート接続用
+
+■ Group の指定
+セミコロン（;）区切りで複数グループを指定できます。
+例: Users;Remote Desktop Users
+
+■ 動作の流れ
+1. local_user_list.csv を読み込み、対象ユーザーを一覧表示
+2. 実行確認（Y/N）
+3. ユーザー作成、パスワードポリシー設定、グループ追加を順に実行

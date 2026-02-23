@@ -1,0 +1,28 @@
+■ 概要
+BitLockerドライブ暗号化を有効にし、回復キーをエビデンスとして保存します。
+
+■ 設定ファイル
+[bitlocker_list.csv]
+  Enabled          : 有効フラグ（1=実行, 0=スキップ）
+  TargetDrive      : 対象ドライブ（例: C:, D:）
+  EncryptionMethod : 暗号化方式（例: XtsAes128, XtsAes256）
+  UsedSpaceOnly    : 使用領域のみ暗号化（TRUE / FALSE）
+  SkipHardwareTest : ハードウェアテストをスキップ（TRUE / FALSE）
+  AutoUnlock       : 自動ロック解除（TRUE / FALSE）※データドライブ向け
+  Description      : 説明（表示用）
+
+[記載例]
+  1,C:,XtsAes128,FALSE,TRUE,FALSE,システムドライブ
+  1,D:,XtsAes128,FALSE,FALSE,TRUE,データドライブ
+
+■ 前提条件
+・TPMが搭載され、有効化されていること
+
+■ 回復キーの保存先
+evidence\bitlocker\日付_UID_PC名\
+
+■ 動作の流れ
+1. TPMの状態を確認
+2. bitlocker_list.csv を読み込み、ドライブの現在の状態を表示
+3. 実行確認（Y/N）
+4. BitLockerを有効化し、回復キーをエビデンスに保存

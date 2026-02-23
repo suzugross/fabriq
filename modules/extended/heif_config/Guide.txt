@@ -1,0 +1,35 @@
+■ 概要
+HEIF画像およびHEVC動画のコーデック拡張機能をインストール/削除します。
+このモジュールには6つのスクリプトがあります。
+
+[Install HEIF Image Extensions]
+  HEIF画像拡張機能をインストールします。
+
+[Remove HEIF Image Extensions]
+  HEIF画像拡張機能を削除します。
+
+[Install HEVC Video Extensions]
+  HEVC動画拡張機能（無料版）をインストールします。
+
+[Remove HEVC Video Extensions]
+  HEVC動画拡張機能（無料版）を削除します。
+
+[Install Paid HEVC Video Extensions]
+  HEVC動画拡張機能（有料版）をインストールします。
+
+[Remove Paid HEVC Video Extensions]
+  HEVC動画拡張機能（有料版）を削除します。
+
+■ 設定ファイル
+設定CSVはありません。
+モジュールディレクトリ内の .AppxBundle ファイルがインストールソースです。
+
+■ 動作の流れ（Install）
+1. 既にインストール済みか確認（済みの場合はスキップ）
+2. 実行確認（Y/N）
+3. Add-AppxProvisionedPackage でインストール
+
+■ 動作の流れ（Remove）
+1. インストール状況を確認
+2. 実行確認（Y/N）
+3. プロビジョニング済みパッケージ、全ユーザー、現在のユーザーから順に削除

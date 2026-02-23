@@ -1,0 +1,20 @@
+■ 概要
+ビルトイン Administrator アカウントのパスワードと有効化を設定します。
+
+■ 設定ファイル
+[builtin_admin.csv]
+  Enabled              : 有効フラグ（1=実行, 0=スキップ）
+  Password             : 設定するパスワード
+  PasswordNeverExpires : パスワード無期限（1=無期限, 0=有効期限あり）
+  Description          : 説明（表示用）
+
+[記載例]
+  1,P@ssw0rd123,1,Administratorアカウント設定
+
+■ 前提条件
+・管理者権限が必要です
+
+■ 動作の流れ
+1. builtin_admin.csv を読み込み
+2. Administrator アカウントの存在を確認
+3. 実行確認（Y/N）後、パスワードと有効期限ポリシーを設定

@@ -1,0 +1,27 @@
+■ 概要
+デスクトップの壁紙を設定します。
+Windows APIで即時反映されるため、再起動は不要です。
+
+■ 設定ファイル
+[wallpaper_list.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  FileName    : 画像ファイル名（wallpaper/ 内）または絶対パス
+  Style       : 表示スタイル（Fill / Fit / Stretch / Tile / Center / Span）
+  Description : 説明（表示用）
+
+[記載例]
+  1,company_logo.jpg,Fill,会社ロゴ壁紙
+  1,C:\Images\wallpaper.png,Fit,絶対パス指定の例
+
+■ 画像ファイルの配置
+・相対パスの場合：wallpaper/ ディレクトリ内に画像を配置
+・絶対パスの場合：任意の場所を直接指定可能
+・対応形式：jpg, jpeg, png, bmp, gif, tif, tiff
+
+■ Style の省略
+Style を空欄にした場合は Fill がデフォルトで適用されます。
+
+■ 動作の流れ
+1. wallpaper_list.csv を読み込み
+2. 画像ファイルの存在と形式を確認して一覧表示
+3. 実行確認（Y/N）後、壁紙を適用

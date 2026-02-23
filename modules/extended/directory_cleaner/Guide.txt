@@ -1,0 +1,24 @@
+■ 概要
+指定したディレクトリの中身を削除、またはディレクトリ自体を削除します。
+一時ファイルやキャッシュのクリーンアップに使用します。
+
+■ 設定ファイル
+[clean_list.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  TargetPath  : 対象ディレクトリパス（%LOCALAPPDATA% 等の環境変数使用可）
+  Mode        : 削除モード（contents=中身のみ削除 / directory=フォルダごと削除）
+  Description : 説明（表示用）
+
+[記載例]
+  1,%LOCALAPPDATA%\Temp,contents,ユーザー一時ファイル
+  1,%WINDIR%\Temp,contents,システム一時ファイル
+  0,C:\Logs\OldLogs,directory,古いログフォルダ削除
+
+■ 安全対策
+C:\、C:\Windows、C:\Program Files などの重要パスは削除対象から
+自動的に除外されます。
+
+■ 動作の流れ
+1. clean_list.csv を読み込み、対象ディレクトリの存在を確認
+2. 削除対象の一覧を表示し、実行確認（Y/N）
+3. 各ディレクトリを順に処理

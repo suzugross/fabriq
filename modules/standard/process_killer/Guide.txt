@@ -1,0 +1,18 @@
+■ 概要
+指定したプロセスを強制終了します。
+
+■ 設定ファイル
+[process_list.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  ProcessName : プロセス名（.exe なし。例: msedge, notepad）
+  Description : 説明（表示用）
+
+[記載例]
+  1,msedge,Microsoft Edge
+  1,notepad,メモ帳
+  0,csc_ui,Cisco Secure Client
+
+■ 動作の流れ
+1. process_list.csv を読み込み、対象プロセスを一覧表示
+2. 実行確認（Y/N）
+3. 各プロセスを強制終了（実行中でない場合はスキップ）

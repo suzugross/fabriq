@@ -1,0 +1,39 @@
+■ 概要
+新規モジュール作成用のテンプレートです。
+このディレクトリをコピーしてモジュール名にリネームし、各ファイルを編集して使用します。
+
+■ テンプレートの使い方
+
+1. dev\template\ フォルダごと modules\standard\ または modules\extended\ にコピー
+2. フォルダ名をモジュール名にリネーム（例: my_new_config）
+3. 以下のファイルを編集
+
+■ 編集するファイル
+
+[module.csv] — モジュール登録情報
+  MenuName : メニューに表示する名前
+  Category : カテゴリ名（categories.csv に定義された名前）
+  Script   : 実行するスクリプトファイル名
+  Order    : カテゴリ内の表示順（数値が小さいほど上）
+  Enabled  : 有効フラグ（1=有効, 0=無効）
+
+[_template_list.csv → モジュール名に合わせてリネーム] — 設定データ
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  TargetName  : 処理対象の名前（用途に応じて列名・列数を変更）
+  Description : 説明（表示用）
+
+[_template_script.ps1 → モジュール名に合わせてリネーム] — 実行スクリプト
+  スクリプト内のコメントに従って各 Step を編集してください。
+
+■ スクリプトの構成（6ステップ）
+  Step 1 : CSV読み込み
+  Step 2 : 前提条件チェック（不要なら削除）
+  Step 3 : 実行前の確認表示
+  Step 4 : 実行確認（Y/N）
+  Step 5 : メイン処理ループ
+  Step 6 : 結果集計・返却
+
+■ 命名規則
+・フォルダ名 : snake_case（例: my_new_config）
+・スクリプト名 : フォルダ名と揃える（例: my_new_config.ps1）
+・CSV名 : 用途がわかる名前にする（例: my_new_list.csv）

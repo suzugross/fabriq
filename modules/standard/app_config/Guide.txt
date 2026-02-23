@@ -1,0 +1,30 @@
+■ 概要
+アプリケーションのインストーラーを一括実行します。
+file/ ディレクトリに配置したインストーラーを、CSVの定義に従って順に実行します。
+
+■ 設定ファイル
+[app_list.csv]
+  Enabled    : 有効フラグ（1=実行, 0=スキップ）
+  AppName    : アプリケーション名（識別用）
+  FileName   : file/ 内のインストーラーファイル名
+  Type       : インストーラー種別（exe / msi / bat）
+  SilentArgs : サイレントインストール引数
+  Description : 説明（表示用。指定時はAppNameの代わりに表示）
+
+[記載例]
+  1,Google Chrome,ChromeSetup.exe,exe,/silent /install,
+  1,7-Zip,7z2409-x64.msi,msi,/quiet /norestart,
+  1,Custom Tool,setup.bat,bat,,カスタムツール
+
+■ インストーラーの配置
+file/ ディレクトリにインストーラーを配置してください。
+
+■ Type ごとの動作
+・exe : SilentArgs を引数としてEXEを実行
+・msi : msiexec /i で実行（SilentArgs が追加引数）
+・bat : cmd /c で実行
+
+■ 動作の流れ
+1. app_list.csv を読み込み、file/ 内のファイル存在を確認
+2. インストール対象の一覧を表示し、実行確認（Y/N）
+3. 各インストーラーを順に実行し、ExitCode で成否判定

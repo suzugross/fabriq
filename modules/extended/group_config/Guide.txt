@@ -1,0 +1,25 @@
+■ 概要
+ローカルグループにドメイングループ、ドメインユーザー、またはローカルユーザーを追加します。
+
+■ 設定ファイル
+[group_list.csv]
+  Enabled    : 有効フラグ（1=実行, 0=スキップ）
+  LocalGroup : 追加先のローカルグループ名（例: Administrators）
+  MemberType : メンバー種別（DomainGroup / DomainUser / LocalUser）
+  MemberName : 追加するメンバー名
+  Domain     : ドメイン名（LocalUser の場合は空欄）
+  Description : 説明（表示用）
+
+[記載例]
+  1,Administrators,DomainGroup,Client Administrators,city.osaka.example.jp,ドメイン管理者グループ
+  1,Remote Desktop Users,DomainGroup,RDP Users,city.osaka.example.jp,RDPユーザー
+  1,Users,LocalUser,testuser,,ローカルユーザー追加
+
+■ 前提条件
+・管理者権限が必要です
+・ドメインメンバーの追加にはドメインへの接続が必要です
+
+■ 動作の流れ
+1. group_list.csv を読み込み、追加対象を一覧表示
+2. 実行確認（Y/N）
+3. 各メンバーをローカルグループに追加（既に存在する場合はスキップ）
