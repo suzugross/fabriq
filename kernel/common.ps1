@@ -1093,7 +1093,6 @@ function Export-HtmlChecklist {
     $mediaSerial = if ($script:SessionInfo) { $script:SessionInfo.MediaSerial } else { "-" }
     $kanriNo     = if ($env:SELECTED_KANRI_NO)    { $env:SELECTED_KANRI_NO }    else { "-" }
     $oldPcName   = if ($env:SELECTED_OLD_PCNAME)  { $env:SELECTED_OLD_PCNAME }  else { "-" }
-    $ethernetIp  = if ($env:SELECTED_ETH_IP)      { $env:SELECTED_ETH_IP }      else { "-" }
     $generatedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int]$ElapsedTime.TotalHours, $ElapsedTime.Minutes, $ElapsedTime.Seconds
 
@@ -1111,6 +1110,58 @@ function Export-HtmlChecklist {
                 Driver = if ($pDriver) { $pDriver } else { "-" }
                 Port   = if ($pPort)   { $pPort }   else { "-" }
             }
+        }
+    }
+
+    # ----------------------------------------
+    # Actual PC info (from OS) for verification
+    # ----------------------------------------
+    $actualPC = Get-CurrentPCInfo
+
+    # --- Network settings comparison ---
+    $verifyRows = @()
+    $verifyItems = @(
+        @{ Label = "PC Name";      Expected = $env:SELECTED_NEW_PCNAME;   Actual = $actualPC.ComputerName }
+        @{ Label = "Ethernet IP";   Expected = $env:SELECTED_ETH_IP;       Actual = $actualPC.EthernetIP }
+        @{ Label = "Eth Subnet";    Expected = $env:SELECTED_ETH_SUBNET;   Actual = $actualPC.EthernetSubnet }
+        @{ Label = "Eth Gateway";   Expected = $env:SELECTED_ETH_GATEWAY;  Actual = $actualPC.EthernetGateway }
+        @{ Label = "Wi-Fi IP";      Expected = $env:SELECTED_WIFI_IP;      Actual = $actualPC.WifiIP }
+        @{ Label = "Wi-Fi Subnet";  Expected = $env:SELECTED_WIFI_SUBNET;  Actual = $actualPC.WifiSubnet }
+        @{ Label = "Wi-Fi Gateway"; Expected = $env:SELECTED_WIFI_GATEWAY; Actual = $actualPC.WifiGateway }
+    )
+    foreach ($item in $verifyItems) {
+        if ([string]::IsNullOrEmpty($item.Expected)) { continue }
+        $exp = $item.Expected
+        $act = if ([string]::IsNullOrEmpty($item.Actual)) { "(none)" } else { $item.Actual }
+        $match = ($exp -eq $act)
+        $verifyRows += @{ Label = $item.Label; Expected = $exp; Actual = $act; Match = $match }
+    }
+
+    # DNS comparison (set-based, order-independent)
+    $expectedDns = @($env:SELECTED_DNS1, $env:SELECTED_DNS2, $env:SELECTED_DNS3, $env:SELECTED_DNS4) |
+                   Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object
+    $actualDns   = @($actualPC.DNS) | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object
+    if ($expectedDns.Count -gt 0) {
+        $expStr = $expectedDns -join ", "
+        $actStr = if ($actualDns.Count -gt 0) { $actualDns -join ", " } else { "(none)" }
+        $dnsMatch = ($expStr -eq $actStr)
+        $verifyRows += @{ Label = "DNS"; Expected = $expStr; Actual = $actStr; Match = $dnsMatch }
+    }
+
+    # --- Printer cross-check (3-way) ---
+    $expectedPrinterNames = @($printerList | ForEach-Object { $_.Name })
+    $actualPrinterNames   = @($actualPC.Printers | ForEach-Object { $_.Name })
+
+    $printerVerifyRows = @()
+    # Expected printers: check if installed
+    foreach ($ep in $expectedPrinterNames) {
+        $installed = $actualPrinterNames -contains $ep
+        $printerVerifyRows += @{ Name = $ep; Source = "Expected"; Installed = $installed }
+    }
+    # Actual printers not in expected list: mark as Extra
+    foreach ($ap in $actualPrinterNames) {
+        if ($expectedPrinterNames -notcontains $ap) {
+            $printerVerifyRows += @{ Name = $ap; Source = "Extra"; Installed = $true }
         }
     }
 
@@ -1230,8 +1281,16 @@ function Export-HtmlChecklist {
 "@
     }
 
-    $overallClass = if ($errorTotal -gt 0) { "overall-ng" } elseif ($notRunTotal -gt 0) { "overall-partial" } else { "overall-ok" }
-    $overallLabel = if ($errorTotal -gt 0) { "NG" } elseif ($notRunTotal -gt 0) { "Incomplete" } else { "OK" }
+    # Verification failure detection
+    $verifyHasFailure = ($verifyRows | Where-Object { -not $_.Match }).Count -gt 0
+    $printerHasNotFound = ($printerVerifyRows | Where-Object {
+        $_.Source -eq "Expected" -and -not $_.Installed
+    }).Count -gt 0
+    $printerHasExtra = ($printerVerifyRows | Where-Object { $_.Source -eq "Extra" }).Count -gt 0
+    $hasVerifyNG = $verifyHasFailure -or $printerHasNotFound
+
+    $overallClass = if ($errorTotal -gt 0 -or $hasVerifyNG) { "overall-ng" } elseif ($notRunTotal -gt 0) { "overall-partial" } elseif ($printerHasExtra) { "overall-ca" } else { "overall-ok" }
+    $overallLabel = if ($errorTotal -gt 0 -or $hasVerifyNG) { "NG" } elseif ($notRunTotal -gt 0) { "Incomplete" } elseif ($printerHasExtra) { "CA" } else { "OK" }
 
     # ----------------------------------------
     # Build supplemental section HTML
@@ -1240,26 +1299,55 @@ function Export-HtmlChecklist {
         "<div class='sysinfo-row'><span class='sysinfo-label'>Product</span><span style='font-size:11px;color:#555;word-break:break-all;'>$([System.Web.HttpUtility]::HtmlEncode($licenseProduct))</span></div>"
     } else { "" }
 
-    $printerRowsHtml = ""
-    if ($printerList.Count -gt 0) {
-        foreach ($p in $printerList) {
-            $pn = [System.Web.HttpUtility]::HtmlEncode($p.Name)
-            $pd = [System.Web.HttpUtility]::HtmlEncode($p.Driver)
-            $pp = [System.Web.HttpUtility]::HtmlEncode($p.Port)
-            $printerRowsHtml += "        <tr><td>$pn</td><td>$pd</td><td>$pp</td></tr>`n"
+    # ----------------------------------------
+    # Build verification section HTML
+    # ----------------------------------------
+    $verifyNetSectionHtml = ""
+    if ($verifyRows.Count -gt 0) {
+        $vNetRows = ""
+        foreach ($vr in $verifyRows) {
+            $statusBadge = if ($vr.Match) { '<span class="badge ok">Match</span>' } else { '<span class="badge ng">Mismatch</span>' }
+            $rowCls = if (-not $vr.Match) { ' class="verify-mismatch"' } else { "" }
+            $vNetRows += "        <tr$rowCls><td>$([System.Web.HttpUtility]::HtmlEncode($vr.Label))</td><td>$([System.Web.HttpUtility]::HtmlEncode($vr.Expected))</td><td>$([System.Web.HttpUtility]::HtmlEncode($vr.Actual))</td><td class=`"col-status`">$statusBadge</td></tr>`n"
         }
-        $printerSectionHtml = @"
+        $verifyNetSectionHtml = @"
   <div class="section">
-    <div class="section-hd">Configured Printers ($($printerList.Count))</div>
-    <table class="printer-table">
-      <thead><tr><th>Name</th><th>Driver</th><th>Port</th></tr></thead>
+    <div class="section-hd">PC Settings Verification</div>
+    <table class="verify-table">
+      <thead><tr><th>Item</th><th>Expected (hostlist)</th><th>Actual (OS)</th><th>Status</th></tr></thead>
       <tbody>
-$printerRowsHtml      </tbody>
+$vNetRows      </tbody>
     </table>
   </div>
 "@
-    } else {
-        $printerSectionHtml = ""
+    }
+
+    $verifyPrinterSectionHtml = ""
+    if ($printerVerifyRows.Count -gt 0) {
+        $vPrtRows = ""
+        foreach ($pr in $printerVerifyRows) {
+            if ($pr.Source -eq "Expected" -and $pr.Installed) {
+                $badge = '<span class="badge ok">Match</span>'
+                $rowCls = ""
+            } elseif ($pr.Source -eq "Expected" -and -not $pr.Installed) {
+                $badge = '<span class="badge ng">Not Found</span>'
+                $rowCls = ' class="verify-mismatch"'
+            } else {
+                $badge = '<span class="badge extra">Extra</span>'
+                $rowCls = ' class="verify-extra"'
+            }
+            $vPrtRows += "        <tr$rowCls><td>$([System.Web.HttpUtility]::HtmlEncode($pr.Name))</td><td class=`"col-status`">$badge</td></tr>`n"
+        }
+        $verifyPrinterSectionHtml = @"
+  <div class="section">
+    <div class="section-hd">Printer Verification</div>
+    <table class="verify-table">
+      <thead><tr><th>Printer Name</th><th>Status</th></tr></thead>
+      <tbody>
+$vPrtRows      </tbody>
+    </table>
+  </div>
+"@
     }
 
     # ----------------------------------------
@@ -1284,6 +1372,7 @@ $printerRowsHtml      </tbody>
   .overall-ok      { background: #27ae60; color: #fff; }
   .overall-ng      { background: #c0392b; color: #fff; }
   .overall-partial { background: #e67e22; color: #fff; }
+  .overall-ca      { background: #f1c40f; color: #333; }
 
   /* Meta cards */
   .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px; background: #ddd; border: 1px solid #ddd; }
@@ -1336,11 +1425,16 @@ $printerRowsHtml      </tbody>
   .sysinfo-card-title { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #f0f0f0; }
   .sysinfo-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
   .sysinfo-label { font-size: 11px; color: #888; min-width: 80px; flex-shrink: 0; }
-  .printer-table { width: 100%; border-collapse: collapse; background: #fff; }
-  .printer-table thead tr { background: #f5f5f5; }
-  .printer-table th { padding: 7px 14px; text-align: left; font-size: 11px; color: #555; font-weight: 600; border-bottom: 1px solid #e0e0e0; }
-  .printer-table td { padding: 7px 14px; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
-  .printer-table tr:last-child td { border-bottom: none; }
+
+  /* Verification tables */
+  .verify-table { width: 100%; border-collapse: collapse; background: #fff; }
+  .verify-table thead tr { background: #f5f5f5; }
+  .verify-table th { padding: 7px 14px; text-align: left; font-size: 11px; color: #555; font-weight: 600; border-bottom: 1px solid #e0e0e0; }
+  .verify-table td { padding: 7px 14px; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
+  .verify-table tr:last-child td { border-bottom: none; }
+  .verify-mismatch { background: #fff5f5; }
+  .verify-extra { background: #fffbf0; }
+  .extra { background: #ffeaa7; color: #856404; }
 
   .footer { text-align: center; font-size: 11px; color: #aaa; margin-top: 16px; }
 </style>
@@ -1362,7 +1456,6 @@ $printerRowsHtml      </tbody>
     <div class="meta-card"><div class="label">Target PC (New)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($pcName))</div></div>
     <div class="meta-card"><div class="label">Target PC (Old)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($oldPcName))</div></div>
     <div class="meta-card"><div class="label">Admin ID (KanriNo)</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($kanriNo))</div></div>
-    <div class="meta-card"><div class="label">Ethernet IP</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($ethernetIp))</div></div>
     <div class="meta-card"><div class="label">Worker</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($workerName))</div></div>
     <div class="meta-card"><div class="label">Media Serial</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($mediaSerial))</div></div>
     <div class="meta-card"><div class="label">Hardware ID</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($uid))</div></div>
@@ -1379,6 +1472,9 @@ $printerRowsHtml      </tbody>
     <span class="chip chip-notrun">Not Run $notRunTotal</span>
     <span style="margin-left:auto; font-size:11px; color:#888;">Total: $($DefinedModules.Count) items</span>
   </div>
+
+$verifyNetSectionHtml
+$verifyPrinterSectionHtml
 
   <!-- Checklist table -->
   <div class="table-wrap">
@@ -1423,7 +1519,7 @@ $rowsHtml      </tbody>
       </div>
     </div>
   </div>
-$printerSectionHtml
+
   <div class="footer">Generated by Fabriq ver2.1 &mdash; $generatedAt</div>
 </div>
 </body>
