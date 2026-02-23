@@ -64,10 +64,10 @@ $fontTitle  = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.Fon
 # ========================================
 $form = New-Object NoActivateForm
 $form.Text = "Fabriq - Status Monitor"
-$form.Size = New-Object System.Drawing.Size(480, 780)
+$form.Size = New-Object System.Drawing.Size(750, 600)
 $form.StartPosition = "Manual"
 $form.Location = New-Object System.Drawing.Point(
-    ([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Right - 500),
+    ([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Right - 770),
     50
 )
 $form.FormBorderStyle = "FixedSingle"
@@ -77,19 +77,47 @@ $form.ForeColor = $textWhite
 $form.Font = $fontNormal
 
 # ========================================
-# PC Info Panel (Top Section)
+# Main Layout (TableLayoutPanel: 1 row, 2 columns)
+# ========================================
+$mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
+$mainLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+$mainLayout.RowCount = 1
+$mainLayout.ColumnCount = 2
+$mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+$mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
+$mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50))) | Out-Null
+$mainLayout.Padding = New-Object System.Windows.Forms.Padding(6, 6, 6, 0)
+$form.Controls.Add($mainLayout)
+
+# ========================================
+# Execution Summary Panel (Left Column)
+# ========================================
+$execGroup = New-Object System.Windows.Forms.GroupBox
+$execGroup.Text = " Execution Summary "
+$execGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+$execGroup.ForeColor = $accentCyan
+$execGroup.Font = $fontBold
+$mainLayout.Controls.Add($execGroup, 0, 0)
+
+$execLabel = New-Object System.Windows.Forms.Label
+$execLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+$execLabel.ForeColor = $textWhite
+$execLabel.Font = $fontNormal
+$execLabel.Text = "No execution data yet."
+$execGroup.Controls.Add($execLabel)
+
+# ========================================
+# PC Info Panel (Right Column)
 # ========================================
 $pcInfoGroup = New-Object System.Windows.Forms.GroupBox
 $pcInfoGroup.Text = " PC Info Comparison "
-$pcInfoGroup.Location = New-Object System.Drawing.Point(10, 10)
-$pcInfoGroup.Size = New-Object System.Drawing.Size(445, 340)
+$pcInfoGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
 $pcInfoGroup.ForeColor = $accentCyan
 $pcInfoGroup.Font = $fontBold
-$form.Controls.Add($pcInfoGroup)
+$mainLayout.Controls.Add($pcInfoGroup, 1, 0)
 
 $pcInfoRtb = New-Object System.Windows.Forms.RichTextBox
-$pcInfoRtb.Location = New-Object System.Drawing.Point(10, 22)
-$pcInfoRtb.Size = New-Object System.Drawing.Size(425, 310)
+$pcInfoRtb.Dock = [System.Windows.Forms.DockStyle]::Fill
 $pcInfoRtb.ForeColor = $textWhite
 $pcInfoRtb.BackColor = $darkBg
 $pcInfoRtb.Font = $fontNormal
@@ -98,25 +126,6 @@ $pcInfoRtb.BorderStyle = "None"
 $pcInfoRtb.TabStop = $false
 $pcInfoRtb.Text = "Waiting for status data..."
 $pcInfoGroup.Controls.Add($pcInfoRtb)
-
-# ========================================
-# Execution Summary Panel (Bottom Section)
-# ========================================
-$execGroup = New-Object System.Windows.Forms.GroupBox
-$execGroup.Text = " Execution Summary "
-$execGroup.Location = New-Object System.Drawing.Point(10, 360)
-$execGroup.Size = New-Object System.Drawing.Size(445, 350)
-$execGroup.ForeColor = $accentCyan
-$execGroup.Font = $fontBold
-$form.Controls.Add($execGroup)
-
-$execLabel = New-Object System.Windows.Forms.Label
-$execLabel.Location = New-Object System.Drawing.Point(10, 22)
-$execLabel.Size = New-Object System.Drawing.Size(425, 320)
-$execLabel.ForeColor = $textWhite
-$execLabel.Font = $fontNormal
-$execLabel.Text = "No execution data yet."
-$execGroup.Controls.Add($execLabel)
 
 # ========================================
 # Status Bar
