@@ -1,0 +1,50 @@
+■ 概要
+このモジュールには3つのスクリプトがあります。
+
+[Printer Drivers]
+  INF/ ディレクトリ内のドライバーをWindowsに登録します。
+
+[Register Printers]
+  hostlist.csv のプリンター情報をもとにプリンターを登録します。
+
+[Uninstall Printer Drivers]
+  登録済みのプリンタードライバーを削除します。
+
+■ ドライバーのインストール（Printer Drivers）
+INF/ ディレクトリにプリンターモデルごとのフォルダを配置します。
+各フォルダ内に INFファイルとドライバーファイルを格納してください。
+
+  INF/
+    EPSON PX-S505 Series/
+      E_WGENEP.INF
+      （その他ドライバーファイル）
+    Canon LBP6230/
+      ...
+
+実行時にモデルフォルダを選択し、INFファイルを選択してインストールします。
+pnputil でドライバーストアに登録後、Add-PrinterDriver で登録します。
+
+■ プリンター登録（Register Printers）
+設定CSVはありません。
+hostlist.csv の以下の列が使用されます（最大10台）：
+  Printer1Name / Printer1Driver / Printer1Port
+  Printer2Name / Printer2Driver / Printer2Port
+  ...
+
+Port にはプリンターのIPアドレスを指定します。
+TCP/IPポートが自動作成され、プリンターが登録されます。
+
+■ 前提条件
+・プリンター登録の前にドライバーのインストールが必要です
+・Fabriq起動時にホストを選択済みであること（Register Printers）
+
+■ 動作の流れ（Printer Drivers）
+1. INF/ 内のモデルフォルダを一覧表示し、選択
+2. INFファイルを検出し、アーキテクチャ互換性を確認
+3. pnputil でドライバーストアに登録
+4. Add-PrinterDriver でプリンタードライバーを登録
+
+■ 動作の流れ（Register Printers）
+1. hostlist.csv からプリンター情報を読み込み
+2. ドライバーの存在を確認し、一覧表示
+3. 実行確認（Y/N）後、TCPポート作成 → プリンター登録

@@ -1,0 +1,33 @@
+■ 概要
+Windowsの各種履歴・キャッシュ・一時ファイルを一括削除します。
+キッティング完了後のクリーンアップに使用します。
+
+■ 設定ファイル
+[ssid_list.csv]（キッティング用Wi-FIプロファイル削除用）
+  Enabled     : 有効フラグ（1=削除対象, 0=スキップ）
+  SSID        : 削除するWi-FiのSSID名
+  Description : 説明（表示用）
+
+[記載例]
+  1,KittingNet-01,キッティング専用AP
+  1,Setup-WiFi-Temp,セットアップ用一時SSID
+
+■ 削除される内容（13ステップ）
+  1. Explorer プロセスの停止
+  2. エクスプローラー履歴（最近使ったファイル、ジャンプリスト、各種MRU）
+  3. イベントビューアーログ
+  4. IME予測変換キャッシュ
+  5. 一時ファイル（%TEMP%、%WINDIR%\Temp）
+  6. クリップボード、DNSキャッシュ
+  7. ごみ箱
+  8. Office MRU（Word, Excel, PowerPoint 等）
+  9. Microsoft Edge データ（キャッシュ、履歴、Cookie）
+  10. Google Chrome データ（キャッシュ、履歴、Cookie）
+  11. Windows Search インデックス
+  12. サムネイル/アイコンキャッシュ
+  13. キッティング用Wi-Fiプロファイル（ssid_list.csv で指定）
+
+■ 動作の流れ
+1. 実行確認（Y/N）
+2. 13ステップを順に実行
+3. Explorer を再起動して完了

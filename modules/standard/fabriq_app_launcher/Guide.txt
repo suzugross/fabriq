@@ -1,0 +1,19 @@
+■ 概要
+Fabriq内蔵アプリ（apps/ ディレクトリ）を起動します。
+プロファイル実行中にGUIアプリを挟みたい場合などに使用します。
+
+■ 設定ファイル
+[target_apps.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  AppName     : apps/ 内のアプリディレクトリ名
+  Wait        : 待機制御（1=アプリ終了まで待機, 0=起動後すぐ次へ進む）
+  Description : 説明（表示用）
+
+[記載例]
+  1,autokey_recipe_editor,1,AutoKey Recipe Editor
+  1,digital_gyotaq_editor,0,Digital Gyotaq Editor
+
+■ 動作の流れ
+1. target_apps.csv を読み込み
+2. 各アプリを別プロセスとして起動
+3. Wait=1 の場合はアプリ終了を待機

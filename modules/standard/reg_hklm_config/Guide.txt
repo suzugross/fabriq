@@ -1,0 +1,35 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Registry Config (HKLM)]
+  HKEY_LOCAL_MACHINE にレジストリ値を設定します。
+
+[Registry Delete (HKLM)]
+  HKEY_LOCAL_MACHINE のレジストリ値を削除します。
+
+■ 設定ファイル
+[reg_hklm_list*.csv]（パターンに一致する全CSVが自動読み込み）
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  AdminID      : 管理番号（表示用）
+  SettingTitle : 設定タイトル（表示用）
+  KeyPath      : レジストリパス（フルパス）
+  KeyName      : レジストリ値の名前
+  Type         : 型（REG_DWORD / REG_SZ / REG_EXPAND_SZ / REG_QWORD / REG_BINARY / REG_MULTI_SZ）
+  Value        : 設定する値
+
+[記載例]
+  1,1,ファイアウォール無効化,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile,EnableFirewall,REG_DWORD,0
+
+■ ファイル分割
+ファイル名が reg_hklm_list*.csv に一致すれば全て読み込まれます。
+ジャンルごとにファイルを分けて管理できます。
+例: reg_hklm_list.csv, reg_hklm_list_security.csv, reg_hklm_list_ui.csv
+
+■ 前提条件
+・管理者権限が必要です
+・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+
+■ 動作の流れ
+1. reg_hklm_list*.csv を全て読み込み、有効エントリを集約
+2. 設定/削除対象を一覧表示
+3. 実行確認（Y/N）後、レジストリに書き込み/削除を実行

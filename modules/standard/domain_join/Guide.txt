@@ -1,0 +1,26 @@
+■ 概要
+PCをActive Directoryドメインに参加させます。
+
+■ 設定ファイル
+[domain.csv]
+  Enabled : 有効フラグ（1=実行, 0=スキップ）
+  domain  : ドメイン名（例: example.local）
+  user    : ドメイン参加用アカウント
+  pass    : パスワード
+  dns     : DNSサーバのIPアドレス（接続確認に使用）
+  Description : 説明（表示用）
+
+[記載例]
+  1,example.local,Administrator,P@ssword123,192.168.1.1,本番ドメイン
+
+■ 前提条件
+・DNSサーバへのネットワーク接続が必要です
+
+■ 注意事項
+・参加失敗時はGUIダイアログでエラー内容が表示され、リトライできます
+・ダイアログに「adminstop」と入力すると中断できます
+
+■ 動作の流れ
+1. domain.csv から有効なエントリを読み込み
+2. DNSサーバへのPing接続を確認
+3. ドメイン参加を実行（失敗時はリトライループ）

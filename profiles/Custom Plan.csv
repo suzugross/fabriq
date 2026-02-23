@@ -1,6 +1,6 @@
-"Order","ScriptPath","Enabled","Description"
-"10","standard\reg_config\reg_hklm_config.ps1","1","Registry Config (HKLM)"
-"20","standard\reg_config\reg_hklm_delete.ps1","1","Registry Delete (HKLM)"
-"21","__RESTART__","1","restart"
-"30","standard\reg_config\reg_hkcu_config.ps1","1","Registry Config (HKCU)"
-"40","standard\reg_config\reg_hkcu_delete.ps1","1","Registry Delete (HKCU)"
+﻿Order,ScriptPath,Enabled,Description
+10,standard\reg_hklm_config\reg_hklm_config.ps1,1,Registry Config (HKLM)
+20,standard\reg_hklm_config\reg_hklm_delete.ps1,1,Registry Delete (HKLM)
+30,__RESTART__,1,restart
+40,standard\reg_hkcu_config\reg_hkcu_config.ps1,1,Registry Config (HKCU)
+50,standard\reg_hkcu_config\reg_hkcu_delete.ps1,1,Registry Delete (HKCU)

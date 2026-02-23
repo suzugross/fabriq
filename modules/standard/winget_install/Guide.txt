@@ -1,0 +1,36 @@
+■ 概要
+winget を使用してアプリケーションを一括インストールします。
+このモジュールには2つのスクリプトがあります。
+
+[Winget App Installer Update]
+  winget 自体（Microsoft.AppInstaller）を最新版に更新します。
+  winget_install の前に実行することを推奨します。
+
+[Winget App Install]
+  app_list.csv に定義されたアプリを winget でインストールします。
+
+■ 設定ファイル
+[app_list.csv]
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  AppID       : winget のパッケージID（例: Google.Chrome）
+  Options     : 追加オプション（省略可）
+  Description : 説明（表示用）
+
+[記載例]
+  1,Google.Chrome,,Google Chrome
+  1,Adobe.Acrobat.Reader.64-bit,,Adobe Acrobat Reader DC
+  0,Git.Git,--override "/VERYSILENT",Git for Windows
+
+■ 前提条件
+・インターネット接続が必要です（自動でネットワーク確認を行います）
+・winget がインストール済みであること
+
+■ AppID の調べ方
+コマンドプロンプトで「winget search アプリ名」を実行すると
+パッケージIDを確認できます。
+
+■ 動作の流れ
+1. ネットワーク接続とwingetの利用可否を確認
+2. winget source をリセット
+3. app_list.csv を読み込み、インストール済みアプリをスキップ
+4. 実行確認（Y/N）後、順にインストール

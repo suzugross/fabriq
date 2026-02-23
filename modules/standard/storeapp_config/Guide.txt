@@ -1,0 +1,24 @@
+■ 概要
+不要なMicrosoft Storeアプリ（UWPアプリ）を一括削除します。
+現在のユーザーからの削除と、プロビジョニング済みパッケージの削除の両方を行います。
+
+■ 設定ファイル
+[storeapp_list.csv]
+  No          : 表示順の番号
+  AppName     : アプリのパッケージ名（例: Microsoft.BingNews）
+  Enabled     : 有効フラグ（1=削除対象, 0=スキップ）
+  Description : 説明（表示用）
+
+[記載例]
+  10,Microsoft.549981C3F5F10,1,Cortana
+  20,Microsoft.BingNews,1,Bing News
+  30,Microsoft.BingWeather,0,Bing Weather（残す）
+
+■ AppName の調べ方
+PowerShellで「Get-AppxPackage | Select Name」を実行すると
+インストール済みアプリのパッケージ名を確認できます。
+
+■ 動作の流れ
+1. storeapp_list.csv を読み込み、削除対象を一覧表示
+2. 実行確認（Y/N）
+3. 各アプリについて AppxPackage と ProvisionedPackage を削除

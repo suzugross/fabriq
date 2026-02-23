@@ -1,0 +1,40 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Registry Config (HKCU)]
+  HKEY_CURRENT_USER にレジストリ値を設定します。
+  同時に Default プロファイル（新規ユーザー用）にも適用されます。
+
+[Registry Delete (HKCU)]
+  HKEY_CURRENT_USER のレジストリ値を削除します。
+  同時に Default プロファイルからも削除されます。
+
+■ 設定ファイル
+[reg_hkcu_list*.csv]（パターンに一致する全CSVが自動読み込み）
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  AdminID      : 管理番号（表示用）
+  SettingTitle : 設定タイトル（表示用）
+  KeyPath      : レジストリパス（フルパス）
+  KeyName      : レジストリ値の名前
+  Type         : 型（REG_DWORD / REG_SZ / REG_EXPAND_SZ / REG_QWORD / REG_BINARY / REG_MULTI_SZ）
+  Value        : 設定する値
+
+[記載例]
+  1,1,タスクバー検索非表示,HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Search,SearchboxTaskbarMode,REG_DWORD,0
+
+■ ファイル分割
+ファイル名が reg_hkcu_list*.csv に一致すれば全て読み込まれます。
+ジャンルごとにファイルを分けて管理できます。
+例: reg_hkcu_list.csv, reg_hkcu_list_ui.csv, reg_hkcu_list_explorer.csv
+
+■ Default プロファイルへの適用
+HKCU の設定は自動的に C:\Users\Default\ntuser.dat にも反映されます。
+これにより、新規作成されるユーザーにも同じ設定が適用されます。
+
+■ 前提条件
+・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+
+■ 動作の流れ
+1. reg_hkcu_list*.csv を全て読み込み、有効エントリを集約
+2. 設定/削除対象を一覧表示
+3. 実行確認（Y/N）後、HKCU と Default プロファイルの両方に適用

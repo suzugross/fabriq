@@ -1,0 +1,38 @@
+■ 概要
+Windowsの電源プランと各種電源設定（ディスプレイOFF、スリープ、休止状態、
+電源ボタン動作、プロセッサ状態など）を一括設定します。
+
+■ 設定ファイル
+[power_list.csv]
+  Enabled       : 有効フラグ（1=実行, 0=スキップ）
+  ProfileName   : プロファイル名（表示用）
+  Description   : 説明（表示用）
+  PowerPlan     : 電源プラン（BALANCED / HIGH_PERFORMANCE / POWER_SAVER）
+
+  以下は分単位で指定（0=無効）、AC=電源接続時、Battery=バッテリー時：
+  Display_TurnOff_AC / Display_TurnOff_Battery : ディスプレイOFFまでの時間
+  Sleep_After_AC / Sleep_After_Battery         : スリープまでの時間
+  Hibernate_After_AC / Hibernate_After_Battery : 休止状態までの時間
+  HardDisk_TurnOff_AC / HardDisk_TurnOff_Battery : HDDオフまでの時間
+
+  以下はアクション名で指定：
+  PowerButton_AC / PowerButton_Battery   : 電源ボタン動作
+  SleepButton_AC / SleepButton_Battery   : スリープボタン動作
+  LidClose_AC / LidClose_Battery         : カバーを閉じたとき
+
+  アクション値: NOTHING / SLEEP / HIBERNATE / SHUTDOWN
+
+  プロセッサ状態（%）：
+  Processor_MinState_AC / Processor_MinState_Battery : 最小プロセッサ状態
+  Processor_MaxState_AC / Processor_MaxState_Battery : 最大プロセッサ状態
+
+[記載例]
+  1,バランス,標準設定,BALANCED,10,5,15,10,30,20,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,20,10,5,5,100,100
+
+■ 前提条件
+・管理者権限が必要です
+
+■ 動作の流れ
+1. power_list.csv を読み込み、設定内容を表示
+2. 実行確認（Y/N）
+3. powercfg コマンドで電源プランと各設定値を適用

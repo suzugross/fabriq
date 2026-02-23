@@ -1,0 +1,35 @@
+■ 概要
+Office Deployment Tool (ODT) を使用して Microsoft Office をインストールします。
+XML構成ファイルに従ってオフラインまたはオンラインでインストールできます。
+
+■ 設定ファイル
+[odt_list.csv]
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  XmlFileName  : XML構成ファイル名（例: configuration.xml）
+  Description  : 説明（表示用）
+  AssetsFolder : アセットフォルダのパス（省略時は assets\）
+
+[記載例]
+  1,configuration.xml,Microsoft 365 Install,assets\M365
+  1,configuration.xml,Visio Install,assets\VISIO
+
+■ フォルダ構成
+  assets/
+    setup.exe            ← ODT実行ファイル（必須、共通で使用）
+    M365/
+      configuration.xml  ← XML構成ファイル
+      Office/            ← オフラインソース（オフラインインストール時）
+    VISIO/
+      configuration.xml
+      Office/
+
+■ AssetsFolder について
+・各エントリごとに異なるフォルダを指定できます
+・相対パスはモジュールルートからの相対です
+・省略した場合は assets\ が使用されます
+・setup.exe は常に assets\ から読み込まれます
+
+■ 動作の流れ
+1. odt_list.csv を読み込み、XMLファイルの存在を確認
+2. 実行確認（Y/N）
+3. XMLの SourcePath を自動書き換え後、setup.exe /configure を実行

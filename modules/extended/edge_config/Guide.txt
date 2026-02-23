@@ -1,0 +1,33 @@
+■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Edge Profile Backup]
+  Microsoft Edge のプロファイルフォルダ全体をバックアップします。
+
+[Edge Profile Restore]
+  バックアップしたプロファイルを復元先に展開します。
+
+■ 設定ファイル（Restore用）
+[restore_dest.csv]
+  Enable   : 有効フラグ（1=実行, 0=スキップ）
+  DestPath : 復元先パス（%LOCALAPPDATA% 等の環境変数使用可）
+  Description : 説明（表示用）
+
+[記載例]
+  1,C:\Users\Default\AppData\Local\Microsoft,Default Profile
+  1,%LOCALAPPDATA%\Microsoft,Current User
+
+■ バックアップの保存先
+backup/ ディレクトリに Edge プロファイルがミラーコピーされます。
+
+■ 注意事項
+・バックアップ/復元時に Edge のプロセスが自動的に終了されます
+・復元すると対象の Edge 設定が完全に上書きされます
+
+■ 動作の流れ（Backup）
+1. Edge プロセスの終了確認
+2. robocopy /MIR で Edge プロファイルを backup/ にミラーコピー
+
+■ 動作の流れ（Restore）
+1. Edge プロセスの終了確認
+2. restore_dest.csv の各宛先に robocopy でコピー

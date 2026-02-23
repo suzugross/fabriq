@@ -1,0 +1,34 @@
+■ 概要
+bloatware_list.csv に定義されたデスクトップアプリケーションを一括アンインストールします。
+bloatware_export モジュールで出力したCSVを元に編集して使用します。
+
+■ 設定ファイル
+[bloatware_list.csv]
+  Enabled              : 有効フラグ（1=削除対象, 0=スキップ）
+  DisplayName          : アプリ名
+  Publisher            : 発行元
+  DisplayVersion       : バージョン
+  Architecture         : アーキテクチャ（64bit / 32bit）
+  WindowsInstaller     : MSIインストーラーか否か
+  QuietUninstallString : サイレントアンインストールコマンド
+  UninstallString      : アンインストールコマンド
+  NoRemove             : 削除不可フラグ（1=自動スキップ）
+  SystemComponent      : システムコンポーネント（1=自動スキップ）
+  InstallDate          : インストール日
+  RegistryKey          : レジストリパス
+
+■ 運用方法
+1. まず bloatware_export モジュールでCSVを出力
+2. 出力されたCSVを bloatware_list.csv として配置
+3. 削除したいアプリの Enabled を 1 に変更
+
+■ 前提条件
+・管理者権限が必要です
+
+■ 注意事項
+・NoRemove=1 または SystemComponent=1 のエントリは自動的にスキップされます
+
+■ 動作の流れ
+1. bloatware_list.csv を読み込み、削除対象を一覧表示
+2. 実行確認（Y/N）
+3. QuietUninstallString → MSI → UninstallString の優先順で実行

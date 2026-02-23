@@ -1,0 +1,21 @@
+■ 概要
+Ethernet および Wi-Fi のIPアドレス・サブネット・ゲートウェイ・DNSを設定します。
+hostlist.csv で選択したホストの値が適用されます。
+
+■ 設定ファイル
+設定CSVはありません。
+hostlist.csv の以下の列が使用されます：
+  EthernetIP / EthernetSubnet / EthernetGateway
+  WifiIP / WifiSubnet / WifiGateway
+  DNS1 / DNS2 / DNS3 / DNS4
+
+IP が空欄のアダプタは設定をスキップします。
+
+■ 前提条件
+・管理者権限が必要です
+・Fabriq起動時にホストを選択済みであること
+
+■ 動作の流れ
+1. hostlist.csv から読み込んだ設定を表示
+2. 物理ネットワークアダプタを自動検出
+3. netsh でIPアドレスとDNSを設定

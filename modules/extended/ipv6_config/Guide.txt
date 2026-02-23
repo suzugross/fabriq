@@ -1,0 +1,27 @@
+■ 概要
+ネットワークアダプターの IPv6 を有効または無効にします。
+
+■ 設定ファイル
+[ipv6_list.csv]
+  Enabled        : 有効フラグ（1=実行, 0=スキップ）
+  AdapterPattern : アダプター名のパターン（ワイルドカード使用可）
+  IPv6State      : 設定状態（Enabled=有効化 / Disabled=無効化）
+  Description    : 説明（表示用）
+
+[記載例]
+  1,イーサネット*,Disabled,有線LANのIPv6無効化
+  1,Ethernet*,Disabled,有線LAN（英語名）のIPv6無効化
+  1,Wi-Fi*,Disabled,Wi-FiのIPv6無効化
+
+■ AdapterPattern について
+ワイルドカード（*）が使用できます。
+OSの言語によりアダプター名が異なるため、日本語名と英語名の
+両方を登録しておくと安全です。
+
+■ 前提条件
+・管理者権限が必要です
+
+■ 動作の流れ
+1. ipv6_list.csv を読み込み、対象アダプターを一覧表示
+2. 実行確認（Y/N）
+3. 各アダプターの IPv6 バインディングを有効/無効に設定
