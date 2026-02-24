@@ -492,7 +492,7 @@ $btnScan.Add_Click({
                 $seenNames[$entry.DisplayName] = $true
 
                 $script:allScanItems += [PSCustomObject]@{
-                    Enabled              = "0"
+                    Enabled              = "1"
                     DisplayName          = $entry.DisplayName
                     Publisher            = if ($entry.Publisher)            { $entry.Publisher }            else { "" }
                     DisplayVersion       = if ($entry.DisplayVersion)       { $entry.DisplayVersion }       else { "" }
@@ -571,7 +571,7 @@ $btnAddToCsv.Add_Click({
         if ($null -eq $src) { continue }
 
         $row = $dt.NewRow()
-        $row["Enabled"]              = "0"
+        $row["Enabled"]              = "1"
         $row["DisplayName"]          = $src.DisplayName
         $row["Publisher"]            = $src.Publisher
         $row["DisplayVersion"]       = $src.DisplayVersion
