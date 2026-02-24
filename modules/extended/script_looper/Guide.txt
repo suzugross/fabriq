@@ -1,0 +1,149 @@
+■ 概要
+指定したスクリプトを条件付きでリトライ・ループ実行する汎用モジュールです。
+NIC設定の反映待ち、ドライバDLの一時的失敗、外部サービスへの接続待ちなど、
+時間経過やリトライで解決できるスクリプトの自動再実行に使用します。
+
+■ 設定ファイル
+[looper_list.csv]
+
+  カラム名      必須  説明
+  ------------- ----  --------------------------------------------------
+  Enabled       Yes   有効フラグ（1=実行, 0=スキップ）
+  ScriptPath    Yes   対象スクリプトのパス（後述）
+  MaxRetry      Yes   最大実行回数（後述）
+  IntervalSec   Yes   リトライ間隔・秒（後述）
+  Condition     Yes   リトライ条件（後述）
+  Description   No    管理用の説明文（コンソール表示にも使用）
+
+■ 各カラムの詳細
+
+[ScriptPath]
+  実行する対象スクリプトの .ps1 ファイルパスを指定します。
+  以下の2通りの指定方法に対応しています。
+
+  (1) fabriqルート相対パス（推奨）
+      例: modules\standard\network_config\apply_ethernet.ps1
+      Fabriq.bat が作業ディレクトリを fabriq ルートに設定するため、
+      そこからの相対パスで記述できます。
+
+  (2) 絶対パス
+      例: C:\Tools\custom_check.ps1
+      外部スクリプトを直接指定する場合に使用します。
+
+  存在しないパスが指定された場合、実行前チェックで [NOT FOUND] と
+  表示され、自動的にスキップされます。
+
+[MaxRetry] - 最大実行回数（無限ループ防止）
+  スクリプトを実行する最大回数を指定します。初回の実行を含みます。
+
+  設定値   挙動
+  -------  -----------------------------------------------
+  1        1回だけ実行（リトライなし）
+  3        最大3回実行（初回 + リトライ2回）
+  5        最大5回実行（初回 + リトライ4回）
+
+  重要: このカラムは無限ループ防止のための安全装置です。
+  必ず 1 以上の整数を指定してください。0 以下や非数値は
+  バリデーションエラーとなり、そのエントリはスキップされます。
+
+[IntervalSec] - リトライ間隔（秒）
+  リトライ前の待機時間を秒単位で指定します。
+
+  設定値   挙動
+  -------  -----------------------------------------------
+  0        待機なしで即座にリトライ
+  5        5秒待機してからリトライ
+  30       30秒待機してからリトライ
+
+  ネットワーク系の処理では、設定反映までの時間を考慮して
+  5〜10秒程度を推奨します。ポーリング型の用途では 30秒以上が
+  適切な場合もあります。0 以上の整数を指定してください。
+
+[Condition] - リトライ条件
+  スクリプトの実行結果に基づいて、リトライするかどうかを制御します。
+
+  (1) OnError
+      スクリプトが Error ステータス（または例外）を返した場合のみ
+      リトライします。Error 以外のステータス（Success, Skipped,
+      Cancelled, Partial）が返された時点でループを終了します。
+
+      用途:
+      - NIC設定がDHCP解放待ちで一時的に失敗するケース
+      - プリンタドライバのダウンロードがタイムアウトするケース
+      - 外部サービスへの接続が一時的に不安定なケース
+
+      動作例（MaxRetry=3）:
+        Attempt 1: Error   → リトライ
+        Attempt 2: Error   → リトライ
+        Attempt 3: Success → ループ終了（成功）
+        または
+        Attempt 3: Error   → 上限到達、断念（失敗）
+
+  (2) Always
+      スクリプトの実行結果に関わらず、MaxRetry 回まで常に実行します。
+
+      用途:
+      - 状態チェックのポーリング（一定回数繰り返し確認）
+      - 累積適用が必要なスクリプト（毎回少しずつ処理が進む）
+
+      動作例（MaxRetry=3）:
+        Attempt 1: Success → リトライ（Always なので継続）
+        Attempt 2: Success → リトライ（Always なので継続）
+        Attempt 3: Success → 全回完了、ループ終了
+
+  OnError / Always 以外の値が指定された場合、バリデーションエラーと
+  なり、そのエントリはスキップされます。
+
+■ CSV 記載例
+
+  Enabled,ScriptPath,MaxRetry,IntervalSec,Condition,Description
+  1,modules\standard\network_config\apply_ethernet.ps1,3,5,OnError,NIC設定リトライ
+  1,modules\extended\printer_setup\install_printers.ps1,2,10,OnError,プリンタDLリトライ
+  0,scripts\custom\polling_check.ps1,5,30,Always,ポーリング（無効）
+
+■ 動作の流れ
+1. looper_list.csv を読み込み、Enabled=1 のエントリを取得
+2. 各エントリの ScriptPath の存在と設定値（MaxRetry等）を検証
+3. 実行対象の一覧を [READY] / [NOT FOUND] / [INVALID] で表示
+4. 実行確認（Y/N）。AutoPilot モード時は自動的に Y
+5. 各エントリを順に処理:
+   a. スクリプトを実行し、ModuleResult を検出
+   b. Condition に基づきリトライ判定
+   c. 各試行の結果（Success/Error等）をリアルタイムでコンソール表示
+   d. 条件を満たすか MaxRetry に到達するまでループ
+6. 全エントリの結果を集計して BatchResult として返却
+
+■ 結果判定
+各エントリの最終実行結果に基づいて、以下のように集計されます。
+
+  全エントリ成功              → Success
+  成功と失敗が混在            → Partial
+  全エントリ失敗              → Error
+  全エントリスキップ          → Skipped
+
+■ 対象スクリプトの要件
+- New-ModuleResult を返す fabriq 準拠スクリプトを推奨します。
+  正確なステータス（Success/Error/Skipped 等）が検出されます。
+- New-ModuleResult を返さないレガシースクリプトにも対応しています。
+  その場合、例外が発生しなければ Success、例外発生時は Error として
+  扱われます。
+
+■ 安全対策
+- MaxRetry は必須で、無限ループを確実に防止します。
+- ScriptPath が存在しない場合、自動的にスキップされます。
+- MaxRetry, IntervalSec, Condition の値が不正な場合もスキップされます。
+- 実行前に全エントリの一覧と検証結果が表示され、確認後に実行されます。
+
+■ トラブルシューティング
+Q: 全てのエントリが [NOT FOUND] になる
+A: ScriptPath が fabriq ルートからの相対パスになっているか確認して
+   ください。Fabriq.bat から起動した場合、作業ディレクトリは
+   fabriq のルートフォルダです。
+
+Q: [INVALID] と表示されるエントリがある
+A: MaxRetry が 1 以上の整数、IntervalSec が 0 以上の整数、
+   Condition が OnError または Always であることを確認してください。
+
+Q: OnError で成功しているのにリトライされる
+A: 対象スクリプトが New-ModuleResult を返していない可能性があります。
+   New-ModuleResult -Status "Success" を明示的に返すようにしてください。
