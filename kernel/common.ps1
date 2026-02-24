@@ -249,6 +249,8 @@ function Import-ModuleCsv {
         }
     }
 
+    $totalCount = @($allItems).Count
+
     if ($FilterEnabled) {
         $filtered = @($allItems | Where-Object { $_.Enabled -eq "1" })
         if ($filtered.Count -eq 0) {
@@ -275,7 +277,7 @@ function Import-ModuleCsv {
     }
 
     if ($FilterEnabled) {
-        Show-Info "Loaded $($allItems.Count) enabled entries"
+        Show-Info "Loaded $($allItems.Count) enabled entries (total: $totalCount)"
     }
 
     return $allItems
