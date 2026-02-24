@@ -1,0 +1,34 @@
+■ 概要
+dsregcmd /status を実行し、Azure AD (Entra ID) Join が完了しているかを確認します。
+未完了の場合は Error を返すため、Script Looper と組み合わせて Join 完了まで自動リトライできます。
+
+■ 設定ファイル
+設定CSVはありません。
+dsregcmd の出力から AzureAdJoined の値を自動判定します。
+
+■ 前提条件
+・Windows 10 以降であること（dsregcmd.exe が必要）
+・管理者権限は不要です（dsregcmd は一般ユーザーで実行可能）
+
+■ 注意事項
+・このモジュールは状態確認のみを行い、システムへの変更は一切行いません
+・単体実行も可能ですが、Script Looper からの呼び出しを主な用途として想定しています
+
+■ 動作の流れ
+1. dsregcmd.exe の存在を確認
+2. dsregcmd /status を実行
+3. 出力から AzureAdJoined の値を抽出して表示
+4. YES の場合 → Success を返却
+   YES 以外の場合 → Error を返却
+
+■ Script Looper での使用例
+looper_list.csv に以下のように登録すると、Azure AD Join が完了するまで
+30秒間隔で最大10回リトライします。
+
+[looper_list.csv 記載例]
+  Enabled,ScriptPath,MaxRetry,IntervalSec,Condition,Description
+  1,modules\extended\azure_ad_join_check\azure_ad_join_check.ps1,10,30,OnError,Azure AD Join wait
+
+■ 返却ステータス
+  Success : AzureAdJoined = YES（Join 完了）
+  Error   : AzureAdJoined = NO または判定不可（未完了）
