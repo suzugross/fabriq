@@ -1,2 +1,2 @@
 MenuName,Category,Script,Order,Enabled
-Azure AD Join Check,Verification,azure_ad_join_check.ps1,10,1
+Azure AD Join Check,System,azure_ad_join_check.ps1,10,1
