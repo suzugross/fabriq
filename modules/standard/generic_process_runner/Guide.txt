@@ -1,0 +1,147 @@
+■ 概要
+任意のEXEファイルをCSV定義に基づいて実行する汎用プロセス実行モジュールです。
+Office更新、サイレントインストーラ、コマンドラインツールなど、
+EXEパスと引数を指定して実行する用途全般に使用します。
+
+■ 設定ファイル
+[process_list.csv]
+
+  カラム名           必須  説明
+  ------------------ ----  --------------------------------------------------
+  Enabled            Yes   有効フラグ（1=実行, 0=スキップ）
+  Description        Yes   管理用の説明文（コンソール表示にも使用）
+  ExecutablePath     Yes   実行するEXEのパス（後述）
+  Arguments          No    EXEに渡す引数（空欄可）
+  WorkingDirectory   No    作業ディレクトリ（後述）
+  TimeoutSec         No    タイムアウト秒数（後述）
+  SuccessCodes       No    正常終了コード（後述）
+  NoNewWindow        No    ウィンドウ制御（後述）
+
+■ 各カラムの詳細
+
+[ExecutablePath]
+  実行する対象EXEのファイルパスを指定します。
+  以下の3通りの指定方法に対応しています。
+
+  (1) 絶対パス
+      例: C:\Windows\System32\hostname.exe
+      フルパスで直接指定します。
+
+  (2) 環境変数を含むパス
+      例: %SystemRoot%\System32\notepad.exe
+      %ProgramFiles%、%SystemRoot% 等の環境変数が自動展開されます。
+
+  (3) 相対パス
+      例: OfficeC2RClient.exe
+      WorkingDirectory が指定されている場合はそこを基準に、
+      未指定の場合はモジュールフォルダ（$PSScriptRoot）を基準に
+      パスが解決されます。
+
+  存在しないパスが指定された場合、実行前チェックで [NOT FOUND] と
+  表示され、自動的にスキップされます。
+
+[WorkingDirectory] - 作業ディレクトリ
+  プロセス実行時の作業ディレクトリを指定します。
+
+  設定値                    挙動
+  ------------------------  -----------------------------------------------
+  (空欄)                    モジュールフォルダを作業ディレクトリとして使用
+  C:\Program Files\...      指定した絶対パスを作業ディレクトリとして使用
+  %ProgramFiles%\...        環境変数が自動展開されます
+
+  ExecutablePath を相対パスで指定した場合、このカラムの値が
+  パス解決の基準になります。
+
+[TimeoutSec] - タイムアウト（秒）
+  プロセスの最大待機時間を秒単位で指定します。
+
+  設定値   挙動
+  -------  -----------------------------------------------
+  (空欄)   タイムアウトなし（プロセス終了まで無制限に待機）
+  0        タイムアウトなし（同上）
+  30       30秒経過しても終了しない場合、強制終了して失敗扱い
+  300      5分間待機
+
+  GUI アプリケーションでユーザー操作が必要な場合は空欄（無制限）を
+  推奨します。バックグラウンド処理には適切なタイムアウト値を設定して
+  ください。
+
+[SuccessCodes] - 正常終了コード
+  プロセスの終了コード（ExitCode）のうち、正常と見なす値を指定します。
+
+  設定値   挙動
+  -------  -----------------------------------------------
+  (空欄)   ExitCode 0 のみを正常と判定
+  0        同上
+  0,1      ExitCode 0 または 1 を正常と判定
+  0,3010   ExitCode 0 または 3010（要再起動）を正常と判定
+
+  複数の値はカンマ区切りで指定します。
+  アプリケーション固有の終了コードに合わせて設定してください。
+
+[NoNewWindow] - ウィンドウ制御
+  プロセス起動時のウィンドウ動作を制御します。
+
+  設定値   挙動
+  -------  -----------------------------------------------
+  (空欄)   新しいウィンドウでプロセスを起動（GUI アプリ向け）
+  0        同上
+  1        現在のコンソール内でプロセスを実行（CLI ツール向け）
+
+  Office更新（displaylevel=True）などGUIが表示されるプロセスは 0、
+  hostname.exe 等のコンソール出力を確認したいツールは 1 を推奨します。
+
+■ CSV 記載例
+
+  Enabled,Description,ExecutablePath,Arguments,WorkingDirectory,TimeoutSec,SuccessCodes,NoNewWindow
+  1,Office Update,OfficeC2RClient.exe,/update user displaylevel=True,C:\Program Files\Common Files\Microsoft Shared\ClickToRun,0,0,0
+  1,Hostname確認,C:\Windows\System32\hostname.exe,,,,0,1
+  1,環境変数パス,%SystemRoot%\System32\ipconfig.exe,/all,,,0,1
+  0,無効エントリ,dummy.exe,,,,0,0
+
+■ 動作の流れ
+1. process_list.csv を読み込み、Enabled=1 のエントリを取得
+2. 各エントリの ExecutablePath を環境変数展開・パス解決し存在を検証
+3. 実行対象の一覧を表示（存在しない場合は [NOT FOUND] で警告）
+4. 実行確認（Y/N）。AutoPilot モード時は自動的に Y
+5. 各エントリを順に処理:
+   a. Start-Process でプロセスを起動（PID を表示）
+   b. TimeoutSec に基づきタイムアウト監視
+   c. タイムアウト時は強制終了して失敗扱い
+   d. 終了コードを SuccessCodes と照合して成否判定
+6. 全エントリの結果を集計して BatchResult として返却
+
+■ 結果判定
+各エントリの実行結果に基づいて、以下のように集計されます。
+
+  全エントリ成功              → Success
+  成功と失敗が混在            → Partial
+  全エントリ失敗              → Error
+  全エントリスキップ          → Skipped
+
+■ パス解決の優先順位
+ExecutablePath の解決は以下の順序で行われます。
+
+  1. 環境変数を展開（%SystemRoot% → C:\Windows 等）
+  2. 絶対パスであればそのまま使用
+  3. 相対パスの場合:
+     - WorkingDirectory が指定されていれば → WorkingDirectory 基準
+     - WorkingDirectory が空欄であれば → モジュールフォルダ基準
+
+■ トラブルシューティング
+Q: 全てのエントリが [NOT FOUND] になる
+A: ExecutablePath が正しいか確認してください。相対パスの場合、
+   WorkingDirectory またはモジュールフォルダからの相対パスとして
+   解決されます。環境変数の展開結果も確認してください。
+
+Q: ExitCode が 0 なのに失敗と判定される
+A: SuccessCodes カラムに正しい値が設定されているか確認してください。
+   空欄の場合は 0 のみが正常と判定されます。
+
+Q: プロセスがタイムアウトで強制終了される
+A: TimeoutSec の値を増やすか、空欄（無制限）に設定してください。
+   GUIアプリケーションでユーザー操作が必要な場合は無制限を推奨します。
+
+Q: GUI アプリケーションのウィンドウが表示されない
+A: NoNewWindow が 1 になっていないか確認してください。
+   GUIアプリケーションは 0（空欄）に設定してください。

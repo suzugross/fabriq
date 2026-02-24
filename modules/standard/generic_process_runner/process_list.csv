@@ -1,0 +1,2 @@
+Enabled,Description,ExecutablePath,Arguments,WorkingDirectory,TimeoutSec,SuccessCodes,NoNewWindow
+1,Office Update,OfficeC2RClient.exe,/update user displaylevel=True,C:\Program Files\Common Files\Microsoft Shared\ClickToRun,0,0,0
