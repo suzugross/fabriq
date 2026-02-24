@@ -1,5 +1,5 @@
-﻿Enabled,Description,TargetPath,IfNotFound
-0,一時ファイルのサンプル,%TEMP%\example_temp_file.txt,Skip
-0,デスクトップのショートカット例,%USERPROFILE%\Desktop\example_shortcut.lnk,Skip
-0,キャッシュフォルダ例,%LOCALAPPDATA%\ExampleApp\Cache,Skip
-0,必須ファイルの例（存在しない場合エラー）,C:\Windows\Temp\required_cleanup.log,Error
+Enabled,Description,TargetPath,IfNotFound,Segment
+0,一時ファイルのサンプル,%TEMP%\example_temp_file.txt,Skip,Phase1
+0,デスクトップのショートカット例,%USERPROFILE%\Desktop\example_shortcut.lnk,Skip,Phase2
+0,キャッシュフォルダ例,%LOCALAPPDATA%\ExampleApp\Cache,Skip,Phase2
+0,必須ファイルの例（存在しない場合エラー）,C:\Windows\Temp\required_cleanup.log,Error,

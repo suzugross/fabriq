@@ -1,2 +1,4 @@
-Enabled,FileName,DestPath,Overwrite,Description
-1,test.txt,C:\Users\Public\Desktop,1,Sample file to Public Desktop
+Enabled,FileName,DestPath,Overwrite,Description,Segment
+1,test.txt,C:\Users\Public\Desktop,1,Sample file to Public Desktop,Phase1
+1,test2.txt,C:\Users\Public\Desktop,1,Sample file to Public Desktop,Phase2
+1,test3.txt,C:\Users\Public\Desktop,1,Sample file to Public Desktop,Phase3
