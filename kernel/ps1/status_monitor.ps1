@@ -9,8 +9,28 @@ param(
     [string]$StatusFilePath = ".\kernel\json\status.json"
 )
 
-Add-Type -AssemblyName System.Windows.Forms
+# ========================================
+# DPI Awareness (must be set BEFORE any Forms/Drawing operations)
+# ========================================
+# SetProcessDPIAware() makes Screen.Bounds return physical pixels,
+# preventing screenshot cropping on scaled displays.
+# Form dimensions are then scaled by the DPI factor below.
 Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @"
+    using System.Runtime.InteropServices;
+    public class DPIUtil {
+        [DllImport("user32.dll")]
+        public static extern bool SetProcessDPIAware();
+    }
+"@ -ErrorAction SilentlyContinue
+$null = [DPIUtil]::SetProcessDPIAware()
+
+# Get DPI scale factor (96 DPI = 100% = scale 1.0)
+$tmpG = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+$script:dpiScale = $tmpG.DpiX / 96.0
+$tmpG.Dispose()
+
+Add-Type -AssemblyName System.Windows.Forms
 
 # Hide the PowerShell console window (keep only the Forms window visible)
 Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
@@ -21,11 +41,17 @@ Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
 '@
 
 # NoActivateForm: Form subclass that does not steal focus on show
+# WndProc override returns MA_NOACTIVATE for WM_MOUSEACTIVATE so that
+# clicks on ToolStrip buttons work on the first click without requiring
+# the form to be activated first.
 Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
 using System.Windows.Forms;
 public class NoActivateForm : Form {
     protected override bool ShowWithoutActivation { get { return true; } }
     private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const int MA_NOACTIVATE = 3;
     protected override CreateParams CreateParams {
         get {
             CreateParams cp = base.CreateParams;
@@ -33,12 +59,43 @@ public class NoActivateForm : Form {
             return cp;
         }
     }
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == WM_MOUSEACTIVATE) {
+            m.Result = (IntPtr)MA_NOACTIVATE;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+}
+public class ClickThroughStatusStrip : StatusStrip {
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const int MA_NOACTIVATE = 3;
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == WM_MOUSEACTIVATE) {
+            m.Result = (IntPtr)MA_NOACTIVATE;
+            return;
+        }
+        base.WndProc(ref m);
+    }
 }
 '@
 $consoleHwnd = [Native.Win32]::GetConsoleWindow()
 if ($consoleHwnd -ne [IntPtr]::Zero) {
     [Native.Win32]::ShowWindow($consoleHwnd, 0) | Out-Null  # SW_HIDE = 0
 }
+
+# ========================================
+# Derive evidence directory from StatusFilePath
+# ========================================
+# IMPORTANT: Must be done BEFORE dot-sourcing common.ps1, because
+# common.ps1 overwrites $script:StatusFilePath with a relative path.
+$script:fabriqRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $StatusFilePath) "..\.."))
+$script:gyotakuDir = Join-Path $script:fabriqRoot "evidence\gyotaku"
+
+# ========================================
+# Load common.ps1 (for Save-Screenshot)
+# ========================================
+. (Join-Path $PSScriptRoot "..\common.ps1")
 
 # ========================================
 # Color Definitions
@@ -64,11 +121,15 @@ $fontTitle  = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.Fon
 # ========================================
 $form = New-Object NoActivateForm
 $form.Text = "Fabriq - Status Monitor"
-$form.Size = New-Object System.Drawing.Size(750, 600)
+# Scale form dimensions by DPI factor (designed at 96 DPI / 100%)
+$form.Size = New-Object System.Drawing.Size(
+    [int](750 * $script:dpiScale),
+    [int](600 * $script:dpiScale)
+)
 $form.StartPosition = "Manual"
 $form.Location = New-Object System.Drawing.Point(
-    ([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Right - 770),
-    50
+    ([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Right - [int](770 * $script:dpiScale)),
+    [int](50 * $script:dpiScale)
 )
 $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $false
@@ -130,8 +191,18 @@ $pcInfoGroup.Controls.Add($pcInfoRtb)
 # ========================================
 # Status Bar
 # ========================================
-$statusBar = New-Object System.Windows.Forms.StatusStrip
+$statusBar = New-Object ClickThroughStatusStrip
 $statusBar.BackColor = [System.Drawing.Color]::FromArgb(25, 25, 25)
+# Screenshot button (leftmost item)
+$btnScreenshot = New-Object System.Windows.Forms.ToolStripButton
+$btnScreenshot.Text = "Screenshot"
+$btnScreenshot.ForeColor = $accentCyan
+$btnScreenshot.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+$btnScreenshot.Margin = New-Object System.Windows.Forms.Padding(4, 2, 8, 0)
+$statusBar.Items.Add($btnScreenshot) | Out-Null
+# Separator between button and status text
+$statusSep = New-Object System.Windows.Forms.ToolStripSeparator
+$statusBar.Items.Add($statusSep) | Out-Null
 $statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
 $statusLabel.ForeColor = $textGray
 $statusLabel.Text = "Waiting for data..."
@@ -501,6 +572,42 @@ $timer.Start()
 $form.Add_FormClosing({
     $timer.Stop()
     $timer.Dispose()
+})
+
+# --- Screenshot button click (gyotaq pattern: hide -> capture -> show) ---
+$btnScreenshot.Add_Click({
+    $savedLocation = $form.Location
+    $savedSize = $form.Size
+    $form.Hide()
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 300
+
+    $result = $null
+    $errorMsg = $null
+    try {
+        $result = Save-Screenshot -BaseDir $script:gyotakuDir
+    }
+    catch {
+        $errorMsg = $_.Exception.Message
+    }
+
+    $form.Location = $savedLocation
+    $form.Size = $savedSize
+    $form.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+
+    if ($null -ne $result) {
+        $statusLabel.ForeColor = $successGreen
+        $statusLabel.Text = "Screenshot saved: $([System.IO.Path]::GetFileName($result))"
+    }
+    elseif ($errorMsg) {
+        $statusLabel.ForeColor = $errorRed
+        $statusLabel.Text = "Screenshot error: $errorMsg"
+    }
+    else {
+        $statusLabel.ForeColor = $errorRed
+        $statusLabel.Text = "Screenshot failed (Save-Screenshot returned null)"
+    }
 })
 
 # ========================================
