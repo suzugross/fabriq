@@ -1,0 +1,4 @@
+Order,ScriptPath,Enabled,Description,Segment
+10,standard\file_delete\file_delete.ps1,1,File Delete [Phase1],Phase1
+20,standard\file_delete\file_delete.ps1,1,File Delete [Phase2],Phase2
+30,standard\file_delete\file_delete.ps1,1,File Delete [No Segment],

@@ -37,6 +37,11 @@ Write-Host ""
 # CSV ファイルのパスは $PSScriptRoot 基準で解決する。
 # -RequiredColumns にはスクリプトが必ず参照する列名を列挙する。
 # Enabled, Description 以外に追加した列があればここに加える。
+#
+# [Segment 対応]
+# CSV に Segment カラムを追加すると、Profile からセグメント指定で
+# 呼び出された際に自動フィルタリングされる。
+# モジュール側のコード変更は不要（Import-ModuleCsv が自動処理）。
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "_template_list.csv"   # ← CSV ファイル名を変更する
 

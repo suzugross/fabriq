@@ -235,7 +235,8 @@ function Import-ModuleCsv {
         [Parameter(Mandatory = $true)]
         [string]$Path,
         [switch]$FilterEnabled,
-        [string[]]$RequiredColumns
+        [string[]]$RequiredColumns,
+        [string]$Segment = $env:FABRIQ_SEGMENT
     )
 
     $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
@@ -254,8 +255,27 @@ function Import-ModuleCsv {
             Show-Skip "No enabled entries in $([System.IO.Path]::GetFileName($Path))"
             return @()
         }
-        Show-Info "Loaded $($filtered.Count) enabled entries (total: $($allItems.Count))"
-        return $filtered
+        $allItems = $filtered
+    }
+
+    # Segment filtering: apply only when Segment is specified AND CSV has Segment column
+    if (-not [string]::IsNullOrWhiteSpace($Segment)) {
+        $csvColumns = $allItems[0].PSObject.Properties.Name
+        if ('Segment' -in $csvColumns) {
+            $beforeCount = $allItems.Count
+            $allItems = @($allItems | Where-Object {
+                [string]::IsNullOrWhiteSpace($_.Segment) -or $_.Segment -eq $Segment
+            })
+            Show-Info "Segment filter [$Segment]: $($allItems.Count) of $beforeCount entries matched"
+            if ($allItems.Count -eq 0) {
+                Show-Skip "No entries matched Segment '$Segment' in $([System.IO.Path]::GetFileName($Path))"
+                return @()
+            }
+        }
+    }
+
+    if ($FilterEnabled) {
+        Show-Info "Loaded $($allItems.Count) enabled entries"
     }
 
     return $allItems
@@ -2210,6 +2230,14 @@ function Resolve-ProfileModules {
             # Attach Order from profile CSV (used for resume filtering)
             $moduleWithOrder = $found.PSObject.Copy()
             $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
+
+            # Segment parameter passing (same pattern as _AutoLogonNo)
+            $segmentValue = if ($entry.PSObject.Properties.Name -contains 'Segment') { $entry.Segment } else { "" }
+            $moduleWithOrder | Add-Member -NotePropertyName "_Segment" -NotePropertyValue $segmentValue
+            if (-not [string]::IsNullOrWhiteSpace($segmentValue)) {
+                $moduleWithOrder.MenuName = "$($found.MenuName) [seg:$segmentValue]"
+            }
+
             $validModules += $moduleWithOrder
         }
         else {
