@@ -640,6 +640,11 @@ function Invoke-BatchExecution {
             $env:FABRIQ_AUTOLOGON_NO = $module._AutoLogonNo
         }
 
+        # Segment parameter passing via environment variable
+        if ($module._Segment) {
+            $env:FABRIQ_SEGMENT = $module._Segment
+        }
+
         $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
             & $module.Script
         } -ContinueOnError
@@ -647,6 +652,11 @@ function Invoke-BatchExecution {
         # Clean up AutoLogon environment variable
         if ($module._AutoLogonNo) {
             $env:FABRIQ_AUTOLOGON_NO = $null
+        }
+
+        # Clean up Segment environment variable
+        if ($module._Segment) {
+            $env:FABRIQ_SEGMENT = $null
         }
 
         Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message
