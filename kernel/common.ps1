@@ -2916,6 +2916,66 @@ function Capture-ScreenEvidence {
     }
 }
 
+# ========================================
+# Function: Save Screenshot (Manual)
+# ========================================
+# On-demand screenshot for manual evidence capture.
+# Unlike Capture-ScreenEvidence (auto-capture during
+# module execution), this is triggered by the user
+# (e.g. via a button in Status Monitor).
+#
+# NOTE: Does NOT call SetProcessDPIAware(). That call
+# irreversibly changes the process DPI mode, which shrinks
+# WinForms windows in scaled displays. The caller (e.g.
+# Status Monitor) is a GUI process, so DPI changes are
+# destructive. Screenshots are captured at logical resolution.
+#
+# Returns: file path on success, $null on failure.
+# ========================================
+function Save-Screenshot {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$BaseDir
+    )
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+
+        # PC name resolution (same convention as Capture-ScreenEvidence)
+        $pcName = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+
+        # Build save directory: BaseDir\YYYY_MM_DD_{PCname}
+        $dateOnly = Get-Date -Format "yyyy_MM_dd"
+        $saveDir = Join-Path $BaseDir "${dateOnly}_${pcName}"
+        if (-not (Test-Path $saveDir)) {
+            New-Item -Path $saveDir -ItemType Directory -Force | Out-Null
+        }
+
+        # Build filename: YYYY_MM_DD_HHmmss_{PCname}.png
+        $timestamp = Get-Date -Format "yyyy_MM_dd_HHmmss"
+        $fileName = "${timestamp}_${pcName}.png"
+        $filePath = Join-Path $saveDir $fileName
+
+        # Capture primary screen
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+        $bounds = $screen.Bounds
+        $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+        $graphics.Dispose()
+
+        # Save as PNG
+        $bitmap.Save($filePath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Dispose()
+
+        return $filePath
+    }
+    catch {
+        return $null
+    }
+}
+
 function Invoke-CountdownShutdown {
     param([int]$Seconds = 5)
 
