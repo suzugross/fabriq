@@ -10,7 +10,7 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
-$userList = Import-CsvSafe -Path $csvPath -Description "local_user_list.csv"
+$userList = Import-ModuleCsv -Path $csvPath
 if ($null -eq $userList -or $userList.Count -eq 0) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }

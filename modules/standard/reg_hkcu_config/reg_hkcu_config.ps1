@@ -24,7 +24,7 @@ $allItems = @()
 $loadedFileCount = 0
 
 foreach ($csvFile in $csvFiles) {
-    $items = Import-CsvSafe -Path $csvFile.FullName -Description $csvFile.Name
+    $items = Import-ModuleCsv -Path $csvFile.FullName
     if ($null -ne $items) {
         $allItems += $items
         Show-Info "Loaded $($csvFile.Name) ($($items.Count) items)"
