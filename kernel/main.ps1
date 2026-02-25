@@ -118,33 +118,51 @@ function Select-Host {
 function Set-SelectedHostEnvironment {
     param([object]$SelectedHost)
 
+    # Helper: Decrypt ENC: prefixed values if master passphrase is available
+    function Resolve-HostValue {
+        param([string]$Value)
+        if ([string]::IsNullOrEmpty($Value)) { return $Value }
+        if ($Value.StartsWith('ENC:') -and -not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) {
+            try {
+                return (Unprotect-FabriqValue -EncryptedValue $Value -Passphrase $global:FabriqMasterPassphrase)
+            }
+            catch {
+                Show-Warning "Failed to decrypt host value: $_"
+                return $Value
+            }
+        }
+        return $Value
+    }
+
     # Note: These keys must match your CSV headers
-    $env:SELECTED_KANRI_NO = $SelectedHost.'AdminID'
-    $env:SELECTED_OLD_PCNAME = $SelectedHost.'OldPCName'
-    $env:SELECTED_NEW_PCNAME = $SelectedHost.'NewPCName'
+    $env:SELECTED_KANRI_NO   = Resolve-HostValue $SelectedHost.'AdminID'
+    $env:SELECTED_OLD_PCNAME = Resolve-HostValue $SelectedHost.'OldPCName'
+    $env:SELECTED_NEW_PCNAME = Resolve-HostValue $SelectedHost.'NewPCName'
 
-    $env:SELECTED_ETH_IP = $SelectedHost.'EthernetIP'
-    $env:SELECTED_ETH_SUBNET = $SelectedHost.'EthernetSubnet'
-    $env:SELECTED_ETH_GATEWAY = $SelectedHost.'EthernetGateway'
+    $env:SELECTED_ETH_IP      = Resolve-HostValue $SelectedHost.'EthernetIP'
+    $env:SELECTED_ETH_SUBNET  = Resolve-HostValue $SelectedHost.'EthernetSubnet'
+    $env:SELECTED_ETH_GATEWAY = Resolve-HostValue $SelectedHost.'EthernetGateway'
 
-    $env:SELECTED_WIFI_IP = $SelectedHost.'WifiIP'
-    $env:SELECTED_WIFI_SUBNET = $SelectedHost.'WifiSubnet'
-    $env:SELECTED_WIFI_GATEWAY = $SelectedHost.'WifiGateway'
+    $env:SELECTED_WIFI_IP      = Resolve-HostValue $SelectedHost.'WifiIP'
+    $env:SELECTED_WIFI_SUBNET  = Resolve-HostValue $SelectedHost.'WifiSubnet'
+    $env:SELECTED_WIFI_GATEWAY = Resolve-HostValue $SelectedHost.'WifiGateway'
 
-    $env:SELECTED_DNS1 = $SelectedHost.'DNS1'
-    $env:SELECTED_DNS2 = $SelectedHost.'DNS2'
-    $env:SELECTED_DNS3 = $SelectedHost.'DNS3'
-    $env:SELECTED_DNS4 = $SelectedHost.'DNS4'
+    $env:SELECTED_DNS1 = Resolve-HostValue $SelectedHost.'DNS1'
+    $env:SELECTED_DNS2 = Resolve-HostValue $SelectedHost.'DNS2'
+    $env:SELECTED_DNS3 = Resolve-HostValue $SelectedHost.'DNS3'
+    $env:SELECTED_DNS4 = Resolve-HostValue $SelectedHost.'DNS4'
+
+    $env:SELECTED_PIN = Resolve-HostValue $SelectedHost.'Pin'
 
     for ($i = 1; $i -le 10; $i++) {
         # CSV headers like: Printer1Name, Printer1Driver, Printer1Port
-        $nameKey = "Printer$($i)Name"
+        $nameKey   = "Printer$($i)Name"
         $driverKey = "Printer$($i)Driver"
-        $portKey = "Printer$($i)Port"
+        $portKey   = "Printer$($i)Port"
 
-        Set-Item -Path "env:SELECTED_PRINTER_$($i)_NAME" -Value $SelectedHost.$nameKey -ErrorAction SilentlyContinue
-        Set-Item -Path "env:SELECTED_PRINTER_$($i)_DRIVER" -Value $SelectedHost.$driverKey -ErrorAction SilentlyContinue
-        Set-Item -Path "env:SELECTED_PRINTER_$($i)_PORT" -Value $SelectedHost.$portKey -ErrorAction SilentlyContinue
+        Set-Item -Path "env:SELECTED_PRINTER_$($i)_NAME"   -Value (Resolve-HostValue $SelectedHost.$nameKey)   -ErrorAction SilentlyContinue
+        Set-Item -Path "env:SELECTED_PRINTER_$($i)_DRIVER" -Value (Resolve-HostValue $SelectedHost.$driverKey) -ErrorAction SilentlyContinue
+        Set-Item -Path "env:SELECTED_PRINTER_$($i)_PORT"   -Value (Resolve-HostValue $SelectedHost.$portKey)   -ErrorAction SilentlyContinue
     }
 
     Show-Info "Environment variables set."
