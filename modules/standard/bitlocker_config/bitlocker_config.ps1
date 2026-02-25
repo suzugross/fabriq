@@ -151,21 +151,49 @@ if ($driveList.Count -eq 0) {
 }
 
 # ========================================
-# Detect Pin Column and PIN Requirement
+# Resolve PIN for Each Drive (hostlist > CSV > none)
 # ========================================
 $csvColumns = $driveList[0].PSObject.Properties.Name
 $hasPinColumn = 'Pin' -in $csvColumns
+$hostPin = $env:SELECTED_PIN
 
 $pinRequired = $false
 $enhancedPinRequired = $false
-if ($hasPinColumn) {
-    foreach ($drive in $driveList) {
-        if (-not [string]::IsNullOrWhiteSpace($drive.Pin)) {
-            $pinRequired = $true
-            # Check if PIN contains non-numeric characters (requires Enhanced PIN)
-            if ($drive.Pin -match '[^0-9]') {
-                $enhancedPinRequired = $true
-            }
+
+foreach ($drive in $driveList) {
+    # Priority 1: hostlist ($env:SELECTED_PIN)
+    # Priority 2: module CSV (Pin column)
+    # Priority 3: none
+    $csvPin = $null
+    if ($hasPinColumn -and -not [string]::IsNullOrWhiteSpace($drive.Pin)) {
+        $csvPin = $drive.Pin
+    }
+
+    $resolvedPin = $null
+    $pinSource   = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($hostPin)) {
+        $resolvedPin = $hostPin
+        $pinSource   = "hostlist"
+    }
+    elseif ($null -ne $csvPin) {
+        $resolvedPin = $csvPin
+        $pinSource   = "module CSV"
+    }
+
+    # Store resolved PIN into the drive object for downstream use
+    if ($null -ne $resolvedPin) {
+        if ($hasPinColumn) {
+            $drive.Pin = $resolvedPin
+        }
+        else {
+            $drive | Add-Member -NotePropertyName 'Pin' -NotePropertyValue $resolvedPin -Force
+        }
+        $drive | Add-Member -NotePropertyName '_PinSource' -NotePropertyValue $pinSource -Force
+
+        $pinRequired = $true
+        if ($resolvedPin -match '[^0-9]') {
+            $enhancedPinRequired = $true
         }
     }
 }
@@ -207,9 +235,13 @@ foreach ($drive in $driveList) {
     Write-Host "    Used Space Only:     $usedOnlyText" -ForegroundColor White
     Write-Host "    Skip HW Test:        $skipHwText" -ForegroundColor White
     Write-Host "    Auto Unlock:         $autoUnlockText" -ForegroundColor White
-    if ($hasPinColumn) {
-        $pinText = if (-not [string]::IsNullOrWhiteSpace($drive.Pin)) { "Yes (configured)" } else { "-" }
-        Write-Host "    PIN Protector:       $pinText" -ForegroundColor White
+    $drivePin = if ($drive.PSObject.Properties.Name -contains 'Pin') { $drive.Pin } else { $null }
+    if (-not [string]::IsNullOrWhiteSpace($drivePin)) {
+        $source = if ($drive.PSObject.Properties.Name -contains '_PinSource') { $drive._PinSource } else { "unknown" }
+        Write-Host "    PIN Protector:       Yes (source: $source)" -ForegroundColor White
+    }
+    elseif ($hasPinColumn -or -not [string]::IsNullOrWhiteSpace($hostPin)) {
+        Write-Host "    PIN Protector:       -" -ForegroundColor White
     }
     Write-Host ""
 
@@ -288,7 +320,7 @@ foreach ($drive in $validDrives) {
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
     if ($blVolume -and $blVolume.ProtectionStatus -eq "On") {
 
-        $hasPin = $hasPinColumn -and (-not [string]::IsNullOrWhiteSpace($drive.Pin))
+        $hasPin = -not [string]::IsNullOrWhiteSpace($drive.Pin)
 
         if ($hasPin) {
             # Check if TpmPin protector already exists
@@ -302,7 +334,8 @@ foreach ($drive in $validDrives) {
                     Show-Warning "$driveLetter is not an OS drive. PIN protector only applies to OS drives. Skipping PIN."
                 }
                 else {
-                    Show-Info "$driveLetter is encrypted. Adding TpmAndPin protector..."
+                    $pinSrc = if ($drive.PSObject.Properties.Name -contains '_PinSource') { $drive._PinSource } else { "unknown" }
+                    Show-Info "$driveLetter is encrypted. Adding TpmAndPin protector (PIN source: $pinSrc)..."
                     try {
                         $securePin = ConvertTo-SecureString $drive.Pin -AsPlainText -Force
                         $null = Add-BitLockerKeyProtector -MountPoint $driveLetter -Pin $securePin -TpmAndPinProtector -ErrorAction Stop
@@ -346,7 +379,7 @@ foreach ($drive in $validDrives) {
     }
 
     # --- Enable BitLocker ---
-    $hasPin = $hasPinColumn -and (-not [string]::IsNullOrWhiteSpace($drive.Pin))
+    $hasPin = -not [string]::IsNullOrWhiteSpace($drive.Pin)
 
     # Validate: PIN only applies to OS drives
     if ($hasPin) {
@@ -362,6 +395,8 @@ foreach ($drive in $validDrives) {
 
         if ($hasPin) {
             # --- TPM+PIN path ---
+            $pinSrc = if ($drive.PSObject.Properties.Name -contains '_PinSource') { $drive._PinSource } else { "unknown" }
+            Show-Info "Using TpmAndPin protector (PIN source: $pinSrc)"
             $securePin = ConvertTo-SecureString $drive.Pin -AsPlainText -Force
 
             $blParams = @{
