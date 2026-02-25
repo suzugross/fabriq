@@ -181,6 +181,12 @@ foreach ($drive in $driveList) {
         $pinSource   = "module CSV"
     }
 
+    # Guard: reject unresolved ENC: values (decryption failed or passphrase unavailable)
+    if ($null -ne $resolvedPin -and $resolvedPin.StartsWith('ENC:')) {
+        Show-Error "PIN ($pinSource) is still encrypted (ENC:). Decryption may have failed or passphrase was not entered."
+        return (New-ModuleResult -Status "Error" -Message "PIN decryption failed - encrypted value cannot be used as PIN")
+    }
+
     # Store resolved PIN into the drive object for downstream use
     if ($null -ne $resolvedPin) {
         if ($hasPinColumn) {
