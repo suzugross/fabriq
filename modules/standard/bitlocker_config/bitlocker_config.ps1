@@ -19,6 +19,9 @@ function New-BitLockerEvidence {
         if ($kp.KeyProtectorType -eq "RecoveryPassword") {
             $line += "  Password: $($kp.RecoveryPassword)"
         }
+        if ($kp.KeyProtectorType -eq "TpmPin") {
+            $line += "  (PIN not recorded for security)"
+        }
         $protectorLines += $line
     }
     $protectorSection = $protectorLines -join "`r`n"
@@ -54,6 +57,54 @@ function New-BitLockerEvidence {
     ) -join "`r`n"
 
     return $content
+}
+
+# ========================================
+# Helper: Set FVE Group Policy Registry for TPM+PIN
+# ========================================
+function Set-FveRegistryPolicy {
+    param(
+        [switch]$EnableEnhancedPin
+    )
+
+    $fvePath = "HKLM:\SOFTWARE\Policies\Microsoft\FVE"
+
+    if (-not (Test-Path $fvePath)) {
+        try {
+            New-Item -Path $fvePath -Force | Out-Null
+        }
+        catch {
+            Show-Error "Failed to create FVE registry key: $_"
+            return $false
+        }
+    }
+
+    $fveValues = @(
+        @{ Name = "UseAdvancedStartup"; Value = 1 }
+        @{ Name = "EnableBDEWithNoTPM"; Value = 0 }
+        @{ Name = "UseTPM";             Value = 0 }
+        @{ Name = "UseTPMPIN";          Value = 1 }
+        @{ Name = "UseTPMKey";          Value = 0 }
+        @{ Name = "UseTPMKeyPIN";       Value = 0 }
+    )
+
+    if ($EnableEnhancedPin) {
+        $fveValues += @{ Name = "UseEnhancedPin"; Value = 1 }
+    }
+
+    $failCount = 0
+    foreach ($entry in $fveValues) {
+        try {
+            Set-ItemProperty -Path $fvePath -Name $entry.Name -Value $entry.Value -Type DWord -Force -ErrorAction Stop
+            Show-Success "FVE: $($entry.Name) = $($entry.Value)"
+        }
+        catch {
+            Show-Error "Failed to set FVE $($entry.Name): $_"
+            $failCount++
+        }
+    }
+
+    return ($failCount -eq 0)
 }
 
 Show-Info "Executing BitLocker configuration..."
@@ -99,6 +150,26 @@ if ($driveList.Count -eq 0) {
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
+# ========================================
+# Detect Pin Column and PIN Requirement
+# ========================================
+$csvColumns = $driveList[0].PSObject.Properties.Name
+$hasPinColumn = 'Pin' -in $csvColumns
+
+$pinRequired = $false
+$enhancedPinRequired = $false
+if ($hasPinColumn) {
+    foreach ($drive in $driveList) {
+        if (-not [string]::IsNullOrWhiteSpace($drive.Pin)) {
+            $pinRequired = $true
+            # Check if PIN contains non-numeric characters (requires Enhanced PIN)
+            if ($drive.Pin -match '[^0-9]') {
+                $enhancedPinRequired = $true
+            }
+        }
+    }
+}
+
 Write-Host ""
 
 # ========================================
@@ -136,6 +207,10 @@ foreach ($drive in $driveList) {
     Write-Host "    Used Space Only:     $usedOnlyText" -ForegroundColor White
     Write-Host "    Skip HW Test:        $skipHwText" -ForegroundColor White
     Write-Host "    Auto Unlock:         $autoUnlockText" -ForegroundColor White
+    if ($hasPinColumn) {
+        $pinText = if (-not [string]::IsNullOrWhiteSpace($drive.Pin)) { "Yes (configured)" } else { "-" }
+        Write-Host "    PIN Protector:       $pinText" -ForegroundColor White
+    }
     Write-Host ""
 
     $validDrives += $drive
@@ -156,6 +231,27 @@ $cancelResult = Confirm-ModuleExecution -Message "Enable BitLocker on the above 
 if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
+
+# ========================================
+# FVE Registry Policy (for TPM+PIN)
+# ========================================
+if ($pinRequired) {
+    if ($enhancedPinRequired) {
+        Show-Info "Setting FVE Group Policy registry for TPM+PIN support (Enhanced PIN)..."
+    }
+    else {
+        Show-Info "Setting FVE Group Policy registry for TPM+PIN support..."
+    }
+    Write-Host ""
+
+    $fveResult = Set-FveRegistryPolicy -EnableEnhancedPin:$enhancedPinRequired
+    if (-not $fveResult) {
+        Show-Error "Failed to set FVE registry policy. Cannot proceed with PIN configuration."
+        return (New-ModuleResult -Status "Error" -Message "FVE registry policy setup failed")
+    }
+
+    Write-Host ""
+}
 
 # ========================================
 # Evidence Directory Setup
@@ -191,9 +287,51 @@ foreach ($drive in $validDrives) {
     # --- Check if already encrypted ---
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
     if ($blVolume -and $blVolume.ProtectionStatus -eq "On") {
-        Show-Skip "$driveLetter is already encrypted (ProtectionStatus: On)"
 
-        # Still save recovery key for already-encrypted drives
+        $hasPin = $hasPinColumn -and (-not [string]::IsNullOrWhiteSpace($drive.Pin))
+
+        if ($hasPin) {
+            # Check if TpmPin protector already exists
+            $existingTpmPin = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "TpmPin" }
+            if ($existingTpmPin) {
+                Show-Skip "$driveLetter already has TpmPin protector"
+            }
+            else {
+                # Already encrypted with TPM-only -> Upgrade to TpmAndPin
+                if ($blVolume.VolumeType -ne "OperatingSystem") {
+                    Show-Warning "$driveLetter is not an OS drive. PIN protector only applies to OS drives. Skipping PIN."
+                }
+                else {
+                    Show-Info "$driveLetter is encrypted. Adding TpmAndPin protector..."
+                    try {
+                        $securePin = ConvertTo-SecureString $drive.Pin -AsPlainText -Force
+                        $null = Add-BitLockerKeyProtector -MountPoint $driveLetter -Pin $securePin -TpmAndPinProtector -ErrorAction Stop
+                        Show-Success "Added TpmAndPin protector to $driveLetter"
+
+                        # Remove old Tpm-only protector
+                        $oldTpm = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" }
+                        if ($oldTpm) {
+                            foreach ($tp in $oldTpm) {
+                                $null = Remove-BitLockerKeyProtector -MountPoint $driveLetter -KeyProtectorId $tp.KeyProtectorId -ErrorAction Stop
+                                Show-Success "Removed old Tpm-only protector: $($tp.KeyProtectorId)"
+                            }
+                        }
+                    }
+                    catch {
+                        Show-Error "Failed to upgrade $driveLetter to TpmAndPin: $_"
+                        $failCount++
+                        Write-Host ""
+                        continue
+                    }
+                }
+            }
+        }
+        else {
+            Show-Skip "$driveLetter is already encrypted (ProtectionStatus: On)"
+        }
+
+        # Save recovery key for already-encrypted drives
+        $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
         $existingKey = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "RecoveryPassword" } | Select-Object -First 1
         if ($null -ne $existingKey) {
             $evidencePath = Join-Path $evidenceDir "${pcName}_${driveLabel}.txt"
@@ -208,26 +346,66 @@ foreach ($drive in $validDrives) {
     }
 
     # --- Enable BitLocker ---
+    $hasPin = $hasPinColumn -and (-not [string]::IsNullOrWhiteSpace($drive.Pin))
+
+    # Validate: PIN only applies to OS drives
+    if ($hasPin) {
+        $volumeCheck = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
+        if ($volumeCheck -and $volumeCheck.VolumeType -ne "OperatingSystem") {
+            Show-Warning "$driveLetter is not an OS drive. PIN protector only applies to OS drives. Using TPM-only."
+            $hasPin = $false
+        }
+    }
+
     try {
         Show-Info "Enabling BitLocker on $driveLetter..."
 
-        $blParams = @{
-            MountPoint                = $driveLetter
-            EncryptionMethod          = $drive.EncryptionMethod
-            RecoveryPasswordProtector  = $true
-            ErrorAction               = "Stop"
-        }
+        if ($hasPin) {
+            # --- TPM+PIN path ---
+            $securePin = ConvertTo-SecureString $drive.Pin -AsPlainText -Force
 
-        if ($drive.UsedSpaceOnly -eq "TRUE") {
-            $blParams.UsedSpaceOnly = $true
-        }
+            $blParams = @{
+                MountPoint         = $driveLetter
+                EncryptionMethod   = $drive.EncryptionMethod
+                Pin                = $securePin
+                TpmAndPinProtector = $true
+                ErrorAction        = "Stop"
+            }
 
-        if ($drive.SkipHardwareTest -eq "TRUE") {
-            $blParams.SkipHardwareTest = $true
-        }
+            if ($drive.UsedSpaceOnly -eq "TRUE") {
+                $blParams.UsedSpaceOnly = $true
+            }
+            if ($drive.SkipHardwareTest -eq "TRUE") {
+                $blParams.SkipHardwareTest = $true
+            }
 
-        $null = Enable-BitLocker @blParams
-        Show-Success "BitLocker enabled on $driveLetter"
+            $null = Enable-BitLocker @blParams
+            Show-Success "BitLocker enabled on $driveLetter with TpmAndPin protector"
+
+            # Add RecoveryPassword protector separately (different parameter set)
+            Show-Info "Adding RecoveryPassword protector..."
+            $null = Add-BitLockerKeyProtector -MountPoint $driveLetter -RecoveryPasswordProtector -ErrorAction Stop
+            Show-Success "RecoveryPassword protector added to $driveLetter"
+        }
+        else {
+            # --- Original TPM-only path ---
+            $blParams = @{
+                MountPoint                = $driveLetter
+                EncryptionMethod          = $drive.EncryptionMethod
+                RecoveryPasswordProtector = $true
+                ErrorAction               = "Stop"
+            }
+
+            if ($drive.UsedSpaceOnly -eq "TRUE") {
+                $blParams.UsedSpaceOnly = $true
+            }
+            if ($drive.SkipHardwareTest -eq "TRUE") {
+                $blParams.SkipHardwareTest = $true
+            }
+
+            $null = Enable-BitLocker @blParams
+            Show-Success "BitLocker enabled on $driveLetter"
+        }
     }
     catch {
         Show-Error "Failed to enable BitLocker on ${driveLetter}: $_"
