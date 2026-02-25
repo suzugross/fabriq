@@ -71,7 +71,7 @@ function Initialize-Script {
 # CSV Import Function
 # ========================================
 function Import-PowerSettingsCsv {
-    $csvData = Import-CsvSafe -Path $script:CsvPath -Description "power_list.csv"
+    $csvData = Import-ModuleCsv -Path $script:CsvPath
     if ($null -eq $csvData -or $csvData.Count -eq 0) {
         throw "Failed to load power_list.csv"
     }

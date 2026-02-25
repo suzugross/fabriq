@@ -1049,45 +1049,9 @@ Show-Info "Log file: $logFile"
 Write-Host ""
 
 # ========================================
-# Master Passphrase (for encrypted CSV values)
+# Resume Detection (must run BEFORE passphrase prompt)
 # ========================================
 $global:FabriqMasterPassphrase = $null
-Write-Host "If CSV files contain encrypted values (ENC:xxx)," -ForegroundColor DarkGray
-Write-Host "enter the master passphrase. Press Enter to skip." -ForegroundColor DarkGray
-Write-Host ""
-$ppInput = Read-Host -Prompt "Master Passphrase (blank to skip)"
-if (-not [string]::IsNullOrWhiteSpace($ppInput)) {
-    $global:FabriqMasterPassphrase = $ppInput
-    Show-Success "Master passphrase set for this session"
-} else {
-    Show-Info "No passphrase - encrypted values will not be decrypted"
-}
-Write-Host ""
-
-# Initialize history (Create backup)
-Initialize-ExecutionHistory
-
-# Initialize session (worker, media serial)
-$sessionResult = Initialize-Session
-if ($sessionResult -eq $false) {
-    Exit-Fabriq
-    exit 0
-}
-
-# Load hostlist.csv
-Show-Info "Loading hostlist.csv..."
-$hostList = Load-HostList
-if (-not $hostList) {
-    Write-Host ""
-    Show-Error "Aborting process"
-    Exit-Fabriq
-    exit 1
-}
-Write-Host ""
-
-# ========================================
-# Resume Detection
-# ========================================
 $isResuming = $false
 $resumeState = Load-ResumeState
 
@@ -1121,6 +1085,18 @@ if ($null -ne $resumeState) {
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"
         $script:SessionID = $resumeState.SessionID
+
+        # Restore master passphrase from DPAPI-protected resume state
+        if (-not [string]::IsNullOrWhiteSpace($resumeState.ProtectedPassphrase)) {
+            try {
+                $global:FabriqMasterPassphrase = Unprotect-PassphraseFromResume -ProtectedBase64 $resumeState.ProtectedPassphrase
+                Show-Success "Master passphrase restored from resume state"
+            }
+            catch {
+                Show-Warning "Failed to restore passphrase: $_"
+                Show-Info "Encrypted CSV values may not be decrypted in this session"
+            }
+        }
     }
     else {
         Remove-ResumeState
@@ -1130,9 +1106,52 @@ if ($null -ne $resumeState) {
 }
 
 # ========================================
-# Host Selection (skip if resuming)
+# Master Passphrase (skip if already restored from resume)
 # ========================================
 if (-not $isResuming) {
+    Write-Host "If CSV files contain encrypted values (ENC:xxx)," -ForegroundColor DarkGray
+    Write-Host "enter the master passphrase. Press Enter to skip." -ForegroundColor DarkGray
+    Write-Host ""
+    $ppInput = Read-Host -Prompt "Master Passphrase (blank to skip)"
+    if (-not [string]::IsNullOrWhiteSpace($ppInput)) {
+        $global:FabriqMasterPassphrase = $ppInput
+        Show-Success "Master passphrase set for this session"
+    } else {
+        Show-Info "No passphrase - encrypted values will not be decrypted"
+    }
+    Write-Host ""
+}
+
+# Initialize history (Create backup)
+Initialize-ExecutionHistory
+
+# Initialize session (worker, media serial)
+# Always runs: during resume, restores worker/media info from session.json
+$sessionResult = Initialize-Session
+if ($sessionResult -eq $false) {
+    if (-not $isResuming) {
+        Exit-Fabriq
+        exit 0
+    }
+    # Resume mode: session.json missing is non-fatal, continue without worker info
+    Show-Warning "Session info unavailable (session.json not found)"
+}
+
+# ========================================
+# Host Selection & hostlist.csv (skip if resuming)
+# ========================================
+if (-not $isResuming) {
+    # Load hostlist.csv
+    Show-Info "Loading hostlist.csv..."
+    $hostList = Load-HostList
+    if (-not $hostList) {
+        Write-Host ""
+        Show-Error "Aborting process"
+        Exit-Fabriq
+        exit 1
+    }
+    Write-Host ""
+
     $selectedHost = Select-Host -HostList $hostList
     if ($null -eq $selectedHost) {
         Exit-Fabriq

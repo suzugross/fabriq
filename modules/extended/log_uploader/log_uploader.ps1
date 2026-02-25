@@ -13,7 +13,7 @@ Write-Host ""
 # ========================================
 $configPath = ".\kernel\csv\log_destinations.csv"
 
-$allDestinations = Import-CsvSafe -Path $configPath -Description "log_destinations.csv"
+$allDestinations = Import-ModuleCsv -Path $configPath
 if ($null -eq $allDestinations -or $allDestinations.Count -eq 0) {
     return (New-ModuleResult -Status Error -Message "Failed to load log_destinations.csv")
 }

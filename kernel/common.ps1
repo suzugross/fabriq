@@ -231,6 +231,44 @@ function Confirm-ModuleExecution {
 }
 
 # ========================================
+# DPAPI Passphrase Protection (Resume)
+# ========================================
+
+function Protect-PassphraseForResume {
+    <#
+    .SYNOPSIS
+        パスフレーズを DPAPI (LocalMachine) で暗号化し Base64 文字列を返す。
+        レジューム用 resume_state.json への安全な保存に使用。
+    #>
+    param([Parameter(Mandatory)][string]$Passphrase)
+
+    Add-Type -AssemblyName System.Security -ErrorAction Stop
+    $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($Passphrase)
+    $encryptedBytes = [System.Security.Cryptography.ProtectedData]::Protect(
+        $plainBytes, $null,
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return [Convert]::ToBase64String($encryptedBytes)
+}
+
+function Unprotect-PassphraseFromResume {
+    <#
+    .SYNOPSIS
+        Protect-PassphraseForResume で暗号化された Base64 文字列を
+        DPAPI (LocalMachine) で復号し、平文パスフレーズを返す。
+    #>
+    param([Parameter(Mandatory)][string]$ProtectedBase64)
+
+    Add-Type -AssemblyName System.Security -ErrorAction Stop
+    $encryptedBytes = [Convert]::FromBase64String($ProtectedBase64)
+    $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
+        $encryptedBytes, $null,
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return [System.Text.Encoding]::UTF8.GetString($plainBytes)
+}
+
+# ========================================
 # Encryption / Decryption (AES-256-CBC)
 # ========================================
 
@@ -1896,6 +1934,16 @@ function Save-ResumeState {
             @{ MenuName = $_.MenuName; Status = $_.Status }
         })
         HostEnvironment  = $hostEnv
+    }
+
+    # Persist master passphrase (DPAPI LocalMachine encrypted) for post-reboot resume
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) {
+        try {
+            $state["ProtectedPassphrase"] = Protect-PassphraseForResume -Passphrase $global:FabriqMasterPassphrase
+        }
+        catch {
+            Show-Warning "Failed to protect passphrase for resume: $_"
+        }
     }
 
     $state | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResumeStatePath -Encoding UTF8 -Force

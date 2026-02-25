@@ -42,7 +42,7 @@ $keySource = ""
 
 $csvPath = Join-Path $PSScriptRoot "license_key.csv"
 if (Test-Path $csvPath) {
-    $allKeys = Import-CsvSafe -Path $csvPath -Description "license_key.csv"
+    $allKeys = Import-ModuleCsv -Path $csvPath
     if ($null -ne $allKeys -and $allKeys.Count -gt 0) {
         $enabledKeys = @($allKeys | Where-Object { $_.Enabled -eq "1" })
 

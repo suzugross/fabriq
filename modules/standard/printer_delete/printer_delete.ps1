@@ -26,7 +26,7 @@ $csvMode = $false
 $csvPrinterNames = @()
 
 if (Test-Path $csvPath) {
-    $csvData = Import-CsvSafe -Path $csvPath -Description "printer_delete.csv"
+    $csvData = Import-ModuleCsv -Path $csvPath
     if ($null -ne $csvData) {
         if (Test-CsvColumns -CsvData $csvData -RequiredColumns @("Enabled", "PrinterName") -CsvName "printer_delete.csv") {
             $csvPrinterNames = @($csvData | Where-Object { $_.Enabled -eq "1" -and -not [string]::IsNullOrWhiteSpace($_.PrinterName) } | ForEach-Object { $_.PrinterName })
