@@ -230,6 +230,73 @@ function Confirm-ModuleExecution {
     return $null
 }
 
+# ========================================
+# Encryption / Decryption (AES-256-CBC)
+# ========================================
+
+function Unprotect-FabriqValue {
+    <#
+    .SYNOPSIS
+        ENC: プレフィクス付き暗号文字列を AES-256-CBC で復号する。
+    .DESCRIPTION
+        アルゴリズム仕様（C# CryptoPoC と厳密一致）:
+          鍵導出   : PBKDF2-HMAC-SHA256, 100,000 iterations, 固定ソルト
+          暗号化   : AES-256-CBC, PKCS7 padding
+          エンコード: UTF-8（平文）, Base64（暗号文）
+    .PARAMETER EncryptedValue
+        "ENC:Base64文字列" 形式の暗号化された値。
+        ENC: プレフィクスがない場合はそのまま返す。
+    .PARAMETER Passphrase
+        PBKDF2 鍵導出に使用するマスターパスフレーズ。
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$EncryptedValue,
+        [Parameter(Mandatory)]
+        [string]$Passphrase
+    )
+
+    # ENC: プレフィクスがなければ平文とみなしそのまま返す
+    if (-not $EncryptedValue.StartsWith('ENC:')) {
+        return $EncryptedValue
+    }
+    $base64 = $EncryptedValue.Substring(4)
+
+    # ── 共通パラメータ（C# CryptoPoC と完全一致させること）──
+    $salt       = [System.Text.Encoding]::UTF8.GetBytes("fabriq-fixed-salt-2024")
+    $iterations = 100000
+    $keySize    = 32   # AES-256
+    $ivSize     = 16   # AES block size
+
+    # PBKDF2-HMAC-SHA256 鍵導出
+    $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
+        $Passphrase, $salt, $iterations,
+        [System.Security.Cryptography.HashAlgorithmName]::SHA256
+    )
+    $key = $kdf.GetBytes($keySize)
+    $iv  = $kdf.GetBytes($ivSize)
+    $kdf.Dispose()
+
+    # AES-256-CBC 復号
+    $aes         = [System.Security.Cryptography.Aes]::Create()
+    $aes.Mode    = [System.Security.Cryptography.CipherMode]::CBC
+    $aes.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
+    $aes.Key     = $key
+    $aes.IV      = $iv
+
+    $cipherBytes = [Convert]::FromBase64String($base64)
+    $decryptor   = $aes.CreateDecryptor()
+    $ms          = New-Object System.IO.MemoryStream(, $cipherBytes)
+    $cs          = New-Object System.Security.Cryptography.CryptoStream(
+                       $ms, $decryptor,
+                       [System.Security.Cryptography.CryptoStreamMode]::Read)
+    $sr          = New-Object System.IO.StreamReader($cs, [System.Text.Encoding]::UTF8)
+    $plainText   = $sr.ReadToEnd()
+
+    $sr.Dispose(); $cs.Dispose(); $ms.Dispose(); $decryptor.Dispose(); $aes.Dispose()
+    return $plainText
+}
+
 function Import-ModuleCsv {
     param(
         [Parameter(Mandatory = $true)]
@@ -242,6 +309,22 @@ function Import-ModuleCsv {
     $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
     if ($null -eq $allItems) { return $null }
     if ($allItems.Count -eq 0) { return $null }
+
+    # Transparent decryption: decrypt ENC: prefixed values if master passphrase is available
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) {
+        foreach ($item in $allItems) {
+            foreach ($prop in $item.PSObject.Properties) {
+                if ($prop.Value -is [string] -and $prop.Value.StartsWith('ENC:')) {
+                    try {
+                        $prop.Value = Unprotect-FabriqValue -EncryptedValue $prop.Value -Passphrase $global:FabriqMasterPassphrase
+                    }
+                    catch {
+                        Show-Warning "Failed to decrypt field '$($prop.Name)' in $([System.IO.Path]::GetFileName($Path)): $_"
+                    }
+                }
+            }
+        }
+    }
 
     if ($RequiredColumns) {
         if (-not (Test-CsvColumns -CsvData $allItems -RequiredColumns $RequiredColumns -CsvName ([System.IO.Path]::GetFileName($Path)))) {
