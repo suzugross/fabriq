@@ -1048,6 +1048,22 @@ Write-Host ""
 Show-Info "Log file: $logFile"
 Write-Host ""
 
+# ========================================
+# Master Passphrase (for encrypted CSV values)
+# ========================================
+$global:FabriqMasterPassphrase = $null
+Write-Host "If CSV files contain encrypted values (ENC:xxx)," -ForegroundColor DarkGray
+Write-Host "enter the master passphrase. Press Enter to skip." -ForegroundColor DarkGray
+Write-Host ""
+$ppInput = Read-Host -Prompt "Master Passphrase (blank to skip)"
+if (-not [string]::IsNullOrWhiteSpace($ppInput)) {
+    $global:FabriqMasterPassphrase = $ppInput
+    Show-Success "Master passphrase set for this session"
+} else {
+    Show-Info "No passphrase - encrypted values will not be decrypted"
+}
+Write-Host ""
+
 # Initialize history (Create backup)
 Initialize-ExecutionHistory
 
