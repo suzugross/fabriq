@@ -335,6 +335,27 @@ function Unprotect-FabriqValue {
     return $plainText
 }
 
+function Test-MasterPassphrase {
+    param(
+        [Parameter(Mandatory)][string]$Passphrase,
+        [Parameter(Mandatory)][string]$VerifyTokenPath
+    )
+    $VERIFY_PLAINTEXT = "surkitinisme"
+
+    $token = (Get-Content -Path $VerifyTokenPath -Raw -ErrorAction Stop).Trim()
+    if ([string]::IsNullOrWhiteSpace($token) -or -not $token.StartsWith('ENC:')) {
+        Show-Warning "Verification token file is invalid."
+        return $false
+    }
+    try {
+        $decrypted = Unprotect-FabriqValue -EncryptedValue $token -Passphrase $Passphrase
+        return ($decrypted -eq $VERIFY_PLAINTEXT)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Import-ModuleCsv {
     param(
         [Parameter(Mandatory = $true)]

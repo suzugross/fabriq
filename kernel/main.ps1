@@ -1127,15 +1127,45 @@ if ($null -ne $resumeState) {
 # Master Passphrase (skip if already restored from resume)
 # ========================================
 if (-not $isResuming) {
-    Write-Host "If CSV files contain encrypted values (ENC:xxx)," -ForegroundColor DarkGray
-    Write-Host "enter the master passphrase. Press Enter to skip." -ForegroundColor DarkGray
+    $verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
+
+    if (-not (Test-Path $verifyTokenPath)) {
+        Show-Error "Passphrase verification token not found: $verifyTokenPath"
+        Show-Error "Run Fabriq Studio to generate the verification token."
+        exit 1
+    }
+
+    Write-Host "Enter the master passphrase to continue." -ForegroundColor DarkGray
     Write-Host ""
-    $ppInput = Read-Host -Prompt "Master Passphrase (blank to skip)"
-    if (-not [string]::IsNullOrWhiteSpace($ppInput)) {
-        $global:FabriqMasterPassphrase = $ppInput
-        Show-Success "Master passphrase set for this session"
-    } else {
-        Show-Info "No passphrase - encrypted values will not be decrypted"
+
+    $maxAttempts = 3
+    $passphraseAccepted = $false
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $ppInput = Read-Host -Prompt "Master Passphrase"
+
+        if ([string]::IsNullOrWhiteSpace($ppInput)) {
+            $remaining = $maxAttempts - $attempt
+            if ($remaining -gt 0) {
+                Show-Warning "Passphrase is required. $remaining attempt(s) remaining."
+            }
+            continue
+        }
+
+        if (Test-MasterPassphrase -Passphrase $ppInput -VerifyTokenPath $verifyTokenPath) {
+            $global:FabriqMasterPassphrase = $ppInput
+            Show-Success "Master passphrase verified and set for this session"
+            $passphraseAccepted = $true
+            break
+        }
+        $remaining = $maxAttempts - $attempt
+        if ($remaining -gt 0) {
+            Show-Warning "Passphrase verification failed. $remaining attempt(s) remaining."
+        }
+    }
+    if (-not $passphraseAccepted) {
+        Show-Error "Passphrase verification failed $maxAttempts times. Aborting."
+        exit 1
     }
     Write-Host ""
 }
