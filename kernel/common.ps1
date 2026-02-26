@@ -1009,10 +1009,10 @@ function Write-ExecutionHistory {
         try {
             if ($needHeader) {
                 $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID"
-                $header | Out-File -FilePath $script:HistoryPath -Encoding Default -Force
+                $header | Out-File -FilePath $script:HistoryPath -Encoding UTF8 -Force
                 $needHeader = $false
             }
-            $line | Out-File -FilePath $script:HistoryPath -Append -Encoding Default
+            $line | Out-File -FilePath $script:HistoryPath -Append -Encoding UTF8
             return $true
         }
         catch {
@@ -1039,7 +1039,7 @@ function Import-ExecutionHistory {
         $data = $null
         for ($retry = 0; $retry -lt 3; $retry++) {
             try {
-                $data = @(Import-Csv -Path $script:HistoryPath -Encoding Default)
+                $data = @(Import-Csv -Path $script:HistoryPath -Encoding UTF8)
                 break
             }
             catch {
@@ -1070,7 +1070,7 @@ function Import-ExecutionHistory {
             try {
                 Copy-Item $backupPath $script:HistoryPath -Force
                 Show-Warning "Restored history file from backup"
-                return @(Import-Csv -Path $script:HistoryPath -Encoding Default)
+                return @(Import-Csv -Path $script:HistoryPath -Encoding UTF8)
             }
             catch {
                 Show-Warning "Failed to restore history file"
