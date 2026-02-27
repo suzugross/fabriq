@@ -1,4 +1,4 @@
-﻿Enabled,StepID,StepTitle,PromptFile,OpenCommand,OpenArgs,Copy1,Copy2,Copy3
-1,S001,Edge を起動する,edge_open.txt,msedge.exe,,,,
-1,S002,ホームページ URL を設定する,edge_homepage_set.txt,msedge.exe,edge://settings/startHomeButton,https://intranet.example.com,,
-1,S003,設定を確認して完了する,edge_homepage_confirm.txt,,,,,
+﻿Enabled,StepID,StepTitle,PromptFile,OpenCommand,OpenArgs,Copy1,Copy2,Copy3,Segment
+1,S001,Edge を起動する,edge_open.txt,msedge.exe,,,,,
+1,S002,ホームページ URL を設定する,edge_homepage_set.txt,msedge.exe,edge://settings/startHomeButton,https://intranet.example.com,,,
+1,S003,設定を確認して完了する,edge_homepage_confirm.txt,,,,,,

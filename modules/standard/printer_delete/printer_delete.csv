@@ -1,4 +1,4 @@
-Enabled,PrinterName,Description
-1,Fax,Remove Fax printer
-1,Microsoft XPS Document Writer,Remove XPS Document Writer
-0,OneNote,Example - disabled
+Enabled,PrinterName,Description,Segment
+1,Fax,Remove Fax printer,
+1,Microsoft XPS Document Writer,Remove XPS Document Writer,
+0,OneNote,Example - disabled,

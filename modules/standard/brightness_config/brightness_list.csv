@@ -1,4 +1,4 @@
-Enabled,Brightness,Description
-1,80,Set brightness to 80%
-0,50,Set brightness to 50% (Example)
-0,100,Set brightness to 100% (Example)
+Enabled,Brightness,Description,Segment
+1,80,Set brightness to 80%,
+0,50,Set brightness to 50% (Example),
+0,100,Set brightness to 100% (Example),

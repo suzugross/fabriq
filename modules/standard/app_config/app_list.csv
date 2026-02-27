@@ -1,4 +1,4 @@
-Enabled,AppName,FileName,Type,SilentArgs,Description
-1,Google Chrome,ChromeStandaloneSetup64.exe,exe,/silent /install,
-1,Adobe Acrobat Reader,AcroRdrDCx642500121111_MUI.exe,exe,/sAll /rs /msi EULA_ACCEPT=YES,
-1,7-Zip,7z2409-x64.msi,msi,/quiet /norestart,
+Enabled,AppName,FileName,Type,SilentArgs,Description,Segment
+1,Google Chrome,ChromeStandaloneSetup64.exe,exe,/silent /install,,
+1,Adobe Acrobat Reader,AcroRdrDCx642500121111_MUI.exe,exe,/sAll /rs /msi EULA_ACCEPT=YES,,
+1,7-Zip,7z2409-x64.msi,msi,/quiet /norestart,,

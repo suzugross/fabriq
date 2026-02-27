@@ -1,4 +1,4 @@
-Enabled,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description
-1,admin_user,P@ssw0rd,1,1,Administrators,
-1,standard_user,Pass1234,0,0,Users,
-1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,
+Enabled,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description,Segment
+1,admin_user,P@ssw0rd,1,1,Administrators,,
+1,standard_user,Pass1234,0,0,Users,,
+1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,,
