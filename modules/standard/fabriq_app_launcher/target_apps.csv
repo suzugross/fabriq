@@ -1,4 +1,4 @@
-Enabled,AppName,Wait,Description
-0,storeapp_editor,1,Store App Editor
-0,local_user_setup,1,Local User Setup
-0,winget_gui,1,Winget GUI
+Enabled,AppName,Wait,Description,Segment
+0,storeapp_editor,1,Store App Editor,
+0,local_user_setup,1,Local User Setup,
+0,winget_gui,1,Winget GUI,

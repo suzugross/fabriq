@@ -1,27 +1,27 @@
-No,AppName,Enabled,Description
-10,Microsoft.549981C3F5F10,1,Cortana
-20,Microsoft.BingNews,1,Bing News
-30,Microsoft.BingWeather,1,Bing Weather
-40,Microsoft.GamingApp,1,Gaming App
-50,Microsoft.GetHelp,1,Get Help
-60,Microsoft.Getstarted,1,Get Started (Tips)
-70,Microsoft.MicrosoftOfficeHub,1,Office Hub
-80,Microsoft.MicrosoftSolitaireCollection,1,Solitaire Collection
-90,Microsoft.People,1,People
-100,Microsoft.PowerAutomateDesktop,1,Power Automate Desktop
-110,Microsoft.StorePurchaseApp,1,Store Purchase App
-120,Microsoft.Todos,1,Microsoft To Do
-130,Microsoft.WindowsAlarms,1,Alarms & Clock
-140,microsoft.windowscommunicationsapps,1,Mail & Calendar
-150,Microsoft.WindowsFeedbackHub,1,Feedback Hub
-160,Microsoft.WindowsMaps,1,Maps
-170,Microsoft.Xbox.TCUI,1,Xbox TCUI
-180,Microsoft.XboxIdentityProvider,1,Xbox Identity Provider
-190,Microsoft.XboxSpeechToTextOverlay,1,Xbox Speech To Text
-200,Microsoft.YourPhone,1,Phone Link
-210,Microsoft.ZuneMusic,1,Groove Music
-220,Microsoft.ZuneVideo,1,Movies & TV
-230,Microsoft.OutlookForWindows,1,Outlook for Windows
-240,Microsoft.BingSearch,1,Bing Search
-250,MSTeams,1,Microsoft Teams
-260,MicrosoftCorporationII.QuickAssist,1,Quick Assist
+No,AppName,Enabled,Description,Segment
+10,Microsoft.549981C3F5F10,1,Cortana,
+20,Microsoft.BingNews,1,Bing News,
+30,Microsoft.BingWeather,1,Bing Weather,
+40,Microsoft.GamingApp,1,Gaming App,
+50,Microsoft.GetHelp,1,Get Help,
+60,Microsoft.Getstarted,1,Get Started (Tips),
+70,Microsoft.MicrosoftOfficeHub,1,Office Hub,
+80,Microsoft.MicrosoftSolitaireCollection,1,Solitaire Collection,
+90,Microsoft.People,1,People,
+100,Microsoft.PowerAutomateDesktop,1,Power Automate Desktop,
+110,Microsoft.StorePurchaseApp,1,Store Purchase App,
+120,Microsoft.Todos,1,Microsoft To Do,
+130,Microsoft.WindowsAlarms,1,Alarms & Clock,
+140,microsoft.windowscommunicationsapps,1,Mail & Calendar,
+150,Microsoft.WindowsFeedbackHub,1,Feedback Hub,
+160,Microsoft.WindowsMaps,1,Maps,
+170,Microsoft.Xbox.TCUI,1,Xbox TCUI,
+180,Microsoft.XboxIdentityProvider,1,Xbox Identity Provider,
+190,Microsoft.XboxSpeechToTextOverlay,1,Xbox Speech To Text,
+200,Microsoft.YourPhone,1,Phone Link,
+210,Microsoft.ZuneMusic,1,Groove Music,
+220,Microsoft.ZuneVideo,1,Movies & TV,
+230,Microsoft.OutlookForWindows,1,Outlook for Windows,
+240,Microsoft.BingSearch,1,Bing Search,
+250,MSTeams,1,Microsoft Teams,
+260,MicrosoftCorporationII.QuickAssist,1,Quick Assist,
