@@ -1,5 +1,13 @@
 # ========================================
-# History Destroyer - Windows Comprehensive History Cleaner
+# History Destroyer - CSV-Driven History Cleanup
+# ========================================
+# Deletes various Windows history, cache, and temporary data
+# based on destroy_list.csv configuration.
+#
+# NOTES:
+# - Requires administrator privileges for some operations
+# - Explorer will be temporarily stopped during cleanup
+# - Special handlers manage complex cleanup operations (browsers, Office, etc.)
 # ========================================
 
 Write-Host ""
@@ -8,75 +16,281 @@ Write-Host "History Destroyer" -ForegroundColor Cyan
 Show-Separator
 Write-Host ""
 
-# ========================================
-# Target List
-# ========================================
-Write-Host "The following items will be deleted:" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "  [Explorer]" -ForegroundColor White
-Write-Host "    - Recent files / Jump Lists" -ForegroundColor Gray
-Write-Host "    - Registry MRU (Run, TypedPaths, Search, OpenSave)" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  [System]" -ForegroundColor White
-Write-Host "    - Event Viewer logs (all)" -ForegroundColor Gray
-Write-Host "    - IME prediction cache" -ForegroundColor Gray
-Write-Host "    - Temporary files (User/System)" -ForegroundColor Gray
-Write-Host "    - Clipboard / DNS cache" -ForegroundColor Gray
-Write-Host "    - Recycle Bin" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  [Applications]" -ForegroundColor White
-Write-Host "    - Office MRU (Word, Excel, PowerPoint, etc.)" -ForegroundColor Gray
-Write-Host "    - Edge browser data (Cache, History, Cookies)" -ForegroundColor Gray
-Write-Host "    - Chrome browser data (Cache, History, Cookies)" -ForegroundColor Gray
-Write-Host ""
-Write-Host "  [Additional]" -ForegroundColor White
-Write-Host "    - Windows Search index" -ForegroundColor Gray
-Write-Host "    - Thumbnail cache" -ForegroundColor Gray
-Write-Host "    - Prefetch data" -ForegroundColor Gray
-Write-Host ""
-Show-Separator
-Write-Host ""
-Show-Warning "Explorer will be temporarily stopped during cleanup."
-Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
-Write-Host ""
-
-$cancelResult = Confirm-ModuleExecution -Message "Proceed with history destruction?"
-if ($null -ne $cancelResult) { return $cancelResult }
-
-Write-Host ""
-
-$successCount = 0
-$skipCount = 0
-$failCount = 0
-$totalSteps = 13
 
 # ========================================
-# Helper: Execute cleanup action
+# [P/Invoke] ごみ箱の完全消去に使用
 # ========================================
-function Invoke-CleanupAction {
-    param(
-        [int]$Step,
-        [int]$Total,
-        [string]$Description,
-        [scriptblock]$Action
-    )
+Add-Type -MemberDefinition @'
+    [DllImport("Shell32.dll")]
+    public static extern int SHEmptyRecycleBin(IntPtr hwnd, string pszRootPath, int dwFlags);
+'@ -Name Win32RecycleBin -Namespace HistoryDestroyer -ErrorAction SilentlyContinue
 
-    Write-Host "[$Step/$Total] $Description" -ForegroundColor Yellow
 
-    try {
-        & $Action
-        return "Success"
-    }
-    catch {
-        Show-Error "$($_.Exception.Message)"
-        return "Error"
+# ========================================
+# プライベート関数群: Special ハンドラ
+# ========================================
+
+# ----------------------------------------
+# ディスパッチャ: TargetPath → 対応ハンドラへ振り分け
+# 戻り値: "Success" or "Skip"（失敗時は throw）
+# ----------------------------------------
+function Invoke-DestroyHandler {
+    param([string]$HandlerName)
+    switch ($HandlerName) {
+        "clear-all-eventlogs" { return (Clear-AllEventLogs) }
+        "recycle-bin"         { return (Clear-RecycleBinSafe) }
+        "office-mru"          { return (Clear-OfficeMRU) }
+        "edge-cleanup"        { return (Clear-BrowserData -Browser "Edge" -BasePath "$env:LOCALAPPDATA\Microsoft\Edge\User Data" -ProcessName "msedge") }
+        "chrome-cleanup"      { return (Clear-BrowserData -Browser "Chrome" -BasePath "$env:LOCALAPPDATA\Google\Chrome\User Data" -ProcessName "chrome") }
+        "search-index"        { return (Clear-SearchIndex) }
+        "wifi-ssid"           { return (Clear-WiFiProfiles) }
+        default               { throw "Unknown special handler: $HandlerName" }
     }
 }
 
+# ----------------------------------------
+# (1) イベントログ全消去
+# ----------------------------------------
+function Clear-AllEventLogs {
+    $logs = Get-WinEvent -ListLog * -Force -ErrorAction SilentlyContinue
+    if ($null -eq $logs -or $logs.Count -eq 0) {
+        Show-Skip "No event logs found"
+        return "Skip"
+    }
+
+    $clearedCount = 0
+    foreach ($log in $logs) {
+        $null = & wevtutil.exe cl $log.LogName 2>&1
+        if ($LASTEXITCODE -eq 0) { $clearedCount++ }
+    }
+
+    Show-Success "Cleared $clearedCount event logs"
+    return "Success"
+}
+
+# ----------------------------------------
+# (2) ごみ箱消去 (P/Invoke)
+# ----------------------------------------
+function Clear-RecycleBinSafe {
+    # Flags: SHERB_NOCONFIRMATION(1) | SHERB_NOPROGRESSUI(2) | SHERB_NOSOUND(4) = 7
+    $result = [HistoryDestroyer.Win32RecycleBin]::SHEmptyRecycleBin([IntPtr]::Zero, $null, 7)
+
+    if ($result -eq 0) {
+        Show-Success "Recycle Bin emptied"
+    }
+    else {
+        # -2147418113 (0x8000FFFF) 等: ごみ箱が空の場合も正常
+        Show-Info "Recycle Bin already empty or emptied (HRESULT: $result)"
+    }
+    return "Success"
+}
+
+# ----------------------------------------
+# (3) Office MRU レジストリ動的列挙・削除
+# ----------------------------------------
+function Clear-OfficeMRU {
+    $officeBase = "HKCU:\Software\Microsoft\Office"
+    if (-not (Test-Path $officeBase)) {
+        Show-Skip "Office registry not found"
+        return "Skip"
+    }
+
+    $officeCleaned = 0
+    $apps = @("Word", "Excel", "PowerPoint", "Access", "Publisher", "Visio")
+
+    Get-ChildItem $officeBase -ErrorAction SilentlyContinue | ForEach-Object {
+        $version = $_.PSChildName
+        foreach ($app in $apps) {
+            $placeMRU = "$officeBase\$version\$app\Place MRU"
+            $fileMRU  = "$officeBase\$version\$app\File MRU"
+
+            if (Test-Path $placeMRU) {
+                $null = Remove-ItemProperty -Path $placeMRU -Name * -Force -ErrorAction SilentlyContinue
+                $officeCleaned++
+            }
+            if (Test-Path $fileMRU) {
+                $null = Remove-ItemProperty -Path $fileMRU -Name * -Force -ErrorAction SilentlyContinue
+                $officeCleaned++
+            }
+        }
+    }
+
+    Show-Success "Office MRU cleaned ($officeCleaned entries)"
+    return "Success"
+}
+
+# ----------------------------------------
+# (4)(5) ブラウザデータ削除（Edge / Chrome 共通）
+# ----------------------------------------
+function Clear-BrowserData {
+    param(
+        [string]$Browser,
+        [string]$BasePath,
+        [string]$ProcessName
+    )
+
+    if (-not (Test-Path $BasePath)) {
+        Show-Skip "$Browser not found"
+        return "Skip"
+    }
+
+    # ブラウザプロセス停止
+    $proc = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    if ($proc) {
+        try {
+            Stop-Process -Name $ProcessName -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
+        catch {
+            Show-Warning "Failed to stop $Browser process: $($_.Exception.Message)"
+        }
+    }
+
+    # 削除対象（元コード 14種）
+    $browserTargets = @(
+        "Cache", "Code Cache", "GPUCache",
+        "History", "Cookies", "Cookies-journal",
+        "Top Sites", "Top Sites-journal",
+        "Visited Links",
+        "Web Data", "Web Data-journal",
+        "Session Storage", "Local Storage"
+    )
+
+    # 全プロファイルを列挙（Default, Profile 1, Profile 2, ...）
+    $profiles = Get-ChildItem $BasePath -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq "Default" -or $_.Name -match "^Profile " }
+
+    $cleanedCount = 0
+    foreach ($profile in $profiles) {
+        foreach ($target in $browserTargets) {
+            $targetPath = Join-Path $profile.FullName $target
+            if (Test-Path $targetPath) {
+                try {
+                    Remove-Item $targetPath -Recurse -Force -ErrorAction Stop
+                    $cleanedCount++
+                }
+                catch {
+                    # ロック中ファイルは無視して継続
+                }
+            }
+        }
+    }
+
+    Show-Success "$Browser data cleaned ($cleanedCount items)"
+    return "Success"
+}
+
+# ----------------------------------------
+# (6) Windows Search インデックス再構築
+# ----------------------------------------
+function Clear-SearchIndex {
+    $wsearchService = Get-Service -Name "WSearch" -ErrorAction SilentlyContinue
+    if (-not $wsearchService) {
+        Show-Skip "Windows Search service not found"
+        return "Skip"
+    }
+
+    $searchDbPath = "$env:ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb"
+
+    try {
+        # サービス停止
+        if ($wsearchService.Status -eq "Running") {
+            Stop-Service -Name "WSearch" -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
+
+        # インデックスDB 削除
+        if (Test-Path $searchDbPath) {
+            Remove-Item $searchDbPath -Force -ErrorAction Stop
+            Show-Success "Search index deleted"
+        }
+        else {
+            Show-Info "Search index file not found (already clean)"
+        }
+    }
+    catch {
+        # エラー発生時もサービス再起動を試行してから再 throw
+        $null = Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
+        throw
+    }
+    finally {
+        # 正常・異常問わずサービス再起動を保証
+        $null = Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
+    }
+
+    return "Success"
+}
+
+# ----------------------------------------
+# (7) キッティング用 Wi-Fi プロファイル削除 (ssid_list.csv)
+# ----------------------------------------
+function Clear-WiFiProfiles {
+    $ssidCsvPath = Join-Path $PSScriptRoot "ssid_list.csv"
+
+    if (-not (Test-Path $ssidCsvPath)) {
+        Show-Skip "ssid_list.csv not found"
+        return "Skip"
+    }
+
+    $ssidItems = Import-ModuleCsv -Path $ssidCsvPath -FilterEnabled
+    if ($null -eq $ssidItems -or $ssidItems.Count -eq 0) {
+        # Import-ModuleCsv -FilterEnabled が既に Skip メッセージを出力済み
+        return "Skip"
+    }
+
+    # Wi-Fi サービス確認
+    $wlanSvc = Get-Service -Name "WlanSvc" -ErrorAction SilentlyContinue
+    if (-not $wlanSvc -or $wlanSvc.Status -ne "Running") {
+        Show-Skip "Wi-Fi service (WlanSvc) not available on this device"
+        return "Skip"
+    }
+
+    $ssidDeleted = 0
+    $ssidSkipped = 0
+    $ssidErrors  = 0
+
+    foreach ($ssidItem in $ssidItems) {
+        $ssidName = $ssidItem.SSID
+        $label = if ($ssidItem.Description) { "$ssidName ($($ssidItem.Description))" } else { $ssidName }
+
+        # 冪等性: プロファイル存在確認
+        $null = & netsh wlan show profile name="$ssidName" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Show-Skip "Not found: $label"
+            $ssidSkipped++
+            continue
+        }
+
+        # 削除
+        $null = & netsh wlan delete profile name="$ssidName" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Show-Success "Deleted: $label"
+            $ssidDeleted++
+        }
+        else {
+            Show-Error "Failed to delete: $label"
+            $ssidErrors++
+        }
+    }
+
+    Show-Info "SSID cleanup: $ssidDeleted deleted, $ssidSkipped not found, $ssidErrors failed"
+
+    if ($ssidErrors -gt 0) {
+        throw "SSID cleanup had $ssidErrors failure(s)"
+    }
+    return "Success"
+}
+
+
 # ========================================
-# Step 1: Stop Explorer
+# Step 0: Explorer 停止（全操作の前提）
 # ========================================
-Write-Host "[1/$totalSteps] Stopping Explorer process..." -ForegroundColor Yellow
+# Explorer を停止してファイルロックを解除する。
+# メインループの外で手続き的に実行する。
+# ========================================
+Show-Warning "Explorer will be temporarily stopped during cleanup."
+Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
+Write-Host ""
 
 try {
     Stop-Process -Name "explorer" -Force -ErrorAction Stop
@@ -86,475 +300,190 @@ catch {
     Show-Warning "Failed to stop Explorer: $($_.Exception.Message)"
     Write-Host "          Some locked files may not be deleted" -ForegroundColor Yellow
 }
+Write-Host ""
+
+
+# ========================================
+# Step 1: CSV 読み込み
+# ========================================
+$csvPath = Join-Path $PSScriptRoot "destroy_list.csv"
+
+$enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
+    -RequiredColumns @("Enabled", "GroupName", "TargetName", "ActionType", "TargetPath")
+
+if ($null -eq $enabledItems) {
+    return (New-ModuleResult -Status "Error" -Message "Failed to load destroy_list.csv")
+}
+if ($enabledItems.Count -eq 0) {
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
+
+# DeletePath の環境変数を展開（file_delete パターン準拠）
+foreach ($item in $enabledItems) {
+    if ($item.ActionType -eq "DeletePath") {
+        $item.TargetPath = [System.Environment]::ExpandEnvironmentVariables($item.TargetPath)
+    }
+}
+
+
+# ========================================
+# Step 2: 前提条件チェック（Early Return）
+# ========================================
+# fabriq は管理者権限で起動されることが前提のため、
+# ここでは追加の前提条件チェックは省略する。
+
+
+# ========================================
+# Step 3: 実行前の確認表示（ドライラン）
+# ========================================
+Show-Info "Cleanup targets: $($enabledItems.Count) items"
+Write-Host ""
+
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host "Destruction Targets" -ForegroundColor Yellow
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host ""
+
+# GroupName でグルーピングして表示
+$groups = $enabledItems | Group-Object -Property GroupName
+
+foreach ($group in $groups) {
+    Write-Host "  [$($group.Name)]" -ForegroundColor White
+    foreach ($item in $group.Group) {
+        $displayName = if ($item.Description) { $item.Description } else { $item.TargetName }
+        Write-Host "    [DESTROY] $displayName" -ForegroundColor Yellow
+        Write-Host "      $($item.ActionType): $($item.TargetPath)" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+}
+
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host ""
+
+
+# ========================================
+# Step 4: 実行確認
+# ========================================
+$cancelResult = Confirm-ModuleExecution -Message "Proceed with history destruction?"
+if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
 
+
 # ========================================
-# Step 2: Explorer History (Recent / JumpList / Registry MRU)
+# Step 5: メイン処理ループ
 # ========================================
-Write-Host "[2/$totalSteps] Cleaning Explorer history..." -ForegroundColor Yellow
+$successCount = 0
+$skipCount    = 0
+$failCount    = 0
+$total        = $enabledItems.Count
+$current      = 0
 
-$step2Errors = 0
+foreach ($item in $enabledItems) {
+    $current++
+    $displayName = if ($item.Description) { $item.Description } else { $item.TargetName }
+    $ifNotFound  = if ($item.IfNotFound) { $item.IfNotFound } else { "Skip" }
 
-# Recent files
-$recentPaths = @(
-    "$env:APPDATA\Microsoft\Windows\Recent\*",
-    "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations\*",
-    "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations\*"
-)
+    Write-Host "----------------------------------------" -ForegroundColor White
+    Write-Host "[$current/$total] $displayName" -ForegroundColor Cyan
+    Write-Host "  $($item.ActionType): $($item.TargetPath)" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------" -ForegroundColor White
 
-foreach ($rp in $recentPaths) {
     try {
-        if (Test-Path (Split-Path $rp -Parent)) {
-            Remove-Item $rp -Recurse -Force -ErrorAction Stop
-        }
-    }
-    catch {
-        $step2Errors++
-    }
-}
+        switch ($item.ActionType) {
 
-# Registry MRU
-$registryPaths = @(
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU",
-    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StreamMRU"
-)
-
-foreach ($regPath in $registryPaths) {
-    try {
-        if (Test-Path $regPath) {
-            Remove-ItemProperty -Path $regPath -Name * -ErrorAction Stop
-        }
-    }
-    catch {
-        $step2Errors++
-    }
-}
-
-if ($step2Errors -eq 0) {
-    Show-Success "Explorer history cleaned"
-    $successCount++
-}
-else {
-    Show-Warning "Explorer history cleaned ($step2Errors items failed - likely locked)"
-    $successCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 3: Event Viewer Logs
-# ========================================
-Write-Host "[3/$totalSteps] Clearing Event Viewer logs..." -ForegroundColor Yellow
-
-try {
-    $logs = Get-WinEvent -ListLog * -Force -ErrorAction SilentlyContinue
-    $clearedCount = 0
-    foreach ($log in $logs) {
-        $wevtResult = & wevtutil.exe cl $log.LogName 2>&1
-        if ($LASTEXITCODE -eq 0) { $clearedCount++ }
-    }
-    Show-Success "Cleared $clearedCount event logs"
-    $successCount++
-}
-catch {
-    Show-Error "Failed to clear event logs: $($_.Exception.Message)"
-    $failCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 4: IME Prediction Cache
-# ========================================
-Write-Host "[4/$totalSteps] Cleaning IME prediction cache..." -ForegroundColor Yellow
-
-$imePath = "$env:APPDATA\Microsoft\InputMethod"
-if (Test-Path $imePath) {
-    try {
-        Remove-Item "$imePath\*" -Recurse -Force -ErrorAction Stop
-        Show-Success "IME cache cleaned"
-        $successCount++
-    }
-    catch {
-        Show-Warning "Some IME cache files could not be deleted (in use)"
-        $successCount++
-    }
-}
-else {
-    Show-Skip "IME cache folder not found"
-    $skipCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 5: Temporary Files
-# ========================================
-Write-Host "[5/$totalSteps] Cleaning temporary files..." -ForegroundColor Yellow
-
-$tempErrors = 0
-
-# User temp
-try {
-    Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction Stop
-}
-catch { $tempErrors++ }
-
-# System temp
-try {
-    Remove-Item "$env:windir\Temp\*" -Recurse -Force -ErrorAction Stop
-}
-catch { $tempErrors++ }
-
-if ($tempErrors -eq 0) {
-    Show-Success "Temporary files cleaned"
-}
-else {
-    Show-Warning "Temporary files cleaned (some locked files skipped)"
-}
-$successCount++
-
-Write-Host ""
-
-# ========================================
-# Step 6: Clipboard & DNS Cache
-# ========================================
-Write-Host "[6/$totalSteps] Clearing clipboard and DNS cache..." -ForegroundColor Yellow
-
-try {
-    Set-Clipboard $null
-    Show-Success "Clipboard cleared"
-}
-catch {
-    Show-Warning "Failed to clear clipboard"
-}
-
-try {
-    Clear-DnsClientCache
-    Show-Success "DNS cache cleared"
-}
-catch {
-    Show-Warning "Failed to clear DNS cache"
-}
-
-$successCount++
-Write-Host ""
-
-# ========================================
-# Step 7: Recycle Bin
-# ========================================
-Write-Host "[7/$totalSteps] Emptying Recycle Bin..." -ForegroundColor Yellow
-
-try {
-    $shellCode = @'
-    [DllImport("Shell32.dll")]
-    public static extern int SHEmptyRecycleBin(IntPtr hwnd, string pszRootPath, int dwFlags);
-'@
-    Add-Type -MemberDefinition $shellCode -Name Win32RecycleBin -Namespace HistoryDestroyer -ErrorAction SilentlyContinue
-    # Flags: SHERB_NOCONFIRMATION(1) | SHERB_NOPROGRESSUI(2) | SHERB_NOSOUND(4) = 7
-    $null = [HistoryDestroyer.Win32RecycleBin]::SHEmptyRecycleBin([IntPtr]::Zero, $null, 7)
-    Show-Success "Recycle Bin emptied"
-    $successCount++
-}
-catch {
-    Show-Error "Failed to empty Recycle Bin: $($_.Exception.Message)"
-    $failCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 8: Office MRU
-# ========================================
-Write-Host "[8/$totalSteps] Cleaning Office recent file history..." -ForegroundColor Yellow
-
-$officeBase = "HKCU:\Software\Microsoft\Office"
-if (Test-Path $officeBase) {
-    $officeCleaned = 0
-    Get-ChildItem $officeBase -ErrorAction SilentlyContinue | ForEach-Object {
-        $version = $_.PSChildName
-        $apps = @("Word", "Excel", "PowerPoint", "Access", "Publisher", "Visio")
-        foreach ($app in $apps) {
-            $placeMRU = "$officeBase\$version\$app\Place MRU"
-            $fileMRU  = "$officeBase\$version\$app\File MRU"
-
-            if (Test-Path $placeMRU) {
-                Remove-ItemProperty -Path $placeMRU -Name * -ErrorAction SilentlyContinue
-                $officeCleaned++
-            }
-            if (Test-Path $fileMRU) {
-                Remove-ItemProperty -Path $fileMRU -Name * -ErrorAction SilentlyContinue
-                $officeCleaned++
-            }
-        }
-    }
-    Show-Success "Office MRU cleaned ($officeCleaned entries)"
-    $successCount++
-}
-else {
-    Show-Skip "Office registry not found"
-    $skipCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 9: Browser Data (Edge)
-# ========================================
-Write-Host "[9/$totalSteps] Cleaning Microsoft Edge data..." -ForegroundColor Yellow
-
-$edgeBase = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
-if (Test-Path $edgeBase) {
-    # Stop Edge if running
-    $edgeProc = Get-Process -Name "msedge" -ErrorAction SilentlyContinue
-    if ($edgeProc) {
-        Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-    }
-
-    $edgeTargets = @("Cache", "Code Cache", "GPUCache", "History", "Cookies", "Cookies-journal",
-                     "Top Sites", "Top Sites-journal", "Visited Links", "Web Data", "Web Data-journal",
-                     "Session Storage", "Local Storage")
-    $edgeCleaned = 0
-
-    # Process all profiles (Default, Profile 1, etc.)
-    $profiles = Get-ChildItem $edgeBase -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq "Default" -or $_.Name -match "^Profile " }
-
-    foreach ($profile in $profiles) {
-        foreach ($target in $edgeTargets) {
-            $targetPath = Join-Path $profile.FullName $target
-            if (Test-Path $targetPath) {
-                try {
-                    Remove-Item $targetPath -Recurse -Force -ErrorAction Stop
-                    $edgeCleaned++
-                }
-                catch { }
-            }
-        }
-    }
-
-    Show-Success "Edge data cleaned ($edgeCleaned items)"
-    $successCount++
-}
-else {
-    Show-Skip "Edge not found"
-    $skipCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 10: Browser Data (Chrome)
-# ========================================
-Write-Host "[10/$totalSteps] Cleaning Google Chrome data..." -ForegroundColor Yellow
-
-$chromeBase = "$env:LOCALAPPDATA\Google\Chrome\User Data"
-if (Test-Path $chromeBase) {
-    # Stop Chrome if running
-    $chromeProc = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-    if ($chromeProc) {
-        Stop-Process -Name "chrome" -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-    }
-
-    $chromeTargets = @("Cache", "Code Cache", "GPUCache", "History", "Cookies", "Cookies-journal",
-                       "Top Sites", "Top Sites-journal", "Visited Links", "Web Data", "Web Data-journal",
-                       "Session Storage", "Local Storage")
-    $chromeCleaned = 0
-
-    $profiles = Get-ChildItem $chromeBase -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq "Default" -or $_.Name -match "^Profile " }
-
-    foreach ($profile in $profiles) {
-        foreach ($target in $chromeTargets) {
-            $targetPath = Join-Path $profile.FullName $target
-            if (Test-Path $targetPath) {
-                try {
-                    Remove-Item $targetPath -Recurse -Force -ErrorAction Stop
-                    $chromeCleaned++
-                }
-                catch { }
-            }
-        }
-    }
-
-    Show-Success "Chrome data cleaned ($chromeCleaned items)"
-    $successCount++
-}
-else {
-    Show-Skip "Chrome not found"
-    $skipCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 11: Windows Search Index
-# ========================================
-Write-Host "[11/$totalSteps] Resetting Windows Search index..." -ForegroundColor Yellow
-
-try {
-    $wsearchService = Get-Service -Name "WSearch" -ErrorAction SilentlyContinue
-    if ($wsearchService) {
-        if ($wsearchService.Status -eq "Running") {
-            Stop-Service -Name "WSearch" -Force -ErrorAction Stop
-            Start-Sleep -Seconds 2
-        }
-
-        $searchDbPath = "$env:ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb"
-        if (Test-Path $searchDbPath) {
-            Remove-Item $searchDbPath -Force -ErrorAction Stop
-            Show-Success "Search index deleted"
-        }
-        else {
-            Show-Skip "Search index file not found"
-        }
-
-        Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
-        $successCount++
-    }
-    else {
-        Show-Skip "Windows Search service not found"
-        $skipCount++
-    }
-}
-catch {
-    Show-Error "Failed to reset search index: $($_.Exception.Message)"
-    # Try to restart WSearch even on error
-    Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
-    $failCount++
-}
-
-Write-Host ""
-
-# ========================================
-# Step 12: Thumbnail Cache + Prefetch
-# ========================================
-Write-Host "[12/$totalSteps] Cleaning thumbnail cache and prefetch..." -ForegroundColor Yellow
-
-# Thumbnail cache
-$thumbPath = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
-$thumbCleaned = 0
-if (Test-Path $thumbPath) {
-    $thumbFiles = Get-ChildItem $thumbPath -Filter "thumbcache_*.db" -ErrorAction SilentlyContinue
-    foreach ($f in $thumbFiles) {
-        try {
-            Remove-Item $f.FullName -Force -ErrorAction Stop
-            $thumbCleaned++
-        }
-        catch { }
-    }
-    # Also clean iconcache
-    $iconFiles = Get-ChildItem $thumbPath -Filter "iconcache_*.db" -ErrorAction SilentlyContinue
-    foreach ($f in $iconFiles) {
-        try {
-            Remove-Item $f.FullName -Force -ErrorAction Stop
-            $thumbCleaned++
-        }
-        catch { }
-    }
-}
-Show-Success "Thumbnail cache cleaned ($thumbCleaned files)"
-
-# Prefetch
-$prefetchPath = "$env:windir\Prefetch"
-$prefetchCleaned = 0
-if (Test-Path $prefetchPath) {
-    $pfFiles = Get-ChildItem $prefetchPath -ErrorAction SilentlyContinue
-    foreach ($f in $pfFiles) {
-        try {
-            Remove-Item $f.FullName -Recurse -Force -ErrorAction Stop
-            $prefetchCleaned++
-        }
-        catch { }
-    }
-}
-Show-Success "Prefetch cleaned ($prefetchCleaned files)"
-
-$successCount++
-Write-Host ""
-
-# ========================================
-# Step 13: Kitting SSID Deletion
-# ========================================
-Write-Host "[13/$totalSteps] Deleting kitting Wi-Fi profiles..." -ForegroundColor Yellow
-
-$ssidCsvPath = Join-Path $PSScriptRoot "ssid_list.csv"
-
-if (-not (Test-Path $ssidCsvPath)) {
-    Show-Skip "ssid_list.csv not found — skipping SSID cleanup"
-    $skipCount++
-}
-else {
-    $ssidItems = Import-ModuleCsv -Path $ssidCsvPath -FilterEnabled
-
-    if ($null -eq $ssidItems -or $ssidItems.Count -eq 0) {
-        Show-Skip "No enabled SSID entries in ssid_list.csv"
-        $skipCount++
-    }
-    else {
-        # Check Wi-Fi service availability (absent on desktop PCs)
-        $wlanSvc = Get-Service -Name "WlanSvc" -ErrorAction SilentlyContinue
-        if (-not $wlanSvc -or $wlanSvc.Status -ne "Running") {
-            Show-Skip "Wi-Fi service (WlanSvc) not available on this device"
-            $skipCount++
-        }
-        else {
-            $ssidDeleted = 0
-            $ssidSkipped = 0
-            $ssidErrors  = 0
-
-            foreach ($ssidItem in $ssidItems) {
-                $ssidName = $ssidItem.SSID
-                $label    = if ($ssidItem.Description) { "$ssidName  ($($ssidItem.Description))" } else { $ssidName }
-
-                # Idempotency: check if profile exists before attempting deletion
-                $null = & netsh wlan show profile name="$ssidName" 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Show-Skip "Not found: $label"
-                    $ssidSkipped++
+            "DeletePath" {
+                # ベストエフォート削除: 存在確認 → 最大限削除 → 残存チェック
+                if (-not (Test-Path $item.TargetPath)) {
+                    if ($ifNotFound -eq "Error") {
+                        Show-Error "Target not found: $($item.TargetPath)"
+                        $failCount++
+                    }
+                    else {
+                        Show-Skip "Not found - skipped"
+                        $skipCount++
+                    }
+                    Write-Host ""
                     continue
                 }
 
-                # Delete the profile
-                try {
-                    $null = & netsh wlan delete profile name="$ssidName" 2>&1
-                    if ($LASTEXITCODE -eq 0) {
-                        Show-Success "Deleted: $label"
-                        $ssidDeleted++
+                # SilentlyContinue: ロック中ファイルをスキップしつつ削除可能なものはすべて削除
+                Remove-Item -Path $item.TargetPath -Force -Recurse -ErrorAction SilentlyContinue
+
+                # 事後チェック: 残存ファイルの有無で Success / Warning を判定
+                if (Test-Path $item.TargetPath) {
+                    Show-Warning "Partially deleted: $displayName (some files in use)"
+                }
+                else {
+                    Show-Success "Deleted: $displayName"
+                }
+                $successCount++
+            }
+
+            "ClearRegistry" {
+                # レジストリキーの値クリア（キー構造は保持、値のみ削除）
+                if (-not (Test-Path $item.TargetPath)) {
+                    if ($ifNotFound -eq "Error") {
+                        Show-Error "Registry key not found: $($item.TargetPath)"
+                        $failCount++
                     }
                     else {
-                        Show-Error "Failed to delete: $label"
-                        $ssidErrors++
+                        Show-Skip "Registry key not found - skipped"
+                        $skipCount++
                     }
+                    Write-Host ""
+                    continue
                 }
-                catch {
-                    Show-Error "Error: $label — $($_.Exception.Message)"
-                    $ssidErrors++
+
+                # 直下のプロパティ（値）をクリア
+                $null = Remove-ItemProperty -Path $item.TargetPath -Name * -Force -ErrorAction SilentlyContinue
+
+                # サブキーが存在する場合、各サブキーの値もクリア（キー構造は保持）
+                $subKeys = Get-ChildItem -Path $item.TargetPath -ErrorAction SilentlyContinue
+                foreach ($subKey in $subKeys) {
+                    $null = Remove-ItemProperty -Path $subKey.PSPath -Name * -Force -ErrorAction SilentlyContinue
+                }
+
+                Show-Success "Registry cleared: $displayName"
+                $successCount++
+            }
+
+            "Command" {
+                # 単純ワンライナーコマンドの実行
+                $null = Invoke-Expression $item.TargetPath
+                Show-Success "Command executed: $displayName"
+                $successCount++
+            }
+
+            "Special" {
+                # ディスパッチャ経由でハンドラを呼び出し
+                # 戻り値: "Success" → $successCount / "Skip" → $skipCount / throw → catch で $failCount
+                $handlerResult = Invoke-DestroyHandler -HandlerName $item.TargetPath
+                if ($handlerResult -eq "Skip") {
+                    $skipCount++
+                }
+                else {
+                    $successCount++
                 }
             }
 
-            Show-Info "SSID cleanup: $ssidDeleted deleted, $ssidSkipped not found, $ssidErrors failed"
-            if ($ssidErrors -eq 0) {
-                $successCount++
-            }
-            else {
+            default {
+                Show-Error "Unknown ActionType: $($item.ActionType)"
                 $failCount++
             }
         }
     }
+    catch {
+        Show-Error "Failed: $displayName : $_"
+        $failCount++
+    }
+
+    Write-Host ""
 }
 
-Write-Host ""
 
 # ========================================
-# Restart Explorer
+# 最終Step: Explorer 再起動
 # ========================================
 Show-Info "Restarting Explorer..."
 
@@ -570,14 +499,15 @@ if ($restarted) {
     Show-Success "Explorer restarted (${elapsed}s)"
 }
 else {
-    # Windowsの自動再起動が間に合わなかった場合のみ明示的に起動
+    # Windows の自動再起動が間に合わなかった場合のみ明示的に起動
     Start-Process "explorer.exe"
     Show-Warning "Explorer auto-restart timed out. Started manually."
 }
-
 Write-Host ""
 
+
 # ========================================
-# Result Summary
+# Step 6: 結果集計・返却
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "History Destroyer - Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+    -Title "History Destroyer Results")
