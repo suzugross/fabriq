@@ -22,18 +22,15 @@ Write-Host ""
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "taskbar_list.csv"
 
-$items = Import-ModuleCsv -Path $csvPath -FilterEnabled `
+$allItems = Import-ModuleCsv -Path $csvPath `
     -RequiredColumns @("Enabled", "Order", "LinkPath", "Description")
 
-if ($null -eq $items) {
+if ($null -eq $allItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load taskbar_list.csv")
 }
-if ($items.Count -eq 0) {
-    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
-}
 
-# Order 昇順ソート
-$items = @($items | Sort-Object { [int]$_.Order })
+# Enabled フィルタ + Order 昇順ソート（0件 = 全ピン解除として続行）
+$items = @($allItems | Where-Object { $_.Enabled -eq "1" } | Sort-Object { [int]$_.Order })
 
 # ========================================
 # Step 2: 前提条件チェック（Deploy先ディレクトリ）
@@ -56,7 +53,12 @@ if (-not (Test-Path $deployDir)) {
 # ========================================
 # Step 3: 実行前の確認表示
 # ========================================
-Show-Info "Taskbar pin targets: $($items.Count) apps"
+if ($items.Count -eq 0) {
+    Show-Info "Taskbar pin targets: 0 apps (all default pins will be removed)"
+}
+else {
+    Show-Info "Taskbar pin targets: $($items.Count) apps"
+}
 Write-Host ""
 
 $index = 0
