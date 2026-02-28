@@ -3,8 +3,8 @@
 # ========================================
 # Generates LayoutModification.xml from taskbar_list.csv
 # and deploys it to the Default User profile.
-# New user profiles created after deployment will have
-# the specified apps pinned to the taskbar.
+# Also copies the generated XML to sysprep_config/source/
+# for use with Sysprep-based kitting workflows.
 #
 # [NOTES]
 # - Requires administrator privileges (writes to Default User profile)
@@ -37,6 +37,9 @@ $items = @($allItems | Where-Object { $_.Enabled -eq "1" } | Sort-Object { [int]
 # ========================================
 $deployDir = "C:\Users\Default\AppData\Local\Microsoft\Windows\Shell"
 $deployPath = Join-Path $deployDir "LayoutModification.xml"
+
+$sysprepSourceDir  = Join-Path $PSScriptRoot "..\sysprep_config\source"
+$sysprepSourcePath = Join-Path $sysprepSourceDir "LayoutModification.xml"
 
 if (-not (Test-Path $deployDir)) {
     try {
@@ -90,6 +93,13 @@ if (Test-Path $deployPath) {
 else {
     Write-Host "  Deploy: $deployPath  [NEW]" -ForegroundColor White
 }
+
+if (Test-Path $sysprepSourcePath) {
+    Write-Host "  Copy:   $sysprepSourcePath  [OVERWRITE]" -ForegroundColor Yellow
+}
+else {
+    Write-Host "  Copy:   $sysprepSourcePath  [NEW]" -ForegroundColor White
+}
 Write-Host ""
 
 # ========================================
@@ -128,7 +138,7 @@ $pinEntries      </taskbar:TaskbarPinList>
 </LayoutModificationTemplate>
 "@
 
-# 5-3: ファイル書き出し
+# 5-3: Default User プロファイルへ書き出し
 try {
     $xmlContent | Out-File -FilePath $deployPath -Encoding UTF8 -Force -ErrorAction Stop
 
@@ -154,6 +164,24 @@ catch {
     Show-Error "Failed to write XML: $_"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Failed to write XML: $_")
+}
+
+# 5-4: sysprep_config/source/ へコピー
+try {
+    if (-not (Test-Path $sysprepSourceDir)) {
+        $null = New-Item -ItemType Directory -Path $sysprepSourceDir -Force -ErrorAction Stop
+        Show-Info "Created directory: $sysprepSourceDir"
+    }
+
+    $null = Copy-Item -Path $deployPath -Destination $sysprepSourcePath -Force -ErrorAction Stop
+
+    Show-Success "Copied to sysprep_config/source/"
+    Write-Host "  Path: $sysprepSourcePath" -ForegroundColor DarkGray
+    Write-Host ""
+}
+catch {
+    Show-Warning "Failed to copy to sysprep_config/source/: $_"
+    Write-Host ""
 }
 
 # ========================================
