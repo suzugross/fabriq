@@ -1,0 +1,40 @@
+■ 概要
+タスクバーにピン留めするアプリを設定します。
+CSVで定義したショートカット一覧から LayoutModification.xml を動的に生成し、
+Default User プロファイルへ配置します。配置後に作成された新規ユーザーに反映されます。
+
+■ 設定ファイル
+[taskbar_list.csv]
+  Enabled     : 有効フラグ（1=ピン留め対象, 0=スキップ）
+  Order       : タスクバー上の表示順序（昇順）
+  LinkPath    : アプリのパス（.lnk または .exe）（%APPDATA% 等の環境変数使用可）
+  Description : 説明（表示用）
+
+[記載例]
+  1,10,%APPDATA%\Microsoft\Windows\Start Menu\Programs\File Explorer.lnk,File Explorer
+  1,20,C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk,Google Chrome
+  1,30,C:\Program Files\Google\Chrome\Application\chrome.exe,Google Chrome（exe指定）
+
+■ LinkPath について
+以下のいずれかの形式で指定できます。
+・ショートカット（.lnk）：スタートメニュー等の .lnk ファイルのパス
+・実行ファイル（.exe）：Program Files 等の .exe ファイルの直接パス
+
+ショートカットの格納場所：
+・全ユーザー共通：C:\ProgramData\Microsoft\Windows\Start Menu\Programs\
+・現在のユーザー：%APPDATA%\Microsoft\Windows\Start Menu\Programs\
+
+■ 存在しないパスについて
+LinkPath に指定したファイルが実行時点で存在しない場合、
+警告（WARNING）を表示しますが処理は中断せず、XMLにはそのまま記載されます。
+キッティングの順序上、後続モジュールでアプリをインストールする場合でも問題ありません。
+
+■ 前提条件
+・管理者権限が必要です（Default User プロファイルへの書き込みのため）
+・既存の LayoutModification.xml は上書きされます
+
+■ 動作の流れ
+1. taskbar_list.csv を読み込み、Order 昇順でソート
+2. 各ショートカットの存在確認を行い、対象一覧を表示
+3. 実行確認（Y/N）
+4. LayoutModification.xml を生成し、Default User プロファイルへ配置
