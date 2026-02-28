@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Taskbar Config,Desktop,taskbar_config.ps1,45,1
