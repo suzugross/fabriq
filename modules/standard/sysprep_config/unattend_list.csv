@@ -1,0 +1,11 @@
+﻿Enabled,SettingName,Value,Description,Segment
+1,ComputerName,*,Computer name (* = auto-generate),
+1,CopyProfile,true,Profile copy,
+1,TestUserName,Test-User,Test user name (auto-created in OOBE),
+0,EnableAdministrator,true,Enable Administrator account,
+0,AdminPassword,,Administrator password (empty = no password),
+1,HideEULAPage,true,Skip EULA page,
+1,ProtectYourPC,3,Privacy settings (3 = do not send),
+1,HideWirelessSetupInOOBE,true,Skip Wi-Fi setup page,
+1,HideOnlineAccountScreens,true,Skip online account page,
+1,HideOEMRegistrationScreen,true,Skip OEM registration page,

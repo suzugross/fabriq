@@ -1,0 +1,2 @@
+﻿Enabled,SysprepExe,Mode,Shutdown,Description,Segment
+1,C:\Windows\System32\Sysprep\sysprep.exe,oobe,shutdown,Sysprep execution settings,

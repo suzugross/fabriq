@@ -1,0 +1,2 @@
+﻿MenuName,Category,Script,Order,Enabled
+Sysprep Config,System,sysprep_config.ps1,99,1
