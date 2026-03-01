@@ -1,0 +1,5 @@
+﻿MenuName,Category,Script,Order,Enabled
+Start Layout Backup,Desktop,startlayout_backup_config.ps1,40,1
+Start Layout Build,Desktop,startlayout_build_config.ps1,41,1
+Start Layout Import,Desktop,startlayout_import_config.ps1,42,1
+Start Layout Delete,Desktop,startlayout_delete_config.ps1,43,1
