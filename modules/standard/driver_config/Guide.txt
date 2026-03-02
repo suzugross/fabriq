@@ -1,0 +1,40 @@
+■ 概要
+PCのサードパーティドライバをエクスポート（バックアップ）およびインポート（復元）するモジュールです。
+
+■ 使い方
+
+[Driver Export]
+現在のOSにインストールされているサードパーティドライバを driver/ フォルダにエクスポートします。
+エクスポート先: driver/{モデル名}/
+
+[Driver Import]
+driver/ フォルダ内のドライバを現在のOSにインポート（インストール）します。
+インポート元: driver/{モデル名}/
+
+■ driver.csv の設定
+
+Enabled : 有効フラグ（1=実行, 0=スキップ）
+Id      : 識別用の連番
+model   : ドライバフォルダ名の明示指定。
+          空欄の場合、PCのシステムモデル名を自動取得して使用します。
+          （例: Get-CimInstance Win32_ComputerSystem の Model 値）
+Segment : セグメント名（任意。空欄=全セグメント共通）
+
+■ モデル名の自動取得
+model 列が空欄の場合、以下のコマンドでモデル名を動的取得します:
+  Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -ExpandProperty Model
+
+取得した文字列はフォルダ名として安全に使えるようサニタイズされます:
+  - 空白 → アンダースコア
+  - ファイル名禁止文字（\/:*?"<>|）→ 除去
+  - 80文字上限
+
+■ 使用コマンド
+エクスポート: Export-WindowsDriver -Online -Destination <保存先パス>
+インポート:   pnputil.exe /add-driver "<パス>\*.inf" /subdirs /install
+
+■ 注意事項
+- 管理者権限が必要です。
+- エクスポートはサードパーティドライバのみが対象です（OS標準ドライバは含まれません）。
+- エクスポート時、既存のドライバフォルダは中身がクリアされてから再エクスポートされます。
+- インポート後に再起動が必要な場合があります（pnputil 終了コード 3010）。
