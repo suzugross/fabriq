@@ -1,0 +1,47 @@
+■ 概要
+既定のアプリの関連付け設定をエクスポート（バックアップ）およびインポート（適用）するモジュールです。
+Windows の DISM コマンドを使用して、ProgId ハッシュ保護に対応した安全な方法で関連付けを管理します。
+
+■ 使い方
+
+[Export App Associations]（マスター準備用）
+マスター PC で手動設定した既定のアプリの関連付けを XML にエクスポートします。
+キッティング本番ではなく、マスター作成時の準備作業として使用します。
+
+  手順:
+  1. マスター PC で既定のアプリを手動設定
+  2. Fabriq から Export App Associations を実行
+  3. xml/ フォルダに XML ファイルが出力される
+
+[Default App Config]（本番キッティング用）
+エクスポート済みの XML ファイルを対象 PC にインポートし、関連付けを適用します。
+
+  手順:
+  1. エクスポート済みの xml/ フォルダが含まれた状態でデプロイ
+  2. Fabriq から Default App Config を実行
+
+■ default_app_list.csv の設定
+
+Enabled     : 有効フラグ（1=実行, 0=スキップ）
+XmlFile     : xml/ 配下の XML ファイル名
+Description : 説明（表示用）
+Segment     : セグメント名（任意。空欄=全セグメント共通）
+
+■ Segment による使い分け例
+
+部署や拠点ごとに異なる関連付けセットを管理できます。
+
+  Enabled,XmlFile,Description,Segment
+  1,AppAssoc_Sales.xml,営業部向け関連付け,Sales
+  1,AppAssoc_Tech.xml,技術部向け関連付け,Tech
+  1,AppAssoc.xml,共通関連付け,
+
+■ 使用コマンド
+エクスポート: Dism.exe /Online /Export-DefaultAppAssociations:"<XMLパス>"
+インポート:   Dism.exe /Online /Import-DefaultAppAssociations:"<XMLパス>"
+
+■ 注意事項
+- 管理者権限が必要です。
+- エクスポートは現在ログインしているユーザーの関連付け設定を取得します。
+- インポートは新規ユーザープロファイル作成時に適用されます（既存ユーザーには即時反映されません）。
+- エクスポート時、既存の XML ファイルは上書きされます。
