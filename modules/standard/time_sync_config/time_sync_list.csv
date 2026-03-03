@@ -1,0 +1,4 @@
+﻿Enabled,NtpServer,Description,Segment
+1,time.windows.com,Microsoft NTP Server,
+0,time.google.com,Google NTP Server,
+0,ntp.nict.jp,NICT Japan NTP Server,
