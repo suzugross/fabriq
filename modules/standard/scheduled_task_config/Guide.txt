@@ -1,0 +1,60 @@
+﻿■ Overview
+Enables or disables Windows scheduled tasks in bulk.
+Two scripts share a single CSV: one enables tasks, the other disables them.
+Both scripts are idempotent — re-running does not cause errors.
+
+■ Configuration File
+[task_list.csv]
+  Enabled     : Processing flag (1 = process this row, 0 = skip)
+  TaskPath    : Task Scheduler folder path (starts and ends with \)
+  TaskName    : Task name (exact match)
+  Description : Display description
+  Segment     : Segment filter (empty = all targets)
+
+  [Example]
+  1,\Microsoft\Windows\UpdateOrchestrator\,Schedule Scan,Windows Update scan schedule,
+  1,\Microsoft\Windows\Defrag\,ScheduledDefrag,Disk defragmentation,
+
+■ How to Find TaskPath and TaskName
+Run the following PowerShell command to list all scheduled tasks:
+
+  Get-ScheduledTask | Select TaskPath, TaskName, State | Sort TaskPath
+
+To search for a specific task:
+
+  Get-ScheduledTask | Where-Object { $_.TaskName -like "*Update*" } | Select TaskPath, TaskName, State
+
+■ Important Notes on TaskPath
+- TaskPath must start and end with a backslash (\)
+- Example: \Microsoft\Windows\UpdateOrchestrator\
+- Root-level tasks use just: \
+
+■ Shared CSV Design
+Both the Enable and Disable scripts read the same task_list.csv.
+The Enabled column controls whether the row is processed, NOT whether
+the task should be enabled or disabled. The action (enable/disable)
+is determined by which script is executed.
+
+■ Idempotency
+- Enable script: skips tasks that are already in Ready or Running state
+- Disable script: skips tasks that are already in Disabled state
+- Tasks not found on the system are reported as warnings (fail count)
+
+■ Operation Flow
+[Scheduled Task Enable]
+1. Load task_list.csv and filter enabled entries
+2. Display current state of each task ([Disabled] / [Ready] / [NOT FOUND])
+3. Confirm execution (Y/N)
+4. Enable each Disabled task, skip others
+5. Report results (Success / Skip / Fail counts)
+
+[Scheduled Task Disable]
+1. Load task_list.csv and filter enabled entries
+2. Display current state of each task ([Ready] / [Disabled] / [NOT FOUND])
+3. Confirm execution (Y/N)
+4. Disable each non-Disabled task, skip already disabled
+5. Report results (Success / Skip / Fail counts)
+
+■ Prerequisites
+- Administrator privileges are required
+- Target tasks must exist on the system
