@@ -1,0 +1,6 @@
+﻿Order,ScriptPath,Enabled,Description,Segment
+10,standard/startlayout_config/startlayout_backup_config.ps1,1,Start Layout Backup,
+20,standard/startlayout_config/startlayout_build_config.ps1,1,Start Layout Build,
+30,standard/default_app_config/export_app_associations.ps1,1,Export App Associations,
+40,extended/desktop_icon_config/desktop_icon_backup.ps1,1,Desktop Icon Backup,
+50,standard/fabriq_app_launcher/fabriq_app_launcher.ps1,1,Fabriq App Launcher,

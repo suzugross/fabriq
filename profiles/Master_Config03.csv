@@ -1,0 +1,6 @@
+﻿Order,ScriptPath,Enabled,Description,Segment
+10,standard/taskbar_config/taskbar_config.ps1,1,Taskbar Config,
+20,standard/startlayout_config/startlayout_import_config.ps1,1,Start Layout Import,
+30,standard/startlayout_config/startlayout_delete_config.ps1,1,Start Layout Delete,
+40,extended/desktop_icon_config/desktop_icon_restore.ps1,1,Desktop Icon Restore,
+50,standard/default_app_config/default_app_config.ps1,1,Default App Config,

@@ -1,0 +1,6 @@
+﻿Order,ScriptPath,Enabled,Description,Segment
+10,standard/evidence_config/evidence_config.ps1,1,Collect Evidence,
+20,extended/directory_cleaner/directory_cleaner.ps1,1,Directory Cleaner,
+30,extended/history_destroyer/history_destroyer.ps1,1,History Destroyer,
+40,standard/storeapp_config/storeapp_config.ps1,1,Remove Store Apps,
+50,standard/sysprep_config/sysprep_config.ps1,1,Sysprep Config,
