@@ -1,0 +1,3 @@
+﻿MenuName,Category,Script,Order,Enabled
+Scheduled Task Enable,System,scheduled_task_enable_config.ps1,50,1
+Scheduled Task Disable,System,scheduled_task_disable_config.ps1,51,1

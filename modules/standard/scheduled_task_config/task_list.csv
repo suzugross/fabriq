@@ -1,0 +1,6 @@
+﻿Enabled,TaskPath,TaskName,Description,Segment
+1,\Microsoft\Windows\AppxDeploymentClient\,Pre-staged app cleanup,Pre-staged app cleanup,
+0,\Microsoft\Windows\UpdateOrchestrator\,Schedule Scan,Windows Update scan schedule,
+0,\Microsoft\Windows\WindowsUpdate\,Scheduled Start,Windows Update auto start,
+0,\Microsoft\Windows\Defrag\,ScheduledDefrag,Disk defragmentation,
+0,\Microsoft\Windows\DiskCleanup\,SilentCleanup,Silent disk cleanup,
