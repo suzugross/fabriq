@@ -1,0 +1,2 @@
+﻿MenuName,Category,Script,Order,Enabled
+Time Sync,System,time_sync_config.ps1,55,1
