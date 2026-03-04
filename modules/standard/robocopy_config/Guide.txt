@@ -1,0 +1,88 @@
+﻿=====================================
+Robocopy Config Module - Guide
+=====================================
+
+■ Overview
+CSV (robocopy_list.csv) に定義されたジョブに基づき、
+Robocopy によるファイル/フォルダコピーを実行するモジュールです。
+主要オプションは 0/1 フラグで指定し、タイポ事故を防止します。
+
+■ CSV Columns (robocopy_list.csv)
+
+  Enabled       : 1=有効, 0=無効
+  ID            : ジョブ識別子（ログ表示・識別用）
+  Source        : コピー元パス（ローカルまたはUNC）
+  Destination   : コピー先パス（ローカルまたはUNC）
+  Recursive     : 1=/E（サブディレクトリを空フォルダ含め再帰コピー）
+  Mirror        : 1=/MIR（ミラーリング。コピー先の余剰ファイルを削除）
+                  ※ Recursive と両方 1 の場合は Mirror が優先
+  CopyACL       : 1=/COPYALL /DCOPY:DAT（ACL・所有者・監査情報を含む全属性コピー）
+                  0=/COPY:DAT /DCOPY:DAT（データ・属性・タイムスタンプのみ）
+  SkipOlder     : 1=/XO（コピー先に新しいファイルがある場合はスキップ）
+  CustomOptions : 追加オプション（自由記述）。空欄可
+  AuthUser      : UNC認証ユーザー名（任意。空欄で認証スキップ）
+  AuthPass      : UNC認証パスワード（任意。ENC: プレフィックス対応）
+  Description   : 表示名
+  Segment       : セグメントフィルタ（空欄=全セグメント対象）
+
+■ Baseline Options (常時強制付与)
+
+  /R:3  : エラー時の再試行回数（デフォルト100万回によるハングアップ防止）
+  /W:5  : 再試行間の待機秒数（デフォルト30秒の短縮）
+  /NP   : 進捗パーセンテージ非表示（トランスクリプトログの肥大化防止）
+
+  ※ これらはCSVから除外・上書きできません（セーフガード）
+
+■ CustomOptions Examples
+
+  /MT:16        : マルチスレッドコピー（16並列）
+  /Z            : 再起動モード（ネットワーク切断時の途中再開）
+  /XD Temp Logs : Temp, Logs ディレクトリを除外
+  /XF *.tmp     : .tmp ファイルを除外
+  /SEC          : セキュリティ情報のみコピー（CopyACL=0 の補助）
+  /LOG:C:\x.log : 独自ログファイル出力（通常は不要）
+
+■ Mirror Option Warning
+
+  Mirror=1 (/MIR) は Source に存在しないファイルを
+  Destination から削除します。
+  誤った Source 指定により Destination のデータが
+  消失するリスクがあります。使用前に必ず確認してください。
+  初回テストには Recursive=1 + SkipOlder=1 の安全な
+  組み合わせを推奨します。
+
+■ UNC Authentication (AuthUser / AuthPass)
+
+  ネットワーク共有へのアクセスに認証が必要な場合に使用します。
+
+  動作フロー:
+    1. Source/Destination から UNC 共有ルート（\\Server\Share）を抽出
+    2. net use で接続確立
+    3. Robocopy 実行
+    4. finally ブロックで net use /delete（確実な切断）
+
+  注意事項:
+    - AuthUser と AuthPass の両方が設定されている場合のみ有効
+    - パスワードはコンソール/ログに一切出力されません
+    - ENC: プレフィックスによる暗号化パスワードに対応
+    - net use 失敗時（ExitCode≠0）はジョブをスキップし次へ進行
+
+■ ExitCode Evaluation
+
+  0     : 変更なし（同期済み）        → Success
+  1     : ファイルコピー成功           → Success
+  2-3   : 余剰ファイル検出            → Success
+  4-7   : ミスマッチあり              → Warning (Success扱い)
+  8+    : 重大エラー                  → Error
+
+■ Verification Commands
+
+  # プレビュー実行（ドライラン）
+  # CustomOptions に /L を指定すると実際のコピーは行わず一覧表示のみ
+  CustomOptions=/L
+
+  # 実行後のディレクトリ比較
+  robocopy "Source" "Destination" /L /E /NP
+
+  # ACL確認
+  icacls "Destination\file.txt"
