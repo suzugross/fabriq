@@ -1,2 +1,2 @@
 ﻿MenuName,Category,Script,Order,Enabled
-Robocopy,Data,robocopy_config.ps1,70,1
+Robocopy,Maintenance,robocopy_config.ps1,70,1
