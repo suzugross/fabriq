@@ -1,6 +1,7 @@
 # ========================================
 # Log Uploader Module
 # logs/ と evidence/ を指定先へ一括コピー
+# UNC認証対応（AuthUser/AuthPass in CSV）
 # ========================================
 
 Show-Separator
@@ -97,6 +98,35 @@ foreach ($dest in $destinations) {
     Show-Info "Uploading to: $destDesc"
     Write-Host "  Path: $destBase" -ForegroundColor DarkGray
 
+    # ----------------------------------------
+    # UNC authentication: establish net use session
+    # ----------------------------------------
+    $connectedShare = $null
+    $useAuth = -not [string]::IsNullOrWhiteSpace($dest.AuthUser) -and
+               -not [string]::IsNullOrWhiteSpace($dest.AuthPass)
+
+    if ($useAuth) {
+        if ("$($dest.Path)" -match '^(\\\\[^\\]+\\[^\\]+)') {
+            $uncShare = $Matches[1]
+            Show-Info "Authenticating: $uncShare (User: $($dest.AuthUser))"
+
+            $null = & net use $uncShare "$($dest.AuthPass)" /user:"$($dest.AuthUser)" 2>&1
+            $netExitCode = $LASTEXITCODE
+
+            if ($netExitCode -ne 0) {
+                Show-Error "net use failed (ExitCode=$netExitCode): $uncShare"
+                $failCount++
+                $details += "FAIL: $destDesc - net use authentication failed"
+                $dest.AuthPass = $null
+                Write-Host ""
+                continue
+            }
+
+            Show-Success "Connected: $uncShare"
+            $connectedShare = $uncShare
+        }
+    }
+
     try {
         # Test destination reachability
         $parentPath = $dest.Path
@@ -143,6 +173,19 @@ foreach ($dest in $destinations) {
         $errMsg = $_.Exception.Message
         $details += "FAIL: $destDesc - $errMsg"
         Show-Error "Upload failed: $destDesc - $errMsg"
+    }
+    finally {
+        # ----------------------------------------
+        # UNC cleanup: disconnect share (silent)
+        # ----------------------------------------
+        if ($null -ne $connectedShare) {
+            & net use $connectedShare /delete /y 2>&1 | Out-Null
+        }
+
+        # Clear credential variables from memory
+        if ($useAuth) {
+            $dest.AuthPass = $null
+        }
     }
 
     Write-Host ""
