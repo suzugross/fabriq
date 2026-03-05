@@ -1,0 +1,3 @@
+﻿MenuName,Category,Script,Order,Enabled
+Install Office Product Key,Security,office_license_install.ps1,93,1
+Activate Office License,Security,office_license_auth.ps1,94,1

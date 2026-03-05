@@ -1,0 +1,130 @@
+====================================================
+Office License Config - Guide
+====================================================
+
+■ 概要
+Microsoft Office のプロダクトキー登録とライセンス認証を行うモジュールです。
+以下の2つのスクリプトと1つの共通ヘルパーで構成されます。
+
+  office_license_install.ps1 : プロダクトキーの登録 (cscript OSPP.vbs /inpkey)
+  office_license_auth.ps1    : ライセンス認証の実行   (cscript OSPP.vbs /act)
+  _office_common.ps1         : 共通関数 (Find-OsppVbs)
+
+
+■ OSPP.vbs パスの自動検出
+Office のアーキテクチャ（32bit/64bit）とインストール方式（C2R/MSI）に応じて
+以下の順序で OSPP.vbs を自動検出します。
+
+  優先度1: C2R 64bit  %ProgramFiles%\Microsoft Office\root\Office16\OSPP.vbs
+  優先度2: C2R 32bit  %ProgramFiles(x86)%\Microsoft Office\root\Office16\OSPP.vbs
+  優先度3: MSI 64bit  %ProgramFiles%\Microsoft Office\Office16\OSPP.vbs
+  優先度4: MSI 32bit  %ProgramFiles(x86)%\Microsoft Office\Office16\OSPP.vbs
+
+  ※ C2R（Click-to-Run）は Office 365/2019/2021/2024 の標準形式です。
+  ※ MSI はボリュームライセンスのレガシー形式です。
+  ※ Office16 は Office 2016/2019/2021/2024/365 で共通のディレクトリ名です。
+
+
+■ CSV 強制指定（ハイブリッド方式）
+特殊な環境では office_key.csv の OsppPath 列にフルパスを記載することで
+自動検出を上書きできます。通常は空欄のままで問題ありません。
+
+  例: OsppPath = C:\CustomOffice\Office16\OSPP.vbs
+
+
+■ office_key.csv の列定義
+
+  Enabled        : 有効フラグ (1=実行, 0=スキップ)
+  ProductKey     : XXXXX-XXXXX-XXXXX-XXXXX-XXXXX 形式
+                   ENC: プレフィクスによる暗号化に対応
+  ActivationType : MAK または KMS
+                   MAK = Microsoft Activation Key（インターネット認証）
+                   KMS = Key Management Service（社内サーバー認証）
+  OsppPath       : OSPP.vbs のフルパス（空欄=自動検出）
+  Description    : 説明（表示用）
+  Segment        : セグメント名（空欄=全セグメント共通）
+
+
+■ ActivationType による動作の違い
+
+  [MAK]
+    - 認証時にインターネット接続が必要
+    - office_license_auth.ps1 の Pre-flight で疎通チェックを実行
+      1. Test-NetConnection activation.sls.microsoft.com -Port 443 (TCP)
+      2. 失敗時 → Test-Connection 8.8.8.8 (ping フォールバック)
+      3. ping 成功 → Warning を出して続行（プロキシ環境想定）
+      4. 両方失敗 → Error で中断
+    - プロダクトキー1つにつき1回の認証でアクティベーション完了
+
+  [KMS]
+    - 社内 KMS サーバーへの到達性のみが必要（インターネット不要）
+    - 疎通チェックはスキップされる
+    - 定期的な再認証（180日）が自動的に行われる
+
+
+■ 使用例
+
+  [キー登録]
+    1. office_key.csv に Enabled=1 でプロダクトキーと ActivationType を設定
+    2. メニューから "Install Office Product Key" を実行
+
+  [認証]
+    1. メニューから "Activate Office License" を実行
+    2. MAK の場合はインターネット疎通チェックが自動実行される
+    3. 全製品が LICENSED になっていれば自動スキップ（冪等）
+
+
+■ 複数製品への対応
+Office 本体、Visio、Project など複数のプロダクトキーを
+office_key.csv の別行に定義できます。
+認証スクリプト（/act）は全製品を一括で認証します。
+
+
+■ 冪等性チェック（office_license_auth.ps1）
+/dstatus 出力から全製品の LICENSE STATUS を解析し、
+LICENSED 以外のステータス（OOB_GRACE, UNLICENSED, NOTIFICATION,
+EXTENDED GRACE 等）が1つでも存在する場合のみ認証を実行します。
+全製品が LICENSED であれば Skipped を返します。
+
+
+■ トラブルシューティング
+
+  [OSPP.vbs not found]
+    Office がインストールされていないか、非標準パスにインストールされています。
+    office_key.csv の OsppPath 列でフルパスを明示指定してください。
+
+  [ProductKey is still encrypted (ENC:)]
+    マスターパスフレーズが入力されていない状態で
+    ENC: 暗号化キーを使用しています。
+
+  [Invalid key format]
+    XXXXX-XXXXX-XXXXX-XXXXX-XXXXX（ハイフン含め29文字）の形式を確認してください。
+
+  [No internet connectivity for MAK activation]
+    TCP 443 および ping 8.8.8.8 の両方に失敗しています。
+    - ネットワークケーブル / Wi-Fi 接続を確認してください。
+    - ファイアウォールで ICMP と HTTPS が許可されているか確認してください。
+
+  [TCP 443 failed, ping succeeded (proxy warning)]
+    プロキシ環境でアクティベーションサーバーへの直接接続がブロックされています。
+    - WinHTTP プロキシ設定を確認してください: netsh winhttp show proxy
+    - 認証自体はプロキシ経由で成功する可能性があります。
+
+  [Activation failed]
+    - MAK: インターネット接続とプロダクトキーの正当性を確認してください。
+    - KMS: KMS サーバーへの到達性を確認してください。
+    - プロダクトキーとインストール済み Office のエディションが一致しているか確認してください。
+
+
+■ 手動確認コマンド
+
+  ライセンス状態の確認:
+    cscript "C:\Program Files\Microsoft Office\root\Office16\OSPP.vbs" /dstatus
+
+  プロダクトキーの登録:
+    cscript "C:\Program Files\Microsoft Office\root\Office16\OSPP.vbs" /inpkey:XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+
+  ライセンス認証:
+    cscript "C:\Program Files\Microsoft Office\root\Office16\OSPP.vbs" /act
+
+  ※ パスは環境に応じて読み替えてください。
