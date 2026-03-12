@@ -98,6 +98,13 @@ $script:gyotakuDir = Join-Path $script:fabriqRoot "evidence\gyotaku"
 . (Join-Path $PSScriptRoot "..\common.ps1")
 
 # ========================================
+# Evidence base path (from parent process via env var)
+# ========================================
+if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_EVIDENCE_BASE)) {
+    $global:FabriqEvidenceBasePath = $env:FABRIQ_EVIDENCE_BASE
+}
+
+# ========================================
 # Color Definitions
 # ========================================
 $darkBg       = [System.Drawing.Color]::FromArgb(30, 30, 30)
