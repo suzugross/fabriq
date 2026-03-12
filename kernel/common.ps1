@@ -2021,6 +2021,7 @@ function Save-ResumeState {
             @{ MenuName = $_.MenuName; Status = $_.Status }
         })
         HostEnvironment  = $hostEnv
+        EvidenceBasePath = $global:FabriqEvidenceBasePath
     }
 
     # Persist master passphrase (DPAPI LocalMachine encrypted) for post-reboot resume

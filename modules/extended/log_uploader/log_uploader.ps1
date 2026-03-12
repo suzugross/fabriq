@@ -45,21 +45,33 @@ if (Test-Path $sessionPath) {
 }
 
 # ========================================
-# Generate destination folder name
+# Generate destination folder name & evidence source
 # ========================================
-$hostname = $env:COMPUTERNAME
-$dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
-$folderName = "${dateStr}_${hostname}_${mediaSerial}"
+$logsDir = ".\logs"
+$useUnifiedPath = -not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)
+
+if ($useUnifiedPath) {
+    # Unified mode: use evidence base path directory name as upload folder
+    $folderName  = Split-Path $global:FabriqEvidenceBasePath -Leaf
+    $evidenceDir = $global:FabriqEvidenceBasePath
+}
+else {
+    # Fallback: legacy naming and full evidence directory
+    $hostname = $env:COMPUTERNAME
+    $dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
+    $folderName  = "${dateStr}_${hostname}_${mediaSerial}"
+    $evidenceDir = ".\evidence"
+}
 
 Show-Info "Upload folder: $folderName"
+if ($useUnifiedPath) {
+    Show-Info "Evidence source: $evidenceDir (session only)"
+}
 Write-Host ""
 
 # ========================================
-# Determine source directories
+# Check source content
 # ========================================
-$logsDir = ".\logs"
-$evidenceDir = ".\evidence"
-
 $hasLogs = (Test-Path $logsDir) -and @(Get-ChildItem $logsDir -Recurse -File -ErrorAction SilentlyContinue).Count -gt 0
 $hasEvidence = (Test-Path $evidenceDir) -and @(Get-ChildItem $evidenceDir -Recurse -File -ErrorAction SilentlyContinue).Count -gt 0
 
@@ -153,10 +165,20 @@ foreach ($dest in $destinations) {
 
         # Copy evidence/
         if ($hasEvidence) {
-            $destEvidence = Join-Path $destBase "evidence"
-            $null = New-Item -ItemType Directory -Path $destEvidence -Force
-            $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
-            Show-Success "evidence/ copied"
+            if ($useUnifiedPath) {
+                # Unified mode: copy session evidence directly into destBase/evidence/
+                $destEvidence = Join-Path $destBase "evidence"
+                $null = New-Item -ItemType Directory -Path $destEvidence -Force
+                $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+                Show-Success "evidence/ copied (session only)"
+            }
+            else {
+                # Fallback: copy entire evidence/ directory
+                $destEvidence = Join-Path $destBase "evidence"
+                $null = New-Item -ItemType Directory -Path $destEvidence -Force
+                $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+                Show-Success "evidence/ copied"
+            }
         }
 
         # Copy session.json as metadata

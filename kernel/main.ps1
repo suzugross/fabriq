@@ -1105,7 +1105,16 @@ if ($null -ne $resumeState) {
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"
         $script:SessionID = $resumeState.SessionID
-        Initialize-EvidenceBasePath
+
+        # Restore evidence base path from resume state (or fallback to new generation)
+        if (-not [string]::IsNullOrWhiteSpace($resumeState.EvidenceBasePath)) {
+            $global:FabriqEvidenceBasePath = $resumeState.EvidenceBasePath
+            $env:FABRIQ_EVIDENCE_BASE     = $resumeState.EvidenceBasePath
+            Show-Success "Evidence base path restored: $($resumeState.EvidenceBasePath)"
+        }
+        else {
+            Initialize-EvidenceBasePath
+        }
 
         # Restore master passphrase from DPAPI-protected resume state
         if (-not [string]::IsNullOrWhiteSpace($resumeState.ProtectedPassphrase)) {
