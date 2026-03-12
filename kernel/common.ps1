@@ -402,19 +402,22 @@ function Import-ModuleCsv {
         $allItems = $filtered
     }
 
-    # Segment filtering: apply only when Segment is specified AND CSV has Segment column
-    if (-not [string]::IsNullOrWhiteSpace($Segment)) {
-        $csvColumns = $allItems[0].PSObject.Properties.Name
-        if ('Segment' -in $csvColumns) {
-            $beforeCount = $allItems.Count
-            $allItems = @($allItems | Where-Object {
-                [string]::IsNullOrWhiteSpace($_.Segment) -or $_.Segment -eq $Segment
-            })
-            Show-Info "Segment filter [$Segment]: $($allItems.Count) of $beforeCount entries matched"
-            if ($allItems.Count -eq 0) {
-                Show-Skip "No entries matched Segment '$Segment' in $([System.IO.Path]::GetFileName($Path))"
-                return @()
-            }
+    # Segment filtering: strict match (empty matches empty, value matches value)
+    $csvColumns = $allItems[0].PSObject.Properties.Name
+    if ('Segment' -in $csvColumns) {
+        $effectiveSegment = if ([string]::IsNullOrWhiteSpace($Segment)) { "" } else { $Segment.Trim() }
+        $beforeCount = $allItems.Count
+        $allItems = @($allItems | Where-Object {
+            $rowSegment = if ([string]::IsNullOrWhiteSpace($_.Segment)) { "" } else { $_.Segment.Trim() }
+            $rowSegment -eq $effectiveSegment
+        })
+        if (-not [string]::IsNullOrWhiteSpace($effectiveSegment)) {
+            Show-Info "Segment filter [$effectiveSegment]: $($allItems.Count) of $beforeCount entries matched"
+        }
+        if ($allItems.Count -eq 0) {
+            $segLabel = if ($effectiveSegment -eq "") { "(default)" } else { "'$effectiveSegment'" }
+            Show-Skip "No entries matched Segment $segLabel in $([System.IO.Path]::GetFileName($Path))"
+            return @()
         }
     }
 
