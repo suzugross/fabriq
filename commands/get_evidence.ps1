@@ -121,6 +121,25 @@ try {
     foreach ($nc in $netConfigs) {
         Out-Log "Interface: $($nc.InterfaceAlias)"
         Out-Log "  IPv4 Address:   $($nc.IPv4Address.IPAddress)"
+
+        # Subnet Mask: PrefixLength → dotted-decimal conversion
+        $ipEntry = Get-NetIPAddress -InterfaceIndex $nc.InterfaceIndex `
+                   -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                   Where-Object { $_.PrefixOrigin -ne "WellKnown" } |
+                   Select-Object -First 1
+        if ($ipEntry) {
+            $prefixLen = $ipEntry.PrefixLength
+            $maskInt = if ($prefixLen -gt 0) {
+                [uint32]([math]::Pow(2, 32) - [math]::Pow(2, 32 - $prefixLen))
+            } else { [uint32]0 }
+            $subnet = "{0}.{1}.{2}.{3}" -f `
+                (($maskInt -shr 24) -band 0xFF),
+                (($maskInt -shr 16) -band 0xFF),
+                (($maskInt -shr 8) -band 0xFF),
+                ($maskInt -band 0xFF)
+            Out-Log "  Subnet Mask:    $subnet"
+        }
+
         Out-Log "  Default Gateway: $($nc.IPv4DefaultGateway.NextHop)"
         Out-Log "  DNS Servers:     $($nc.DNSServer.ServerAddresses -join ', ')"
         Out-Log ""
@@ -135,8 +154,14 @@ catch {
 # ----------------------------------------
 Start-Section -Title "Printers / Ports List" -FileName "04_Printers.txt"
 
-$printerList = Get-Printer | Select-Object Name, PortName | Format-Table -AutoSize | Out-String
-Out-Log $printerList.TrimEnd()
+$printers = Get-Printer -ErrorAction SilentlyContinue
+if ($printers) {
+    foreach ($p in $printers) {
+        Out-Log "Name=$($p.Name)|Driver=$($p.DriverName)|Port=$($p.PortName)"
+    }
+} else {
+    Out-Log "(No printers installed)"
+}
 
 # ----------------------------------------
 # 5. BitLocker Status
