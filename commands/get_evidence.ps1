@@ -3,10 +3,17 @@
 # ========================================
 
 # --- 1. Directory and Path Settings ---
-$baseDir = ".\evidence\pc_information"
-$dateStr = Get-Date -Format "yyyyMMdd_HHmmss"
-$folderName = "$($env:COMPUTERNAME)_$dateStr"
-$targetDir = Join-Path $baseDir $folderName
+if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+    # Unified path: flat (no date/pc subfolder)
+    $targetDir = Join-Path $global:FabriqEvidenceBasePath "pc_information"
+}
+else {
+    # Fallback: legacy path with date/pc subfolder
+    $baseDir = ".\evidence\pc_information"
+    $dateStr = Get-Date -Format "yyyyMMdd_HHmmss"
+    $folderName = "$($env:COMPUTERNAME)_$dateStr"
+    $targetDir = Join-Path $baseDir $folderName
+}
 
 # Create destination directory
 if (-not (Test-Path $targetDir)) {

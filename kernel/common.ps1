@@ -600,6 +600,59 @@ function Get-HardwareUniqueId {
 }
 
 # ========================================
+# Evidence Base Path
+# ========================================
+
+function Initialize-EvidenceBasePath {
+    # ========================================
+    # Generates the unified evidence parent directory path and sets
+    # $global:FabriqEvidenceBasePath and $env:FABRIQ_EVIDENCE_BASE.
+    #
+    # Format: {SessionTimestamp}_{PCName}_{SerialNumber}_evidence
+    # Example: 2026_03_12_143025_NEW-PC-01_ABC123XYZ_evidence
+    #
+    # Must be called AFTER host selection completes, since it
+    # depends on $env:SELECTED_NEW_PCNAME.
+    # ========================================
+
+    # ---- Component values with fallbacks ----
+    $ts     = if (-not [string]::IsNullOrWhiteSpace($global:FabriqSessionTimestamp)) {
+                  $global:FabriqSessionTimestamp
+              } else {
+                  Get-Date -Format "yyyy_MM_dd_HHmmss"
+              }
+
+    $pcName = if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_NEW_PCNAME)) {
+                  $env:SELECTED_NEW_PCNAME
+              } else {
+                  "Unknown_PC"
+              }
+
+    $sn     = if (-not [string]::IsNullOrWhiteSpace($global:FabriqUniqueId)) {
+                  $global:FabriqUniqueId
+              } else {
+                  "Unknown_SN"
+              }
+
+    # ---- Sanitize: replace Windows path-invalid characters with hyphen ----
+    $pcName = ($pcName -replace '[\\/:*?"<>|]', '-').Trim('-')
+    $sn     = ($sn     -replace '[\\/:*?"<>|]', '-').Trim('-')
+
+    # Final safety: if sanitized to empty, use fallback
+    if ([string]::IsNullOrWhiteSpace($pcName)) { $pcName = "Unknown_PC" }
+    if ([string]::IsNullOrWhiteSpace($sn))     { $sn     = "Unknown_SN" }
+
+    # ---- Build path ----
+    $dirName  = "${ts}_${pcName}_${sn}_evidence"
+    $basePath = Join-Path ".\evidence" $dirName
+
+    $global:FabriqEvidenceBasePath = $basePath
+    $env:FABRIQ_EVIDENCE_BASE     = $basePath
+
+    Show-Info "Evidence base path: $basePath"
+}
+
+# ========================================
 # CSV Operations
 # ========================================
 
@@ -1202,14 +1255,19 @@ function Export-ExecutionHistory {
     Copy-Item $script:HistoryPath $exportPath -Force
     Show-Success "History exported: $exportPath"
 
-    # Copy to evidence/export_history/ with PC name in filename
+    # Copy to evidence with PC name in filename
     $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
         $env:SELECTED_NEW_PCNAME
     } else {
         $env:COMPUTERNAME
     }
 
-    $evidenceExportDir = ".\evidence\export_history"
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+        $evidenceExportDir = Join-Path $global:FabriqEvidenceBasePath "export_history"
+    }
+    else {
+        $evidenceExportDir = ".\evidence\export_history"
+    }
     if (-not (Test-Path $evidenceExportDir)) {
         $null = New-Item -ItemType Directory -Path $evidenceExportDir -Force
     }
@@ -1241,9 +1299,14 @@ function Export-HtmlChecklist {
     Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
 
     # ----------------------------------------
-    # Output path (same convention as history export)
+    # Output path
     # ----------------------------------------
-    $outputDir = ".\evidence\checklist"
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+        $outputDir = Join-Path $global:FabriqEvidenceBasePath "checklist"
+    }
+    else {
+        $outputDir = ".\evidence\checklist"
+    }
     if (-not (Test-Path $outputDir)) {
         $null = New-Item -ItemType Directory -Path $outputDir -Force
     }
@@ -2049,7 +2112,13 @@ function Reset-FabriqState {
     $global:_LastModuleResult = $null
 
     # ----------------------------------------
-    # 5. Environment Variables (selected host)
+    # 5. Evidence Base Path
+    # ----------------------------------------
+    $global:FabriqEvidenceBasePath = $null
+    [Environment]::SetEnvironmentVariable("FABRIQ_EVIDENCE_BASE", $null, "Process")
+
+    # ----------------------------------------
+    # 6. Environment Variables (selected host)
     # ----------------------------------------
     $envKeys = @(
         "SELECTED_KANRI_NO", "SELECTED_OLD_PCNAME", "SELECTED_NEW_PCNAME",
@@ -2068,7 +2137,7 @@ function Reset-FabriqState {
     }
 
     # ----------------------------------------
-    # 6. Resume State + Status File
+    # 7. Resume State + Status File
     # ----------------------------------------
     Remove-ResumeState
     Write-StatusFile -Phase "idle"
@@ -3067,12 +3136,20 @@ function Capture-ScreenEvidence {
 "@ -ErrorAction SilentlyContinue
         $null = [DPIUtil]::SetProcessDPIAware()
 
-        # Build save directory: yyyy_MM_dd_{SN}_{PCname}
-        # Date-only (no time) so all captures within the same day share one directory
+        # Build save directory
         $pcName  = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
-        $dateOnly = Get-Date -Format "yyyy_MM_dd"
-        $uid      = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-        $saveDir = Join-Path $PSScriptRoot "..\evidence\auto_capture\${dateOnly}_${uid}_${pcName}"
+
+        if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+            # Unified path: flat (no date/uid/pc subfolder)
+            $saveDir = Join-Path $global:FabriqEvidenceBasePath "auto_capture"
+        }
+        else {
+            # Fallback: legacy path with date/uid/pc subfolder
+            $dateOnly = Get-Date -Format "yyyy_MM_dd"
+            $uid      = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+            $saveDir  = Join-Path $PSScriptRoot "..\evidence\auto_capture\${dateOnly}_${uid}_${pcName}"
+        }
+
         if (-not (Test-Path $saveDir)) {
             New-Item -Path $saveDir -ItemType Directory -Force | Out-Null
         }
@@ -3130,9 +3207,17 @@ function Save-Screenshot {
         # PC name resolution (same convention as Capture-ScreenEvidence)
         $pcName = if ($env:SELECTED_NEW_PCNAME) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
 
-        # Build save directory: BaseDir\YYYY_MM_DD_{PCname}
-        $dateOnly = Get-Date -Format "yyyy_MM_dd"
-        $saveDir = Join-Path $BaseDir "${dateOnly}_${pcName}"
+        # Build save directory
+        if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+            # Unified path: flat (no date/pc subfolder)
+            $saveDir = Join-Path $global:FabriqEvidenceBasePath "gyotaku"
+        }
+        else {
+            # Fallback: legacy path with date/pc subfolder
+            $dateOnly = Get-Date -Format "yyyy_MM_dd"
+            $saveDir = Join-Path $BaseDir "${dateOnly}_${pcName}"
+        }
+
         if (-not (Test-Path $saveDir)) {
             New-Item -Path $saveDir -ItemType Directory -Force | Out-Null
         }

@@ -15,8 +15,16 @@ $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
 }
 $dateStr    = Get-Date -Format "yyyy_MM_dd_HHmmss"
 $uid        = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-$folderName = "${dateStr}_${uid}_${pcName}"
-$targetDir  = Join-Path $PSScriptRoot "..\..\..\evidence\pc_information\$folderName"
+
+if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+    # Unified path: flat (no date/uid/pc subfolder)
+    $targetDir = Join-Path $global:FabriqEvidenceBasePath "pc_information"
+}
+else {
+    # Fallback: legacy path with date/uid/pc subfolder
+    $folderName = "${dateStr}_${uid}_${pcName}"
+    $targetDir  = Join-Path $PSScriptRoot "..\..\..\evidence\pc_information\$folderName"
+}
 
 if (-not (Test-Path $targetDir)) {
     $null = New-Item -ItemType Directory -Path $targetDir -Force

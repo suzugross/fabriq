@@ -209,6 +209,8 @@ function Invoke-NewKittingSession {
     Write-Host ""
     Set-SelectedHostEnvironment -SelectedHost $selectedHostNew
     Write-Host ""
+    Initialize-EvidenceBasePath
+    Write-Host ""
 
     Restore-ExecutionHistory
     Write-Host ""
@@ -1103,6 +1105,7 @@ if ($null -ne $resumeState) {
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"
         $script:SessionID = $resumeState.SessionID
+        Initialize-EvidenceBasePath
 
         # Restore master passphrase from DPAPI-protected resume state
         if (-not [string]::IsNullOrWhiteSpace($resumeState.ProtectedPassphrase)) {
@@ -1207,6 +1210,8 @@ if (-not $isResuming) {
     }
     Write-Host ""
     Set-SelectedHostEnvironment -SelectedHost $selectedHost
+    Write-Host ""
+    Initialize-EvidenceBasePath
     Write-Host ""
 }
 
