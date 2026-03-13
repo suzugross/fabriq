@@ -60,6 +60,44 @@ public class ConsoleFocus {
 }
 '@ -ErrorAction SilentlyContinue
 
+# ========================================
+# QuickEdit Mode Disabler (SetConsoleMode)
+# ========================================
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class QuickEditDisabler {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetStdHandle(int nStdHandle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+    public const int  STD_INPUT_HANDLE       = -10;
+    public const uint ENABLE_QUICK_EDIT_MODE  = 0x0040;
+    public const uint ENABLE_EXTENDED_FLAGS   = 0x0080;
+}
+'@ -ErrorAction SilentlyContinue
+
+function Disable-QuickEditMode {
+    try {
+        $handle = [QuickEditDisabler]::GetStdHandle(
+                      [QuickEditDisabler]::STD_INPUT_HANDLE)
+        if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr]::new(-1)) {
+            return
+        }
+        $mode = [uint32]0
+        if (-not [QuickEditDisabler]::GetConsoleMode($handle, [ref]$mode)) {
+            return
+        }
+        $mode = $mode -band (-bnot [QuickEditDisabler]::ENABLE_QUICK_EDIT_MODE)
+        $mode = $mode -bor  [QuickEditDisabler]::ENABLE_EXTENDED_FLAGS
+        [QuickEditDisabler]::SetConsoleMode($handle, $mode) | Out-Null
+    }
+    catch { }
+}
+
 function Set-ConsoleForeground {
     try {
         $hwnd = [ConsoleFocus]::GetConsoleWindow()
