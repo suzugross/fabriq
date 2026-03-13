@@ -1,3 +1,4 @@
 MenuName,Category,Script,Order,Enabled
 BitLocker Enable,Security,bitlocker_config.ps1,41,1
 BitLocker Disable,Security,bitlocker_disable.ps1,42,1
+BitLocker Await,Security,bitlocker_await.ps1,43,1
