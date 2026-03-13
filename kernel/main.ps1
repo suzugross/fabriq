@@ -21,6 +21,9 @@ if (Test-Path $manifestoPath) {
 # Enable sleep suppression while Fabriq is running
 Enable-SleepSuppression
 
+# Disable QuickEdit to prevent accidental freeze on console click
+Disable-QuickEditMode
+
 # Set compact console window size
 Set-ConsoleSize -Columns 75 -Lines 35
 
