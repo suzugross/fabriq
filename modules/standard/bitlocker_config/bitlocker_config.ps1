@@ -299,9 +299,16 @@ $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
 } else {
     $env:COMPUTERNAME
 }
-$dateStr = Get-Date -Format "yyyy_MM_dd"
-$uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-$evidenceDir = Join-Path $PSScriptRoot "..\..\..\evidence\bitlocker\${dateStr}_${uid}_${pcName}"
+
+if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+    # Unified path mode: flat under bitlocker/
+    $evidenceDir = Join-Path $global:FabriqEvidenceBasePath "bitlocker"
+} else {
+    # Fallback: legacy path
+    $dateStr = Get-Date -Format "yyyy_MM_dd"
+    $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+    $evidenceDir = Join-Path $PSScriptRoot "..\..\..\evidence\bitlocker\${dateStr}_${uid}_${pcName}"
+}
 
 if (-not (Test-Path $evidenceDir)) {
     $null = New-Item -ItemType Directory -Path $evidenceDir -Force
