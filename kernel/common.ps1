@@ -681,10 +681,14 @@ function Initialize-EvidenceBasePath {
     if ([string]::IsNullOrWhiteSpace($sn))     { $sn     = "Unknown_SN" }
 
     # ---- Build path ----
+    # Structure: .\evidence\{name}_evidence\evidence\{category}\
+    # Matches log_uploader output so evidence manager can read both
     $dirName  = "${ts}_${pcName}_${sn}_evidence"
-    $basePath = Join-Path ".\evidence" $dirName
+    $rootPath = Join-Path ".\evidence" $dirName
+    $basePath = Join-Path $rootPath "evidence"
 
     $global:FabriqEvidenceBasePath = $basePath
+    $global:FabriqEvidenceRootPath = $rootPath
     $env:FABRIQ_EVIDENCE_BASE     = $basePath
 
     Show-Info "Evidence base path: $basePath"
@@ -1293,13 +1297,7 @@ function Export-ExecutionHistory {
     Copy-Item $script:HistoryPath $exportPath -Force
     Show-Success "History exported: $exportPath"
 
-    # Copy to evidence with PC name in filename
-    $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
-        $env:SELECTED_NEW_PCNAME
-    } else {
-        $env:COMPUTERNAME
-    }
-
+    # Copy to evidence directory
     if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
         $evidenceExportDir = Join-Path $global:FabriqEvidenceBasePath "export_history"
     }
@@ -1311,8 +1309,20 @@ function Export-ExecutionHistory {
     }
 
     $evidenceDateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
-    $uid = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-    $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${evidenceDateStr}_${uid}_${pcName}.csv"
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+        # エビデンスディレクトリ名にUID+PC名が含まれているためファイル名はタイムスタンプのみ
+        $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${evidenceDateStr}.csv"
+    }
+    else {
+        # フォールバック時はファイル名で端末を特定する必要がある
+        $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
+            $env:SELECTED_NEW_PCNAME
+        } else {
+            $env:COMPUTERNAME
+        }
+        $uid = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+        $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${evidenceDateStr}_${uid}_${pcName}.csv"
+    }
     try {
         Copy-Item $script:HistoryPath $evidenceExportPath -Force
         Show-Success "Evidence copy:    $evidenceExportPath"
@@ -1350,9 +1360,14 @@ function Export-HtmlChecklist {
     }
 
     $dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
-    $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-    $pcName  = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
-    $outPath = Join-Path $outputDir "checklist_${dateStr}_${uid}_${pcName}.html"
+    if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+        $outPath = Join-Path $outputDir "checklist_${dateStr}.html"
+    }
+    else {
+        $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+        $pcName  = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+        $outPath = Join-Path $outputDir "checklist_${dateStr}_${uid}_${pcName}.html"
+    }
 
     # ----------------------------------------
     # Session metadata
@@ -2155,6 +2170,7 @@ function Reset-FabriqState {
     # 5. Evidence Base Path & Profile Info
     # ----------------------------------------
     $global:FabriqEvidenceBasePath = $null
+    $global:FabriqEvidenceRootPath = $null
     [Environment]::SetEnvironmentVariable("FABRIQ_EVIDENCE_BASE", $null, "Process")
     $global:FabriqLastProfileName    = $null
     $global:FabriqLastProfilePath    = $null

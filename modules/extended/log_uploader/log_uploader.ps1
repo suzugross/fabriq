@@ -51,8 +51,10 @@ $logsDir = ".\logs"
 $useUnifiedPath = -not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)
 
 if ($useUnifiedPath) {
-    # Unified mode: use evidence base path directory name as upload folder
-    $folderName  = Split-Path $global:FabriqEvidenceBasePath -Leaf
+    # Unified mode: use evidence root directory name as upload folder
+    # FabriqEvidenceRootPath = .\evidence\{name}_evidence (parent of evidence/)
+    $evidenceRoot = if ($global:FabriqEvidenceRootPath) { $global:FabriqEvidenceRootPath } else { Split-Path $global:FabriqEvidenceBasePath -Parent }
+    $folderName  = Split-Path $evidenceRoot -Leaf
     $evidenceDir = $global:FabriqEvidenceBasePath
 }
 else {
