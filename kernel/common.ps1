@@ -2152,10 +2152,13 @@ function Reset-FabriqState {
     $global:_LastModuleResult = $null
 
     # ----------------------------------------
-    # 5. Evidence Base Path
+    # 5. Evidence Base Path & Profile Info
     # ----------------------------------------
     $global:FabriqEvidenceBasePath = $null
     [Environment]::SetEnvironmentVariable("FABRIQ_EVIDENCE_BASE", $null, "Process")
+    $global:FabriqLastProfileName    = $null
+    $global:FabriqLastProfilePath    = $null
+    $global:FabriqLastProfileModules = $null
 
     # ----------------------------------------
     # 6. Environment Variables (selected host)

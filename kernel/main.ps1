@@ -242,6 +242,7 @@ function Show-MainMenu {
     Write-Host ""
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Write-Host "  [eh] History Export" -ForegroundColor DarkGray
+    Write-Host "  [cl] Regenerate Checklist" -ForegroundColor DarkGray
     Write-Host "  [re] Windows Restart" -ForegroundColor DarkGray
     Write-Host "  [rf] Refabriq" -ForegroundColor DarkGray
     Write-Host "  [m]  Manifeste du Surkitinisme" -ForegroundColor DarkGray
@@ -719,6 +720,11 @@ function Invoke-BatchExecution {
             -DefinedModules   $checklistModules `
             -ExecutionResults $script:ExecutionResults `
             -ElapsedTime      $batchElapsed
+
+        # Retain profile info for checklist regeneration from menu [cl]
+        $global:FabriqLastProfileName    = $ProfileName
+        $global:FabriqLastProfilePath    = $ProfilePath
+        $global:FabriqLastProfileModules = $checklistModules
 
         # Auto-run log upload
         $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
@@ -1289,15 +1295,26 @@ if ($isResuming) {
 
         Remove-ResumeState
 
-        # Offer new session after resume completion (same as [P] handler)
+        # Post-profile completion (same logic as [P] handler)
         Write-Host ""
         Show-Separator
-        Write-Host "Profile Execution Completed" -ForegroundColor Green
-        Show-Separator
-        Write-Host ""
-        if (Confirm-Execution -Message "Start a new kitting session for another device?") {
-            Invoke-NewKittingSession
+
+        $hasErrors = @($script:ExecutionResults | Where-Object {
+            $_.Status -eq "Error" -and -not $_.IsRestored
+        }).Count -gt 0
+
+        if ($hasErrors) {
+            Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
+            Show-Separator
+            Write-Host ""
+            Show-Warning "Some modules had errors. You can re-run them from the Script Menu [S]."
+            Show-Info "Checklist can be regenerated from [cl] after fixing."
+        } else {
+            Write-Host "Profile Execution Completed" -ForegroundColor Green
+            Show-Separator
         }
+        Write-Host ""
+        Wait-KeyPress
         Clear-Host
     }
 }
@@ -1347,12 +1364,24 @@ while ($true) {
         Invoke-ProfileExecution -AllModules $allModules
         Write-Host ""
         Show-Separator
-        Write-Host "Profile Execution Completed" -ForegroundColor Green
-        Show-Separator
-        Write-Host ""
-        if (Confirm-Execution -Message "Start a new kitting session for another device?") {
-            Invoke-NewKittingSession
+
+        # Check if there were errors in this session
+        $hasErrors = @($script:ExecutionResults | Where-Object {
+            $_.Status -eq "Error" -and -not $_.IsRestored
+        }).Count -gt 0
+
+        if ($hasErrors) {
+            Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
+            Show-Separator
+            Write-Host ""
+            Show-Warning "Some modules had errors. You can re-run them from the Script Menu [S]."
+            Show-Info "Checklist can be regenerated from [cl] after fixing."
+        } else {
+            Write-Host "Profile Execution Completed" -ForegroundColor Green
+            Show-Separator
         }
+        Write-Host ""
+        Wait-KeyPress
         Clear-Host
         continue
     }
@@ -1378,6 +1407,33 @@ while ($true) {
         Write-Host ""
         $null = Export-ExecutionHistory
         Write-Host ""
+        Wait-KeyPress
+        Clear-Host
+        continue
+    }
+
+    # Regenerate Checklist
+    if ($choice -eq 'CL' -or $choice -eq 'cl') {
+        Write-Host ""
+        if ([string]::IsNullOrEmpty($global:FabriqLastProfileName)) {
+            Show-Warning "No profile has been executed in this session"
+            Wait-KeyPress
+            Clear-Host
+            continue
+        }
+        Show-Info "Regenerating checklist..."
+        $null = Export-ExecutionHistory
+        $checklistPath = Export-HtmlChecklist `
+            -ProfileName      $global:FabriqLastProfileName `
+            -ProfilePath      $global:FabriqLastProfilePath `
+            -DefinedModules   $global:FabriqLastProfileModules `
+            -ExecutionResults  $script:ExecutionResults
+        if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+            $viewerScript = ".\kernel\ps1\view_report.ps1"
+            if (Test-Path $viewerScript) {
+                & $viewerScript -HtmlPath $checklistPath
+            }
+        }
         Wait-KeyPress
         Clear-Host
         continue
