@@ -1192,6 +1192,18 @@ if (-not $isResuming) {
     Write-Host ""
 }
 
+# Clear history CSV on fresh startup (non-resume) so the new session starts clean.
+# Exported copies in evidence/ and logs/history/history_export_* are preserved.
+if (-not $isResuming) {
+    $historyFile = ".\logs\history\execution_history.csv"
+    if (Test-Path $historyFile) {
+        Remove-Item $historyFile -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path "$historyFile.bak") {
+        Remove-Item "$historyFile.bak" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # Initialize history (Create backup)
 Initialize-ExecutionHistory
 
