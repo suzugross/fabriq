@@ -1447,6 +1447,19 @@ while ($true) {
                 & $viewerScript -HtmlPath $checklistPath
             }
         }
+
+        # Auto-upload to log destinations
+        $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
+        if (Test-Path $uploaderScript) {
+            Write-Host ""
+            Show-Info "Uploading updated evidence..."
+            $uploadResult = & $uploaderScript
+            if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
+                Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
+                $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+            }
+        }
+
         Wait-KeyPress
         Clear-Host
         continue
