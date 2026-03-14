@@ -102,6 +102,7 @@ $script:gyotakuDir = Join-Path $script:fabriqRoot "evidence\gyotaku"
 # ========================================
 if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_EVIDENCE_BASE)) {
     $global:FabriqEvidenceBasePath = $env:FABRIQ_EVIDENCE_BASE
+    $global:FabriqEvidenceRootPath = Split-Path $env:FABRIQ_EVIDENCE_BASE -Parent
 }
 
 # ========================================

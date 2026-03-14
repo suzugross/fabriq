@@ -1118,6 +1118,7 @@ if ($null -ne $resumeState) {
         # Restore evidence base path from resume state (or fallback to new generation)
         if (-not [string]::IsNullOrWhiteSpace($resumeState.EvidenceBasePath)) {
             $global:FabriqEvidenceBasePath = $resumeState.EvidenceBasePath
+            $global:FabriqEvidenceRootPath = Split-Path $resumeState.EvidenceBasePath -Parent
             $env:FABRIQ_EVIDENCE_BASE     = $resumeState.EvidenceBasePath
             Show-Success "Evidence base path restored: $($resumeState.EvidenceBasePath)"
         }
