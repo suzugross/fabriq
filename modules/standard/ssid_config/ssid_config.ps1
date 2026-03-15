@@ -41,8 +41,13 @@ if ($enabledItems.Count -eq 0) {
 
 # Verify WLAN service is available by attempting to list profiles
 $profileOutput = netsh wlan show profiles 2>&1
-if ($LASTEXITCODE -ne 0) {
+# netsh returns exit code 1 even when WLAN works but has no profiles.
+# Detect actual failure by checking for interface/profile text in output.
+$outputText = ($profileOutput | Out-String)
+$hasWlanInterface = $outputText -match "Wi-Fi|Wireless|WLAN|プロファイル|Profile"
+if (-not $hasWlanInterface) {
     Show-Error "WLAN service is not available on this system."
+    Write-Host "  netsh output: $($outputText.Trim())" -ForegroundColor DarkGray
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "WLAN service not available")
 }
@@ -87,8 +92,9 @@ foreach ($item in $enabledItems) {
     }
 
     $connMode = if ($item.AutoConnect -eq "1") { "Auto" } else { "Manual" }
+    $hiddenInfo = if ($item.NonBroadcast -eq "1") { "  Hidden: Yes" } else { "" }
     $authInfo = "$($item.Authentication)/$($item.Encryption)"
-    Write-Host "    SSID: $($item.SSID)  Auth: $authInfo  Connect: $connMode" -ForegroundColor DarkGray
+    Write-Host "    SSID: $($item.SSID)  Auth: $authInfo  Connect: $connMode$hiddenInfo" -ForegroundColor DarkGray
     Write-Host ""
 }
 
@@ -141,6 +147,7 @@ foreach ($item in $enabledItems) {
         # ----------------------------------------
         $ssidEscaped = [System.Security.SecurityElement]::Escape($item.SSID)
         $connMode    = if ($item.AutoConnect -eq "1") { "auto" } else { "manual" }
+        $nonBroadcastXml = if ($item.NonBroadcast -eq "1") { "`n        <nonBroadcast>true</nonBroadcast>" } else { "" }
 
         if ($item.Authentication -ieq "open") {
             # Open network — no sharedKey block
@@ -149,7 +156,7 @@ foreach ($item in $enabledItems) {
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
     <name>$ssidEscaped</name>
     <SSIDConfig>
-        <SSID><name>$ssidEscaped</name></SSID>
+        <SSID><name>$ssidEscaped</name></SSID>$nonBroadcastXml
     </SSIDConfig>
     <connectionType>ESS</connectionType>
     <connectionMode>$connMode</connectionMode>
@@ -174,7 +181,7 @@ foreach ($item in $enabledItems) {
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
     <name>$ssidEscaped</name>
     <SSIDConfig>
-        <SSID><name>$ssidEscaped</name></SSID>
+        <SSID><name>$ssidEscaped</name></SSID>$nonBroadcastXml
     </SSIDConfig>
     <connectionType>ESS</connectionType>
     <connectionMode>$connMode</connectionMode>
