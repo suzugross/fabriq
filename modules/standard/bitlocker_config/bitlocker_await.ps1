@@ -1,12 +1,14 @@
 # ========================================
 # BitLocker Await Script
 # ========================================
-# 暗号化処理中の BitLocker ボリュームが完了するまで待機する。
+# 暗号化/復号化処理中の BitLocker ボリュームが完了するまで待機する。
 #
 # [NOTES]
 # - 管理者権限が必要
 # - bitlocker_list.csv の TargetDrive を参照し、対象ドライブのみ監視する
-# - 冪等性: 暗号化中のドライブがなければ Skipped を返す
+# - 冪等性: 暗号化中・復号化中のドライブがなければ Skipped を返す
+# - EncryptionInProgress: 100% → FullyEncrypted を待機
+# - DecryptionInProgress: 0% → FullyDecrypted を待機
 # - ポーリング間隔: 30秒
 # ========================================
 
@@ -74,12 +76,17 @@ foreach ($item in $enabledItems) {
         Write-Host "    Status: $protectionStatus ($volumeStatus)" -ForegroundColor DarkGray
     }
     elseif ($volumeStatus -eq "EncryptionInProgress") {
-        Write-Host "  [AWAIT] $displayName" -ForegroundColor Yellow
+        Write-Host "  [ENCRYPTING] $displayName" -ForegroundColor Yellow
         Write-Host "    Status: $protectionStatus ($volumeStatus) - ${encryptPercent}% encrypted" -ForegroundColor Yellow
         $hasAwaitTarget = $true
     }
+    elseif ($volumeStatus -eq "DecryptionInProgress") {
+        Write-Host "  [DECRYPTING] $displayName" -ForegroundColor Yellow
+        Write-Host "    Status: $protectionStatus ($volumeStatus) - ${encryptPercent}% remaining" -ForegroundColor Yellow
+        $hasAwaitTarget = $true
+    }
     elseif ($volumeStatus -eq "FullyDecrypted") {
-        Write-Host "  [NOT ENCRYPTED] $displayName" -ForegroundColor DarkGray
+        Write-Host "  [DECRYPTED] $displayName" -ForegroundColor DarkGray
         Write-Host "    Status: $protectionStatus ($volumeStatus)" -ForegroundColor DarkGray
     }
     else {
@@ -93,16 +100,16 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 if (-not $hasAwaitTarget) {
-    Show-Skip "No drives are currently encrypting"
+    Show-Skip "No drives are currently encrypting or decrypting"
     Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "No drives are currently encrypting")
+    return (New-ModuleResult -Status "Skipped" -Message "No drives are currently encrypting or decrypting")
 }
 
 
 # ========================================
 # Step 4: 実行確認
 # ========================================
-$cancelResult = Confirm-ModuleExecution -Message "Wait for encryption to complete?"
+$cancelResult = Confirm-ModuleExecution -Message "Wait for encryption/decryption to complete?"
 if ($null -ne $cancelResult) { return $cancelResult }
 
 Write-Host ""
@@ -123,16 +130,17 @@ $driveTracker = @{}
 foreach ($item in $enabledItems) {
     $dl = $item.TargetDrive
     $blVol = Get-BitLockerVolume -MountPoint $dl -ErrorAction SilentlyContinue
-    if ($blVol -and $blVol.VolumeStatus -eq "EncryptionInProgress") {
+    if ($blVol -and ($blVol.VolumeStatus -eq "EncryptionInProgress" -or $blVol.VolumeStatus -eq "DecryptionInProgress")) {
         $driveTracker[$dl] = @{
             LastPercent  = $blVol.EncryptionPercentage
             StaleElapsed = 0
             TimedOut     = $false
+            Mode         = $blVol.VolumeStatus  # EncryptionInProgress or DecryptionInProgress
         }
     }
 }
 
-Show-Info "Monitoring encryption progress (polling every ${pollIntervalSec}s, stale timeout ${staleTimeoutSec}s)..."
+Show-Info "Monitoring progress (polling every ${pollIntervalSec}s, stale timeout ${staleTimeoutSec}s)..."
 Write-Host ""
 
 while ($true) {
@@ -149,13 +157,20 @@ while ($true) {
         $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
         if ($null -eq $blVolume) { continue }
 
-        if ($blVolume.VolumeStatus -eq "EncryptionInProgress") {
+        $isEncrypting  = $blVolume.VolumeStatus -eq "EncryptionInProgress"
+        $isDecrypting  = $blVolume.VolumeStatus -eq "DecryptionInProgress"
+
+        if ($isEncrypting -or $isDecrypting) {
             $currentPercent = $blVolume.EncryptionPercentage
 
             # 進捗判定
             if ($driveTracker.ContainsKey($driveLetter)) {
                 $tracker = $driveTracker[$driveLetter]
-                if ($currentPercent -gt $tracker.LastPercent) {
+
+                # 暗号化: パーセンテージ増加=進行 / 復号化: パーセンテージ減少=進行
+                $hasProgress = if ($isEncrypting) { $currentPercent -gt $tracker.LastPercent } else { $currentPercent -lt $tracker.LastPercent }
+
+                if ($hasProgress) {
                     # 進行あり → リセット
                     $tracker.LastPercent  = $currentPercent
                     $tracker.StaleElapsed = 0
@@ -172,9 +187,11 @@ while ($true) {
                 }
             }
 
+            $modeLabel = if ($isEncrypting) { "Encrypting" } else { "Decrypting" }
             $pendingDrives += @{
                 Drive   = $driveLetter
                 Percent = $currentPercent
+                Label   = $modeLabel
             }
         }
     }
@@ -187,10 +204,10 @@ while ($true) {
     $timestamp = Get-Date -Format "HH:mm:ss"
     $progressParts = @()
     foreach ($pd in $pendingDrives) {
-        $progressParts += "$($pd.Drive) $($pd.Percent)%"
+        $progressParts += "$($pd.Drive) $($pd.Label) $($pd.Percent)%"
     }
     $progressText = $progressParts -join " / "
-    Write-Host "  [$timestamp] Encrypting: $progressText" -ForegroundColor DarkGray
+    Write-Host "  [$timestamp] $progressText" -ForegroundColor DarkGray
 
     Start-Sleep -Seconds $pollIntervalSec
 }
@@ -226,7 +243,14 @@ foreach ($item in $enabledItems) {
         $successCount++
     }
     elseif ($blVolume.VolumeStatus -eq "FullyDecrypted") {
-        $skipCount++
+        # 待機対象だった場合は成功、そうでなければスキップ
+        if ($driveTracker.ContainsKey($driveLetter)) {
+            Show-Success "Decryption complete: $displayName"
+            $successCount++
+        }
+        else {
+            $skipCount++
+        }
     }
     else {
         Show-Error "Unexpected status on ${displayName}: $($blVolume.VolumeStatus)"
