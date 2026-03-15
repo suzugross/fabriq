@@ -1,4 +1,4 @@
-﻿Enabled,SSID,Authentication,Encryption,Password,AutoConnect,Description,Segment
-0,Office-WiFi,WPA2PSK,AES,P@ssw0rd123,1,Office wireless network,
-0,Guest-WiFi,open,none,,0,Guest network (no password),
-0,Secure-WiFi,WPA3SAE,AES,SecureKey456,1,WPA3 secure network,
+﻿Enabled,SSID,Authentication,Encryption,Password,AutoConnect,NonBroadcast,Description,Segment
+0,Office-WiFi,WPA2PSK,AES,P@ssw0rd123,1,0,Office wireless network,
+0,Guest-WiFi,open,none,,0,0,Guest network (no password),
+0,Secure-WiFi,WPA3SAE,AES,SecureKey456,1,0,WPA3 secure network,
