@@ -1,0 +1,68 @@
+========================================
+Restore Point Configuration - Guide
+========================================
+
+■ 概要
+  Windowsの復元ポイントに関する設定を一括で行うモジュール。
+  システム保護の有効化、24時間制限の解除、シャドウコピー容量設定、
+  復元ポイントの作成を CSV 駆動で制御する。
+
+■ 前提条件
+  - 管理者権限が必要
+  - クライアントOS（Windows 10/11）でのみ動作
+  - サーバーOSでは Checkpoint-Computer / Enable-ComputerRestore 等は使用不可
+
+■ CSV カラム説明 (restore_point_list.csv)
+
+  Enabled       : 1=実行, 0=スキップ
+  SettingName   : 操作種別（下記4種）
+  Drive         : 対象ドライブ（例: C:\）。不要な操作は空欄。
+  Description   : 表示用の説明文
+  Value         : 操作ごとの値（容量%, RestorePointType 等）
+  Segment       : プロファイル用フィルタ（空=全対象）
+
+■ 対応する操作種別 (SettingName)
+
+  enable_protection    : システム保護の有効化
+                         Enable-ComputerRestore を使用。
+                         冪等性: レジストリ DisableSR=0 なら SKIP。
+
+  remove_24h_limit     : 復元ポイント24時間作成制限の解除
+                         レジストリ SystemRestorePointCreationFrequency=0 を設定。
+                         冪等性: 既に 0 なら SKIP。
+
+  set_storage_size     : シャドウコピーの最大容量設定
+                         vssadmin resize shadowstorage を使用。
+                         Value カラムにパーセント値を指定（例: 5）。
+                         冪等性チェックなし（vssadmin は毎回実行）。
+
+  create_restore_point : 復元ポイントの作成
+                         Checkpoint-Computer を使用。
+                         Value カラムに RestorePointType を指定
+                         （省略時: MODIFY_SETTINGS）。
+                         選択肢: APPLICATION_INSTALL, APPLICATION_UNINSTALL,
+                                 DEVICE_DRIVER_INSTALL, MODIFY_SETTINGS
+                         冪等性チェックなし（毎回作成）。
+
+■ CSV の推奨順序
+  処理には論理的な依存関係があるため、以下の順序を推奨:
+    1. enable_protection    （保護が無効だと他の操作が失敗する）
+    2. remove_24h_limit     （制限解除しないと復元ポイント作成がエラーになる場合がある）
+    3. set_storage_size     （容量設定）
+    4. create_restore_point （最後に復元ポイントを作成）
+
+■ CSV 設定例
+
+  既定（全操作実行）:
+    Enabled,SettingName,Drive,Description,Value,Segment
+    1,enable_protection,C:\,システム保護の有効化,,
+    1,remove_24h_limit,,24時間制限の解除,,
+    1,set_storage_size,C:\,シャドウコピー容量設定,5,
+    1,create_restore_point,,fabriqキッティング前,MODIFY_SETTINGS,
+
+  復元ポイント作成のみ（保護は既に有効の場合）:
+    Enabled,SettingName,Drive,Description,Value,Segment
+    0,enable_protection,C:\,システム保護の有効化,,
+    1,remove_24h_limit,,24時間制限の解除,,
+    0,set_storage_size,C:\,シャドウコピー容量設定,5,
+    1,create_restore_point,,キッティング前復元ポイント,MODIFY_SETTINGS,

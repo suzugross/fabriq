@@ -16,6 +16,8 @@
 
 - 独自のログ出力（`Write-Host` 等）や、独自のエラーハンドリング処理を記述することを禁止します。
 - 必ず `kernel/common.ps1` を読み込み、そこで定義されている共通関数（`Show-Info`, `Show-Error`, `Show-Success`, `Initialize-Module` 等）を使用してください。
+- **関数を新規実装する前に、必ず `kernel/common.ps1` の既存関数一覧を確認してください。** 同等の機能を持つ関数が既に存在する場合、独自関数の作成は禁止です（例: 管理者権限チェックには `Test-AdminPrivilege` を使用）。
+- モジュール内にローカルヘルパー関数を定義する場合は、common.ps1 に該当する関数が存在しないことを確認した上で、既存モジュールの類似実装パターン（例: `reg_hklm_config` の `Test-RegistryValueMatch`）を参考にしてください。
 
 ### 3. 既存パターンの踏襲（車輪の再発明禁止）
 
