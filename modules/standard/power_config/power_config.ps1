@@ -21,6 +21,15 @@ $script:PowerPlanGuids = @{
     'POWER_SAVER'       = 'a1841308-3541-4fab-bc81-f71556f20b4a'
 }
 
+# Power Mode Overlay GUIDs (Windows performance power slider)
+# These overlay the base power plan to adjust performance vs battery tradeoff.
+# Reference: https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/customize-power-slider
+$script:PowerModeGuids = @{
+    'BEST_EFFICIENCY'   = '961cc777-2547-4f9d-8174-7d86181b8a7a'
+    'BALANCED'          = '00000000-0000-0000-0000-000000000000'
+    'BEST_PERFORMANCE'  = 'ded574b5-45a0-4f42-8737-46345c09c238'
+}
+
 # Button Action Value Mapping
 $script:ActionValues = @{
     'NOTHING'   = 0
@@ -208,6 +217,11 @@ function Confirm-ApplySettings {
     Write-Host $Profile.Description -ForegroundColor Gray
     Write-Host "Power Plan: " -NoNewline
     Write-Host $Profile.PowerPlan -ForegroundColor Green
+    $modeValue = ConvertTo-SettingValue $Profile.PowerMode
+    if ($null -ne $modeValue) {
+        Write-Host "Power Mode: " -NoNewline
+        Write-Host $modeValue -ForegroundColor Green
+    }
     Show-Separator
     Write-Host ""
 
@@ -257,6 +271,67 @@ function Set-PowerPlan {
         Show-Error "Failed to set power plan - $($_.Exception.Message)"
         return $false
     }
+}
+
+# ========================================
+# Power Mode Overlay Setting Function
+# ========================================
+function Set-PowerMode {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModeName
+    )
+
+    try {
+        $modeGuid = $script:PowerModeGuids[$ModeName]
+
+        if (-not $modeGuid) {
+            Show-Warning "Unknown power mode: $ModeName"
+            return $false
+        }
+
+        # Idempotency check
+        $currentGuid = Get-ActivePowerModeGuid
+        if ($currentGuid -eq $modeGuid) {
+            Show-Skip "Power mode already '$ModeName'"
+            $script:SkipCount++
+            return $true
+        }
+
+        Write-Host "Changing power mode to '$ModeName'..." -ForegroundColor Gray
+
+        $result = & powercfg /overlaysetactive $modeGuid 2>&1
+
+        if ($LASTEXITCODE -eq 0) {
+            Show-Success "Changed power mode to '$ModeName'"
+            $script:ChangeCount++
+            return $true
+        }
+        else {
+            Show-Error "Failed to change power mode: $result"
+            return $false
+        }
+    }
+    catch {
+        Show-Error "Failed to set power mode - $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# ========================================
+# Get Current Power Mode Overlay GUID
+# ========================================
+function Get-ActivePowerModeGuid {
+    try {
+        $output = & powercfg /overlaygetactive 2>&1 | Out-String
+        if ($output -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+            return $matches[1]
+        }
+    }
+    catch {
+        Show-Warning "Failed to get current power mode"
+    }
+    return $null
 }
 
 # ========================================
@@ -674,6 +749,12 @@ function Main {
         $planValue = ConvertTo-SettingValue $selectedProfile.PowerPlan
         if ($null -ne $planValue) {
             Set-PowerPlan -PlanName $planValue
+        }
+
+        # Change Power Mode Overlay
+        $modeValue = ConvertTo-SettingValue $selectedProfile.PowerMode
+        if ($null -ne $modeValue) {
+            Set-PowerMode -ModeName $modeValue
         }
 
         # Get active plan GUID (after potential plan change)
