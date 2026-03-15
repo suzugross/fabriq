@@ -150,6 +150,11 @@ foreach ($app in $enabledApps) {
             Show-Success "Installed $appName (ExitCode: 0)"
             $successCount++
         }
+        elseif ($process.ExitCode -eq 3010) {
+            # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: installation succeeded, reboot needed
+            Show-Success "Installed $appName (ExitCode: 3010 - reboot pending)"
+            $successCount++
+        }
         else {
             Show-Error "Failed to install $appName (ExitCode: $($process.ExitCode))"
             $failCount++
