@@ -1,0 +1,3 @@
+MenuName,Category,Script,Order,Enabled
+PPKG Install,System,ppkg_install_config.ps1,50,1
+PPKG Uninstall,System,ppkg_uninstall_config.ps1,51,1

@@ -1,0 +1,42 @@
+■ 概要
+プロビジョニングパッケージ (.ppkg) の適用・削除を行う汎用モジュールです。
+file/ ディレクトリに配置した PPKG ファイルを、CSVの定義に従って適用または削除します。
+
+■ メニュー項目
+PPKG Install   : PPKG を適用する
+PPKG Uninstall : 適用済み PPKG を削除する
+
+■ 設定ファイル
+[ppkg_list.csv]（Install / Uninstall 共通）
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  PackageName : パッケージ識別名（Get-ProvisioningPackage の PackageName と一致させる）
+  FileName    : file/ 内の PPKG ファイル名（拡張子込み）
+  Description : 説明（表示用。指定時は PackageName の代わりに表示）
+  Segment     : セグメント名（任意。空欄=全セグメント共通）
+
+[記載例]
+  1,MyPackage,MyPackage.ppkg,カスタム設定パッケージ,
+  1,LayoutPkg,Layout_v2.ppkg,レイアウト設定,SegmentA
+
+■ PPKG ファイルの配置
+file/ ディレクトリに .ppkg ファイルを配置してください。
+Install 時のみ参照されます（Uninstall は PackageName で照合するためファイル不要）。
+
+■ 動作の流れ（Install）
+1. ppkg_list.csv を読み込み、file/ 内のファイル存在を確認
+2. 各パッケージのインストール状態を表示（[INSTALL] / [REINSTALL] / [NOT FOUND]）
+3. 実行確認（Y/N）
+4. Install-ProvisioningPackage -QuietInstall -ForceInstall で適用
+
+■ 動作の流れ（Uninstall）
+1. ppkg_list.csv を読み込み
+2. 各パッケージのインストール状態を表示（[INSTALLED] / [NOT FOUND]）
+3. 実行確認（Y/N）
+4. PackageName で照合し、Uninstall-ProvisioningPackage で削除
+5. 未インストールのパッケージはスキップ（冪等）
+
+■ 注意事項
+・管理者権限が必要です
+・適用後、設定の反映にはリブートまたは再ログオンが必要な場合があります
+・PackageName は PPKG ビルド時に指定した名前と一致させてください
+  確認方法: Get-ProvisioningPackage | Select-Object PackageName, PackageId
