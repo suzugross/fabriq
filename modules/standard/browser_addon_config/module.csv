@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Browser Addon Config,Applications,browser_addon_config.ps1,30,1
