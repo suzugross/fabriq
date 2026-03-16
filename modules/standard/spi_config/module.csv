@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+SPI Config (SystemParametersInfo),System,spi_config.ps1,55,1
