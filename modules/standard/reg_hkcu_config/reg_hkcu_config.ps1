@@ -185,10 +185,16 @@ foreach ($item in $regItems) {
         default         { 'String' }
     }
 
-    # Cast numeric types
+    # Cast value to appropriate type
     $regValueTyped = $regValue
     if ($regType -eq 'DWord' -or $regType -eq 'QWord') {
         $regValueTyped = [int]$regValue
+    }
+    elseif ($regType -eq 'Binary') {
+        $hex = $regValue -replace '[^0-9A-Fa-f]', ''
+        $regValueTyped = [byte[]]@(for ($i = 0; $i -lt $hex.Length; $i += 2) {
+            [Convert]::ToByte($hex.Substring($i, 2), 16)
+        })
     }
 
     $hkcuChanged = $false
