@@ -65,6 +65,28 @@ $script:TimeoutGuids = @{
     'disk-dc'      = @{ SubGroup = '0012ee47-9041-4b5d-9b77-535fba8b1442'; Setting = '6738e2c4-e8a5-4a42-b16a-e040e769756e' }
 }
 
+# P/Invoke: powrprof.dll Power Mode APIs (Windows 11+)
+# These APIs are the same code path used by Windows Settings GUI,
+# allowing AC/DC overlay to be set independently without direct registry writes.
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class PowerModeApi {
+    [DllImport("powrprof.dll", EntryPoint = "PowerSetUserConfiguredACPowerMode")]
+    public static extern uint SetACPowerMode(ref Guid PowerModeGuid);
+
+    [DllImport("powrprof.dll", EntryPoint = "PowerSetUserConfiguredDCPowerMode")]
+    public static extern uint SetDCPowerMode(ref Guid PowerModeGuid);
+
+    [DllImport("powrprof.dll", EntryPoint = "PowerGetUserConfiguredACPowerMode")]
+    public static extern uint GetACPowerMode(out Guid PowerModeGuid);
+
+    [DllImport("powrprof.dll", EntryPoint = "PowerGetUserConfiguredDCPowerMode")]
+    public static extern uint GetDCPowerMode(out Guid PowerModeGuid);
+}
+"@ -ErrorAction SilentlyContinue
+
 # Idempotency counters
 $script:SkipCount = 0
 $script:ChangeCount = 0
@@ -283,55 +305,58 @@ function Set-PowerMode {
     )
 
     try {
-        $modeGuid = $script:PowerModeGuids[$ModeName]
+        $modeGuidStr = $script:PowerModeGuids[$ModeName]
 
-        if (-not $modeGuid) {
+        if (-not $modeGuidStr) {
             Show-Warning "Unknown power mode: $ModeName"
             return $false
         }
 
-        # Idempotency check
-        $currentGuid = Get-ActivePowerModeGuid
-        if ($currentGuid -eq $modeGuid) {
-            Show-Skip "Power mode already '$ModeName'"
-            $script:SkipCount++
-            return $true
+        $targetGuid = [Guid]::new($modeGuidStr)
+
+        # Apply overlay for AC and DC via powrprof.dll API
+        foreach ($source in @('AC', 'DC')) {
+            $description = "Power mode ($source): $ModeName"
+
+            # Idempotency check via Getter API
+            $currentGuid = [Guid]::Empty
+            if ($source -eq 'AC') {
+                [void][PowerModeApi]::GetACPowerMode([ref]$currentGuid)
+            }
+            else {
+                [void][PowerModeApi]::GetDCPowerMode([ref]$currentGuid)
+            }
+
+            if ($currentGuid -eq $targetGuid) {
+                Show-Skip "$description (already set)"
+                $script:SkipCount++
+                continue
+            }
+
+            # Apply via Setter API
+            $setGuid = $targetGuid
+            if ($source -eq 'AC') {
+                $hr = [PowerModeApi]::SetACPowerMode([ref]$setGuid)
+            }
+            else {
+                $hr = [PowerModeApi]::SetDCPowerMode([ref]$setGuid)
+            }
+
+            if ($hr -eq 0) {
+                Show-Success "$description"
+                $script:ChangeCount++
+            }
+            else {
+                Show-Warning "Failed to set $description (error code: $hr)"
+            }
         }
 
-        Write-Host "Changing power mode to '$ModeName'..." -ForegroundColor Gray
-
-        $result = & powercfg /overlaysetactive $modeGuid 2>&1
-
-        if ($LASTEXITCODE -eq 0) {
-            Show-Success "Changed power mode to '$ModeName'"
-            $script:ChangeCount++
-            return $true
-        }
-        else {
-            Show-Error "Failed to change power mode: $result"
-            return $false
-        }
+        return $true
     }
     catch {
         Show-Error "Failed to set power mode - $($_.Exception.Message)"
         return $false
     }
-}
-
-# ========================================
-# Get Current Power Mode Overlay GUID
-# ========================================
-function Get-ActivePowerModeGuid {
-    try {
-        $output = & powercfg /overlaygetactive 2>&1 | Out-String
-        if ($output -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
-            return $matches[1]
-        }
-    }
-    catch {
-        Show-Warning "Failed to get current power mode"
-    }
-    return $null
 }
 
 # ========================================
