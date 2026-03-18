@@ -3201,6 +3201,13 @@ if (-not (Test-Path $flagDir)) {
     New-Item -Path $flagDir -ItemType Directory -Force | Out-Null
 }
 Get-Date -Format "yyyy-MM-dd HH:mm:ss" | Set-Content -Path $flagFile -Force -Encoding UTF8
+
+# Clean up: remove Startup trigger since setup is complete
+$userStartup = [Environment]::GetFolderPath("Startup")
+$triggerCmd  = Join-Path $userStartup "FabriqUserSetup.cmd"
+if (Test-Path $triggerCmd) {
+    Remove-Item -Path $triggerCmd -Force -ErrorAction SilentlyContinue
+}
 '@
 
         $launcherContent | Set-Content -Path $scriptPath -Force -Encoding UTF8
@@ -3233,6 +3240,7 @@ function Deploy-FabriqStartupTrigger {
 
         $cmdContent = @"
 @echo off
+if exist "%LOCALAPPDATA%\fabriq\user_setup_done.flag" exit /b 0
 powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\ProgramData\fabriq\fabriq_user_setup.ps1"
 "@
 

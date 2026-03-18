@@ -48,10 +48,13 @@ SPI Configuration (SystemParametersInfo) - Guide
     3. C:\ProgramData\fabriq\fabriq_user_setup.ps1（ランチャー）を配置
     4. C:\Users\Default\...\Startup\FabriqUserSetup.cmd（トリガー）を配置
     5. 新規ユーザーの初回ログオン時:
-       Startup → .cmd → ランチャー → フラグチェック
-       → apply_hkcu.ps1 + apply_spi.ps1 実行 → Explorer 再起動
+       Startup → .cmd → フラグチェック（なし）→ PowerShell 起動
+       → ランチャー → apply_hkcu.ps1 + apply_spi.ps1 実行 → Explorer 再起動
        → フラグ作成（%LOCALAPPDATA%\fabriq\user_setup_done.flag）
-    6. 2回目以降のログオンではフラグ存在により即終了
+       → .cmd を Startup フォルダから自己削除
+    6. 2回目以降のログオン:
+       - .cmd が削除済みなら何も起動しない（最も軽量）
+       - .cmd が残っている場合でもフラグを検出し即終了（PowerShell 起動なし）
 
   ON/OFF 制御:
     スクリプト先頭の $ENABLE_STARTUP_BATCH 変数で一括制御。

@@ -4,8 +4,8 @@
 
 $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
-$ENABLE_ACTIVE_SETUP = $true   # Set to $false to disable Active Setup registration
-$ENABLE_STARTUP_BATCH = $true  # Set to $false to disable Startup batch deployment
+$ENABLE_ACTIVE_SETUP = $false  # Set to $true to enable Active Setup registration
+$ENABLE_STARTUP_BATCH = $false # Set to $true to enable Startup batch deployment
 
 Write-Host ""
 Show-Separator
