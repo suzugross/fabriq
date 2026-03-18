@@ -105,6 +105,87 @@ if ($missingCount -gt 0) {
 }
 
 # ========================================
+# 3.5 Environment Pre-check & Cleanup
+# ========================================
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host "Environment Pre-check" -ForegroundColor Cyan
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host ""
+
+# (a) Stop running Office processes to prevent C2R lock conflicts
+$officeProcesses = @(
+    "WINWORD", "EXCEL", "POWERPNT", "OUTLOOK", "ONENOTE", "MSPUB",
+    "MSACCESS", "VISIO", "LYNC", "Teams", "OfficeClickToRun", "OfficeC2RClient"
+)
+foreach ($procName in $officeProcesses) {
+    $running = Get-Process -Name $procName -ErrorAction SilentlyContinue
+    if ($running) {
+        Show-Warning "Running Office process detected: $procName (PID: $($running.Id -join ', '))"
+        Stop-Process -Name $procName -Force -ErrorAction SilentlyContinue
+        Show-Info "Office process stopped: $procName"
+    }
+}
+
+# (b) Stop ClickToRunSvc service to release C2R locks
+$c2rService = Get-Service -Name "ClickToRunSvc" -ErrorAction SilentlyContinue
+if ($c2rService -and $c2rService.Status -eq "Running") {
+    Stop-Service -Name "ClickToRunSvc" -Force -ErrorAction SilentlyContinue
+    Show-Info "ClickToRunSvc stopped"
+}
+
+# (c) Remove Store-based Office AppX packages (follows storeapp_config pattern)
+$storeOfficePatterns = @("*OneNote*", "*Office.Desktop*", "*Office.OneNote*", "*OfficeSway*")
+foreach ($pattern in $storeOfficePatterns) {
+    # Current user packages
+    $appxPkgs = Get-AppxPackage $pattern -ErrorAction SilentlyContinue
+    foreach ($pkg in $appxPkgs) {
+        Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction SilentlyContinue
+        Show-Info "Removed Store app (User): $($pkg.Name)"
+    }
+    # Provisioned packages (prevents auto-install for new users)
+    $provPkgs = Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like $pattern }
+    foreach ($provPkg in $provPkgs) {
+        Remove-AppxProvisionedPackage -Online -PackageName $provPkg.PackageName -ErrorAction SilentlyContinue
+        Show-Info "Removed Store app (Provisioned): $($provPkg.DisplayName)"
+    }
+}
+
+# (d) Ensure Windows Installer service is not disabled
+$msiService = Get-Service -Name "msiserver" -ErrorAction SilentlyContinue
+if ($msiService -and $msiService.StartType -eq "Disabled") {
+    Set-Service -Name "msiserver" -StartupType Manual
+    Show-Warning "Windows Installer was disabled. Changed to Manual."
+}
+
+# (e) Check disk space on system drive
+$disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($env:SystemDrive)'" -ErrorAction SilentlyContinue
+if ($disk) {
+    $freeGB = [math]::Round($disk.FreeSpace / 1GB, 2)
+    if ($freeGB -lt 10) {
+        Show-Warning "Low disk space: ${freeGB}GB (10GB+ recommended)"
+    } else {
+        Show-Info "Disk space: ${freeGB}GB"
+    }
+}
+
+# (f) Detect existing C2R Office — abort if found (cannot coexist)
+$c2rConfig = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration" -ErrorAction SilentlyContinue
+$productIds = if ($c2rConfig) { $c2rConfig.ProductReleaseIds } else { $null }
+if (-not [string]::IsNullOrWhiteSpace($productIds)) {
+    Show-Error "Existing Click-to-Run Office detected: $productIds"
+    Show-Error "Please uninstall existing Office before running ODT."
+    Show-Info "Use SaRA tool (https://aka.ms/SaRA-officeUninstallFromPC) or manual uninstall."
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Existing C2R Office detected: $productIds")
+}
+Show-Info "No existing C2R Office detected. Environment is clean."
+
+Write-Host ""
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host ""
+
+# ========================================
 # 4. Confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Proceed with Office installation?"
@@ -194,6 +275,23 @@ foreach ($entry in $enabledEntries) {
     finally {
         if (Test-Path $TempXmlPath) {
             Remove-Item -Path $TempXmlPath -Force -ErrorAction SilentlyContinue
+        }
+
+        # Collect ODT log to evidence path
+        $odtLog = Get-ChildItem "C:\Windows\Temp" -Filter "SetupExe(*.log)" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($odtLog) {
+            $logDest = if ($global:FabriqEvidenceBasePath) {
+                Join-Path $global:FabriqEvidenceBasePath "odt_logs"
+            } else {
+                Join-Path ".\evidence" "odt_logs"
+            }
+            if (-not (Test-Path $logDest)) {
+                New-Item -Path $logDest -ItemType Directory -Force | Out-Null
+            }
+            $destFile = Join-Path $logDest $odtLog.Name
+            Copy-Item $odtLog.FullName $destFile -Force -ErrorAction SilentlyContinue
+            Show-Info "ODT log collected: $destFile"
         }
     }
 
