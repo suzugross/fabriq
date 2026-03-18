@@ -21,8 +21,18 @@ INF/ ディレクトリにプリンターモデルごとのフォルダを配置
     Canon LBP6230/
       ...
 
-実行時にモデルフォルダを選択し、INFファイルを選択してインストールします。
-pnputil でドライバーストアに登録後、Add-PrinterDriver で登録します。
+■ 動作モード（Printer Drivers）
+
+  [Auto mode]
+  ホストが選択済みの場合、hostlist.csv の PrinterXDriver の値と
+  INFファイル内のドライバー名を自動照合し、一致するドライバーを
+  自動インストールします。
+  ※ フォルダ名ではなく、INFファイル内に記載されたドライバー名
+    （モデル名）で照合するため、フォルダの命名に依存しません。
+
+  [Interactive mode]
+  ホストが未選択（環境変数なし）の場合、従来通りモデルフォルダを
+  手動選択してインストールします。
 
 ■ プリンター登録（Register Printers）
 設定CSVはありません。
@@ -36,9 +46,17 @@ TCP/IPポートが自動作成され、プリンターが登録されます。
 
 ■ 前提条件
 ・プリンター登録の前にドライバーのインストールが必要です
-・Fabriq起動時にホストを選択済みであること（Register Printers）
+・Fabriq起動時にホストを選択済みであること（Register Printers / Auto mode）
 
-■ 動作の流れ（Printer Drivers）
+■ 動作の流れ（Printer Drivers - Auto mode）
+1. hostlist.csv の PrinterXDriver から一意なドライバー名を収集
+2. INF/ 配下の全フォルダ・全INFファイルをスキャンし、ドライバー名を抽出
+3. hostlist のドライバー名とINF内のドライバー名を完全一致で照合
+4. 一致したドライバーの一覧を表示し、実行確認（Y/N）
+5. pnputil でドライバーストアに登録
+6. Add-PrinterDriver でプリンタードライバーを登録
+
+■ 動作の流れ（Printer Drivers - Interactive mode）
 1. INF/ 内のモデルフォルダを一覧表示し、選択
 2. INFファイルを検出し、アーキテクチャ互換性を確認
 3. pnputil でドライバーストアに登録
