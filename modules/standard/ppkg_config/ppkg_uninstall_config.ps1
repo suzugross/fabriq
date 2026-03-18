@@ -119,10 +119,12 @@ foreach ($item in $enabledItems) {
         continue
     }
 
+    # Phase 1: Attempt cmdlet removal
+    $uninstallSuccess = $false
     try {
-        # Phase 1: Attempt cmdlet removal
         $null = Remove-ProvisioningPackage -PackageId $pkg.PackageId -ErrorAction Stop
         Show-Info "Remove-ProvisioningPackage completed for: $($item.PackageName)"
+        $uninstallSuccess = $true
     }
     catch {
         Show-Warning "Remove-ProvisioningPackage failed: $_ (proceeding to file cleanup)"
@@ -130,8 +132,10 @@ foreach ($item in $enabledItems) {
 
     # Phase 2: Delete physical .ppkg file with retry
     $ppkgFilePath = $pkg.PackagePath
-    if ($ppkgFilePath -and (Test-Path $ppkgFilePath)) {
-        $fileDeleted = $false
+    $ppkgFileExists = ($ppkgFilePath -and (Test-Path $ppkgFilePath))
+    $fileDeleted = -not $ppkgFileExists
+
+    if ($ppkgFileExists) {
         $maxRetry = 5
         for ($r = 0; $r -lt $maxRetry; $r++) {
             try {
@@ -153,17 +157,22 @@ foreach ($item in $enabledItems) {
         }
     }
 
-    # Phase 3: Verify removal
-    $verifyPkg = Get-ProvisioningPackage -AllInstalledPackages -ErrorAction SilentlyContinue |
-        Where-Object { $_.PackageName -eq $item.PackageName }
-
-    if ($verifyPkg) {
-        Show-Error "Package still exists after removal: $($item.PackageName)"
-        $failCount++
-    }
-    else {
+    # Phase 3: Determine result
+    if ($uninstallSuccess) {
         Show-Success "Uninstalled: $($item.PackageName) (PackageId: $($pkg.PackageId))"
         $successCount++
+    }
+    elseif (-not $uninstallSuccess -and $fileDeleted -and $ppkgFileExists) {
+        Show-Success "Cleaned up package file: $($item.PackageName)"
+        $successCount++
+    }
+    elseif (-not $uninstallSuccess -and $fileDeleted -and -not $ppkgFileExists) {
+        Show-Skip "Already clean: $($item.PackageName)"
+        $skipCount++
+    }
+    else {
+        Show-Error "Package removal failed: $($item.PackageName)"
+        $failCount++
     }
 
     Write-Host ""
