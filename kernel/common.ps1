@@ -3104,6 +3104,148 @@ function Register-FabriqRunOnce {
     }
 }
 
+function Register-FabriqActiveSetup {
+    param(
+        [Parameter(Mandatory)] [string]$GUID,
+        [Parameter(Mandatory)] [string]$Description,
+        [Parameter(Mandatory)] [string]$ScriptName,
+        [Parameter(Mandatory)] [string[]]$ScriptLines
+    )
+
+    if (-not (Test-AdminPrivilege)) {
+        Show-Warning "Admin privileges required for Active Setup registration"
+        return $false
+    }
+
+    $scriptDir  = "C:\ProgramData\fabriq"
+    $scriptPath = Join-Path $scriptDir $ScriptName
+
+    try {
+        if (-not (Test-Path $scriptDir)) {
+            New-Item -Path $scriptDir -ItemType Directory -Force | Out-Null
+        }
+        $ScriptLines | Set-Content -Path $scriptPath -Force -Encoding UTF8
+        Show-Success "Script deployed: $scriptPath"
+
+        $asPath = "HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\$GUID"
+        if (-not (Test-Path $asPath)) {
+            New-Item -Path $asPath -Force | Out-Null
+        }
+        $stubPath = "cmd.exe /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+        Set-ItemProperty -Path $asPath -Name "(Default)"  -Value $Description -Force
+        Set-ItemProperty -Path $asPath -Name "StubPath"   -Value $stubPath -Force
+        Set-ItemProperty -Path $asPath -Name "Version"    -Value "1,0,0,0" -Force
+        Show-Success "Active Setup registered: $GUID"
+        return $true
+    }
+    catch {
+        Show-Error "Active Setup registration failed: $_"
+        return $false
+    }
+}
+
+function Deploy-FabriqUserSetupLauncher {
+    # Deploy the launcher script that runs apply_*.ps1 scripts and restarts Explorer.
+    # Called by modules that need deferred user-level setup (reg_hkcu_config, spi_config).
+    # Idempotent: safe to call multiple times (overwrites same file).
+
+    if (-not (Test-AdminPrivilege)) {
+        Show-Warning "Admin privileges required for Startup Batch deployment"
+        return $false
+    }
+
+    $scriptDir  = "C:\ProgramData\fabriq"
+    $scriptPath = Join-Path $scriptDir "fabriq_user_setup.ps1"
+
+    try {
+        if (-not (Test-Path $scriptDir)) {
+            New-Item -Path $scriptDir -ItemType Directory -Force | Out-Null
+        }
+
+        $launcherContent = @'
+# Fabriq User Setup Launcher
+# Runs once at first logon via Startup folder trigger.
+# Applies deferred HKCU/SPI settings and restarts Explorer.
+
+$flagDir  = Join-Path $env:LOCALAPPDATA "fabriq"
+$flagFile = Join-Path $flagDir "user_setup_done.flag"
+
+# Flag check: skip if already executed
+if (Test-Path $flagFile) { exit 0 }
+
+# Run all apply_*.ps1 scripts
+$scriptDir = "C:\ProgramData\fabriq"
+$scripts = @(Get-ChildItem -Path $scriptDir -Filter "apply_*.ps1" -File -ErrorAction SilentlyContinue | Sort-Object Name)
+foreach ($s in $scripts) {
+    try { & $s.FullName } catch { }
+}
+
+# Restart Explorer to apply visual settings
+try {
+    Stop-Process -Name explorer -Force -ErrorAction Stop
+} catch { }
+
+$maxWait = 15
+$elapsed = 0
+while ($elapsed -lt $maxWait) {
+    Start-Sleep -Seconds 1
+    $elapsed++
+    if (@(Get-Process -Name explorer -ErrorAction SilentlyContinue).Count -gt 0) { break }
+}
+if ($elapsed -ge $maxWait) {
+    Start-Process explorer.exe
+}
+
+# Create flag so this does not run again
+if (-not (Test-Path $flagDir)) {
+    New-Item -Path $flagDir -ItemType Directory -Force | Out-Null
+}
+Get-Date -Format "yyyy-MM-dd HH:mm:ss" | Set-Content -Path $flagFile -Force -Encoding UTF8
+'@
+
+        $launcherContent | Set-Content -Path $scriptPath -Force -Encoding UTF8
+        Show-Success "Launcher deployed: $scriptPath"
+        return $true
+    }
+    catch {
+        Show-Error "Failed to deploy launcher: $_"
+        return $false
+    }
+}
+
+function Deploy-FabriqStartupTrigger {
+    # Deploy a .cmd trigger to Default Profile Startup folder.
+    # When a new user logs in, this .cmd launches fabriq_user_setup.ps1 via Startup.
+    # Idempotent: safe to call multiple times (overwrites same file).
+
+    if (-not (Test-AdminPrivilege)) {
+        Show-Warning "Admin privileges required for Startup trigger deployment"
+        return $false
+    }
+
+    $startupDir = "C:\Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+    $cmdPath    = Join-Path $startupDir "FabriqUserSetup.cmd"
+
+    try {
+        if (-not (Test-Path $startupDir)) {
+            New-Item -Path $startupDir -ItemType Directory -Force | Out-Null
+        }
+
+        $cmdContent = @"
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\ProgramData\fabriq\fabriq_user_setup.ps1"
+"@
+
+        $cmdContent | Set-Content -Path $cmdPath -Force -Encoding ASCII
+        Show-Success "Startup trigger deployed: $cmdPath"
+        return $true
+    }
+    catch {
+        Show-Error "Failed to deploy Startup trigger: $_"
+        return $false
+    }
+}
+
 function Invoke-CountdownRestart {
     param([int]$Seconds = 5)
 

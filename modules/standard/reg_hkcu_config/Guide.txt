@@ -31,10 +31,60 @@
 HKCU の設定は自動的に C:\Users\Default\ntuser.dat にも反映されます。
 これにより、新規作成されるユーザーにも同じ設定が適用されます。
 
+■ Active Setup による新規ユーザーへの適用
+Default プロファイルへの直接書き込みだけでは反映されない値がある場合の
+補完手段として、Active Setup を使用した HKCU レジストリ書き込みも行う。
+
+  動作の流れ:
+    1. CSV の全有効エントリから reg add コマンドを動的生成
+    2. C:\ProgramData\fabriq\apply_hkcu.ps1 として配置
+    3. common.ps1 の Register-FabriqActiveSetup で HKLM に Active Setup を登録
+       → HKLM\SOFTWARE\Microsoft\Active Setup\Installed Components\{fabriq-reg-hkcu-config}
+    4. 新規ユーザーの初回ログオン時に Active Setup が
+       cmd.exe 経由で apply_hkcu.ps1 を実行し HKCU レジストリを書き込む
+
+  ON/OFF 制御:
+    スクリプト先頭の $ENABLE_ACTIVE_SETUP 変数で一括制御。
+    $true  = Active Setup 登録を行う（既定）
+    $false = Active Setup をスキップ（Default プロファイルのみで運用）
+
+  注意事項:
+    - Active Setup の登録には管理者権限が必要
+    - 管理者権限がない場合は Warning を表示してスキップ
+    - Default プロファイルへの直接書き込みとの併用（belt and suspenders）
+
 ■ 前提条件
 ・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+
+■ Startup Batch による新規ユーザーへの適用
+Active Setup ではタイミングの問題で Explorer 初期化時にデフォルト値で
+上書きされるケースがある。Startup Batch 方式は Explorer が完全に起動した
+後に設定を適用し、Explorer を再起動することでこの問題を解消する。
+
+  動作の流れ:
+    1. CSV の全有効エントリから reg add コマンドを動的生成
+    2. C:\ProgramData\fabriq\apply_hkcu.ps1 として配置
+    3. C:\ProgramData\fabriq\fabriq_user_setup.ps1（ランチャー）を配置
+    4. C:\Users\Default\...\Startup\FabriqUserSetup.cmd（トリガー）を配置
+    5. 新規ユーザーの初回ログオン時:
+       Startup → .cmd → ランチャー → フラグチェック
+       → apply_hkcu.ps1 + apply_spi.ps1 実行 → Explorer 再起動
+       → フラグ作成（%LOCALAPPDATA%\fabriq\user_setup_done.flag）
+    6. 2回目以降のログオンではフラグ存在により即終了
+
+  ON/OFF 制御:
+    スクリプト先頭の $ENABLE_STARTUP_BATCH 変数で一括制御。
+    $true  = Startup Batch 配置を行う（既定）
+    $false = Startup Batch をスキップ
+
+  注意事項:
+    - 配置には管理者権限が必要
+    - Active Setup との併用（belt and suspenders）を推奨
+    - 初回ログオン時に Explorer が一瞬再起動される（タスクバーが消える）
 
 ■ 動作の流れ
 1. reg_hkcu_list*.csv を全て読み込み、有効エントリを集約
 2. 設定/削除対象を一覧表示
 3. 実行確認（Y/N）後、HKCU と Default プロファイルの両方に適用
+4. Active Setup 登録（$ENABLE_ACTIVE_SETUP が $true の場合）
+5. Startup Batch 配置（$ENABLE_STARTUP_BATCH が $true の場合）

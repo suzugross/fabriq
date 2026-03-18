@@ -128,18 +128,28 @@ foreach ($item in $enabledItems) {
         Show-Warning "Remove-ProvisioningPackage failed: $_ (proceeding to file cleanup)"
     }
 
-    # Phase 2: Delete physical .ppkg file if it still exists
+    # Phase 2: Delete physical .ppkg file with retry
     $ppkgFilePath = $pkg.PackagePath
     if ($ppkgFilePath -and (Test-Path $ppkgFilePath)) {
-        try {
-            Remove-Item -Path $ppkgFilePath -Force -ErrorAction Stop
-            Show-Info "Deleted package file: $ppkgFilePath"
+        $fileDeleted = $false
+        $maxRetry = 5
+        for ($r = 0; $r -lt $maxRetry; $r++) {
+            try {
+                Remove-Item -Path $ppkgFilePath -Force -ErrorAction Stop
+                Show-Info "Deleted package file: $ppkgFilePath"
+                $fileDeleted = $true
+                break
+            }
+            catch {
+                if ($r -lt ($maxRetry - 1)) {
+                    Show-Info "File locked, retrying in 2s... ($($r + 1)/$maxRetry)"
+                    Start-Sleep -Seconds 2
+                }
+            }
         }
-        catch {
-            Show-Error "Failed to delete package file: $ppkgFilePath - $_"
-            $failCount++
-            Write-Host ""
-            continue
+
+        if (-not $fileDeleted) {
+            Show-Warning "Could not delete package file (in use): $ppkgFilePath"
         }
     }
 

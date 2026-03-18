@@ -15,9 +15,54 @@ SPI Configuration (SystemParametersInfo) - Guide
   reg_hkcu_config で制御できる項目はそちらを使用し、
   このモジュールは SPI 経由でしか安全に変更できない項目に使用する。
 
-■ Default Profile への適用
+■ Default Profile への適用（Active Setup 方式）
   SPI は現在のユーザーセッションにのみ反映される。
-  新規ユーザー向けの Default Profile 設定は reg_hkcu_config を併用すること。
+  新規ユーザーへの反映は Active Setup を使用する。
+
+  動作の流れ:
+    1. spi_config 実行時に SPI でカレントユーザーに即時適用
+    2. CSV の bool 項目から apply_spi.ps1 を自動生成
+       → C:\ProgramData\fabriq\apply_spi.ps1
+    3. common.ps1 の Register-FabriqActiveSetup で HKLM に Active Setup を登録
+       → HKLM\SOFTWARE\Microsoft\Active Setup\Installed Components\{fabriq-spi-config}
+    4. 新規ユーザーの初回ログオン時に Active Setup が
+       cmd.exe 経由で apply_spi.ps1 を実行し SPI を適用
+
+  注意事項:
+    - Active Setup の登録には管理者権限が必要
+    - 管理者権限がない場合はカレントユーザーへの適用のみ行う
+    - Active Setup 対象は ValueMode=bool の項目のみ
+      （pvParam/uiParam 項目はセッション固有のため対象外）
+    - MinAnimate（ウィンドウ最小化/最大化アニメ）は SPI ではなく
+      reg_hkcu_config で管理する（レジストリ書き込みで制御可能なため）
+
+■ Startup Batch による新規ユーザーへの適用
+  Active Setup ではタイミングの問題で Explorer 初期化時にデフォルト値で
+  上書きされるケースがある。Startup Batch 方式は Explorer が完全に起動した
+  後に SPI 設定を適用し、Explorer を再起動することでこの問題を解消する。
+
+  動作の流れ:
+    1. CSV の全有効エントリから SPI 呼び出しスクリプトを動的生成
+       → Active Setup と異なり、bool/pvParam/uiParam 全項目が対象
+    2. C:\ProgramData\fabriq\apply_spi.ps1 として配置
+    3. C:\ProgramData\fabriq\fabriq_user_setup.ps1（ランチャー）を配置
+    4. C:\Users\Default\...\Startup\FabriqUserSetup.cmd（トリガー）を配置
+    5. 新規ユーザーの初回ログオン時:
+       Startup → .cmd → ランチャー → フラグチェック
+       → apply_hkcu.ps1 + apply_spi.ps1 実行 → Explorer 再起動
+       → フラグ作成（%LOCALAPPDATA%\fabriq\user_setup_done.flag）
+    6. 2回目以降のログオンではフラグ存在により即終了
+
+  ON/OFF 制御:
+    スクリプト先頭の $ENABLE_STARTUP_BATCH 変数で一括制御。
+    $true  = Startup Batch 配置を行う（既定）
+    $false = Startup Batch をスキップ
+
+  注意事項:
+    - 配置には管理者権限が必要
+    - Active Setup との併用（belt and suspenders）を推奨
+    - Startup Batch では全 ValueMode（bool/pvParam/uiParam）が対象
+    - 初回ログオン時に Explorer が一瞬再起動される
 
 ■ CSV カラム説明 (spi_list.csv)
 
@@ -63,6 +108,9 @@ SPI 定数 対応表
   0x1003     | メニューをフェードまたはスライドして表示する
   0x1015     | メニュー項目をクリック後にフェードアウトする
   0x1007     | リストボックスを滑らかにスクロールする
+
+  ※ 0x0049 (SPI_SETANIMATION / MinAnimate) は reg_hkcu_config で管理。
+    レジストリ書き込みで制御可能なため spi_config では扱わない。
 
 --- UI 制御 (bool) ---
   0x1001     | マウスホバーでウィンドウをアクティブ化
