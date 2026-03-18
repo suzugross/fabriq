@@ -12,12 +12,15 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
 5. BitLockerステータス
 6. MACアドレス一覧
 7. PCシリアル番号
-8. インストール済みソフトウェア一覧
+8. インストール済みソフトウェア一覧（CSV）
+   - デスクトップアプリ（08_DesktopApps.csv）
+   - ストア/UWPアプリ（08_StoreApps.csv）
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
   ・全セクション統合ファイル（_ALL_PC名_Log.txt）
   ・セクションごとの個別ファイル
+  ・アプリ一覧CSV（08_DesktopApps.csv / 08_StoreApps.csv）
 
 ■ 動作の流れ
 1. 実行確認（Y/N）

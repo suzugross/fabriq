@@ -223,23 +223,42 @@ catch {
 }
 
 # ----------------------------------------
-# 8. Installed Software List
+# 8. Installed Software List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Installed Software List" -FileName "08_InstalledSoftware.txt"
+Start-Section -Title "Installed Software List (CSV)" -FileName $null
 
 try {
-    $uninstallKeys = @(
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    # 8a. Desktop Apps (Registry)
+    $desktopPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
-    
-    $softwareList = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | 
-                    Where-Object { $_.DisplayName -ne $null } | 
-                    Select-Object DisplayName, DisplayVersion | 
-                    Sort-Object DisplayName | 
-                    Format-Table -AutoSize | Out-String
 
-    Out-Log $softwareList.TrimEnd()
+    $desktop = Get-ItemProperty $desktopPaths -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName } |
+        Select-Object @{N='Name';E={$_.DisplayName}},
+                      @{N='Version';E={$_.DisplayVersion}},
+                      Publisher,
+                      InstallDate |
+        Sort-Object Name
+
+    $outDesktop = Join-Path $targetDir "08_DesktopApps.csv"
+    $desktop | Export-Csv -Path $outDesktop -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Desktop apps: $($desktop.Count) items -> 08_DesktopApps.csv"
+
+    # 8b. Store / UWP Apps
+    $store = Get-AppxPackage |
+        Select-Object @{N='Name';E={$_.Name}},
+                      @{N='Version';E={$_.Version}},
+                      @{N='Publisher';E={$_.PublisherId}} |
+        Sort-Object Name
+
+    $outStore = Join-Path $targetDir "08_StoreApps.csv"
+    $store | Export-Csv -Path $outStore -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Store apps: $($store.Count) items -> 08_StoreApps.csv"
 }
 catch {
     Out-Log "[ERROR] Failed to get software list: $_" -ForegroundColor Red
