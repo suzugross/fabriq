@@ -4,6 +4,8 @@
 
 $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
+$ENABLE_ACTIVE_SETUP = $true   # Set to $false to disable Active Setup registration
+$ENABLE_STARTUP_BATCH = $true  # Set to $false to disable Startup batch deployment
 
 Write-Host ""
 Show-Separator
@@ -318,6 +320,89 @@ if ($hiveLoaded) {
         }
         else {
             Show-Error "Failed to unload Hive. Please unload manually."
+        }
+    }
+    Write-Host ""
+}
+
+# ========================================
+# Active Setup Registration (for new users)
+# ========================================
+# Register Active Setup so new users receive HKCU settings at first logon.
+# This supplements the Default Profile hive write (belt and suspenders).
+# Uses reg.exe commands which work for standard (non-admin) users.
+# ========================================
+if ($ENABLE_ACTIVE_SETUP) {
+    Write-Host ""
+    Show-Separator
+    Write-Host "Active Setup Registration (for new users)" -ForegroundColor Cyan
+    Show-Separator
+    Write-Host ""
+
+    # Generate reg add commands from CSV items
+    $regAddLines = @()
+    foreach ($item in $regItems) {
+        $cmd = "reg add `"$($item.KeyPath)`" /t $($item.Type) /f"
+        if ($item.KeyName -eq '@') {
+            $cmd += " /ve"
+        }
+        else {
+            $cmd += " /v `"$($item.KeyName)`""
+        }
+        $cmd += " /d `"$($item.Value)`""
+        $regAddLines += $cmd
+    }
+
+    if ($regAddLines.Count -eq 0) {
+        Show-Skip "No items to register for Active Setup"
+    }
+    else {
+        $asResult = Register-FabriqActiveSetup `
+            -GUID "{fabriq-reg-hkcu-config}" `
+            -Description "Fabriq HKCU Registry Configuration" `
+            -ScriptName "apply_hkcu.ps1" `
+            -ScriptLines $regAddLines
+
+        if (-not $asResult) {
+            Show-Warning "Active Setup registration failed - Default Profile hive write still applies"
+        }
+    }
+    Write-Host ""
+}
+
+# ========================================
+# Startup Batch Deployment (for new users)
+# ========================================
+# Deploy a Startup-triggered batch that applies HKCU settings
+# after Explorer has fully started, then restarts Explorer.
+# This supplements Active Setup to handle timing issues where
+# Explorer initialization overwrites settings.
+# ========================================
+if ($ENABLE_STARTUP_BATCH) {
+    Write-Host ""
+    Show-Separator
+    Write-Host "Startup Batch Deployment (for new users)" -ForegroundColor Cyan
+    Show-Separator
+    Write-Host ""
+
+    if ($regAddLines.Count -eq 0) {
+        Show-Skip "No items to deploy for Startup Batch"
+    }
+    else {
+        # Deploy apply_hkcu.ps1 (same content as Active Setup script)
+        $scriptDir = "C:\ProgramData\fabriq"
+        if (-not (Test-Path $scriptDir)) {
+            New-Item -Path $scriptDir -ItemType Directory -Force | Out-Null
+        }
+        $regAddLines | Set-Content -Path (Join-Path $scriptDir "apply_hkcu.ps1") -Force -Encoding UTF8
+        Show-Success "Script deployed: $scriptDir\apply_hkcu.ps1"
+
+        # Deploy launcher and Startup trigger
+        $launcherResult = Deploy-FabriqUserSetupLauncher
+        $triggerResult  = Deploy-FabriqStartupTrigger
+
+        if (-not $launcherResult -or -not $triggerResult) {
+            Show-Warning "Startup Batch deployment incomplete - Active Setup still applies"
         }
     }
     Write-Host ""

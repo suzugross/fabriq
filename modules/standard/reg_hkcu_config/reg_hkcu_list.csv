@@ -13,3 +13,4 @@
 1,12,よく使うアプリを表示しない,HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Start,ShowFrequentList,REG_DWORD,0,
 1,13,スタートメニューのWeb検索ボックスを非表示(参考),HKEY_CURRENT_USER\Software\Policies\Microsoft\Windows\Explorer,DisableSearchBoxSuggestions,REG_DWORD,1,
 1,14,右クリックメニューを旧仕様に戻す,HKEY_CURRENT_USER\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32,@,REG_SZ,,
+1,15,ウィンドウの最小化/最大化アニメーションを無効化,HKEY_CURRENT_USER\Control Panel\Desktop\WindowMetrics,MinAnimate,REG_SZ,0,

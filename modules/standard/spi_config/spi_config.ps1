@@ -1,15 +1,18 @@
 # ========================================
 # SPI Configuration Script (SystemParametersInfo)
 # ========================================
-# Windows の SystemParametersInfo API を使用して、
-# レジストリ直接書き込みでは制御できない設定を変更する。
-# 視覚効果の UserPreferencesMask 項目、マウス速度、
-# キーボード設定等を CSV 駆動で制御可能。
+# Windows SystemParametersInfo API to change settings that
+# cannot be safely controlled via direct registry writes.
+# Covers visual effects (UserPreferencesMask bits), mouse
+# speed, keyboard settings, etc. driven by CSV.
 #
 # [NOTES]
-# - 現在のユーザーセッションに即時反映される
-# - Default Profile への適用は対象外（reg_hkcu_config を併用）
+# - Applies immediately to the current user session via SPI
+# - Registers Active Setup (HKLM) so new users receive
+#   the same SPI settings at first logon (admin required)
 # ========================================
+
+$ENABLE_STARTUP_BATCH = $true  # Set to $false to disable Startup batch deployment
 
 Write-Host ""
 Show-Separator
@@ -248,7 +251,113 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Active Setup Registration (for new users)
+# ========================================
+# Register an Active Setup entry in HKLM so that new users
+# receive the same SPI settings at first logon.
+# The StubPath script is generated dynamically from spi_list.csv
+# (bool items only — pvParam/uiParam items are excluded).
+# Requires admin privileges for HKLM write.
+# ========================================
+Write-Host ""
+Show-Separator
+Write-Host "Active Setup Registration (for new users)" -ForegroundColor Cyan
+Show-Separator
+Write-Host ""
+
+if (-not (Test-AdminPrivilege)) {
+    Show-Warning "Admin privileges required for Active Setup registration"
+    Show-Info "Skipping Active Setup — SPI applied to current user only"
+    Write-Host ""
+}
+else {
+    # Build script content from CSV bool items
+    $boolItems = @($enabledItems | Where-Object { $_.ValueMode -eq 'bool' })
+
+    if ($boolItems.Count -eq 0) {
+        Show-Skip "No bool items to register for Active Setup"
+        Write-Host ""
+    }
+    else {
+        # Generate apply_spi.ps1 script lines (SPI calls only)
+        $scriptLines = @()
+        $scriptLines += "Add-Type 'using System;using System.Runtime.InteropServices;public class S{[DllImport(""user32.dll"")]public static extern bool SystemParametersInfo(uint a,uint b,IntPtr c,uint d);}'"
+        foreach ($bi in $boolItems) {
+            $scriptLines += "[S]::SystemParametersInfo($($bi.SpiAction),0,[IntPtr]$($bi.Value),3)"
+        }
+
+        $asResult = Register-FabriqActiveSetup `
+            -GUID "{fabriq-spi-config}" `
+            -Description "Fabriq SPI Configuration" `
+            -ScriptName "apply_spi.ps1" `
+            -ScriptLines $scriptLines
+
+        if (-not $asResult) {
+            $failCount++
+        }
+
+        Write-Host ""
+    }
+}
+
+# ========================================
+# Startup Batch Deployment (for new users)
+# ========================================
+# Deploy a Startup-triggered batch that applies SPI settings
+# after Explorer has fully started, then restarts Explorer.
+# This supplements Active Setup to handle timing issues where
+# Explorer initialization overwrites settings.
+# ========================================
+if ($ENABLE_STARTUP_BATCH) {
+    Write-Host ""
+    Show-Separator
+    Write-Host "Startup Batch Deployment (for new users)" -ForegroundColor Cyan
+    Show-Separator
+    Write-Host ""
+
+    # Build script lines from all enabled items (not just bool)
+    $allSpiLines = @()
+    $allSpiLines += "Add-Type 'using System;using System.Runtime.InteropServices;public class S{[DllImport(""user32.dll"")]public static extern bool SystemParametersInfo(uint a,uint b,IntPtr c,uint d);}'"
+
+    foreach ($item in $enabledItems) {
+        switch ($item.ValueMode) {
+            'bool' {
+                $allSpiLines += "[S]::SystemParametersInfo($($item.SpiAction),0,[IntPtr]$($item.Value),3)"
+            }
+            'pvParam' {
+                $allSpiLines += "`$p=[System.Runtime.InteropServices.Marshal]::AllocHGlobal(4);[System.Runtime.InteropServices.Marshal]::WriteInt32(`$p,$($item.Value));[S]::SystemParametersInfo($($item.SpiAction),0,`$p,3);[System.Runtime.InteropServices.Marshal]::FreeHGlobal(`$p)"
+            }
+            'uiParam' {
+                $allSpiLines += "[S]::SystemParametersInfo($($item.SpiAction),$($item.Value),[IntPtr]::Zero,3)"
+            }
+        }
+    }
+
+    if ($allSpiLines.Count -le 1) {
+        Show-Skip "No items to deploy for Startup Batch"
+    }
+    else {
+        # Deploy apply_spi.ps1
+        $scriptDir = "C:\ProgramData\fabriq"
+        if (-not (Test-Path $scriptDir)) {
+            New-Item -Path $scriptDir -ItemType Directory -Force | Out-Null
+        }
+        $allSpiLines | Set-Content -Path (Join-Path $scriptDir "apply_spi.ps1") -Force -Encoding UTF8
+        Show-Success "Script deployed: $scriptDir\apply_spi.ps1"
+
+        # Deploy launcher and Startup trigger
+        $launcherResult = Deploy-FabriqUserSetupLauncher
+        $triggerResult  = Deploy-FabriqStartupTrigger
+
+        if (-not $launcherResult -or -not $triggerResult) {
+            Show-Warning "Startup Batch deployment incomplete - Active Setup still applies"
+        }
+    }
+    Write-Host ""
+}
+
+# ========================================
+# Step 7: Results
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "SPI Configuration Results")
