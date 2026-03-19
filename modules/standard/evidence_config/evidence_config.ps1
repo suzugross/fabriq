@@ -83,6 +83,9 @@ Write-Host "    [5] BitLocker Status" -ForegroundColor White
 Write-Host "    [6] MAC Address List" -ForegroundColor White
 Write-Host "    [7] PC Serial Number" -ForegroundColor White
 Write-Host "    [8] Installed Software List (CSV)" -ForegroundColor White
+Write-Host "    [9] Firewall Status (CSV)" -ForegroundColor White
+Write-Host "    [10] Windows Optional Features (CSV)" -ForegroundColor White
+Write-Host "    [11] Server Roles & Features (CSV) *Server only" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -320,6 +323,92 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get software list: $_" -Color Red
     $failCount++
+}
+
+# OS type detection for server-only sections
+$osProductType = (Get-CimInstance Win32_OperatingSystem).ProductType
+$isServer = ($osProductType -ne 1)
+
+# ----------------------------------------
+# 9. Firewall Status (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Firewall Status (CSV)" -FileName $null
+
+try {
+    # 9a. Firewall Profiles
+    $fwProfiles = Get-NetFirewallProfile -ErrorAction Stop |
+        Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction, LogFileName
+
+    $outFwProfiles = Join-Path $targetDir "09_FirewallProfiles.csv"
+    $fwProfiles | Export-Csv -Path $outFwProfiles -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Firewall profiles: $($fwProfiles.Count) profiles -> 09_FirewallProfiles.csv"
+
+    # 9b. Firewall Rules
+    $fwRules = Get-NetFirewallRule -ErrorAction Stop |
+        Select-Object DisplayName, Enabled, Direction, Action, Profile |
+        Sort-Object DisplayName
+
+    $outFwRules = Join-Path $targetDir "09_FirewallRules.csv"
+    $fwRules | Export-Csv -Path $outFwRules -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Firewall rules: $($fwRules.Count) rules -> 09_FirewallRules.csv"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get firewall info: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 10. Windows Optional Features (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Windows Optional Features (CSV)" -FileName $null
+
+try {
+    $optFeatures = Get-WindowsOptionalFeature -Online -ErrorAction Stop |
+        Select-Object FeatureName, State |
+        Sort-Object FeatureName
+
+    $outOptFeatures = Join-Path $targetDir "10_OptionalFeatures.csv"
+    $optFeatures | Export-Csv -Path $outOptFeatures -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Optional features: $($optFeatures.Count) features -> 10_OptionalFeatures.csv"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get optional features: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 11. Server Roles & Features (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Server Roles & Features (CSV)" -FileName $null
+
+if ($isServer) {
+    try {
+        $serverFeatures = Get-WindowsFeature -ErrorAction Stop |
+            Select-Object Name, DisplayName, InstallState, FeatureType |
+            Sort-Object Name
+
+        $outServerFeatures = Join-Path $targetDir "11_ServerRolesFeatures.csv"
+        $serverFeatures | Export-Csv -Path $outServerFeatures -NoTypeInformation -Encoding UTF8
+
+        Out-Log "Server roles & features: $($serverFeatures.Count) items -> 11_ServerRolesFeatures.csv"
+
+        $sectionCount++
+    }
+    catch {
+        Out-Log "[ERROR] Failed to get server features: $_" -Color Red
+        $failCount++
+    }
+}
+else {
+    Out-Log "Skipped: Client OS detected (Server-only section)"
+    $sectionCount++
 }
 
 # ----------------------------------------
