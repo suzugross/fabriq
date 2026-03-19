@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+System Finalize,Maintenance,system_finalize.ps1,99,1
