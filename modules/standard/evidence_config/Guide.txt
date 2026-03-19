@@ -1,5 +1,5 @@
 ■ 概要
-PCのシステム情報を収集し、エビデンスとしてテキストファイルに保存します。
+PCのシステム情報を収集し、エビデンスとしてテキストファイルおよびCSVに保存します。
 
 ■ 設定ファイル
 設定CSVはありません。
@@ -15,12 +15,20 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
 8. インストール済みソフトウェア一覧（CSV）
    - デスクトップアプリ（08_DesktopApps.csv）
    - ストア/UWPアプリ（08_StoreApps.csv）
+9. ファイアウォール設定（CSV）
+   - プロファイル状態（09_FirewallProfiles.csv）
+   - ルール一覧（09_FirewallRules.csv）
+10. Windows機能の有効/無効一覧（CSV）
+   - 10_OptionalFeatures.csv
+11. サーバーの役割と機能一覧（CSV）※Windows Serverのみ
+   - 11_ServerRolesFeatures.csv
+   - Client OSでは自動スキップ
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
   ・全セクション統合ファイル（_ALL_PC名_Log.txt）
-  ・セクションごとの個別ファイル
-  ・アプリ一覧CSV（08_DesktopApps.csv / 08_StoreApps.csv）
+  ・セクションごとの個別ファイル（1-7: テキスト）
+  ・CSV出力（8-11: セクションごとのCSVファイル）
 
 ■ 動作の流れ
 1. 実行確認（Y/N）
