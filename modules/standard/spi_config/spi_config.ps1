@@ -12,7 +12,7 @@
 #   the same SPI settings at first logon (admin required)
 # ========================================
 
-$ENABLE_STARTUP_BATCH = $true  # Set to $false to disable Startup batch deployment
+$ENABLE_STARTUP_BATCH = $false  # Set to $true to enable Startup batch deployment
 
 Write-Host ""
 Show-Separator
