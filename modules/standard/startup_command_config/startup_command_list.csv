@@ -1,0 +1,3 @@
+Enabled,Order,Description,Command,Segment
+0,10,Example: Set timezone to Tokyo,powershell.exe -NoProfile -Command "Set-TimeZone -Id 'Tokyo Standard Time'",
+0,20,Example: Create sample directory,cmd.exe /c mkdir "%USERPROFILE%\Documents\SampleFolder",
