@@ -4,6 +4,7 @@
 # Executes Robocopy jobs defined in robocopy_list.csv.
 # Arguments are built from CSV flag columns (Recursive, Mirror,
 # CopyACL, SkipOlder) with a CustomOptions escape hatch.
+# Optional FileFilter column enables single-file or wildcard copy.
 #
 # [NOTES]
 # - Requires administrator privileges for some operations
@@ -72,6 +73,9 @@ foreach ($item in $enabledItems) {
     Write-Host "    ID:   $($item.ID)" -ForegroundColor DarkGray
     Write-Host "    Src:  $($item.Source)" -ForegroundColor DarkGray
     Write-Host "    Dst:  $($item.Destination)" -ForegroundColor DarkGray
+    if (-not [string]::IsNullOrWhiteSpace($item.FileFilter)) {
+        Write-Host "    Filter: $($item.FileFilter)" -ForegroundColor DarkGray
+    }
 
     # Build flag summary for display
     $flags = @()
@@ -191,7 +195,11 @@ foreach ($item in $enabledItems) {
 
         # Build arguments from CSV flags
         # Baseline: safeguard against default retry hell + progress suppression
-        $arguments = "`"$($item.Source)`" `"$($item.Destination)`" /R:3 /W:5 /NP"
+        $arguments = "`"$($item.Source)`" `"$($item.Destination)`""
+        if (-not [string]::IsNullOrWhiteSpace($item.FileFilter)) {
+            $arguments += " `"$($item.FileFilter)`""
+        }
+        $arguments += " /R:3 /W:5 /NP"
 
         # Mirror vs Recursive (Mirror takes priority)
         if ($item.Mirror -eq "1") {
