@@ -16,6 +16,7 @@ EXEパスと引数を指定して実行する用途全般に使用します。
   TimeoutSec         No    タイムアウト秒数（後述）
   SuccessCodes       No    正常終了コード（後述）
   NoNewWindow        No    ウィンドウ制御（後述）
+  WaitProcessName    No    プロセス終了待機（後述）
 
 ■ 各カラムの詳細
 
@@ -91,13 +92,31 @@ EXEパスと引数を指定して実行する用途全般に使用します。
   Office更新（displaylevel=True）などGUIが表示されるプロセスは 0、
   hostname.exe 等のコンソール出力を確認したいツールは 1 を推奨します。
 
+[WaitProcessName] - プロセス終了待機
+  親プロセスが即座に終了し、子プロセスとして処理が継続するタイプの
+  EXE に対して、指定したプロセス名が消滅するまで待機します。
+
+  設定値                    挙動
+  ------------------------  -----------------------------------------------
+  (空欄)                    デフォルト：親プロセスの終了のみを待機
+  OfficeC2RClient           OfficeC2RClient.exe が終了するまでポーリング待機
+  setup                     setup.exe が終了するまでポーリング待機
+
+  プロセス名は .exe 拡張子なしで指定してください。
+  5秒間隔でプロセスの存在をチェックし、消滅を確認して完了とします。
+  TimeoutSec はポーリングフェーズにも適用されます（無限ハング防止）。
+
+  主な用途:
+  - OfficeC2RClient.exe（Office更新）: 親が即終了し子プロセスで更新実行
+  - ブートストラップ型インストーラ: 親が子を起動して終了するタイプ
+
 ■ CSV 記載例
 
-  Enabled,Description,ExecutablePath,Arguments,WorkingDirectory,TimeoutSec,SuccessCodes,NoNewWindow
-  1,Office Update,OfficeC2RClient.exe,/update user displaylevel=True,C:\Program Files\Common Files\Microsoft Shared\ClickToRun,0,0,0
-  1,Hostname確認,C:\Windows\System32\hostname.exe,,,,0,1
-  1,環境変数パス,%SystemRoot%\System32\ipconfig.exe,/all,,,0,1
-  0,無効エントリ,dummy.exe,,,,0,0
+  Enabled,Description,ExecutablePath,Arguments,WorkingDirectory,TimeoutSec,SuccessCodes,NoNewWindow,Segment,WaitProcessName
+  1,Office Update,OfficeC2RClient.exe,/update user displaylevel=True,C:\Program Files\Common Files\Microsoft Shared\ClickToRun,0,0,0,,OfficeC2RClient
+  1,Hostname確認,C:\Windows\System32\hostname.exe,,,,0,1,,
+  1,環境変数パス,%SystemRoot%\System32\ipconfig.exe,/all,,,0,1,,
+  0,無効エントリ,dummy.exe,,,,0,0,,
 
 ■ 動作の流れ
 1. process_list.csv を読み込み、Enabled=1 のエントリを取得
@@ -108,7 +127,8 @@ EXEパスと引数を指定して実行する用途全般に使用します。
    a. Start-Process でプロセスを起動（PID を表示）
    b. TimeoutSec に基づきタイムアウト監視
    c. タイムアウト時は強制終了して失敗扱い
-   d. 終了コードを SuccessCodes と照合して成否判定
+   d. WaitProcessName 指定時、該当プロセスが消滅するまでポーリング待機
+   e. 終了コードを SuccessCodes と照合して成否判定
 6. 全エントリの結果を集計して BatchResult として返却
 
 ■ 結果判定
@@ -145,3 +165,8 @@ A: TimeoutSec の値を増やすか、空欄（無制限）に設定してくだ
 Q: GUI アプリケーションのウィンドウが表示されない
 A: NoNewWindow が 1 になっていないか確認してください。
    GUIアプリケーションは 0（空欄）に設定してください。
+
+Q: プロセスが即座に完了し、実際の処理が終わる前に次のモジュールへ進む
+A: WaitProcessName カラムに待機対象のプロセス名（.exe なし）を指定して
+   ください。親プロセスが子プロセスを起動して即終了するタイプの EXE
+   （例: OfficeC2RClient.exe）で有効です。

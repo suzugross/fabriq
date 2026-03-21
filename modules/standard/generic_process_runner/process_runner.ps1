@@ -76,6 +76,9 @@ foreach ($proc in $processList) {
         if (-not [string]::IsNullOrWhiteSpace($proc.Arguments)) {
             Write-Host "    Args:     $($proc.Arguments)"
         }
+        if (-not [string]::IsNullOrWhiteSpace($proc.WaitProcessName)) {
+            Write-Host "    WaitFor:  $($proc.WaitProcessName) (poll until process exits)"
+        }
     }
     else {
         Write-Host "  $($proc.Description) [NOT FOUND]" -ForegroundColor Red
@@ -185,6 +188,35 @@ foreach ($proc in $processList) {
             }
         } else {
             $process | Wait-Process
+        }
+
+        # --- Post-execution process polling (WaitProcessName) ---
+        $waitProcessName = if (
+            ($proc.PSObject.Properties.Name -contains 'WaitProcessName') -and
+            (-not [string]::IsNullOrWhiteSpace($proc.WaitProcessName))
+        ) { $proc.WaitProcessName } else { "" }
+
+        if (-not [string]::IsNullOrWhiteSpace($waitProcessName) -and -not $timedOut) {
+            Show-Info "Waiting for process '$waitProcessName' to complete..."
+            $pollInterval = 5
+            $elapsed = 0
+            while ($true) {
+                $running = Get-Process -Name $waitProcessName -ErrorAction SilentlyContinue
+                if (-not $running) { break }
+                if ($timeoutSec -gt 0) {
+                    $elapsed += $pollInterval
+                    if ($elapsed -ge $timeoutSec) {
+                        $timedOut = $true
+                        Show-Error "Timeout ($($timeoutSec)s exceeded) while waiting for '$waitProcessName'"
+                        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+                        break
+                    }
+                }
+                Start-Sleep -Seconds $pollInterval
+            }
+            if (-not $timedOut) {
+                Show-Success "Process '$waitProcessName' has completed"
+            }
         }
 
         $exitCode = $process.ExitCode
