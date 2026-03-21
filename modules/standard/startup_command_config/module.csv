@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Startup Command Deploy,Scripts,startup_command_config.ps1,61,1

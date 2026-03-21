@@ -1,0 +1,44 @@
+========================================
+ Startup Command Deploy - Guide
+========================================
+
+[Overview]
+This module generates a one-time execution script from CSV-defined commands
+and deploys it to the Default User Startup folder. When a new user signs in
+for the first time, the commands are automatically executed once, then the
+trigger batch is cleaned up so it does not run again.
+
+[Execution Flow]
+  1. (Kitting) CSV loaded -> apply_startup_commands.ps1 generated
+  2. (Kitting) Script deployed to C:\ProgramData\fabriq\
+  3. (Kitting) fabriq_user_setup.ps1 (launcher) deployed
+  4. (Kitting) FabriqUserSetup.cmd deployed to Default User Startup
+  5. (New User Logon) Startup\FabriqUserSetup.cmd fires
+  6. (New User Logon) fabriq_user_setup.ps1 runs all apply_*.ps1 scripts
+  7. (New User Logon) apply_startup_commands.ps1 executes CSV commands
+  8. (New User Logon) Flag file created, Startup trigger self-deleted
+
+[CSV Format: startup_command_list.csv]
+  Enabled  - 1=active, 0=skip
+  Order    - Execution order (ascending numeric sort)
+  Description - Display label for the command
+  Command  - Command string to execute (via cmd.exe /c)
+  Segment  - Optional segment filter (empty=all)
+
+[Examples]
+  Enabled,Order,Description,Command,Segment
+  1,10,Set timezone,powershell.exe -NoProfile -Command "Set-TimeZone -Id 'Tokyo Standard Time'",
+  1,20,Create folder,cmd.exe /c mkdir "%USERPROFILE%\Documents\Work",
+  1,30,Run setup script,powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\setup.ps1",
+
+[Notes]
+- Commands are executed via cmd.exe /c in the new user context (non-elevated).
+- Each command runs independently; one failure does not block the rest.
+- Execution log is written to %LOCALAPPDATA%\fabriq\startup_commands.log
+- This module shares the Startup trigger with reg_hkcu_config and spi_config.
+  All apply_*.ps1 scripts run together via the shared launcher.
+- The launcher also restarts Explorer after all scripts complete.
+- To re-deploy, simply run the module again (idempotent overwrite).
+
+[Prerequisite]
+- Administrator privileges required (writes to Default User profile)
