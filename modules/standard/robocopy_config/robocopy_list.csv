@@ -1,4 +1,5 @@
-﻿Enabled,ID,Source,Destination,Recursive,Mirror,CopyACL,SkipOlder,CustomOptions,AuthUser,AuthPass,Description,Segment
-0,1,\\SRC-SV\Share\Data,D:\Migration\Data,0,1,0,0,,DOMAIN\svc_copy,P@ssw0rd,Full mirror from file server,
-0,2,C:\Users\Public\Documents,D:\Backup\Documents,1,0,0,1,/MT:16,,,Incremental backup (multi-thread),
-0,3,D:\ProjectFiles,\\DST-SV\Archive\ProjectFiles,1,0,1,0,/XD Temp Logs,,,ACL-preserved archive,
+﻿Enabled,ID,Source,Destination,Recursive,Mirror,CopyACL,SkipOlder,FileFilter,CustomOptions,AuthUser,AuthPass,Description,Segment
+0,1,\\SRC-SV\Share\Data,D:\Migration\Data,0,1,0,0,,,DOMAIN\svc_copy,P@ssw0rd,Full mirror from file server,
+0,2,C:\Users\Public\Documents,D:\Backup\Documents,1,0,0,1,,/MT:16,,,Incremental backup (multi-thread),
+0,3,D:\ProjectFiles,\\DST-SV\Archive\ProjectFiles,1,0,1,0,,/XD Temp Logs,,,ACL-preserved archive,
+0,4,C:\Config,D:\Backup\Config,0,0,0,0,settings.ini,,,,Single file copy,
