@@ -33,32 +33,297 @@ $script:GraphicsConfigPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDri
 $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
 
-# DPI Value Mapping: Percent -> Registry DWord (Int32)
-$script:DpiValueMap = @{
-    100 = [int]-2
-    125 = [int]-1
-    150 = [int]0
-    175 = [int]1
-    200 = [int]2
+# Supported scale values
+$script:SupportedScales = @(100, 125, 150, 175, 200)
+
+# ========================================
+# C# DPI Scale Resolver
+# ========================================
+# Uses DisplayConfig API to determine each monitor's
+# recommended DPI and compute correct relative DpiValue.
+# Class name differs from dpi_api_config's NativeDpiHelper
+# to avoid type conflicts in the same session.
+# ========================================
+$dpiResolverSource = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class DpiScaleResolver {
+
+    public const int ERROR_SUCCESS = 0;
+
+    // --- Structures ---
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LUID {
+        public uint LowPart;
+        public int HighPart;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_PATH_SOURCE_INFO {
+        public LUID adapterId;
+        public uint id;
+        public uint modeInfoIdx;
+        public uint statusFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_PATH_TARGET_INFO {
+        public LUID adapterId;
+        public uint id;
+        public uint modeInfoIdx;
+        public uint outputTechnology;
+        public uint rotation;
+        public uint scaling;
+        public uint refreshRateNumerator;
+        public uint refreshRateDenominator;
+        public uint statusFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_PATH_INFO {
+        public DISPLAYCONFIG_PATH_SOURCE_INFO sourceInfo;
+        public DISPLAYCONFIG_PATH_TARGET_INFO targetInfo;
+        public uint flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_MODE_INFO {
+        public uint infoType;
+        public uint id;
+        public LUID adapterId;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+        public byte[] modeInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_DEVICE_INFO_HEADER {
+        public int type;
+        public uint size;
+        public LUID adapterId;
+        public uint id;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_SOURCE_DPI_SCALE_GET {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public int minScaleRel;
+        public int curScaleRel;
+        public int maxScaleRel;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct DISPLAYCONFIG_TARGET_DEVICE_NAME {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public uint flags;
+        public uint outputTechnology;
+        public ushort edidManufactureId;
+        public ushort edidProductCodeId;
+        public uint connectorInstance;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string monitorFriendlyDeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string monitorDevicePath;
+    }
+
+    // --- P/Invoke ---
+    [DllImport("user32.dll")]
+    public static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
+
+    [DllImport("user32.dll")]
+    public static extern int QueryDisplayConfig(uint flags, ref uint numPathArrayElements, [Out] DISPLAYCONFIG_PATH_INFO[] pathArray, ref uint numModeInfoArrayElements, [Out] DISPLAYCONFIG_MODE_INFO[] modeInfoArray, IntPtr currentTopologyId);
+
+    [DllImport("user32.dll")]
+    public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DPI_SCALE_GET requestPacket);
+
+    [DllImport("user32.dll")]
+    public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
+
+    // --- Constants ---
+    private static readonly int[] DpiVals = { 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500 };
+
+    private static bool GetPaths(out DISPLAYCONFIG_PATH_INFO[] paths, out uint numPaths) {
+        uint numModes = 0;
+        numPaths = 0;
+        paths = null;
+        uint QDC_ONLY_ACTIVE_PATHS = 0x00000002;
+
+        int status = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out numPaths, out numModes);
+        if (status != ERROR_SUCCESS) return false;
+
+        paths = new DISPLAYCONFIG_PATH_INFO[numPaths];
+        var modes = new DISPLAYCONFIG_MODE_INFO[numModes];
+
+        status = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref numPaths, paths, ref numModes, modes, IntPtr.Zero);
+        return status == ERROR_SUCCESS;
+    }
+
+    public static int GetMonitorCount() {
+        DISPLAYCONFIG_PATH_INFO[] paths;
+        uint numPaths;
+        if (!GetPaths(out paths, out numPaths)) return 0;
+        return (int)numPaths;
+    }
+
+    public static int GetRecommendedDpiPercent(int monitorIndex) {
+        DISPLAYCONFIG_PATH_INFO[] paths;
+        uint numPaths;
+        if (!GetPaths(out paths, out numPaths)) return -1;
+        if (monitorIndex < 0 || monitorIndex >= numPaths) return -1;
+
+        var getPacket = new DISPLAYCONFIG_SOURCE_DPI_SCALE_GET();
+        getPacket.header.type = -3; // GET_DPI_SCALE
+        getPacket.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DPI_SCALE_GET));
+        getPacket.header.adapterId = paths[monitorIndex].sourceInfo.adapterId;
+        getPacket.header.id = paths[monitorIndex].sourceInfo.id;
+
+        int status = DisplayConfigGetDeviceInfo(ref getPacket);
+        if (status != ERROR_SUCCESS) return -1;
+
+        int recommendedIdx = Math.Abs(getPacket.minScaleRel);
+        if (recommendedIdx >= 0 && recommendedIdx < DpiVals.Length) {
+            return DpiVals[recommendedIdx];
+        }
+        return -1;
+    }
+
+    public static string GetMonitorHardwareId(int monitorIndex) {
+        DISPLAYCONFIG_PATH_INFO[] paths;
+        uint numPaths;
+        if (!GetPaths(out paths, out numPaths)) return null;
+        if (monitorIndex < 0 || monitorIndex >= numPaths) return null;
+
+        var namePacket = new DISPLAYCONFIG_TARGET_DEVICE_NAME();
+        namePacket.header.type = 2; // DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME
+        namePacket.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_TARGET_DEVICE_NAME));
+        namePacket.header.adapterId = paths[monitorIndex].targetInfo.adapterId;
+        namePacket.header.id = paths[monitorIndex].targetInfo.id;
+
+        int status = DisplayConfigGetDeviceInfo(ref namePacket);
+        if (status != ERROR_SUCCESS) return null;
+
+        if (string.IsNullOrEmpty(namePacket.monitorDevicePath)) return null;
+
+        // Device path format: \\?\DISPLAY#CMN14D4#5&xxx&0&UID256#{guid}
+        string[] parts = namePacket.monitorDevicePath.Split(new char[] { '#' });
+        if (parts.Length >= 3) return parts[1];
+        return null;
+    }
+
+    public static int ComputeDpiValue(int recommendedPercent, int targetPercent) {
+        int recIdx = -1;
+        int targetIdx = -1;
+        for (int i = 0; i < DpiVals.Length; i++) {
+            if (DpiVals[i] == recommendedPercent) recIdx = i;
+            if (DpiVals[i] == targetPercent) targetIdx = i;
+        }
+        if (recIdx < 0 || targetIdx < 0) return int.MinValue;
+        return targetIdx - recIdx;
+    }
+
+    public static int ComputePercent(int recommendedPercent, int dpiValue) {
+        int recIdx = -1;
+        for (int i = 0; i < DpiVals.Length; i++) {
+            if (DpiVals[i] == recommendedPercent) { recIdx = i; break; }
+        }
+        if (recIdx < 0) return -1;
+        int idx = recIdx + dpiValue;
+        if (idx >= 0 && idx < DpiVals.Length) return DpiVals[idx];
+        return -1;
+    }
+}
+"@
+
+$script:DpiResolverAvailable = $false
+try {
+    Add-Type -TypeDefinition $dpiResolverSource -Language CSharp -ErrorAction SilentlyContinue
+    $script:DpiResolverAvailable = $true
+}
+catch {
+    # Type may already be loaded from a previous run
+    try {
+        $null = [DpiScaleResolver]::GetMonitorCount()
+        $script:DpiResolverAvailable = $true
+    }
+    catch {
+        Show-Warning "DpiScaleResolver compilation failed. Using fallback (150% recommended assumed)."
+    }
 }
 
-# Reverse mapping: DWord -> Percent string
-$script:DpiPercentMap = @{
-    -2 = "100%"
-    -1 = "125%"
-    0  = "150%"
-    1  = "175%"
-    2  = "200%"
+# ========================================
+# Build Monitor Recommended DPI Map
+# ========================================
+# Maps HardwareID prefix -> Recommended DPI percent
+$script:MonitorRecommendedMap = @{}
+$script:FallbackRecommended = 150
+
+if ($script:DpiResolverAvailable) {
+    try {
+        $monCount = [DpiScaleResolver]::GetMonitorCount()
+        for ($i = 0; $i -lt $monCount; $i++) {
+            $hwId = [DpiScaleResolver]::GetMonitorHardwareId($i)
+            $rec  = [DpiScaleResolver]::GetRecommendedDpiPercent($i)
+            if ($hwId -and $rec -gt 0) {
+                $script:MonitorRecommendedMap[$hwId] = $rec
+                Show-Info "Monitor[$i] $hwId : Recommended ${rec}%"
+            }
+        }
+    }
+    catch {
+        Show-Warning "Monitor enumeration failed: $($_.Exception.Message)"
+    }
 }
 
 # ========================================
 # Helper Functions
 # ========================================
 
+function Get-RecommendedPercent {
+    param([string]$HardwareID)
+    if ($script:MonitorRecommendedMap.Count -gt 0 -and $HardwareID) {
+        foreach ($key in $script:MonitorRecommendedMap.Keys) {
+            if ($HardwareID -like "$key*" -or $key -like "$HardwareID*") {
+                return $script:MonitorRecommendedMap[$key]
+            }
+        }
+    }
+    return $script:FallbackRecommended
+}
+
+function Get-DpiValueForScale {
+    param(
+        [int]$ScalePercent,
+        [string]$HardwareID = ""
+    )
+    $rec = Get-RecommendedPercent -HardwareID $HardwareID
+    if ($script:DpiResolverAvailable) {
+        $val = [DpiScaleResolver]::ComputeDpiValue($rec, $ScalePercent)
+        if ($val -ne [int]::MinValue) { return $val }
+    }
+    # Fallback: manual calculation
+    $dpiVals = @(100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500)
+    $recIdx = [Array]::IndexOf($dpiVals, $rec)
+    $targetIdx = [Array]::IndexOf($dpiVals, $ScalePercent)
+    if ($recIdx -ge 0 -and $targetIdx -ge 0) { return ($targetIdx - $recIdx) }
+    return $null
+}
+
 function Convert-DpiToPercent {
-    param([int]$DpiValue)
-    if ($script:DpiPercentMap.ContainsKey($DpiValue)) {
-        return $script:DpiPercentMap[$DpiValue]
+    param(
+        [int]$DpiValue,
+        [string]$HardwareID = ""
+    )
+    $rec = Get-RecommendedPercent -HardwareID $HardwareID
+    if ($script:DpiResolverAvailable) {
+        $percent = [DpiScaleResolver]::ComputePercent($rec, $DpiValue)
+        if ($percent -gt 0) { return "${percent}%" }
+    }
+    # Fallback: manual calculation
+    $dpiVals = @(100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500)
+    $recIdx = [Array]::IndexOf($dpiVals, $rec)
+    if ($recIdx -ge 0) {
+        $idx = $recIdx + $DpiValue
+        if ($idx -ge 0 -and $idx -lt $dpiVals.Length) { return "$($dpiVals[$idx])%" }
     }
     return "Unknown($DpiValue)"
 }
@@ -115,7 +380,7 @@ function Select-DisplayInteractive {
     foreach ($k in $pmKeys) {
         $path = Join-Path $script:PerMonitorBasePath $k.PSChildName
         $val = Get-CurrentDpiValue -KeyPath $path
-        $currentStr = if ($null -ne $val) { Convert-DpiToPercent $val } else { "Not set" }
+        $currentStr = if ($null -ne $val) { Convert-DpiToPercent -DpiValue $val -HardwareID $k.PSChildName } else { "Not set" }
         $allDisplays += [PSCustomObject]@{
             Name       = $k.PSChildName
             Source     = "PerMonitorSettings"
@@ -174,13 +439,23 @@ function Select-DisplayInteractive {
 }
 
 function Select-ScaleInteractive {
+    param([string]$HardwareID = "")
+
+    $recPercent = Get-RecommendedPercent -HardwareID $HardwareID
+
     Write-Host ""
     Write-Host "Available Scale Settings:" -ForegroundColor Cyan
-    Write-Host "  [1] 100%" -ForegroundColor White
-    Write-Host "  [2] 125%" -ForegroundColor White
-    Write-Host "  [3] 150% (Recommended)" -ForegroundColor Green
-    Write-Host "  [4] 175%" -ForegroundColor White
-    Write-Host "  [5] 200%" -ForegroundColor White
+    $scaleOptions = @(100, 125, 150, 175, 200)
+    $idx = 0
+    foreach ($s in $scaleOptions) {
+        $idx++
+        if ($s -eq $recPercent) {
+            Write-Host "  [$idx] ${s}% (Recommended)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  [$idx] ${s}%" -ForegroundColor White
+        }
+    }
     Write-Host ""
 
     $selection = Read-Host "Select scale (or 0 to skip)"
@@ -190,7 +465,6 @@ function Select-ScaleInteractive {
         return $null
     }
 
-    $scaleOptions = @(100, 125, 150, 175, 200)
     if ($selNum -le 0 -or $selNum -gt $scaleOptions.Count) {
         Show-Info "Skipped"
         return $null
@@ -306,8 +580,8 @@ foreach ($item in $items) {
         Show-Warning "Invalid ScalePercent for '$($item.Description)': '$sp' — skipping"
         continue
     }
-    if (-not $script:DpiValueMap.ContainsKey($spNum)) {
-        Show-Warning "Unsupported ScalePercent '$spNum' for '$($item.Description)' (valid: 100,125,150,175,200) — skipping"
+    if ($spNum -notin $script:SupportedScales) {
+        Show-Warning "Unsupported ScalePercent '$spNum' for '$($item.Description)' (valid: $($script:SupportedScales -join ',')) — skipping"
         continue
     }
     $validItems += $item
@@ -427,10 +701,10 @@ foreach ($target in $targets) {
     foreach ($keyName in $target.MatchedKeyNames) {
         $hkcuPath = Join-Path $script:PerMonitorBasePath $keyName
         $currentVal = Get-CurrentDpiValue -KeyPath $hkcuPath
-        $currentStr = if ($null -ne $currentVal) { Convert-DpiToPercent $currentVal } else { "Not set" }
+        $currentStr = if ($null -ne $currentVal) { Convert-DpiToPercent -DpiValue $currentVal -HardwareID $keyName } else { "Not set" }
 
         if (-not $target.InteractiveScale) {
-            $targetDpi = $script:DpiValueMap[[int]$sp]
+            $targetDpi = Get-DpiValueForScale -ScalePercent ([int]$sp) -HardwareID $keyName
             if ($null -ne $currentVal -and $currentVal -eq $targetDpi) {
                 $marker = "[Current]"
                 $markerColor = "Gray"
@@ -531,7 +805,8 @@ foreach ($target in $targets) {
     # Resolve scale percent
     $scalePercent = $null
     if ($target.InteractiveScale) {
-        $scalePercent = Select-ScaleInteractive
+        $interactiveHwId = if ($keyNamesToProcess.Count -gt 0) { $keyNamesToProcess[0] } else { "" }
+        $scalePercent = Select-ScaleInteractive -HardwareID $interactiveHwId
         if ($null -eq $scalePercent) {
             Show-Skip "No scale selected"
             $skipCount++
@@ -543,9 +818,8 @@ foreach ($target in $targets) {
         $scalePercent = [int]$sp
     }
 
-    $targetDpi = $script:DpiValueMap[$scalePercent]
-
     foreach ($keyName in $keyNamesToProcess) {
+        $targetDpi = Get-DpiValueForScale -ScalePercent $scalePercent -HardwareID $keyName
         $displayLabel = if ($target.InteractiveDisplay) { $keyName } else { $item.HardwareID }
         Write-Host "[$index] $displayLabel -> $scalePercent% (DpiValue: $targetDpi)" -ForegroundColor Cyan
         Write-Host "  Key: $keyName" -ForegroundColor Gray
