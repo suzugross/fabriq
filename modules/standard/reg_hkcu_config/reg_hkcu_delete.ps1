@@ -5,6 +5,12 @@
 $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+$hkcuRoot = $hkcuInfo.PsDrivePath
+$hkcuLabel = $hkcuInfo.Label
+$loggedOnUserRedirected = $hkcuInfo.Redirected
+
 Write-Host ""
 Show-Separator
 Write-Host "Registry Deletion (HKCU + Default Profile)" -ForegroundColor Cyan
@@ -56,13 +62,16 @@ if ($regItems.Count -eq 0) {
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "The following registry values will be deleted" -ForegroundColor Yellow
-Write-Host "  Target 1: HKEY_CURRENT_USER (Current User)" -ForegroundColor Yellow
+Write-Host "  Target 1: HKCU - $hkcuLabel" -ForegroundColor Yellow
+if ($loggedOnUserRedirected) {
+    Write-Host "             (Redirected from elevated admin to logged-on user)" -ForegroundColor Magenta
+}
 Write-Host "  Target 2: Default Profile (For New Users)" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 foreach ($item in $regItems) {
-    $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKCU:'
+    $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
     $exists = Get-ItemProperty -Path $checkPath -Name $item.'KeyName' -ErrorAction SilentlyContinue
 
     $status = if ($exists) { "[Exists]" } else { "[Not Found]" }
@@ -125,11 +134,11 @@ foreach ($item in $regItems) {
     $hiveDeleted = $false
 
     # ========================================
-    # 1. Delete from HKCU
+    # 1. Delete from HKCU (logged-on user)
     # ========================================
     Write-Host "  [HKCU] Deleting from current user..." -ForegroundColor Gray
 
-    $hkcuPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKCU:'
+    $hkcuPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
 
     if (-not (Test-Path $hkcuPath)) {
         Write-Host "  [HKCU] Path not found (Skipped)" -ForegroundColor Gray
