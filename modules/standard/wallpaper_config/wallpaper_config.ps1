@@ -6,9 +6,15 @@
 # No Explorer restart required.
 # ========================================
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+
 Write-Host ""
 Show-Separator
 Write-Host "Wallpaper Configuration (Live)" -ForegroundColor Cyan
+if ($hkcuInfo.Redirected) {
+    Write-Host "  Target: $($hkcuInfo.Label)" -ForegroundColor Magenta
+}
 Show-Separator
 Write-Host ""
 
@@ -167,8 +173,8 @@ foreach ($item in $enabledItems) {
         # Resolve to absolute path (required by SystemParametersInfo)
         $absolutePath = (Resolve-Path $imagePath).Path
 
-        # Write registry style values
-        $regPath = "HKCU:\Control Panel\Desktop"
+        # Write registry style values to logged-on user's hive
+        $regPath = $hkcuInfo.PsDrivePath + '\Control Panel\Desktop'
         Set-ItemProperty -Path $regPath -Name "WallpaperStyle" -Value $styleMap[$styleKey].WallpaperStyle -ErrorAction Stop
         Set-ItemProperty -Path $regPath -Name "TileWallpaper"  -Value $styleMap[$styleKey].TileWallpaper  -ErrorAction Stop
 
