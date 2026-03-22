@@ -13,16 +13,22 @@ if (-not (Test-AdminPrivilege)) {
     return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
 }
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+
 Write-Host ""
 Show-Separator
 Write-Host "Display DPI Scaling Configuration" -ForegroundColor Cyan
+if ($hkcuInfo.Redirected) {
+    Write-Host "  Target: $($hkcuInfo.Label)" -ForegroundColor Magenta
+}
 Show-Separator
 Write-Host ""
 
 # ========================================
 # Constants
 # ========================================
-$script:PerMonitorBasePath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
+$script:PerMonitorBasePath = $hkcuInfo.PsDrivePath + '\Control Panel\Desktop\PerMonitorSettings'
 $script:GraphicsConfigPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Configuration'
 $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
