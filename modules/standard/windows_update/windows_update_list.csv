@@ -1,0 +1,11 @@
+Enabled,SettingName,Value,Description
+1,MaxRebootLoops,5,Maximum reboot iterations before forced stop
+1,ScanTimeoutMinutes,30,COM API search timeout per scan
+1,DownloadTimeoutMinutes,60,COM API download timeout
+1,InstallTimeoutMinutes,120,COM API install timeout
+1,SuspendBitLocker,0,Suspend BitLocker for 1 reboot cycle (1=yes 0=no)
+1,RebootCountdownSeconds,15,Seconds before automatic reboot
+1,AutoLaunchFabriq,1,Launch Fabriq.bat after all updates complete (1=yes 0=no)
+1,AutoLogonEnabled,1,Set one-time AutoLogon before reboot using autologon_list.csv (1=yes 0=no)
+1,IncludeOptionalUpdates,1,Include optional quality updates from Microsoft Update service (1=yes 0=no)
+1,IncludeSeekerUpdates,1,Include OptionalInstallation updates (seeker/gradual rollout) in COM API search (1=yes 0=no)

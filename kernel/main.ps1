@@ -243,6 +243,7 @@ function Show-MainMenu {
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Write-Host "  [eh] History Export" -ForegroundColor DarkGray
     Write-Host "  [cl] Regenerate Checklist" -ForegroundColor DarkGray
+    Write-Host "  [wu] Windows Update" -ForegroundColor DarkGray
     Write-Host "  [re] Windows Restart" -ForegroundColor DarkGray
     Write-Host "  [rf] Refabriq" -ForegroundColor DarkGray
     Write-Host "  [m]  Manifeste du Surkitinisme" -ForegroundColor DarkGray
@@ -1250,6 +1251,23 @@ if (-not $isResuming) {
 Restore-ExecutionHistory
 Write-Host ""
 
+# Import Windows Update completion results if available
+$wuCompletedPath = Join-Path $PSScriptRoot "..\modules\standard\windows_update\wu_completed.json"
+if (Test-Path $wuCompletedPath) {
+    try {
+        $wuResult = Get-Content $wuCompletedPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $wuMsg = "$($wuResult.TotalInstalled) updates installed ($($wuResult.TotalLoops) loops, $($wuResult.ElapsedMinutes)min)"
+        Write-ExecutionHistory -ModuleName "Windows Update (Pre-session)" -Category "Maintenance" -Status "Success" -Message $wuMsg
+        Remove-Item $wuCompletedPath -Force -ErrorAction SilentlyContinue
+        Show-Success "Windows Update results imported: $wuMsg"
+        Write-Host ""
+    }
+    catch {
+        Show-Warning "Failed to import Windows Update results: $_"
+        Write-Host ""
+    }
+}
+
 # ========================================
 # Module System Initialization
 # ========================================
@@ -1460,6 +1478,26 @@ while ($true) {
             }
         }
 
+        Wait-KeyPress
+        Clear-Host
+        continue
+    }
+
+    # Windows Update (standalone with self-contained reboot loop)
+    if ($choice -eq 'WU' -or $choice -eq 'wu') {
+        $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
+        if (Test-Path $wuScript) {
+            Write-Host ""
+            $wuResult = & $wuScript
+            if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
+                Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
+                $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
+                Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
+            }
+        }
+        else {
+            Show-Error "windows_update.ps1 not found: $wuScript"
+        }
         Wait-KeyPress
         Clear-Host
         continue

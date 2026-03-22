@@ -1,0 +1,64 @@
+========================================
+Windows Update Module - Usage Guide
+========================================
+
+[Overview]
+This module automates Windows Update using the native COM API
+(Microsoft.Update.Session). It supports self-contained reboot loops:
+scan -> download -> install -> reboot -> repeat until no updates remain.
+
+[Standalone Operation]
+This module operates independently from fabriq Profiles.
+It manages its own reboot loop via RunOnce registry entries
+and a dedicated launcher (wu_launcher.bat).
+
+[How to Use]
+1. Launch fabriq (Fabriq.bat)
+2. Enter [wu] at the main menu
+3. The module scans for available updates and displays them
+4. Confirm to start installation
+5. If reboot is required, the module automatically:
+   - Saves state to wu_state.json
+   - Registers RunOnce entry (FabriqWindowsUpdate)
+   - Reboots the system
+6. After reboot, wu_launcher.bat auto-launches the module
+7. The module resumes and re-scans for additional updates
+8. Repeats until no updates remain or max loop limit is reached
+9. On completion, optionally launches Fabriq.bat for Profile execution
+
+[Configuration: windows_update_list.csv]
+- MaxRebootLoops        : Max reboot iterations (default: 5)
+- ScanTimeoutMinutes    : Scan timeout (default: 30)
+- DownloadTimeoutMinutes: Download timeout (default: 60)
+- InstallTimeoutMinutes : Install timeout (default: 120)
+- SuspendBitLocker      : Suspend BitLocker before reboot (0/1)
+- RebootCountdownSeconds: Seconds before reboot (default: 15)
+- AutoLaunchFabriq      : Launch Fabriq.bat after completion (0/1)
+- IncludeOptionalUpdates: Include optional quality updates (preview
+                          cumulative updates etc.) from Microsoft Update
+                          service (0/1, default: 1). Updates detected via
+                          this setting are shown with [Optional] tag in
+                          the scan results.
+- IncludeSeekerUpdates  : Include OptionalInstallation (seeker/gradual
+                          rollout) updates in COM API search criteria
+                          (0/1, default: 1). When enabled, the search
+                          query explicitly includes DeploymentAction
+                          'OptionalInstallation' alongside 'Installation'.
+
+[Session Integration]
+When AutoLaunchFabriq=1, the module saves wu_completed.json upon
+completion. When fabriq starts next, it detects this file and
+imports a summary line into execution_history.csv, so the Windows
+Update result appears in the same session report as subsequent
+Profile execution.
+
+[Runtime Files]
+- wu_state.json     : Loop state (created during reboot loop, deleted on completion)
+- wu_completed.json : Completion summary (created on finish, consumed by main.ps1)
+
+[Important Notes]
+- Do NOT use this module simultaneously with Profile-based restart_config.
+  Both register RunOnce entries and may conflict after reboot.
+- The module requires administrator privileges and network connectivity.
+- COM API operations are synchronous; MaxRebootLoops serves as the
+  ultimate safety valve against indefinite execution.

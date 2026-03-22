@@ -1,0 +1,5 @@
+Enabled,SettingName,Value,Description
+1,TimeoutMinutes,60,Max wait time for update completion
+1,PollIntervalSeconds,10,Polling interval for completion check
+1,ForceAppShutdown,1,Force-close Office apps before update (1=yes 0=no)
+1,DisplayLevel,0,Show Office update UI (1=yes 0=no)

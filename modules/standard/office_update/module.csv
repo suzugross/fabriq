@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Office Update,Maintenance,office_update.ps1,80,1
