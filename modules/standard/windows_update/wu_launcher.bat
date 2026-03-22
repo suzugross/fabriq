@@ -14,6 +14,6 @@ if errorlevel 1 (
 
 cd /d %~dp0\..\..\..
 
-start "" conhost.exe powershell.exe -NoProfile -ExecutionPolicy Unrestricted -Command ". .\kernel\common.ps1; & '.\modules\standard\windows_update\windows_update.ps1'"
+start "" conhost.exe powershell.exe -NoProfile -ExecutionPolicy Unrestricted -Command ". .\kernel\common.ps1; $null = & '.\modules\standard\windows_update\windows_update.ps1'"
 
 exit /b
