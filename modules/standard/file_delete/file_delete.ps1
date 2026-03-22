@@ -26,7 +26,7 @@ if ($items.Count -eq 0) {
 
 # Expand Windows-style environment variables (%USERPROFILE%, %TEMP%, etc.)
 foreach ($item in $items) {
-    $item.TargetPath = [System.Environment]::ExpandEnvironmentVariables($item.TargetPath)
+    $item.TargetPath = Expand-UserEnvironmentVariables $item.TargetPath
 }
 
 # ========================================

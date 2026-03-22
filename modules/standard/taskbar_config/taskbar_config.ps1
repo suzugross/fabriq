@@ -67,7 +67,7 @@ Write-Host ""
 $index = 0
 foreach ($item in $items) {
     $index++
-    $expandedPath = [System.Environment]::ExpandEnvironmentVariables($item.LinkPath)
+    $expandedPath = Expand-UserEnvironmentVariables $item.LinkPath
 
     if (Test-Path $expandedPath) {
         $marker = "[PIN]"

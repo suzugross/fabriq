@@ -31,7 +31,7 @@ if ($null -eq $destList -or $destList.Count -eq 0) {
 
 Show-Info "Restore destinations ($($destList.Count)):"
 foreach ($item in $destList) {
-    $expanded = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+    $expanded = Expand-UserEnvironmentVariables $item.DestPath
     Write-Host "    -> $expanded\Edge  ($($item.Description))" -ForegroundColor Gray
 }
 Write-Host ""
@@ -116,7 +116,7 @@ $successCount = 0
 $failCount    = 0
 
 foreach ($item in $destList) {
-    $expandedDest = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+    $expandedDest = Expand-UserEnvironmentVariables $item.DestPath
     $targetDir    = Join-Path $expandedDest "Edge"
 
     Show-Info "Restoring to: $targetDir"

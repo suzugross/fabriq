@@ -26,7 +26,7 @@ if ($items.Count -eq 0) {
 
 # Expand Windows-style environment variables in DestPath (%USERPROFILE%, etc.)
 foreach ($item in $items) {
-    $item.DestPath = [System.Environment]::ExpandEnvironmentVariables($item.DestPath)
+    $item.DestPath = Expand-UserEnvironmentVariables $item.DestPath
 }
 
 # ========================================
