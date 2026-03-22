@@ -6,6 +6,7 @@ $HIVE_PATH = "$env:SystemDrive\Users\Default\ntuser.dat"
 $HIVE_KEY = "HKEY_USERS\Hive"
 $ENABLE_ACTIVE_SETUP = $false  # Set to $true to enable Active Setup registration
 $ENABLE_STARTUP_BATCH = $false # Set to $true to enable Startup batch deployment
+$FORCE_OVERWRITE = $true       # Set to $false to enable idempotency checks and skip already-configured settings
 
 Write-Host ""
 Show-Separator
@@ -103,6 +104,11 @@ Write-Host "  Target 1: HKEY_CURRENT_USER (Current User)" -ForegroundColor Yello
 Write-Host "  Target 2: Default Profile (For New Users)" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
+
+if ($FORCE_OVERWRITE) {
+    Write-Host "[FORCE MODE] All settings will be applied regardless of current state" -ForegroundColor Magenta
+    Write-Host ""
+}
 
 foreach ($item in $regItems) {
     $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKCU:'
@@ -209,7 +215,7 @@ foreach ($item in $regItems) {
     $hkcuPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', 'HKCU:'
 
     # Idempotency check for HKCU
-    if (Test-RegistryValueMatch -Path $hkcuPath -Name $regKey -ExpectedValue $regValue -Type $regType) {
+    if (-not $FORCE_OVERWRITE -and (Test-RegistryValueMatch -Path $hkcuPath -Name $regKey -ExpectedValue $regValue -Type $regType)) {
         Write-Host "  [HKCU] Already configured (Skip)" -ForegroundColor Gray
     }
     else {
@@ -247,7 +253,7 @@ foreach ($item in $regItems) {
         $hivePsPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', 'HKU:\Hive'
 
         # Idempotency check for HIVE
-        if (Test-RegistryValueMatch -Path $hivePsPath -Name $regKey -ExpectedValue $regValue -Type $regType) {
+        if (-not $FORCE_OVERWRITE -and (Test-RegistryValueMatch -Path $hivePsPath -Name $regKey -ExpectedValue $regValue -Type $regType)) {
             Write-Host "  [HIVE] Already configured (Skip)" -ForegroundColor Gray
         }
         else {

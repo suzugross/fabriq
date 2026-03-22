@@ -2,6 +2,8 @@
 # Registry Configuration Script (HKLM)
 # ========================================
 
+$FORCE_OVERWRITE = $true  # Set to $false to enable idempotency checks and skip already-configured settings
+
 Write-Host ""
 Show-Separator
 Write-Host "Registry Configuration (HKLM)" -ForegroundColor Cyan
@@ -97,6 +99,11 @@ Write-Host "The following registry changes will be applied" -ForegroundColor Yel
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
+if ($FORCE_OVERWRITE) {
+    Write-Host "[FORCE MODE] All settings will be applied regardless of current state" -ForegroundColor Magenta
+    Write-Host ""
+}
+
 foreach ($item in $regItems) {
     $checkPath = $item.'KeyPath' -replace '^HKEY_LOCAL_MACHINE', 'HKLM:'
     $checkPath = $checkPath -replace '^HKEY_CURRENT_USER', 'HKCU:'
@@ -160,7 +167,7 @@ foreach ($item in $regItems) {
         }
 
         # Idempotency check: skip if current value matches target
-        if (Test-RegistryValueMatch -Path $regPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $regType) {
+        if (-not $FORCE_OVERWRITE -and (Test-RegistryValueMatch -Path $regPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $regType)) {
             Show-Skip "Already configured"
             $skipCount++
             Write-Host ""
