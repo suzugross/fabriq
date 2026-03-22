@@ -140,6 +140,8 @@ foreach ($item in $items) {
     # Execute copy
     try {
         Copy-Item -Path $srcPath -Destination $item.DestPath -Recurse -Force -ErrorAction Stop
+        # Remove Zone.Identifier (Mark of the Web) alternate data stream
+        Remove-ZoneIdentifier -Path $destPath
         if (Test-Path $destPath) {
             Show-Success "Copied"
         }
