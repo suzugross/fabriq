@@ -321,7 +321,7 @@ if ($enabledItems.Count -eq 0) {
 # DeletePath の環境変数を展開（file_delete パターン準拠）
 foreach ($item in $enabledItems) {
     if ($item.ActionType -eq "DeletePath") {
-        $item.TargetPath = [System.Environment]::ExpandEnvironmentVariables($item.TargetPath)
+        $item.TargetPath = Expand-UserEnvironmentVariables $item.TargetPath
     }
 }
 

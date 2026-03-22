@@ -45,9 +45,9 @@ $missingCount = 0
 foreach ($proc in $processList) {
     # --- パス解決 ---
     # 環境変数を展開
-    $exePath = [Environment]::ExpandEnvironmentVariables($proc.ExecutablePath)
+    $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
     $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
-        [Environment]::ExpandEnvironmentVariables($proc.WorkingDirectory)
+        Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
     } else {
         ""
     }
@@ -118,9 +118,9 @@ foreach ($proc in $processList) {
     $desc = $proc.Description
 
     # --- パス解決（Step 3 と同一ロジック） ---
-    $exePath = [Environment]::ExpandEnvironmentVariables($proc.ExecutablePath)
+    $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
     $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
-        [Environment]::ExpandEnvironmentVariables($proc.WorkingDirectory)
+        Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
     } else {
         ""
     }

@@ -2713,6 +2713,73 @@ function Test-AdminPrivilege {
 }
 
 # ========================================
+# User Environment Variable Expansion
+# ========================================
+# When running elevated (Run As Administrator) from a different user account,
+# %USERPROFILE%, %LOCALAPPDATA%, %APPDATA% expand to the admin's profile.
+# This function resolves them to the logged-on user's paths instead.
+
+# Cache for logged-on user profile info (populated on first call)
+$script:_LoggedOnUserProfile = $null
+$script:_LoggedOnUserResolved = $false
+
+function Expand-UserEnvironmentVariables {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Value
+    )
+
+    # Fast path: no environment variables to expand
+    if ($Value -notmatch '%') {
+        return $Value
+    }
+
+    # Resolve logged-on user profile (cached after first call)
+    if (-not $script:_LoggedOnUserResolved) {
+        $script:_LoggedOnUserResolved = $true
+        try {
+            $isAdmin = Test-AdminPrivilege
+            if ($isAdmin) {
+                $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+                $loggedOnUser = $cs.UserName
+                if (-not [string]::IsNullOrWhiteSpace($loggedOnUser)) {
+                    $username = $loggedOnUser.Split('\')[-1]
+                    $currentUser = [System.Environment]::UserName
+                    # Only apply correction when elevated user differs from logged-on user
+                    if ($username -ne $currentUser) {
+                        $sid = (New-Object System.Security.Principal.NTAccount($loggedOnUser)).Translate(
+                            [System.Security.Principal.SecurityIdentifier]
+                        ).Value
+                        $profilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid" -ErrorAction Stop).ProfileImagePath
+                        if (Test-Path $profilePath) {
+                            $script:_LoggedOnUserProfile = @{
+                                UserProfile  = $profilePath
+                                LocalAppData = Join-Path $profilePath "AppData\Local"
+                                AppData      = Join-Path $profilePath "AppData\Roaming"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            # Detection failed — fall back to default expansion
+            $script:_LoggedOnUserProfile = $null
+        }
+    }
+
+    # If logged-on user differs, replace user-specific variables before standard expansion
+    if ($null -ne $script:_LoggedOnUserProfile) {
+        $Value = $Value -ireplace '%USERPROFILE%',  $script:_LoggedOnUserProfile.UserProfile
+        $Value = $Value -ireplace '%LOCALAPPDATA%', $script:_LoggedOnUserProfile.LocalAppData
+        $Value = $Value -ireplace '%APPDATA%',      $script:_LoggedOnUserProfile.AppData
+    }
+
+    # Expand any remaining standard variables (%TEMP%, %SystemRoot%, etc.)
+    return [System.Environment]::ExpandEnvironmentVariables($Value)
+}
+
+# ========================================
 # Status Monitor Functions
 # ========================================
 

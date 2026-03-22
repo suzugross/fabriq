@@ -113,7 +113,7 @@ if ($enabledItems.Count -eq 0) {
 
 # Expand environment variables in TargetPath
 foreach ($item in $enabledItems) {
-    $item.TargetPath = [System.Environment]::ExpandEnvironmentVariables($item.TargetPath)
+    $item.TargetPath = Expand-UserEnvironmentVariables $item.TargetPath
 }
 
 
