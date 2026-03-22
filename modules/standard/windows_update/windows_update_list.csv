@@ -8,4 +8,5 @@ Enabled,SettingName,Value,Description
 1,AutoLaunchFabriq,1,Launch Fabriq.bat after all updates complete (1=yes 0=no)
 1,AutoLogonEnabled,1,Set one-time AutoLogon before reboot using autologon_list.csv (1=yes 0=no)
 1,IncludeOptionalUpdates,1,Include optional quality updates from Microsoft Update service (1=yes 0=no)
+1,AutoInstall,1,Skip confirmation and install all found updates automatically (1=yes 0=no)
 1,IncludeSeekerUpdates,1,Include OptionalInstallation updates (seeker/gradual rollout) in COM API search (1=yes 0=no)

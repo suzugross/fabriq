@@ -34,6 +34,8 @@ and a dedicated launcher (wu_launcher.bat).
 - SuspendBitLocker      : Suspend BitLocker before reboot (0/1)
 - RebootCountdownSeconds: Seconds before reboot (default: 15)
 - AutoLaunchFabriq      : Launch Fabriq.bat after completion (0/1)
+- AutoInstall           : Skip confirmation prompt and install all
+                          found updates automatically (0/1, default: 0).
 - IncludeOptionalUpdates: Include optional quality updates (preview
                           cumulative updates etc.) from Microsoft Update
                           service (0/1, default: 1). Updates detected via

@@ -42,6 +42,7 @@ $autoLaunchFabriq = ($config["AutoLaunchFabriq"] -eq "1")
 $autoLogonEnabled = ($config["AutoLogonEnabled"] -eq "1")
 $includeOptional  = ($config["IncludeOptionalUpdates"] -eq "1")
 $includeSeeker    = ($config["IncludeSeekerUpdates"] -eq "1")
+$autoInstall      = ($config["AutoInstall"] -eq "1")
 
 # Load state file (reboot loop persistence)
 $statePath = Join-Path $PSScriptRoot "wu_state.json"
@@ -247,14 +248,19 @@ while ($true) {
     # Step 4: User Confirmation
     # ========================================
     if (-not $state.UserConfirmed) {
-        $cancelResult = Confirm-ModuleExecution -Message "Install all $($availableUpdates.Count) updates?"
-        if ($null -ne $cancelResult) {
-            Disable-SleepSuppression
-            # Clean up state file if exists
-            if (Test-Path $statePath) {
-                Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+        if ($autoInstall) {
+            Show-Info "[AUTO-INSTALL] Skipping confirmation, proceeding automatically"
+        }
+        else {
+            $cancelResult = Confirm-ModuleExecution -Message "Install all $($availableUpdates.Count) updates?"
+            if ($null -ne $cancelResult) {
+                Disable-SleepSuppression
+                # Clean up state file if exists
+                if (Test-Path $statePath) {
+                    Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+                }
+                return $cancelResult
             }
-            return $cancelResult
         }
         $state.UserConfirmed = $true
     }
