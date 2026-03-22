@@ -1,0 +1,49 @@
+■ 概要
+Click-to-Run (C2R) 版 Office の更新を実行し、完了を待機します。
+バージョンレジストリ変化・Scenarioレジストリ・プロセス監視の
+ハイブリッド方式で完了を検知します。
+
+■ 対象製品
+・Microsoft 365 Apps (Office 365)
+・Office 2021 / Office LTSC 2021
+・Office LTSC 2024
+・その他 Click-to-Run 方式の Office
+
+※ MSI版 Office (2016以前) は対象外です。
+  MSI版はWindows Update経由で更新されます。
+
+■ 設定ファイル
+[office_update_list.csv]
+  SettingName/Value ペア形式で設定値を管理します。
+
+  TimeoutMinutes      : 更新完了までの最大待ち時間（デフォルト: 60分）
+  PollIntervalSeconds : ポーリング間隔（デフォルト: 10秒）
+  ForceAppShutdown    : 更新前にOfficeアプリを強制終了（1=する, 0=しない）
+  DisplayLevel        : Office更新UIを表示（1=表示, 0=非表示）
+
+■ 動作の流れ
+1. office_update_list.csv を読み込み
+2. Click-to-Run Officeの存在確認・現在バージョン取得
+3. 更新情報を表示（製品名、バージョン、チャネル）
+4. 実行確認（Y/N）
+5. Officeアプリの強制終了（ForceAppShutdown=1の場合）
+6. OfficeC2RClient.exe で更新をトリガー
+7. 完了待ちループ（ハイブリッド検知）
+8. バージョン変化の有無で結果を判定
+
+■ 完了検知の仕組み
+3つのシグナルを組み合わせて完了を判定します:
+  1. VersionToReport レジストリの変化 → 更新成功（確定的）
+  2. OfficeC2RClient.exe プロセスの存在 → 更新処理中
+  3. Scenario レジストリサブキー → 更新操作中のみ存在
+
+完了判定:
+  ・バージョン変化あり → Success（更新成功）
+  ・プロセスなし＋Scenarioなし（30秒以上経過後）→ 処理完了
+  ・タイムアウト到達 → Error
+
+■ 注意事項
+・C2R版Officeの更新は通常、再起動不要です
+・OfficeC2RClient.exe のコマンドラインスイッチはMicrosoft非公式です
+・ForceAppShutdown=1 の場合、Office アプリが強制終了されます
+  事前に作業内容を保存してください
