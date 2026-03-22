@@ -2783,6 +2783,32 @@ function Expand-UserEnvironmentVariables {
 }
 
 # ========================================
+# Zone.Identifier Removal
+# ========================================
+# Removes the Zone.Identifier alternate data stream (Mark of the Web)
+# from a file or all files in a directory tree.
+# Safe to call on files without Zone.Identifier (no-op).
+# Uses best-effort approach: errors are silently ignored.
+# ========================================
+
+function Remove-ZoneIdentifier {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) { return }
+
+    if (Test-Path -Path $Path -PathType Container) {
+        Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue }
+    }
+    else {
+        Unblock-File -Path $Path -ErrorAction SilentlyContinue
+    }
+}
+
+# ========================================
 # HKCU Root Resolution for Elevated Sessions
 # ========================================
 # When running elevated as a different admin account, HKCU: points to
