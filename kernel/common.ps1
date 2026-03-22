@@ -2719,9 +2719,43 @@ function Test-AdminPrivilege {
 # %USERPROFILE%, %LOCALAPPDATA%, %APPDATA% expand to the admin's profile.
 # This function resolves them to the logged-on user's paths instead.
 
-# Cache for logged-on user profile info (populated on first call)
+# Cache for logged-on user info (populated on first call)
 $script:_LoggedOnUserProfile = $null
 $script:_LoggedOnUserResolved = $false
+$script:_LoggedOnUserSid = $null
+$script:_LoggedOnUserName = $null
+
+# Internal helper: detect logged-on user and populate cache
+function _Resolve-LoggedOnUser {
+    if ($script:_LoggedOnUserResolved) { return }
+    $script:_LoggedOnUserResolved = $true
+    try {
+        if (-not (Test-AdminPrivilege)) { return }
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        $loggedOnUser = $cs.UserName
+        if ([string]::IsNullOrWhiteSpace($loggedOnUser)) { return }
+        $username = $loggedOnUser.Split('\')[-1]
+        $currentUser = [System.Environment]::UserName
+        # Only apply correction when elevated user differs from logged-on user
+        if ($username -eq $currentUser) { return }
+        $sid = (New-Object System.Security.Principal.NTAccount($loggedOnUser)).Translate(
+            [System.Security.Principal.SecurityIdentifier]
+        ).Value
+        $script:_LoggedOnUserSid = $sid
+        $script:_LoggedOnUserName = $username
+        $profilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid" -ErrorAction Stop).ProfileImagePath
+        if (Test-Path $profilePath) {
+            $script:_LoggedOnUserProfile = @{
+                UserProfile  = $profilePath
+                LocalAppData = Join-Path $profilePath "AppData\Local"
+                AppData      = Join-Path $profilePath "AppData\Roaming"
+            }
+        }
+    }
+    catch {
+        # Detection failed - cache remains null (fallback behavior)
+    }
+}
 
 function Expand-UserEnvironmentVariables {
     param(
@@ -2734,39 +2768,8 @@ function Expand-UserEnvironmentVariables {
         return $Value
     }
 
-    # Resolve logged-on user profile (cached after first call)
-    if (-not $script:_LoggedOnUserResolved) {
-        $script:_LoggedOnUserResolved = $true
-        try {
-            $isAdmin = Test-AdminPrivilege
-            if ($isAdmin) {
-                $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
-                $loggedOnUser = $cs.UserName
-                if (-not [string]::IsNullOrWhiteSpace($loggedOnUser)) {
-                    $username = $loggedOnUser.Split('\')[-1]
-                    $currentUser = [System.Environment]::UserName
-                    # Only apply correction when elevated user differs from logged-on user
-                    if ($username -ne $currentUser) {
-                        $sid = (New-Object System.Security.Principal.NTAccount($loggedOnUser)).Translate(
-                            [System.Security.Principal.SecurityIdentifier]
-                        ).Value
-                        $profilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid" -ErrorAction Stop).ProfileImagePath
-                        if (Test-Path $profilePath) {
-                            $script:_LoggedOnUserProfile = @{
-                                UserProfile  = $profilePath
-                                LocalAppData = Join-Path $profilePath "AppData\Local"
-                                AppData      = Join-Path $profilePath "AppData\Roaming"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch {
-            # Detection failed — fall back to default expansion
-            $script:_LoggedOnUserProfile = $null
-        }
-    }
+    # Ensure logged-on user info is resolved (cached after first call)
+    _Resolve-LoggedOnUser
 
     # If logged-on user differs, replace user-specific variables before standard expansion
     if ($null -ne $script:_LoggedOnUserProfile) {
@@ -2777,6 +2780,52 @@ function Expand-UserEnvironmentVariables {
 
     # Expand any remaining standard variables (%TEMP%, %SystemRoot%, etc.)
     return [System.Environment]::ExpandEnvironmentVariables($Value)
+}
+
+# ========================================
+# HKCU Root Resolution for Elevated Sessions
+# ========================================
+# When running elevated as a different admin account, HKCU: points to
+# the admin's registry hive. This function resolves the correct root
+# for the logged-on user, using HKU:\<SID> when redirection is needed.
+#
+# Returns hashtable:
+#   PsDrivePath  - "HKCU:" or "HKU:\<SID>" (for PowerShell cmdlets)
+#   RegExePath   - "HKEY_CURRENT_USER" or "HKEY_USERS\<SID>" (for reg.exe)
+#   Label        - Display label (e.g., "Current User" or "username (via HKU)")
+#   Redirected   - $true if targeting a different user's hive
+#   SID          - User SID string (or $null if not redirected)
+
+function Resolve-HkcuRoot {
+    _Resolve-LoggedOnUser
+
+    if ($null -ne $script:_LoggedOnUserSid) {
+        $sid = $script:_LoggedOnUserSid
+        # Ensure HKU PSDrive exists
+        if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+            New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null
+        }
+        if (Test-Path "HKU:\$sid") {
+            return @{
+                PsDrivePath = "HKU:\$sid"
+                RegExePath  = "HKEY_USERS\$sid"
+                Label       = "$($script:_LoggedOnUserName) (via HKU)"
+                Redirected  = $true
+                SID         = $sid
+            }
+        }
+        else {
+            Show-Warning "Logged-on user hive not found in HKU. HKCU will target the elevated admin user."
+        }
+    }
+
+    return @{
+        PsDrivePath = "HKCU:"
+        RegExePath  = "HKEY_CURRENT_USER"
+        Label       = "Current User"
+        Redirected  = $false
+        SID         = $null
+    }
 }
 
 # ========================================

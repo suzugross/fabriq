@@ -6,6 +6,9 @@
 # Requires sign-out or restart to take effect.
 # ========================================
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+
 Write-Host ""
 Show-Separator
 Write-Host "Desktop Icon Layout Restore" -ForegroundColor Cyan
@@ -46,6 +49,9 @@ Write-Host "  Latest backup:" -ForegroundColor White
 Write-Host "    File: $($latestBackup.Name)" -ForegroundColor White
 Write-Host "    Date: $($latestBackup.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))" -ForegroundColor White
 Write-Host "    Size: $sizeStr" -ForegroundColor White
+if ($hkcuInfo.Redirected) {
+    Write-Host "  Target:       $($hkcuInfo.Label)" -ForegroundColor Magenta
+}
 
 if ($backupFiles.Count -gt 1) {
     Write-Host "    ($($backupFiles.Count) backups available, using latest)" -ForegroundColor Gray
@@ -79,8 +85,21 @@ Write-Host ""
 # --- Execute import ---
 Show-Info "Importing registry data..."
 
+$importFile = $latestBackup.FullName
+$tempFileCreated = $false
+
+# When redirected, rewrite .reg to target logged-on user's hive via HKU
+if ($hkcuInfo.Redirected) {
+    Show-Info "Redirecting import to logged-on user ($($hkcuInfo.Label))..."
+    $regContent = Get-Content -Path $latestBackup.FullName -Raw -Encoding Unicode
+    $regContent = $regContent -replace 'HKEY_CURRENT_USER', "HKEY_USERS\$($hkcuInfo.SID)"
+    $importFile = Join-Path $env:TEMP "fabriq_desktop_restore_temp.reg"
+    Set-Content -Path $importFile -Value $regContent -Encoding Unicode -NoNewline
+    $tempFileCreated = $true
+}
+
 try {
-    $process = Start-Process reg.exe -ArgumentList "import `"$($latestBackup.FullName)`"" -Wait -PassThru -NoNewWindow
+    $process = Start-Process reg.exe -ArgumentList "import `"$importFile`"" -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -eq 0) {
         Write-Host ""
         Show-Separator
@@ -105,4 +124,9 @@ catch {
     Show-Error "$($_.Exception.Message)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "Import failed: $($_.Exception.Message)")
+}
+finally {
+    if ($tempFileCreated -and (Test-Path $importFile)) {
+        Remove-Item -Path $importFile -Force -ErrorAction SilentlyContinue
+    }
 }

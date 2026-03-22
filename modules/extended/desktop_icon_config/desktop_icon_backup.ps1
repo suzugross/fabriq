@@ -6,19 +6,25 @@
 # to a .reg file for later restoration.
 # ========================================
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+
 Write-Host ""
 Show-Separator
 Write-Host "Desktop Icon Layout Backup" -ForegroundColor Cyan
 Show-Separator
 Write-Host ""
 
-$registryPath = 'HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Bags\1\Desktop'
+$registryPath = $hkcuInfo.RegExePath + '\Software\Microsoft\Windows\Shell\Bags\1\Desktop'
 
 # --- Check if registry key exists ---
-$checkPath = 'HKCU:\Software\Microsoft\Windows\Shell\Bags\1\Desktop'
+$checkPath = $hkcuInfo.PsDrivePath + '\Software\Microsoft\Windows\Shell\Bags\1\Desktop'
 $keyExists = Test-Path $checkPath -ErrorAction SilentlyContinue
 
 Write-Host "  Registry Key: $registryPath" -ForegroundColor White
+if ($hkcuInfo.Redirected) {
+    Write-Host "  Target:       $($hkcuInfo.Label)" -ForegroundColor Magenta
+}
 if ($keyExists) {
     Write-Host "  Status:       Exists [OK]" -ForegroundColor Green
 }
@@ -59,6 +65,13 @@ Show-Info "Exporting registry key..."
 try {
     $process = Start-Process reg.exe -ArgumentList "export `"$registryPath`" `"$exportFile`" /y" -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -eq 0) {
+        # Normalize exported .reg to portable HKEY_CURRENT_USER format
+        if ($hkcuInfo.Redirected) {
+            $regContent = Get-Content -Path $exportFile -Raw -Encoding Unicode
+            $regContent = $regContent -replace [regex]::Escape("HKEY_USERS\$($hkcuInfo.SID)"), 'HKEY_CURRENT_USER'
+            Set-Content -Path $exportFile -Value $regContent -Encoding Unicode -NoNewline
+        }
+
         # Get file size
         $fileSize = (Get-Item $exportFile -ErrorAction SilentlyContinue).Length
         $sizeStr = if ($fileSize -gt 1KB) {

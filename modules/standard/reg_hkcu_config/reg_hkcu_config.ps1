@@ -8,6 +8,12 @@ $ENABLE_ACTIVE_SETUP = $false  # Set to $true to enable Active Setup registratio
 $ENABLE_STARTUP_BATCH = $false # Set to $true to enable Startup batch deployment
 $FORCE_OVERWRITE = $true       # Set to $false to enable idempotency checks and skip already-configured settings
 
+# Resolve logged-on user's HKCU target
+$hkcuInfo = Resolve-HkcuRoot
+$hkcuRoot = $hkcuInfo.PsDrivePath
+$hkcuLabel = $hkcuInfo.Label
+$loggedOnUserRedirected = $hkcuInfo.Redirected
+
 Write-Host ""
 Show-Separator
 Write-Host "Registry Config (HKCU + Default Profile)" -ForegroundColor Cyan
@@ -100,7 +106,10 @@ function Test-RegistryValueMatch {
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "The following registry changes will be applied" -ForegroundColor Yellow
-Write-Host "  Target 1: HKEY_CURRENT_USER (Current User)" -ForegroundColor Yellow
+Write-Host "  Target 1: HKCU - $hkcuLabel" -ForegroundColor Yellow
+if ($loggedOnUserRedirected) {
+    Write-Host "             (Redirected from elevated admin to logged-on user)" -ForegroundColor Magenta
+}
 Write-Host "  Target 2: Default Profile (For New Users)" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
@@ -111,7 +120,7 @@ if ($FORCE_OVERWRITE) {
 }
 
 foreach ($item in $regItems) {
-    $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKCU:'
+    $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
     $checkType = switch ($item.'Type') {
         'REG_SZ' { 'String' }; 'REG_DWORD' { 'DWord' }; 'REG_QWORD' { 'QWord' }
         'REG_BINARY' { 'Binary' }; 'REG_MULTI_SZ' { 'MultiString' }; 'REG_EXPAND_SZ' { 'ExpandString' }
@@ -210,9 +219,9 @@ foreach ($item in $regItems) {
     $hasError = $false
 
     # ========================================
-    # 1. Apply to HKCU
+    # 1. Apply to HKCU (logged-on user)
     # ========================================
-    $hkcuPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', 'HKCU:'
+    $hkcuPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', $hkcuRoot
 
     # Idempotency check for HKCU
     if (-not $FORCE_OVERWRITE -and (Test-RegistryValueMatch -Path $hkcuPath -Name $regKey -ExpectedValue $regValue -Type $regType)) {
