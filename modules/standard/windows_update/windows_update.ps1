@@ -148,7 +148,7 @@ if ($suspendBitLocker) {
     try {
         $blVolume = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
         if ($blVolume -and $blVolume.ProtectionStatus -eq "On") {
-            Suspend-BitLocker -MountPoint "C:" -RebootCount 1 -ErrorAction SilentlyContinue
+            $null = Suspend-BitLocker -MountPoint "C:" -RebootCount 1 -ErrorAction SilentlyContinue
             Show-Info "BitLocker suspended for 1 reboot cycle"
         }
     }
@@ -294,7 +294,7 @@ while ($true) {
             if ($update.IsDownloaded) { continue }
 
             $dlIndex++
-            $update.AcceptEula()
+            $null = $update.AcceptEula()
             Show-Info "[$dlIndex/$downloadNeeded] Downloading: $($update.Title)"
 
             try {
