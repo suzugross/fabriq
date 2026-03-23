@@ -75,17 +75,20 @@ Write-Host "  Target PC:     $pcName" -ForegroundColor Yellow
 Write-Host "  Save Location: $targetDir" -ForegroundColor White
 Write-Host ""
 Write-Host "  Sections:" -ForegroundColor Cyan
-Write-Host "    [1] System Basic Info" -ForegroundColor White
-Write-Host "    [2] Local Administrators" -ForegroundColor White
-Write-Host "    [3] Network Settings (IP/DNS)" -ForegroundColor White
-Write-Host "    [4] Printers / Ports List" -ForegroundColor White
-Write-Host "    [5] BitLocker Status" -ForegroundColor White
-Write-Host "    [6] MAC Address List" -ForegroundColor White
-Write-Host "    [7] PC Serial Number" -ForegroundColor White
-Write-Host "    [8] Installed Software List (CSV)" -ForegroundColor White
-Write-Host "    [9] Firewall Status (CSV)" -ForegroundColor White
-Write-Host "    [10] Windows Optional Features (CSV)" -ForegroundColor White
-Write-Host "    [11] Server Roles & Features (CSV) *Server only" -ForegroundColor White
+Write-Host "    [1]  System Basic Info" -ForegroundColor White
+Write-Host "    [2]  Local Users (CSV)" -ForegroundColor White
+Write-Host "    [3]  Local Groups (CSV)" -ForegroundColor White
+Write-Host "    [4]  Local Group Members (CSV)" -ForegroundColor White
+Write-Host "    [5]  Domain / Azure AD Status" -ForegroundColor White
+Write-Host "    [6]  Network Settings (CSV)" -ForegroundColor White
+Write-Host "    [7]  Printers / Ports List (CSV)" -ForegroundColor White
+Write-Host "    [8]  BitLocker Status" -ForegroundColor White
+Write-Host "    [9]  MAC Address List (CSV)" -ForegroundColor White
+Write-Host "    [10] PC Serial Number" -ForegroundColor White
+Write-Host "    [11] Installed Software List (CSV)" -ForegroundColor White
+Write-Host "    [12] Firewall Status (CSV)" -ForegroundColor White
+Write-Host "    [13] Windows Optional Features (CSV)" -ForegroundColor White
+Write-Host "    [14] Server Roles & Features (CSV) *Server only" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -138,34 +141,203 @@ catch {
 }
 
 # ----------------------------------------
-# 2. Local Administrators
+# 2. Local Users (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Local Administrators" -FileName "02_LocalAdmins.txt"
+Start-Section -Title "Local Users (CSV)" -FileName $null
 
 try {
-    $admins = Get-LocalGroupMember -Group "Administrators"
-    foreach ($admin in $admins) {
-        Out-Log "  - $($admin.Name) ($($admin.ObjectClass))"
-    }
+    $localUsers = Get-LocalUser | Select-Object `
+        Name, Enabled, FullName, Description, SID,
+        LastLogon, PasswordLastSet, PasswordRequired,
+        PasswordExpires, AccountExpires, PrincipalSource |
+        Sort-Object Name
+
+    $outLocalUsers = Join-Path $targetDir "02_LocalUsers.csv"
+    $localUsers | Export-Csv -Path $outLocalUsers -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Local users: $($localUsers.Count) accounts -> 02_LocalUsers.csv"
     $sectionCount++
 }
 catch {
-    Out-Log "[ERROR] Failed to get administrator info: $_" -Color Red
+    Out-Log "[ERROR] Failed to get local users: $_" -Color Red
     $failCount++
 }
 
 # ----------------------------------------
-# 3. IP / DNS Settings
+# 3. Local Groups (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Network Settings (IP/DNS)" -FileName "03_NetworkConfig.txt"
+Start-Section -Title "Local Groups (CSV)" -FileName $null
+
+try {
+    $localGroups = Get-LocalGroup | Select-Object Name, Description, SID |
+        Sort-Object Name
+
+    $outLocalGroups = Join-Path $targetDir "03_LocalGroups.csv"
+    $localGroups | Export-Csv -Path $outLocalGroups -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Local groups: $($localGroups.Count) groups -> 03_LocalGroups.csv"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get local groups: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 4. Local Group Members (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Local Group Members (CSV)" -FileName $null
+
+try {
+    $allMembers = @()
+    $groups = Get-LocalGroup
+
+    foreach ($group in $groups) {
+        try {
+            $members = Get-LocalGroupMember -Group $group.Name -ErrorAction Stop
+            foreach ($member in $members) {
+                $allMembers += [PSCustomObject]@{
+                    GroupName       = $group.Name
+                    MemberName      = $member.Name
+                    ObjectClass     = $member.ObjectClass
+                    PrincipalSource = $member.PrincipalSource
+                }
+            }
+        }
+        catch {
+            # Orphaned SIDs or inaccessible groups: log and continue
+            Out-Log "  [WARN] Could not enumerate members of '$($group.Name)': $_" -Color Yellow
+        }
+    }
+
+    $outGroupMembers = Join-Path $targetDir "04_LocalGroupMembers.csv"
+    $allMembers | Export-Csv -Path $outGroupMembers -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Group memberships: $($allMembers.Count) entries -> 04_LocalGroupMembers.csv"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get group members: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 5. Domain / Azure AD Status
+# ----------------------------------------
+Start-Section -Title "Domain / Azure AD Status" -FileName "05_DomainStatus.txt"
+
+try {
+    # 5a. Domain join status
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $domainRoleMap = @{
+        0 = "Standalone Workstation"
+        1 = "Member Workstation"
+        2 = "Standalone Server"
+        3 = "Member Server"
+        4 = "Backup Domain Controller"
+        5 = "Primary Domain Controller"
+    }
+    $roleName = $domainRoleMap[[int]$cs.DomainRole]
+
+    Out-Log "PartOfDomain:   $($cs.PartOfDomain)"
+    Out-Log "Domain:         $($cs.Domain)"
+    Out-Log "DomainRole:     $($cs.DomainRole) ($roleName)"
+    Out-Log ""
+
+    # 5b. Current user identity
+    $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    Out-Log "Current User:   $($currentIdentity.Name)"
+    Out-Log ""
+
+    # 5c. Azure AD / Entra ID status (dsregcmd)
+    Out-Log "---- dsregcmd /status ----"
+    $dsregOutput = dsregcmd /status 2>&1
+    foreach ($line in $dsregOutput) {
+        Out-Log "  $line"
+    }
+    Out-Log ""
+
+    # 5d. Domain users and groups (only if domain-joined)
+    if ($cs.PartOfDomain) {
+        Out-Log "---- Domain Users ----" -Color Cyan
+        try {
+            $netUserOutput = net user /domain 2>&1
+            $domainUsers = @()
+            $parsing = $false
+            foreach ($line in $netUserOutput) {
+                $lineStr = "$line"
+                if ($lineStr -match "^-{5,}") {
+                    $parsing = -not $parsing
+                    continue
+                }
+                if ($parsing -and -not [string]::IsNullOrWhiteSpace($lineStr)) {
+                    # net user /domain outputs names in columns separated by spaces
+                    $names = $lineStr -split '\s{2,}' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+                    foreach ($name in $names) {
+                        $domainUsers += [PSCustomObject]@{ Name = $name.Trim() }
+                    }
+                }
+            }
+
+            $outDomainUsers = Join-Path $targetDir "05_DomainUsers.csv"
+            $domainUsers | Export-Csv -Path $outDomainUsers -NoTypeInformation -Encoding UTF8
+            Out-Log "Domain users: $($domainUsers.Count) accounts -> 05_DomainUsers.csv"
+        }
+        catch {
+            Out-Log "  [WARN] Could not retrieve domain users: $_" -Color Yellow
+        }
+
+        Out-Log "---- Domain Groups ----" -Color Cyan
+        try {
+            $netGroupOutput = net group /domain 2>&1
+            $domainGroups = @()
+            $parsing = $false
+            foreach ($line in $netGroupOutput) {
+                $lineStr = "$line"
+                if ($lineStr -match "^-{5,}") {
+                    $parsing = -not $parsing
+                    continue
+                }
+                if ($parsing -and -not [string]::IsNullOrWhiteSpace($lineStr)) {
+                    # net group /domain outputs group names prefixed with *
+                    $groupName = $lineStr -replace '^\*', ''
+                    if (-not [string]::IsNullOrWhiteSpace($groupName)) {
+                        $domainGroups += [PSCustomObject]@{ Name = $groupName.Trim() }
+                    }
+                }
+            }
+
+            $outDomainGroups = Join-Path $targetDir "05_DomainGroups.csv"
+            $domainGroups | Export-Csv -Path $outDomainGroups -NoTypeInformation -Encoding UTF8
+            Out-Log "Domain groups: $($domainGroups.Count) groups -> 05_DomainGroups.csv"
+        }
+        catch {
+            Out-Log "  [WARN] Could not retrieve domain groups: $_" -Color Yellow
+        }
+    }
+    else {
+        Out-Log "Not domain-joined, skipping domain user/group collection"
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get domain/Azure AD status: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 6. IP / DNS Settings (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Network Settings (CSV)" -FileName $null
 
 try {
     $netConfigs = Get-NetIPConfiguration | Where-Object { $_.IPv4Address -ne $null }
-    foreach ($nc in $netConfigs) {
-        Out-Log "Interface: $($nc.InterfaceAlias)"
-        Out-Log "  IPv4 Address:   $($nc.IPv4Address.IPAddress)"
+    $networkRows = @()
 
-        # Subnet Mask: PrefixLength → dotted-decimal conversion
+    foreach ($nc in $netConfigs) {
+        # Subnet Mask: PrefixLength -> dotted-decimal conversion
+        $subnet = ""
         $ipEntry = Get-NetIPAddress -InterfaceIndex $nc.InterfaceIndex `
                    -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                    Where-Object { $_.PrefixOrigin -ne "WellKnown" } |
@@ -180,13 +352,21 @@ try {
                 (($maskInt -shr 16) -band 0xFF),
                 (($maskInt -shr 8) -band 0xFF),
                 ($maskInt -band 0xFF)
-            Out-Log "  Subnet Mask:    $subnet"
         }
 
-        Out-Log "  Default Gateway: $($nc.IPv4DefaultGateway.NextHop)"
-        Out-Log "  DNS Servers:     $($nc.DNSServer.ServerAddresses -join ', ')"
-        Out-Log ""
+        $networkRows += [PSCustomObject]@{
+            Interface      = $nc.InterfaceAlias
+            IPv4Address    = ($nc.IPv4Address.IPAddress -join ', ')
+            SubnetMask     = $subnet
+            DefaultGateway = $nc.IPv4DefaultGateway.NextHop
+            DNSServers     = ($nc.DNSServer.ServerAddresses -join ', ')
+        }
     }
+
+    $outNetwork = Join-Path $targetDir "06_NetworkConfig.csv"
+    $networkRows | Export-Csv -Path $outNetwork -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Network interfaces: $($networkRows.Count) entries -> 06_NetworkConfig.csv"
     $sectionCount++
 }
 catch {
@@ -195,16 +375,20 @@ catch {
 }
 
 # ----------------------------------------
-# 4. Printers / Ports List
+# 7. Printers / Ports List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Printers / Ports List" -FileName "04_Printers.txt"
+Start-Section -Title "Printers / Ports List (CSV)" -FileName $null
 
 try {
     $printers = Get-Printer -ErrorAction SilentlyContinue
     if ($printers) {
-        foreach ($p in $printers) {
-            Out-Log "Name=$($p.Name)|Driver=$($p.DriverName)|Port=$($p.PortName)"
-        }
+        $printerRows = $printers | Select-Object Name, DriverName, PortName, Shared, PrinterStatus |
+            Sort-Object Name
+
+        $outPrinters = Join-Path $targetDir "07_Printers.csv"
+        $printerRows | Export-Csv -Path $outPrinters -NoTypeInformation -Encoding UTF8
+
+        Out-Log "Printers: $($printerRows.Count) entries -> 07_Printers.csv"
     } else {
         Out-Log "(No printers installed)"
     }
@@ -216,9 +400,9 @@ catch {
 }
 
 # ----------------------------------------
-# 5. BitLocker Status
+# 8. BitLocker Status
 # ----------------------------------------
-Start-Section -Title "BitLocker Status" -FileName "05_BitLocker.txt"
+Start-Section -Title "BitLocker Status" -FileName "08_BitLocker.txt"
 
 try {
     $volumes = Get-BitLockerVolume
@@ -245,19 +429,18 @@ catch {
 }
 
 # ----------------------------------------
-# 6. MAC Address List
+# 9. MAC Address List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "MAC Address List" -FileName "06_MacAddress.txt"
+Start-Section -Title "MAC Address List (CSV)" -FileName $null
 
 try {
-    $adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, MacAddress, Status
-    foreach ($a in $adapters) {
-        Out-Log "Connection Name:      $($a.Name)"
-        Out-Log "Adapter:              $($a.InterfaceDescription)"
-        Out-Log "Physical Address:     $($a.MacAddress)"
-        Out-Log "Status:               $($a.Status)"
-        Out-Log ""
-    }
+    $adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, MacAddress, Status |
+        Sort-Object Name
+
+    $outMac = Join-Path $targetDir "09_MacAddress.csv"
+    $adapters | Export-Csv -Path $outMac -NoTypeInformation -Encoding UTF8
+
+    Out-Log "Network adapters: $($adapters.Count) entries -> 09_MacAddress.csv"
     $sectionCount++
 }
 catch {
@@ -266,9 +449,9 @@ catch {
 }
 
 # ----------------------------------------
-# 7. PC Serial Number
+# 10. PC Serial Number
 # ----------------------------------------
-Start-Section -Title "PC Serial Number" -FileName "07_SerialNumber.txt"
+Start-Section -Title "PC Serial Number" -FileName "10_SerialNumber.txt"
 
 try {
     $bios = Get-CimInstance -ClassName Win32_BIOS
@@ -281,12 +464,12 @@ catch {
 }
 
 # ----------------------------------------
-# 8. Installed Software List (CSV Export)
+# 11. Installed Software List (CSV Export)
 # ----------------------------------------
 Start-Section -Title "Installed Software List (CSV)" -FileName $null
 
 try {
-    # 8a. Desktop Apps (Registry)
+    # 11a. Desktop Apps (Registry)
     $desktopPaths = @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -301,22 +484,22 @@ try {
                       InstallDate |
         Sort-Object Name
 
-    $outDesktop = Join-Path $targetDir "08_DesktopApps.csv"
+    $outDesktop = Join-Path $targetDir "11_DesktopApps.csv"
     $desktop | Export-Csv -Path $outDesktop -NoTypeInformation -Encoding UTF8
 
-    Out-Log "Desktop apps: $($desktop.Count) items -> 08_DesktopApps.csv"
+    Out-Log "Desktop apps: $($desktop.Count) items -> 11_DesktopApps.csv"
 
-    # 8b. Store / UWP Apps
+    # 11b. Store / UWP Apps
     $store = Get-AppxPackage |
         Select-Object @{N='Name';E={$_.Name}},
                       @{N='Version';E={$_.Version}},
                       @{N='Publisher';E={$_.PublisherId}} |
         Sort-Object Name
 
-    $outStore = Join-Path $targetDir "08_StoreApps.csv"
+    $outStore = Join-Path $targetDir "11_StoreApps.csv"
     $store | Export-Csv -Path $outStore -NoTypeInformation -Encoding UTF8
 
-    Out-Log "Store apps: $($store.Count) items -> 08_StoreApps.csv"
+    Out-Log "Store apps: $($store.Count) items -> 11_StoreApps.csv"
 
     $sectionCount++
 }
@@ -330,29 +513,29 @@ $osProductType = (Get-CimInstance Win32_OperatingSystem).ProductType
 $isServer = ($osProductType -ne 1)
 
 # ----------------------------------------
-# 9. Firewall Status (CSV Export)
+# 12. Firewall Status (CSV Export)
 # ----------------------------------------
 Start-Section -Title "Firewall Status (CSV)" -FileName $null
 
 try {
-    # 9a. Firewall Profiles
+    # 12a. Firewall Profiles
     $fwProfiles = Get-NetFirewallProfile -ErrorAction Stop |
         Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction, LogFileName
 
-    $outFwProfiles = Join-Path $targetDir "09_FirewallProfiles.csv"
+    $outFwProfiles = Join-Path $targetDir "12_FirewallProfiles.csv"
     $fwProfiles | Export-Csv -Path $outFwProfiles -NoTypeInformation -Encoding UTF8
 
-    Out-Log "Firewall profiles: $($fwProfiles.Count) profiles -> 09_FirewallProfiles.csv"
+    Out-Log "Firewall profiles: $($fwProfiles.Count) profiles -> 12_FirewallProfiles.csv"
 
-    # 9b. Firewall Rules
+    # 12b. Firewall Rules
     $fwRules = Get-NetFirewallRule -ErrorAction Stop |
         Select-Object DisplayName, Enabled, Direction, Action, Profile |
         Sort-Object DisplayName
 
-    $outFwRules = Join-Path $targetDir "09_FirewallRules.csv"
+    $outFwRules = Join-Path $targetDir "12_FirewallRules.csv"
     $fwRules | Export-Csv -Path $outFwRules -NoTypeInformation -Encoding UTF8
 
-    Out-Log "Firewall rules: $($fwRules.Count) rules -> 09_FirewallRules.csv"
+    Out-Log "Firewall rules: $($fwRules.Count) rules -> 12_FirewallRules.csv"
 
     $sectionCount++
 }
@@ -362,7 +545,7 @@ catch {
 }
 
 # ----------------------------------------
-# 10. Windows Optional Features (CSV Export)
+# 13. Windows Optional Features (CSV Export)
 # ----------------------------------------
 Start-Section -Title "Windows Optional Features (CSV)" -FileName $null
 
@@ -371,10 +554,10 @@ try {
         Select-Object FeatureName, State |
         Sort-Object FeatureName
 
-    $outOptFeatures = Join-Path $targetDir "10_OptionalFeatures.csv"
+    $outOptFeatures = Join-Path $targetDir "13_OptionalFeatures.csv"
     $optFeatures | Export-Csv -Path $outOptFeatures -NoTypeInformation -Encoding UTF8
 
-    Out-Log "Optional features: $($optFeatures.Count) features -> 10_OptionalFeatures.csv"
+    Out-Log "Optional features: $($optFeatures.Count) features -> 13_OptionalFeatures.csv"
 
     $sectionCount++
 }
@@ -384,7 +567,7 @@ catch {
 }
 
 # ----------------------------------------
-# 11. Server Roles & Features (CSV Export)
+# 14. Server Roles & Features (CSV Export)
 # ----------------------------------------
 Start-Section -Title "Server Roles & Features (CSV)" -FileName $null
 
@@ -394,10 +577,10 @@ if ($isServer) {
             Select-Object Name, DisplayName, InstallState, FeatureType |
             Sort-Object Name
 
-        $outServerFeatures = Join-Path $targetDir "11_ServerRolesFeatures.csv"
+        $outServerFeatures = Join-Path $targetDir "14_ServerRolesFeatures.csv"
         $serverFeatures | Export-Csv -Path $outServerFeatures -NoTypeInformation -Encoding UTF8
 
-        Out-Log "Server roles & features: $($serverFeatures.Count) items -> 11_ServerRolesFeatures.csv"
+        Out-Log "Server roles & features: $($serverFeatures.Count) items -> 14_ServerRolesFeatures.csv"
 
         $sectionCount++
     }
