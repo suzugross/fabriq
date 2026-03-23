@@ -336,11 +336,15 @@ try {
     $networkRows = @()
 
     foreach ($nc in $netConfigs) {
-        # Subnet Mask: PrefixLength -> dotted-decimal conversion
+        # Filter out APIPA / link-local addresses (169.254.x.x)
+        $validIPs = @($nc.IPv4Address.IPAddress | Where-Object { $_ -notmatch '^169\.254\.' })
+        if ($validIPs.Count -eq 0) { continue }
+
+        # Subnet Mask: PrefixLength -> dotted-decimal conversion (exclude link-local)
         $subnet = ""
         $ipEntry = Get-NetIPAddress -InterfaceIndex $nc.InterfaceIndex `
                    -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-                   Where-Object { $_.PrefixOrigin -ne "WellKnown" } |
+                   Where-Object { $_.PrefixOrigin -ne "WellKnown" -and $_.IPAddress -notmatch '^169\.254\.' } |
                    Select-Object -First 1
         if ($ipEntry) {
             $prefixLen = $ipEntry.PrefixLength
@@ -356,7 +360,7 @@ try {
 
         $networkRows += [PSCustomObject]@{
             Interface      = $nc.InterfaceAlias
-            IPv4Address    = ($nc.IPv4Address.IPAddress -join ', ')
+            IPv4Address    = ($validIPs -join ', ')
             SubnetMask     = $subnet
             DefaultGateway = $nc.IPv4DefaultGateway.NextHop
             DNSServers     = ($nc.DNSServer.ServerAddresses -join ', ')
