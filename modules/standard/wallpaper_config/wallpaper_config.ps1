@@ -85,6 +85,21 @@ Write-Host ""
 $invalidCount = 0
 
 foreach ($item in $enabledItems) {
+    $type = if ($item.PSObject.Properties['Type'] -and $item.Type -eq 'SolidColor') { 'SolidColor' } else { 'Image' }
+
+    if ($type -eq 'SolidColor') {
+        $colorVal = if ($item.PSObject.Properties['Color'] -and $item.Color) { $item.Color } else { "0 0 0" }
+        $desc     = if ($item.Description) { "  ($($item.Description))" } else { "" }
+        if ($colorVal -match '^\d{1,3}\s+\d{1,3}\s+\d{1,3}$') {
+            Write-Host "  [COLOR] $colorVal$desc" -ForegroundColor Yellow
+        } else {
+            Write-Host "  [INVALID COLOR] $colorVal$desc" -ForegroundColor Red
+            $invalidCount++
+        }
+        Write-Host ""
+        continue
+    }
+
     $imagePath = if ([System.IO.Path]::IsPathRooted($item.FileName)) {
         $item.FileName
     } else {
@@ -135,6 +150,52 @@ $skipCount    = 0
 $failCount    = 0
 
 foreach ($item in $enabledItems) {
+    $type = if ($item.PSObject.Properties['Type'] -and $item.Type -eq 'SolidColor') { 'SolidColor' } else { 'Image' }
+
+    # ---- SolidColor Processing ----
+    if ($type -eq 'SolidColor') {
+        $colorVal = if ($item.PSObject.Properties['Color'] -and $item.Color) { $item.Color } else { "0 0 0" }
+        $desc     = if ($item.Description) { $item.Description } else { "Solid Color: $colorVal" }
+
+        Write-Host "----------------------------------------" -ForegroundColor White
+        Write-Host "Applying: $desc" -ForegroundColor Cyan
+        Write-Host "----------------------------------------" -ForegroundColor White
+
+        if ($colorVal -notmatch '^\d{1,3}\s+\d{1,3}\s+\d{1,3}$') {
+            Show-Skip "Invalid color format: $colorVal"
+            $skipCount++
+            Write-Host ""
+            continue
+        }
+
+        try {
+            $regDesktop = $hkcuInfo.PsDrivePath + '\Control Panel\Desktop'
+            $regColors  = $hkcuInfo.PsDrivePath + '\Control Panel\Colors'
+
+            # Clear wallpaper path to enable solid color
+            Set-ItemProperty -Path $regDesktop -Name "WallPaper" -Value "" -ErrorAction Stop
+
+            # Set background color
+            Set-ItemProperty -Path $regColors -Name "Background" -Value $colorVal -ErrorAction Stop
+
+            # Apply immediately via API (empty path = clear wallpaper)
+            [WallpaperHandler]::SystemParametersInfo(
+                [WallpaperHandler]::SPI_SETDESKWALLPAPER, 0, '',
+                [WallpaperHandler]::SPIF_UPDATEINIFILE -bor [WallpaperHandler]::SPIF_SENDCHANGE
+            ) | Out-Null
+
+            Show-Success "Solid color applied: $colorVal ($desc)"
+            $successCount++
+        }
+        catch {
+            Show-Error "Error applying solid color '$colorVal': $_"
+            $failCount++
+        }
+        Write-Host ""
+        continue
+    }
+
+    # ---- Image Processing ----
     $imagePath = if ([System.IO.Path]::IsPathRooted($item.FileName)) {
         $item.FileName
     } else {

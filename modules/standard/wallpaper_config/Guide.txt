@@ -5,13 +5,19 @@ Windows APIで即時反映されるため、再起動は不要です。
 ■ 設定ファイル
 [wallpaper_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
-  FileName    : 画像ファイル名（wallpaper/ 内）または絶対パス
+  Type        : Image（画像）/ SolidColor（単色）。省略時は Image
+  FileName    : 画像ファイル名（wallpaper/ 内）または絶対パス（Type=Image 時）
   Style       : 表示スタイル（Fill / Fit / Stretch / Tile / Center / Span）
+  Color       : RGB値（スペース区切り。例: 0 99 177）（Type=SolidColor 時）
   Description : 説明（表示用）
 
-[記載例]
-  1,company_logo.jpg,Fill,会社ロゴ壁紙
-  1,C:\Images\wallpaper.png,Fit,絶対パス指定の例
+[記載例 - 画像壁紙]
+  1,Image,company_logo.jpg,Fill,,会社ロゴ壁紙
+  1,Image,C:\Images\wallpaper.png,Fit,,絶対パス指定の例
+
+[記載例 - 単色背景]
+  1,SolidColor,,,,Navy Blue
+  ※ Color列に「0 99 177」のようにRGB値を指定
 
 ■ 画像ファイルの配置
 ・相対パスの場合：wallpaper/ ディレクトリ内に画像を配置
@@ -21,7 +27,12 @@ Windows APIで即時反映されるため、再起動は不要です。
 ■ Style の省略
 Style を空欄にした場合は Fill がデフォルトで適用されます。
 
+■ 単色背景について
+・Type=SolidColor の場合、FileName と Style は不要（空欄可）
+・Color にRGB値をスペース区切りで指定（例: 0 99 177）
+・壁紙パスがクリアされ、指定色の単色背景が即時適用されます
+
 ■ 動作の流れ
 1. wallpaper_list.csv を読み込み
-2. 画像ファイルの存在と形式を確認して一覧表示
-3. 実行確認（Y/N）後、壁紙を適用
+2. 画像ファイルの存在と形式、またはRGB色値を確認して一覧表示
+3. 実行確認（Y/N）後、壁紙または単色背景を適用
