@@ -15,6 +15,22 @@ if ($null -eq $userList -or $userList.Count -eq 0) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
+# ========================================
+# Load Per-PC User CSV (optional)
+# ========================================
+$hostCsvPath = Join-Path $PSScriptRoot "local_user_host_list.csv"
+
+if ((Test-Path $hostCsvPath) -and -not [string]::IsNullOrWhiteSpace($env:SELECTED_NEW_PCNAME)) {
+    $hostUserList = Import-ModuleCsv -Path $hostCsvPath -RequiredColumns @("Enabled", "NewPCName", "UserName", "Password")
+    if ($null -ne $hostUserList) {
+        $pcUsers = @($hostUserList | Where-Object { $_.NewPCName -eq $env:SELECTED_NEW_PCNAME })
+        if ($pcUsers.Count -gt 0) {
+            Show-Info "Found $($pcUsers.Count) per-PC user(s) for '$($env:SELECTED_NEW_PCNAME)'"
+            $userList = @($userList) + @($pcUsers)
+        }
+    }
+}
+
 Show-Info "Loaded $($userList.Count) user definitions"
 Write-Host ""
 
