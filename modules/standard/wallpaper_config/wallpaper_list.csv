@@ -1,3 +1,3 @@
-Enabled,FileName,Style,Description,Segment
-0,green.jpg,Fill,test green image,
-1,C:\Users\szk-WIN01\Pictures\green.jpg,,test green image,
+Enabled,Type,FileName,Style,Color,Description,Segment
+0,Image,green.jpg,Fill,,test green image,
+0,SolidColor,,,0 99 177,Navy Blue,
