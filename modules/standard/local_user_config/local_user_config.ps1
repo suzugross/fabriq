@@ -15,6 +15,22 @@ if ($null -eq $userList) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
 }
 
+# ========================================
+# Load Per-PC User CSV (optional)
+# ========================================
+$hostCsvPath = Join-Path $PSScriptRoot "local_user_host_list.csv"
+
+if ((Test-Path $hostCsvPath) -and -not [string]::IsNullOrWhiteSpace($env:SELECTED_NEW_PCNAME)) {
+    $hostUserList = Import-ModuleCsv -Path $hostCsvPath -RequiredColumns @("Enabled", "NewPCName", "UserName", "Password")
+    if ($null -ne $hostUserList) {
+        $pcUsers = @($hostUserList | Where-Object { $_.NewPCName -eq $env:SELECTED_NEW_PCNAME })
+        if ($pcUsers.Count -gt 0) {
+            Show-Info "Found $($pcUsers.Count) per-PC user(s) for '$($env:SELECTED_NEW_PCNAME)'"
+            $userList = @($userList) + @($pcUsers)
+        }
+    }
+}
+
 $enabledUsers = @($userList | Where-Object { $_.Enabled -eq "1" })
 $disabledUsers = @($userList | Where-Object { $_.Enabled -ne "1" })
 
@@ -34,7 +50,8 @@ Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
 foreach ($user in $enabledUsers) {
-    $displayName = if ($user.Description) { "$($user.UserName) ($($user.Description))" } else { $user.UserName }
+    $source = if ($user.PSObject.Properties['NewPCName'] -and $user.NewPCName) { " [PC: $($user.NewPCName)]" } else { "" }
+    $displayName = if ($user.Description) { "$($user.UserName) ($($user.Description))$source" } else { "$($user.UserName)$source" }
     $pwdExpire = if ($user.PasswordNeverExpires -eq "1") { "Never" } else { "Expires" }
     $pwdChange = if ($user.UserMayNotChangePassword -eq "1") { "Denied" } else { "Allowed" }
     Write-Host "  UserName: $displayName" -ForegroundColor Yellow
