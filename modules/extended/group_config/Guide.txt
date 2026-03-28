@@ -5,15 +5,25 @@
 [group_list.csv]
   Enabled    : 有効フラグ（1=実行, 0=スキップ）
   LocalGroup : 追加先のローカルグループ名（例: Administrators）
-  MemberType : メンバー種別（DomainGroup / DomainUser / LocalUser）
-  MemberName : 追加するメンバー名
-  Domain     : ドメイン名（LocalUser の場合は空欄）
+  MemberType : メンバー種別（DomainGroup / DomainUser / LocalUser / CurrentUser）
+  MemberName : 追加するメンバー名（CurrentUser の場合は空欄）
+  Domain     : ドメイン名（LocalUser / CurrentUser の場合は空欄）
   Description : 説明（表示用）
 
 [記載例]
   1,Administrators,DomainGroup,Client Administrators,city.osaka.example.jp,ドメイン管理者グループ
   1,Remote Desktop Users,DomainGroup,RDP Users,city.osaka.example.jp,RDPユーザー
   1,Users,LocalUser,testuser,,ローカルユーザー追加
+  1,Power Users,CurrentUser,,,現在のログインユーザーを追加
+
+■ MemberType について
+  DomainGroup  : ドメイングループを追加（Domain\GroupName 形式）
+  DomainUser   : ドメインユーザーを追加（Domain\UserName 形式）
+  LocalUser    : ローカルユーザーを追加（UserName 形式）
+  CurrentUser  : 現在ログインしているユーザーを自動検出して追加
+                 ドメイン参加PCではドメインユーザーとして、
+                 ローカルPCではローカルユーザーとして追加されます。
+                 MemberName / Domain は空欄にしてください。
 
 ■ 前提条件
 ・管理者権限が必要です
