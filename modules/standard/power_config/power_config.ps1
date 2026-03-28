@@ -87,6 +87,37 @@ public static class PowerModeApi {
 }
 "@ -ErrorAction SilentlyContinue
 
+# P/Invoke: powrprof.dll Power Write/Read APIs
+# These APIs are the same code path used by Control Panel UI,
+# bypassing OEM restrictions that affect powercfg.exe on some PCs (e.g., HP).
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class PowerWriteApi {
+    [DllImport("powrprof.dll")]
+    public static extern uint PowerWriteACValueIndex(
+        IntPtr RootPowerKey,
+        ref Guid SchemeGuid,
+        ref Guid SubGroupOfPowerSettingsGuid,
+        ref Guid PowerSettingGuid,
+        uint AcValueIndex);
+
+    [DllImport("powrprof.dll")]
+    public static extern uint PowerWriteDCValueIndex(
+        IntPtr RootPowerKey,
+        ref Guid SchemeGuid,
+        ref Guid SubGroupOfPowerSettingsGuid,
+        ref Guid PowerSettingGuid,
+        uint DcValueIndex);
+
+    [DllImport("powrprof.dll")]
+    public static extern uint PowerSetActiveScheme(
+        IntPtr UserRootPowerKey,
+        ref Guid SchemeGuid);
+}
+"@ -ErrorAction SilentlyContinue
+
 # Idempotency counters
 $script:SkipCount = 0
 $script:ChangeCount = 0
@@ -533,7 +564,7 @@ function Set-ButtonActions {
     }
     
     $buttonSubGroup = $script:SubGroupGuids['PowerButtons']
-    
+
     # Power Button - AC
     $powerBtnAc = ConvertTo-SettingValue $Profile.PowerButton_AC
     if ($null -ne $powerBtnAc -and $script:ActionValues.ContainsKey($powerBtnAc)) {
@@ -580,6 +611,13 @@ function Set-ButtonActions {
         Set-PowerConfigValue -PlanGuid $activePlanGuid -SubGroupGuid $buttonSubGroup `
             -SettingGuid $script:SettingGuids['LidClose'] -Value $script:ActionValues[$lidDc] `
             -PowerSource 'DC' -Description "Lid Close (Battery): $lidDc"
+    }
+
+    # Apply changes immediately via Win32 API (equivalent to powercfg /SETACTIVE)
+    $schemeGuid = [Guid]$activePlanGuid
+    $hr = [PowerWriteApi]::PowerSetActiveScheme([IntPtr]::Zero, [ref]$schemeGuid)
+    if ($hr -ne 0) {
+        Show-Warning "PowerSetActiveScheme failed: 0x$($hr.ToString('X8'))"
     }
 }
 
@@ -708,19 +746,50 @@ function Set-PowerConfigValue {
     }
 
     try {
-        if ($PowerSource -eq 'AC') {
-            $result = & powercfg /SETACVALUEINDEX $PlanGuid $SubGroupGuid $SettingGuid $Value 2>&1
-        }
-        else {
-            $result = & powercfg /SETDCVALUEINDEX $PlanGuid $SubGroupGuid $SettingGuid $Value 2>&1
-        }
+        $isButtonSetting = ($SubGroupGuid -eq $script:SubGroupGuids['PowerButtons'])
 
-        if ($LASTEXITCODE -eq 0) {
-            Show-Success "$Description"
-            $script:ChangeCount++
+        if ($isButtonSetting) {
+            # Use Win32 API for button/lid settings (same code path as Control Panel UI)
+            # This bypasses OEM restrictions that cause powercfg.exe to silently fail
+            $schemeGuid   = [Guid]$PlanGuid
+            $subGuid      = [Guid]$SubGroupGuid
+            $settGuid     = [Guid]$SettingGuid
+
+            if ($PowerSource -eq 'AC') {
+                $hr = [PowerWriteApi]::PowerWriteACValueIndex(
+                    [IntPtr]::Zero, [ref]$schemeGuid, [ref]$subGuid,
+                    [ref]$settGuid, [uint32]$Value)
+            }
+            else {
+                $hr = [PowerWriteApi]::PowerWriteDCValueIndex(
+                    [IntPtr]::Zero, [ref]$schemeGuid, [ref]$subGuid,
+                    [ref]$settGuid, [uint32]$Value)
+            }
+
+            if ($hr -eq 0) {
+                Show-Success "$Description"
+                $script:ChangeCount++
+            }
+            else {
+                Show-Warning "$Description (Win32 API failed: 0x$($hr.ToString('X8')))"
+            }
         }
         else {
-            Show-Warning "$Description (failed)"
+            # Use powercfg for other settings (Display, Sleep, HDD, Processor)
+            if ($PowerSource -eq 'AC') {
+                $result = & powercfg /SETACVALUEINDEX $PlanGuid $SubGroupGuid $SettingGuid $Value 2>&1
+            }
+            else {
+                $result = & powercfg /SETDCVALUEINDEX $PlanGuid $SubGroupGuid $SettingGuid $Value 2>&1
+            }
+
+            if ($LASTEXITCODE -eq 0) {
+                Show-Success "$Description"
+                $script:ChangeCount++
+            }
+            else {
+                Show-Warning "$Description (failed)"
+            }
         }
     }
     catch {

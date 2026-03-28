@@ -1,0 +1,46 @@
+========================================
+ACL Backup / Restore Module
+========================================
+
+[Overview]
+Hybrid ACL backup and restore using icacls.
+- Backup: Saves full directory ACLs + individual backups for non-inherited subdirectories
+- Restore: Restores full ACLs first, then overwrites with individual non-inherited backups
+
+This hybrid approach solves two problems:
+1. Full icacls /save /T alone may produce slightly incorrect ACLs for non-inherited subdirectories
+2. Saving every subdirectory individually is accurate but extremely slow for large trees
+
+[Prerequisites]
+- Administrator privileges required
+- icacls.exe must be available (standard Windows tool)
+
+[CSV Columns: acl_list.csv]
+- Enabled    : 1 = process, 0 = skip
+- Id         : Unique identifier (used in backup folder naming)
+- TargetPath : Root directory path to backup/restore (supports %ENV% variables)
+- Description: Display label
+- Segment    : Optional segment filter for Profile execution
+
+[Backup Output Structure]
+  backup/{Id}_{SafeName}/
+    _full_acl.txt        : Full recursive icacls /save /T output
+    _manifest.csv        : List of non-inherited subdirectories with mapping info
+    individual/          : Individual icacls /save /T for each non-inherited subdir
+      {hash}_acl.txt     : Per-subdirectory backup (hash = SHA256 of relative path)
+
+[Usage]
+1. Edit acl_list.csv: set Enabled=1 for target directories
+2. Run "ACL Backup" from the menu to create backups
+3. Run "ACL Restore" from the menu to restore ACLs from backup
+
+[Restore Order]
+1. Full tree restore (icacls /restore with _full_acl.txt)
+2. Individual overrides in shallow-to-deep order (non-inherited subdirectories)
+   - Deeper paths are restored last, ensuring the most specific ACLs win
+
+[Notes]
+- Symbolic links and junctions are excluded from scanning
+- If no non-inherited subdirectories are found, only full backup is created
+- Restore requires a prior backup (run ACL Backup first)
+- _manifest.csv maps relative paths to hash-based backup filenames
