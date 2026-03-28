@@ -24,10 +24,19 @@ Write-Host ""
 function Build-MemberName {
     param([PSCustomObject]$Item)
     switch ($Item.MemberType) {
-        'DomainGroup' { return "$($Item.Domain)\$($Item.MemberName)" }
-        'DomainUser'  { return "$($Item.Domain)\$($Item.MemberName)" }
-        'LocalUser'   { return $Item.MemberName }
-        default       { return "$($Item.Domain)\$($Item.MemberName)" }
+        'DomainGroup'  { return "$($Item.Domain)\$($Item.MemberName)" }
+        'DomainUser'   { return "$($Item.Domain)\$($Item.MemberName)" }
+        'LocalUser'    { return $Item.MemberName }
+        'CurrentUser'  {
+            # Auto-detect domain or local user
+            if ($env:USERDOMAIN -ne $env:COMPUTERNAME) {
+                return "$env:USERDOMAIN\$env:USERNAME"
+            }
+            else {
+                return $env:USERNAME
+            }
+        }
+        default        { return "$($Item.Domain)\$($Item.MemberName)" }
     }
 }
 
@@ -42,7 +51,9 @@ function Test-LocalGroupMemberExists {
         if (-not $members) { return $false }
 
         foreach ($m in $members) {
-            if ($MemberType -eq 'LocalUser') {
+            $isLocalType = ($MemberType -eq 'LocalUser') -or
+                           ($MemberType -eq 'CurrentUser' -and $env:USERDOMAIN -eq $env:COMPUTERNAME)
+            if ($isLocalType) {
                 if ($m.Name -eq "$env:COMPUTERNAME\$MemberName" -or $m.Name -eq $MemberName) {
                     return $true
                 }
@@ -101,8 +112,9 @@ foreach ($item in $items) {
         $markerColor = "Red"
     }
     else {
-        # Check if already a member
-        $exists = Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $item.MemberName -MemberType $item.MemberType
+        # Check if already a member (use resolved name for CurrentUser)
+        $checkName = if ($item.MemberType -eq 'CurrentUser') { $env:USERNAME } else { $item.MemberName }
+        $exists = Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType
         if ($exists) {
             $marker = "[Current]"
             $markerColor = "Gray"
@@ -154,8 +166,9 @@ foreach ($item in $items) {
         continue
     }
 
-    # Idempotency check
-    if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $item.MemberName -MemberType $item.MemberType) {
+    # Idempotency check (use resolved name for CurrentUser)
+    $checkName = if ($item.MemberType -eq 'CurrentUser') { $env:USERNAME } else { $item.MemberName }
+    if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType) {
         Show-Skip "Already a member"
         $skipCount++
         Write-Host ""
