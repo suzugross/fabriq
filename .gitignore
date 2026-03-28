@@ -29,6 +29,16 @@
 
 
 
+# AppxBundle パッケージ（HEIF/HEVC拡張等）
+*.AppxBundle
+
+# バックアップファイル
+*.bak
+
+# 壁紙画像ファイル
+/modules/standard/wallpaper_config/wallpaper/*
+!/modules/standard/wallpaper_config/wallpaper/.gitkeep
+
 # 一時ファイルやキャッシュ
 *.tmp
 *.log

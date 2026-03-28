@@ -1,4 +1,0 @@
-﻿"Enabled","LocalGroup","MemberType","MemberName","Domain","Description"
-"1","Administrators","DomainGroup","Client Administrators","city.osaka.example.jp","ドメイン管理者グループ追加"
-"1","Power Users","DomainGroup","Client Power Users","city.osaka.example.jp","ドメインパワーユーザ追加"
-"0","Remote Desktop Users","DomainGroup","RDP Users","city.osaka.example.jp","RDPユーザ追加(サンプル)"
