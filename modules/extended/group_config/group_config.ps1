@@ -21,21 +21,31 @@ Write-Host ""
 # Helper Functions
 # ========================================
 
+function Resolve-CurrentUser {
+    # Get actual logged-on user via WMI (handles UAC elevation correctly)
+    # Win32_ComputerSystem.UserName returns "DOMAIN\username" for the interactive session
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        $loggedOnUser = $cs.UserName
+        if (-not [string]::IsNullOrWhiteSpace($loggedOnUser)) {
+            return $loggedOnUser
+        }
+    }
+    catch { }
+    # Fallback to environment variables
+    if ($env:USERDOMAIN -ne $env:COMPUTERNAME) {
+        return "$env:USERDOMAIN\$env:USERNAME"
+    }
+    return $env:USERNAME
+}
+
 function Build-MemberName {
     param([PSCustomObject]$Item)
     switch ($Item.MemberType) {
         'DomainGroup'  { return "$($Item.Domain)\$($Item.MemberName)" }
         'DomainUser'   { return "$($Item.Domain)\$($Item.MemberName)" }
         'LocalUser'    { return $Item.MemberName }
-        'CurrentUser'  {
-            # Auto-detect domain or local user
-            if ($env:USERDOMAIN -ne $env:COMPUTERNAME) {
-                return "$env:USERDOMAIN\$env:USERNAME"
-            }
-            else {
-                return $env:USERNAME
-            }
-        }
+        'CurrentUser'  { return (Resolve-CurrentUser) }
         default        { return "$($Item.Domain)\$($Item.MemberName)" }
     }
 }
@@ -51,8 +61,7 @@ function Test-LocalGroupMemberExists {
         if (-not $members) { return $false }
 
         foreach ($m in $members) {
-            $isLocalType = ($MemberType -eq 'LocalUser') -or
-                           ($MemberType -eq 'CurrentUser' -and $env:USERDOMAIN -eq $env:COMPUTERNAME)
+            $isLocalType = ($MemberType -eq 'LocalUser')
             if ($isLocalType) {
                 if ($m.Name -eq "$env:COMPUTERNAME\$MemberName" -or $m.Name -eq $MemberName) {
                     return $true
@@ -113,7 +122,7 @@ foreach ($item in $items) {
     }
     else {
         # Check if already a member (use resolved name for CurrentUser)
-        $checkName = if ($item.MemberType -eq 'CurrentUser') { $env:USERNAME } else { $item.MemberName }
+        $checkName = if ($item.MemberType -eq 'CurrentUser') { (Resolve-CurrentUser).Split('\')[-1] } else { $item.MemberName }
         $exists = Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType
         if ($exists) {
             $marker = "[Current]"
@@ -167,7 +176,7 @@ foreach ($item in $items) {
     }
 
     # Idempotency check (use resolved name for CurrentUser)
-    $checkName = if ($item.MemberType -eq 'CurrentUser') { $env:USERNAME } else { $item.MemberName }
+    $checkName = if ($item.MemberType -eq 'CurrentUser') { (Resolve-CurrentUser).Split('\')[-1] } else { $item.MemberName }
     if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType) {
         Show-Skip "Already a member"
         $skipCount++

@@ -660,29 +660,56 @@ function Invoke-BatchExecution {
             Start-Sleep -Seconds $global:AutoPilotWaitSec
         }
 
-        # __AUTO_to_xxx__ parameter passing via environment variable
-        if ($module._AutoLogonNo) {
-            $env:FABRIQ_AUTOLOGON_NO = $module._AutoLogonNo
-        }
+        # Retry loop for Error/Partial handling in AutoPilot mode
+        $retryModule = $false
+        do {
+            if ($retryModule) {
+                Show-Info "Retrying: $($module.MenuName)"
+                Write-Host ""
+                $retryModule = $false
+            }
 
-        # Segment parameter passing via environment variable
-        if ($module._Segment) {
-            $env:FABRIQ_SEGMENT = $module._Segment
-        }
+            # __AUTO_to_xxx__ parameter passing via environment variable
+            if ($module._AutoLogonNo) {
+                $env:FABRIQ_AUTOLOGON_NO = $module._AutoLogonNo
+            }
 
-        $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
-            & $module.Script
-        } -ContinueOnError
+            # Segment parameter passing via environment variable
+            if ($module._Segment) {
+                $env:FABRIQ_SEGMENT = $module._Segment
+            }
 
-        # Clean up AutoLogon environment variable
-        if ($module._AutoLogonNo) {
-            $env:FABRIQ_AUTOLOGON_NO = $null
-        }
+            $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
+                & $module.Script
+            } -ContinueOnError
 
-        # Clean up Segment environment variable
-        if ($module._Segment) {
-            $env:FABRIQ_SEGMENT = $null
-        }
+            # Clean up AutoLogon environment variable
+            if ($module._AutoLogonNo) {
+                $env:FABRIQ_AUTOLOGON_NO = $null
+            }
+
+            # Clean up Segment environment variable
+            if ($module._Segment) {
+                $env:FABRIQ_SEGMENT = $null
+            }
+
+            # Error/Partial notification and AutoPilot retry dialog
+            if ($result.Status -eq "Error" -or $result.Status -eq "Partial") {
+                Invoke-ErrorNotification -ModuleName $module.MenuName -Status $result.Status
+
+                if ($global:AutoPilotMode) {
+                    $dialogChoice = Show-AutoPilotErrorDialog `
+                        -ModuleName $module.MenuName `
+                        -Status $result.Status `
+                        -Message $result.Message
+                    if ($dialogChoice -eq "Retry") {
+                        $retryModule = $true
+                        continue
+                    }
+                    # Skip: fall through to record original Error/Partial status
+                }
+            }
+        } while ($retryModule)
 
         Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message
         $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message

@@ -108,6 +108,68 @@ function Set-ConsoleForeground {
     catch { }
 }
 
+# ========================================
+# Error Notification (Beep + Foreground)
+# ========================================
+function Invoke-ErrorNotification {
+    param(
+        [string]$ModuleName = "",
+        [ValidateSet("Error", "Partial")]
+        [string]$Status = "Error"
+    )
+
+    # Bring console to foreground so the operator notices
+    Set-ConsoleForeground
+
+    try {
+        if ($Status -eq "Error") {
+            # Three ascending beeps for error
+            [console]::Beep(600, 200); Start-Sleep -Milliseconds 100
+            [console]::Beep(800, 200); Start-Sleep -Milliseconds 100
+            [console]::Beep(1000, 400)
+        }
+        else {
+            # Two beeps for partial
+            [console]::Beep(600, 300); Start-Sleep -Milliseconds 150
+            [console]::Beep(600, 300)
+        }
+    }
+    catch {
+        # Non-fatal: sound failure should not affect execution
+    }
+}
+
+# ========================================
+# AutoPilot Error Dialog (Retry / Skip)
+# ========================================
+function Show-AutoPilotErrorDialog {
+    param(
+        [Parameter(Mandatory)][string]$ModuleName,
+        [Parameter(Mandatory)][string]$Status,
+        [string]$Message = ""
+    )
+
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+
+    $text = "Module: $ModuleName`nStatus: $Status"
+    if (-not [string]::IsNullOrEmpty($Message)) {
+        $text += "`nDetail: $Message"
+    }
+    $text += "`n`nRetry = Re-execute this module`nCancel = Skip and continue"
+
+    $dialogResult = [System.Windows.Forms.MessageBox]::Show(
+        $text,
+        "fabriq - AutoPilot Error",
+        [System.Windows.Forms.MessageBoxButtons]::RetryCancel,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+
+    if ($dialogResult -eq [System.Windows.Forms.DialogResult]::Retry) {
+        return "Retry"
+    }
+    return "Skip"
+}
+
 function Set-ConsoleSize {
     param(
         [int]$Columns = 80,
