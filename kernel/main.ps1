@@ -4,6 +4,10 @@
 #
 # ========================================
 
+param(
+    [switch]$NoGui
+)
+
 # ========================================
 # Load Common Function Library
 # ========================================
@@ -16,6 +20,18 @@ if (Test-Path $commonPath) {
 $manifestoPath = ".\kernel\ps1\manifesto.ps1"
 if (Test-Path $manifestoPath) {
     . $manifestoPath
+}
+
+# Load Fabriq Operator GUI (unless -NoGui)
+$script:UseGui = (-not $NoGui)
+if ($script:UseGui) {
+    $operatorPath = ".\apps\fabriq_operator\fabriq_operator.ps1"
+    if (Test-Path $operatorPath) {
+        . $operatorPath
+    }
+    else {
+        $script:UseGui = $false
+    }
 }
 
 # Enable sleep suppression while Fabriq is running
@@ -1174,7 +1190,7 @@ if ($null -ne $resumeState) {
 }
 
 # ========================================
-# Master Passphrase (skip if already restored from resume)
+# Master Passphrase + Worker + Host Selection
 # ========================================
 if (-not $isResuming) {
     $verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
@@ -1185,44 +1201,151 @@ if (-not $isResuming) {
         exit 1
     }
 
-    Write-Host "Enter the master passphrase to continue." -ForegroundColor DarkGray
-    Write-Host ""
+    # --- GUI Session Setup ---
+    if ($script:UseGui) {
+        # Load data for the GUI form
+        $hostList = Load-HostList
+        if (-not $hostList) {
+            Show-Error "Aborting process"
+            Exit-Fabriq
+            exit 1
+        }
 
-    $maxAttempts = 3
-    $passphraseAccepted = $false
+        $workers = @()
+        if (Test-Path $script:WorkersCsvPath) {
+            try { $workers = @(Import-Csv -Path $script:WorkersCsvPath -Encoding Default) } catch { }
+        }
 
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        $ppInput = Read-Host -Prompt "Master Passphrase"
+        Hide-ConsoleWindow
 
-        if ([string]::IsNullOrWhiteSpace($ppInput)) {
+        $sessionSetup = Show-SessionSetupForm `
+            -Workers $workers `
+            -HostList $hostList `
+            -VerifyTokenPath $verifyTokenPath `
+            -CurrentPCName $env:COMPUTERNAME
+
+        Show-ConsoleWindow
+
+        if ($sessionSetup.Cancelled) {
+            Exit-Fabriq
+            exit 0
+        }
+
+        # Apply session results
+        $global:FabriqMasterPassphrase = $sessionSetup.MasterPassphrase
+        Show-Success "Master passphrase verified and set for this session"
+
+        # Build and save session info (mirrors Initialize-Session logic)
+        $mediaSerial = ""
+        if (Test-Path $script:SourceMediaIdPath) {
+            try { $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim() } catch { }
+        }
+        if ([string]::IsNullOrWhiteSpace($mediaSerial)) {
+            $currentDrive = (Resolve-Path ".").Drive.Name + ":"
+            $mediaSerial = Get-VolumeSerial -DriveLetter $currentDrive
+        }
+
+        $script:SessionInfo = [PSCustomObject]@{
+            WorkerID     = $sessionSetup.WorkerID
+            WorkerName   = $sessionSetup.WorkerName
+            MediaSerial  = $mediaSerial
+            StartTime    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            WindowsUser  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            ComputerName = $env:COMPUTERNAME
+        }
+        try {
+            $script:SessionInfo | ConvertTo-Json -Depth 3 | Out-File -FilePath $script:SessionFilePath -Encoding UTF8 -Force
+        } catch { Show-Warning "Failed to save session.json: $_" }
+        $env:FABRIQ_WORKER_NAME = $sessionSetup.WorkerName
+        Show-Success "Session initialized: Worker=$($sessionSetup.WorkerName)"
+
+        # Set host environment
+        $selectedHost = $sessionSetup.SelectedHost
+        Set-SelectedHostEnvironment -SelectedHost $selectedHost
+        Initialize-EvidenceBasePath
+        Write-Host ""
+    }
+    # --- Console Session Setup (original flow) ---
+    else {
+        Write-Host "Enter the master passphrase to continue." -ForegroundColor DarkGray
+        Write-Host ""
+
+        $maxAttempts = 3
+        $passphraseAccepted = $false
+
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $ppInput = Read-Host -Prompt "Master Passphrase"
+
+            if ([string]::IsNullOrWhiteSpace($ppInput)) {
+                $remaining = $maxAttempts - $attempt
+                if ($remaining -gt 0) {
+                    Show-Warning "Passphrase is required. $remaining attempt(s) remaining."
+                }
+                continue
+            }
+
+            if (Test-MasterPassphrase -Passphrase $ppInput -VerifyTokenPath $verifyTokenPath) {
+                $global:FabriqMasterPassphrase = $ppInput
+                Show-Success "Master passphrase verified and set for this session"
+                $passphraseAccepted = $true
+                break
+            }
             $remaining = $maxAttempts - $attempt
             if ($remaining -gt 0) {
-                Show-Warning "Passphrase is required. $remaining attempt(s) remaining."
+                Show-Warning "Passphrase verification failed. $remaining attempt(s) remaining."
             }
-            continue
+        }
+        if (-not $passphraseAccepted) {
+            Show-Error "Passphrase verification failed $maxAttempts times. Aborting."
+            exit 1
+        }
+        Write-Host ""
+
+        # Clear history CSV on fresh startup
+        $historyFile = ".\logs\history\execution_history.csv"
+        if (Test-Path $historyFile) {
+            Remove-Item $historyFile -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path "$historyFile.bak") {
+            Remove-Item "$historyFile.bak" -Force -ErrorAction SilentlyContinue
         }
 
-        if (Test-MasterPassphrase -Passphrase $ppInput -VerifyTokenPath $verifyTokenPath) {
-            $global:FabriqMasterPassphrase = $ppInput
-            Show-Success "Master passphrase verified and set for this session"
-            $passphraseAccepted = $true
-            break
+        # Initialize history
+        Initialize-ExecutionHistory
+
+        # Initialize session (worker, media serial)
+        $sessionResult = Initialize-Session
+        if ($sessionResult -eq $false) {
+            Exit-Fabriq
+            exit 0
         }
-        $remaining = $maxAttempts - $attempt
-        if ($remaining -gt 0) {
-            Show-Warning "Passphrase verification failed. $remaining attempt(s) remaining."
+
+        # Host Selection
+        Show-Info "Loading hostlist.csv..."
+        $hostList = Load-HostList
+        if (-not $hostList) {
+            Write-Host ""
+            Show-Error "Aborting process"
+            Exit-Fabriq
+            exit 1
         }
+        Write-Host ""
+
+        $selectedHost = Select-Host -HostList $hostList
+        if ($null -eq $selectedHost) {
+            Exit-Fabriq
+            exit 0
+        }
+        Write-Host ""
+        Set-SelectedHostEnvironment -SelectedHost $selectedHost
+        Write-Host ""
+        Initialize-EvidenceBasePath
+        Write-Host ""
     }
-    if (-not $passphraseAccepted) {
-        Show-Error "Passphrase verification failed $maxAttempts times. Aborting."
-        exit 1
-    }
-    Write-Host ""
 }
 
-# Clear history CSV on fresh startup (non-resume) so the new session starts clean.
-# Exported copies in evidence/ and logs/history/history_export_* are preserved.
-if (-not $isResuming) {
+# Clear history CSV on fresh startup (GUI path also needs this)
+if (-not $isResuming -and $script:UseGui) {
     $historyFile = ".\logs\history\execution_history.csv"
     if (Test-Path $historyFile) {
         Remove-Item $historyFile -Force -ErrorAction SilentlyContinue
@@ -1232,46 +1355,17 @@ if (-not $isResuming) {
     }
 }
 
-# Initialize history (Create backup)
-Initialize-ExecutionHistory
-
-# Initialize session (worker, media serial)
-# Always runs: during resume, restores worker/media info from session.json
-$sessionResult = Initialize-Session
-if ($sessionResult -eq $false) {
-    if (-not $isResuming) {
-        Exit-Fabriq
-        exit 0
-    }
-    # Resume mode: session.json missing is non-fatal, continue without worker info
-    Show-Warning "Session info unavailable (session.json not found)"
+# Initialize history (Create backup) - both paths need this
+if (-not $isResuming) {
+    Initialize-ExecutionHistory
 }
 
-# ========================================
-# Host Selection & hostlist.csv (skip if resuming)
-# ========================================
-if (-not $isResuming) {
-    # Load hostlist.csv
-    Show-Info "Loading hostlist.csv..."
-    $hostList = Load-HostList
-    if (-not $hostList) {
-        Write-Host ""
-        Show-Error "Aborting process"
-        Exit-Fabriq
-        exit 1
+# Initialize session for resume path
+if ($isResuming) {
+    $sessionResult = Initialize-Session
+    if ($sessionResult -eq $false) {
+        Show-Warning "Session info unavailable (session.json not found)"
     }
-    Write-Host ""
-
-    $selectedHost = Select-Host -HostList $hostList
-    if ($null -eq $selectedHost) {
-        Exit-Fabriq
-        exit 0
-    }
-    Write-Host ""
-    Set-SelectedHostEnvironment -SelectedHost $selectedHost
-    Write-Host ""
-    Initialize-EvidenceBasePath
-    Write-Host ""
 }
 
 # Restore execution history for the selected PC
@@ -1377,220 +1471,485 @@ if ($isResuming) {
     }
 }
 
+# ========================================
 # Main Loop
-while ($true) {
-    Write-StatusFile -Phase "idle"
-    Show-MainMenu
+# ========================================
 
-    Write-Host ""
-    Write-Host -NoNewline "Please select: "
-    $choice = Read-Host
+# Track last execution result summary for GUI status bar
+$script:lastGuiResultSummary = ""
 
-    # Quit
-    if ($choice -eq "Q" -or $choice -eq "q" -or $choice -eq "0") {
-        Exit-Fabriq
-        break
+if ($script:UseGui) {
+    # ========================================
+    # GUI Main Loop (Fabriq Operator Dashboard)
+    # ========================================
+    $script:guiExitRequested = $false
+    while (-not $script:guiExitRequested) {
+        Write-StatusFile -Phase "idle"
+        Hide-ConsoleWindow
+
+        $guiSelection = Show-OperatorDashboard `
+            -AllModules $allModules `
+            -GroupedModules $groupedModules `
+            -HostName $env:SELECTED_NEW_PCNAME `
+            -WorkerName $env:FABRIQ_WORKER_NAME `
+            -LastResultSummary $script:lastGuiResultSummary
+
+        Show-ConsoleWindow
+        Clear-Host
+
+        switch ($guiSelection.Action) {
+
+            "ExecuteProfile" {
+                # Resolve profile modules and execute via existing engine
+                $validation = Resolve-ProfileModules -ProfileCsvPath $guiSelection.ProfilePath -AllModules $allModules
+
+                if ($validation.ValidModules.Count -eq 0) {
+                    Show-Error "No executable modules found in profile"
+                    Wait-KeyPress
+                    continue
+                }
+
+                Show-Info "Executing profile: $($guiSelection.ProfileName)"
+                Write-Host ""
+
+                Invoke-BatchExecution -SelectedModules $validation.ValidModules `
+                    -StopOnError:$guiSelection.StopOnError `
+                    -AutoPilot:$guiSelection.AutoPilot `
+                    -AutoPilotWaitSec $guiSelection.AutoPilotWaitSec `
+                    -ProfilePath $guiSelection.ProfilePath `
+                    -ProfileName $guiSelection.ProfileName `
+                    -FullProfileModules $validation.ValidModules
+
+                # Build result summary for GUI status bar
+                $okCount = @($script:ExecutionResults | Where-Object { $_.Status -eq "Success" -and -not $_.IsRestored }).Count
+                $errCount = @($script:ExecutionResults | Where-Object { $_.Status -eq "Error" -and -not $_.IsRestored }).Count
+                $skipCount = @($script:ExecutionResults | Where-Object { $_.Status -eq "Skipped" -and -not $_.IsRestored }).Count
+                $script:lastGuiResultSummary = "Last: $($guiSelection.ProfileName) - $okCount OK  $errCount NG  $skipCount Skip"
+
+                # Post-profile error check
+                Write-Host ""
+                Show-Separator
+                if ($errCount -gt 0) {
+                    Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
+                    Show-Separator
+                    Write-Host ""
+                    Show-Warning "Some modules had errors."
+                } else {
+                    Write-Host "Profile Execution Completed" -ForegroundColor Green
+                    Show-Separator
+                }
+                Write-Host ""
+                Wait-KeyPress
+            }
+
+            "ExecuteModules" {
+                Show-Info "Executing $($guiSelection.SelectedModules.Count) module(s)..."
+                Write-Host ""
+
+                Invoke-BatchExecution -SelectedModules $guiSelection.SelectedModules
+
+                $okCount = @($script:ExecutionResults | Where-Object { $_.Status -eq "Success" -and -not $_.IsRestored }).Count
+                $errCount = @($script:ExecutionResults | Where-Object { $_.Status -eq "Error" -and -not $_.IsRestored }).Count
+                $script:lastGuiResultSummary = "Last batch: $okCount OK  $errCount NG"
+
+                Wait-KeyPress
+            }
+
+            "NewSession" {
+                # Full state reset (transcript, session, history, env vars)
+                Show-ConsoleWindow
+                Reset-FabriqState
+
+                $hostList = Load-HostList
+                if (-not $hostList) {
+                    Show-Error "Failed to load host list"
+                    Wait-KeyPress
+                    continue
+                }
+
+                $workers = @()
+                if (Test-Path $script:WorkersCsvPath) {
+                    try { $workers = @(Import-Csv -Path $script:WorkersCsvPath -Encoding Default) } catch { }
+                }
+
+                Hide-ConsoleWindow
+
+                $sessionSetup = Show-SessionSetupForm `
+                    -Workers $workers `
+                    -HostList $hostList `
+                    -VerifyTokenPath $verifyTokenPath `
+                    -CurrentPCName $env:COMPUTERNAME
+
+                Show-ConsoleWindow
+
+                if ($sessionSetup.Cancelled) {
+                    # User cancelled — return to dashboard
+                    continue
+                }
+
+                # Apply new session results
+                $global:FabriqMasterPassphrase = $sessionSetup.MasterPassphrase
+                Show-Success "Master passphrase verified and set for this session"
+
+                $mediaSerial = ""
+                if (Test-Path $script:SourceMediaIdPath) {
+                    try { $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim() } catch { }
+                }
+                if ([string]::IsNullOrWhiteSpace($mediaSerial)) {
+                    $currentDrive = (Resolve-Path ".").Drive.Name + ":"
+                    $mediaSerial = Get-VolumeSerial -DriveLetter $currentDrive
+                }
+
+                $script:SessionInfo = [PSCustomObject]@{
+                    WorkerID     = $sessionSetup.WorkerID
+                    WorkerName   = $sessionSetup.WorkerName
+                    MediaSerial  = $mediaSerial
+                    StartTime    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                    WindowsUser  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                    ComputerName = $env:COMPUTERNAME
+                }
+                try {
+                    $script:SessionInfo | ConvertTo-Json -Depth 3 | Out-File -FilePath $script:SessionFilePath -Encoding UTF8 -Force
+                } catch { Show-Warning "Failed to save session.json: $_" }
+                $env:FABRIQ_WORKER_NAME = $sessionSetup.WorkerName
+                Show-Success "Session initialized: Worker=$($sessionSetup.WorkerName)"
+
+                $selectedHost = $sessionSetup.SelectedHost
+                Set-SelectedHostEnvironment -SelectedHost $selectedHost
+                Initialize-EvidenceBasePath
+
+                # Restore previous execution history for this PC
+                Restore-ExecutionHistory
+
+                $script:lastGuiResultSummary = ""
+            }
+
+            "OpenCsvEditor" {
+                $csvEditorScript = ".\apps\csv_editor\csv_editor.ps1"
+                if (Test-Path $csvEditorScript) {
+                    & $csvEditorScript
+                }
+                else {
+                    Show-Error "CSV Editor not found"
+                    Wait-KeyPress
+                }
+            }
+
+            "HistoryExport" {
+                $null = Export-ExecutionHistory
+                Wait-KeyPress
+            }
+
+            "RegenerateChecklist" {
+                if ([string]::IsNullOrEmpty($global:FabriqLastProfileName)) {
+                    Show-Warning "No profile has been executed in this session"
+                    Wait-KeyPress
+                    continue
+                }
+                Show-Info "Regenerating checklist..."
+                $null = Export-ExecutionHistory
+                $checklistPath = Export-HtmlChecklist `
+                    -ProfileName      $global:FabriqLastProfileName `
+                    -ProfilePath      $global:FabriqLastProfilePath `
+                    -DefinedModules   $global:FabriqLastProfileModules `
+                    -ExecutionResults  $script:ExecutionResults
+                if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+                    $viewerScript = ".\kernel\ps1\view_report.ps1"
+                    if (Test-Path $viewerScript) {
+                        & $viewerScript -HtmlPath $checklistPath
+                    }
+                }
+
+                # Auto-upload to log destinations
+                $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
+                if (Test-Path $uploaderScript) {
+                    Show-Info "Uploading updated evidence..."
+                    $uploadResult = & $uploaderScript
+                    if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
+                        Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
+                        $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+                    }
+                }
+                Wait-KeyPress
+            }
+
+            "WindowsUpdate" {
+                $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
+                if (Test-Path $wuScript) {
+                    $wuResult = & $wuScript
+                    if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
+                        Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
+                        $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
+                        Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
+                    }
+                }
+                else {
+                    Show-Error "windows_update.ps1 not found"
+                }
+                Wait-KeyPress
+            }
+
+            "Restart" {
+                Show-Separator
+                Write-Host "Restart with AutoRun" -ForegroundColor Yellow
+                Show-Separator
+                Write-Host ""
+                if (Confirm-Execution -Message "Register RunOnce and restart the computer?") {
+                    if (Register-FabriqRunOnce) {
+                        Invoke-CountdownRestart
+                    }
+                }
+                else {
+                    Show-Info "Canceled"
+                }
+                Wait-KeyPress
+            }
+
+            "Refabriq" {
+                Show-Info "Restarting Fabriq..."
+                Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
+                $fabriqRoot = (Resolve-Path ".").Path
+                $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
+                if (Test-Path $fabriqBat) {
+                    Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
+                }
+                try { Stop-Transcript | Out-Null } catch { }
+                exit 0
+            }
+
+            "Manifesto" {
+                Show-Manifesto
+            }
+
+            "Quit" {
+                Exit-Fabriq
+                $script:guiExitRequested = $true
+            }
+
+            default {
+                Exit-Fabriq
+                $script:guiExitRequested = $true
+            }
+        }
     }
+}
+else {
+    # ========================================
+    # Console Main Loop (Original)
+    # ========================================
+    while ($true) {
+        Write-StatusFile -Phase "idle"
+        Show-MainMenu
 
-    # Script Menu
-    if ($choice -eq 'S' -or $choice -eq 's') {
-        Clear-Host
-        Enter-ScriptMenu -GroupedModules $groupedModules -AllModules $allModules
-        Clear-Host
-        continue
-    }
-
-    # Command Mode
-    if ($choice -eq 'C' -or $choice -eq 'c') {
-        Clear-Host
-        Enter-CommandMode
-        Clear-Host
-        continue
-    }
-
-    # App Mode
-    if ($choice -eq 'A' -or $choice -eq 'a') {
-        Clear-Host
-        Enter-AppMode
-        Clear-Host
-        continue
-    }
-
-    # Run Profile
-    if ($choice -eq 'P' -or $choice -eq 'p') {
-        Clear-Host
-        Invoke-ProfileExecution -AllModules $allModules
         Write-Host ""
-        Show-Separator
+        Write-Host -NoNewline "Please select: "
+        $choice = Read-Host
 
-        # Check if there were errors in this session
-        $hasErrors = @($script:ExecutionResults | Where-Object {
-            $_.Status -eq "Error" -and -not $_.IsRestored
-        }).Count -gt 0
+        # Quit
+        if ($choice -eq "Q" -or $choice -eq "q" -or $choice -eq "0") {
+            Exit-Fabriq
+            break
+        }
 
-        if ($hasErrors) {
-            Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
+        # Script Menu
+        if ($choice -eq 'S' -or $choice -eq 's') {
+            Clear-Host
+            Enter-ScriptMenu -GroupedModules $groupedModules -AllModules $allModules
+            Clear-Host
+            continue
+        }
+
+        # Command Mode
+        if ($choice -eq 'C' -or $choice -eq 'c') {
+            Clear-Host
+            Enter-CommandMode
+            Clear-Host
+            continue
+        }
+
+        # App Mode
+        if ($choice -eq 'A' -or $choice -eq 'a') {
+            Clear-Host
+            Enter-AppMode
+            Clear-Host
+            continue
+        }
+
+        # Run Profile
+        if ($choice -eq 'P' -or $choice -eq 'p') {
+            Clear-Host
+            Invoke-ProfileExecution -AllModules $allModules
+            Write-Host ""
+            Show-Separator
+
+            $hasErrors = @($script:ExecutionResults | Where-Object {
+                $_.Status -eq "Error" -and -not $_.IsRestored
+            }).Count -gt 0
+
+            if ($hasErrors) {
+                Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
+                Show-Separator
+                Write-Host ""
+                Show-Warning "Some modules had errors. You can re-run them from the Script Menu [S]."
+                Show-Info "Checklist can be regenerated from [cl] after fixing."
+            } else {
+                Write-Host "Profile Execution Completed" -ForegroundColor Green
+                Show-Separator
+            }
+            Write-Host ""
+            Wait-KeyPress
+            Clear-Host
+            continue
+        }
+
+        # New Kitting Session
+        if ($choice -eq 'N' -or $choice -eq 'n') {
+            Clear-Host
+            Invoke-NewKittingSession
+            Clear-Host
+            continue
+        }
+
+        # History
+        if ($choice -eq 'R' -or $choice -eq 'r') {
+            Clear-Host
+            Enter-HistoryMode
+            Clear-Host
+            continue
+        }
+
+        # Export History
+        if ($choice -eq 'EH' -or $choice -eq 'eh') {
+            Write-Host ""
+            $null = Export-ExecutionHistory
+            Write-Host ""
+            Wait-KeyPress
+            Clear-Host
+            continue
+        }
+
+        # Regenerate Checklist
+        if ($choice -eq 'CL' -or $choice -eq 'cl') {
+            Write-Host ""
+            if ([string]::IsNullOrEmpty($global:FabriqLastProfileName)) {
+                Show-Warning "No profile has been executed in this session"
+                Wait-KeyPress
+                Clear-Host
+                continue
+            }
+            Show-Info "Regenerating checklist..."
+            $null = Export-ExecutionHistory
+            $checklistPath = Export-HtmlChecklist `
+                -ProfileName      $global:FabriqLastProfileName `
+                -ProfilePath      $global:FabriqLastProfilePath `
+                -DefinedModules   $global:FabriqLastProfileModules `
+                -ExecutionResults  $script:ExecutionResults
+            if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+                $viewerScript = ".\kernel\ps1\view_report.ps1"
+                if (Test-Path $viewerScript) {
+                    & $viewerScript -HtmlPath $checklistPath
+                }
+            }
+
+            # Auto-upload to log destinations
+            $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
+            if (Test-Path $uploaderScript) {
+                Write-Host ""
+                Show-Info "Uploading updated evidence..."
+                $uploadResult = & $uploaderScript
+                if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
+                    Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
+                    $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+                }
+            }
+
+            Wait-KeyPress
+            Clear-Host
+            continue
+        }
+
+        # Windows Update
+        if ($choice -eq 'WU' -or $choice -eq 'wu') {
+            $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
+            if (Test-Path $wuScript) {
+                Write-Host ""
+                $wuResult = & $wuScript
+                if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
+                    Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
+                    $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
+                    Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
+                }
+            }
+            else {
+                Show-Error "windows_update.ps1 not found: $wuScript"
+            }
+            Wait-KeyPress
+            Clear-Host
+            continue
+        }
+
+        # Restart with AutoRun
+        if ($choice -eq 'RE' -or $choice -eq 're') {
+            Write-Host ""
+            Show-Separator
+            Write-Host "Restart with AutoRun" -ForegroundColor Yellow
             Show-Separator
             Write-Host ""
-            Show-Warning "Some modules had errors. You can re-run them from the Script Menu [S]."
-            Show-Info "Checklist can be regenerated from [cl] after fixing."
-        } else {
-            Write-Host "Profile Execution Completed" -ForegroundColor Green
-            Show-Separator
-        }
-        Write-Host ""
-        Wait-KeyPress
-        Clear-Host
-        continue
-    }
 
-    # New Kitting Session
-    if ($choice -eq 'N' -or $choice -eq 'n') {
-        Clear-Host
-        Invoke-NewKittingSession
-        Clear-Host
-        continue
-    }
-
-    # History
-    if ($choice -eq 'R' -or $choice -eq 'r') {
-        Clear-Host
-        Enter-HistoryMode
-        Clear-Host
-        continue
-    }
-
-    # Export History
-    if ($choice -eq 'EH' -or $choice -eq 'eh') {
-        Write-Host ""
-        $null = Export-ExecutionHistory
-        Write-Host ""
-        Wait-KeyPress
-        Clear-Host
-        continue
-    }
-
-    # Regenerate Checklist
-    if ($choice -eq 'CL' -or $choice -eq 'cl') {
-        Write-Host ""
-        if ([string]::IsNullOrEmpty($global:FabriqLastProfileName)) {
-            Show-Warning "No profile has been executed in this session"
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-        Show-Info "Regenerating checklist..."
-        $null = Export-ExecutionHistory
-        $checklistPath = Export-HtmlChecklist `
-            -ProfileName      $global:FabriqLastProfileName `
-            -ProfilePath      $global:FabriqLastProfilePath `
-            -DefinedModules   $global:FabriqLastProfileModules `
-            -ExecutionResults  $script:ExecutionResults
-        if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
-            $viewerScript = ".\kernel\ps1\view_report.ps1"
-            if (Test-Path $viewerScript) {
-                & $viewerScript -HtmlPath $checklistPath
+            if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
+                Show-Info "Canceled"
+                Wait-KeyPress
+                Clear-Host
+                continue
             }
-        }
 
-        # Auto-upload to log destinations
-        $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
-        if (Test-Path $uploaderScript) {
             Write-Host ""
-            Show-Info "Uploading updated evidence..."
-            $uploadResult = & $uploaderScript
-            if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
-                Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
-                $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+            if (-not (Register-FabriqRunOnce)) {
+                Wait-KeyPress
+                Clear-Host
+                continue
             }
+
+            Invoke-CountdownRestart
+            continue
         }
 
-        Wait-KeyPress
-        Clear-Host
-        continue
-    }
-
-    # Windows Update (standalone with self-contained reboot loop)
-    if ($choice -eq 'WU' -or $choice -eq 'wu') {
-        $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
-        if (Test-Path $wuScript) {
+        # Refabriq (Restart Fabriq)
+        if ($choice -eq 'RF' -or $choice -eq 'rf') {
             Write-Host ""
-            $wuResult = & $wuScript
-            if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
-                Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
-                $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
-                Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
+            Show-Info "Restarting Fabriq..."
+
+            Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
+
+            $fabriqRoot = (Resolve-Path ".").Path
+            $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
+
+            if (Test-Path $fabriqBat) {
+                Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
             }
-        }
-        else {
-            Show-Error "windows_update.ps1 not found: $wuScript"
-        }
-        Wait-KeyPress
-        Clear-Host
-        continue
-    }
+            else {
+                Show-Error "Fabriq.bat not found: $fabriqBat"
+                Wait-KeyPress
+                Clear-Host
+                continue
+            }
 
-    # Restart with AutoRun
-    if ($choice -eq 'RE' -or $choice -eq 're') {
-        Write-Host ""
-        Show-Separator
-        Write-Host "Restart with AutoRun" -ForegroundColor Yellow
-        Show-Separator
-        Write-Host ""
+            try { Stop-Transcript | Out-Null } catch { }
+            exit 0
+        }
 
-        if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
-            Show-Info "Canceled"
-            Wait-KeyPress
+        # Manifeste du Surkitinisme
+        if ($choice -eq 'M' -or $choice -eq 'm') {
+            Show-Manifesto
             Clear-Host
             continue
         }
 
+        # Invalid selection
         Write-Host ""
-        if (-not (Register-FabriqRunOnce)) {
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        Invoke-CountdownRestart
-        continue
-    }
-
-    # Refabriq (Restart Fabriq)
-    if ($choice -eq 'RF' -or $choice -eq 'rf') {
+        Show-Error "Invalid selection"
         Write-Host ""
-        Show-Info "Restarting Fabriq..."
-
-        Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
-
-        $fabriqRoot = (Resolve-Path ".").Path
-        $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-
-        if (Test-Path $fabriqBat) {
-            Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
-        }
-        else {
-            Show-Error "Fabriq.bat not found: $fabriqBat"
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        try { Stop-Transcript | Out-Null } catch { }
-        exit 0
     }
-
-    # Manifeste du Surkitinisme
-    if ($choice -eq 'M' -or $choice -eq 'm') {
-        Show-Manifesto
-        Clear-Host
-        continue
-    }
-
-    # Invalid selection
-    Write-Host ""
-    Show-Error "Invalid selection"
-    Write-Host ""
 }
 
 # Safety net: Exit-Fabriq is idempotent, safe to call even if already called

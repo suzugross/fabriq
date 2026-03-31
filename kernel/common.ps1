@@ -51,6 +51,9 @@ public class ConsoleFocus {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -59,6 +62,24 @@ public class ConsoleFocus {
     public struct RECT { public int Left, Top, Right, Bottom; }
 }
 '@ -ErrorAction SilentlyContinue
+
+# ========================================
+# Console Window Visibility Control
+# ========================================
+function Hide-ConsoleWindow {
+    $hwnd = [ConsoleFocus]::GetConsoleWindow()
+    if ($hwnd -ne [IntPtr]::Zero) {
+        [ConsoleFocus]::ShowWindow($hwnd, 0) | Out-Null  # SW_HIDE
+    }
+}
+
+function Show-ConsoleWindow {
+    $hwnd = [ConsoleFocus]::GetConsoleWindow()
+    if ($hwnd -ne [IntPtr]::Zero) {
+        [ConsoleFocus]::ShowWindow($hwnd, 5) | Out-Null  # SW_SHOW
+        [ConsoleFocus]::SetForegroundWindow($hwnd) | Out-Null
+    }
+}
 
 # ========================================
 # QuickEdit Mode Disabler (SetConsoleMode)
