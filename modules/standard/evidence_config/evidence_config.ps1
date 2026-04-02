@@ -83,12 +83,18 @@ Write-Host "    [5]  Domain / Azure AD Status + User Profiles" -ForegroundColor 
 Write-Host "    [6]  Network Settings (CSV)" -ForegroundColor White
 Write-Host "    [7]  Printers / Ports List (CSV)" -ForegroundColor White
 Write-Host "    [8]  BitLocker Status" -ForegroundColor White
+Write-Host "    [8b] Disk & Partition Info (CSV)" -ForegroundColor White
 Write-Host "    [9]  MAC Address List (CSV)" -ForegroundColor White
 Write-Host "    [10] PC Serial Number" -ForegroundColor White
 Write-Host "    [11] Installed Software List (CSV)" -ForegroundColor White
 Write-Host "    [12] Firewall Status (CSV)" -ForegroundColor White
 Write-Host "    [13] Windows Optional Features (CSV)" -ForegroundColor White
 Write-Host "    [14] Server Roles & Features (CSV) *Server only" -ForegroundColor White
+Write-Host "    [15] Power Settings" -ForegroundColor White
+Write-Host "    [16] WiFi Profiles" -ForegroundColor White
+Write-Host "    [17] Restore Points (CSV)" -ForegroundColor White
+Write-Host "    [18] Windows Defender Status" -ForegroundColor White
+Write-Host "    [19] Windows Update History (CSV)" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -132,6 +138,12 @@ try {
     $mem = Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum
     $memGB = [Math]::Round($mem.Sum / 1GB, 1)
     Out-Log "Memory:         $memGB GB"
+
+    $tz = Get-TimeZone
+    Out-Log "TimeZone:       $($tz.Id) (UTC$( if ($tz.BaseUtcOffset.TotalHours -ge 0) {'+'} )$($tz.BaseUtcOffset.TotalHours))"
+
+    $culture = Get-Culture
+    Out-Log "Locale:         $($culture.Name) ($($culture.DisplayName))"
 
     $sectionCount++
 }
@@ -410,6 +422,39 @@ catch {
 }
 
 # ----------------------------------------
+# 8b. Disk & Partition Info (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Disk & Partition Info (CSV)" -FileName $null
+
+try {
+    # Physical disks
+    $disks = Get-Disk | Select-Object Number, FriendlyName, SerialNumber,
+        @{N='SizeGB';E={[Math]::Round($_.Size / 1GB, 2)}},
+        PartitionStyle, HealthStatus, OperationalStatus |
+        Sort-Object Number
+
+    $outDisks = Join-Path $targetDir "08b_Disks.csv"
+    $disks | Export-Csv -Path $outDisks -NoTypeInformation -Encoding UTF8
+    Out-Log "Physical disks: $($disks.Count) disk(s) -> 08b_Disks.csv"
+
+    # Partitions
+    $partitions = Get-Partition | Select-Object DiskNumber, PartitionNumber, DriveLetter,
+        @{N='SizeGB';E={[Math]::Round($_.Size / 1GB, 2)}},
+        Type, IsSystem, IsBoot, IsActive |
+        Sort-Object DiskNumber, PartitionNumber
+
+    $outPartitions = Join-Path $targetDir "08b_Partitions.csv"
+    $partitions | Export-Csv -Path $outPartitions -NoTypeInformation -Encoding UTF8
+    Out-Log "Partitions: $($partitions.Count) partition(s) -> 08b_Partitions.csv"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get disk/partition info: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
 # 9. MAC Address List (CSV Export)
 # ----------------------------------------
 Start-Section -Title "MAC Address List (CSV)" -FileName $null
@@ -573,6 +618,128 @@ if ($isServer) {
 else {
     Out-Log "Skipped: Client OS detected (Server-only section)"
     $sectionCount++
+}
+
+# ----------------------------------------
+# 15. Power Settings
+# ----------------------------------------
+Start-Section -Title "Power Settings" -FileName "15_PowerSettings.txt"
+
+try {
+    # 15a. Power plans (CIM - structured)
+    $powerPlans = Get-CimInstance -Namespace root\cimv2\power -ClassName Win32_PowerPlan -ErrorAction Stop
+    Out-Log "---- Power Plans ----"
+    foreach ($plan in $powerPlans) {
+        $active = if ($plan.IsActive) { " [ACTIVE]" } else { "" }
+        Out-Log "  $($plan.ElementName)$active"
+    }
+    Out-Log ""
+
+    # 15b. Active plan details (powercfg raw output)
+    Out-Log "---- Active Plan Details (powercfg /query) ----"
+    $powercfgOutput = powercfg /query 2>&1
+    foreach ($line in $powercfgOutput) {
+        Out-Log "  $line"
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get power settings: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 16. WiFi Profiles
+# ----------------------------------------
+Start-Section -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
+
+try {
+    $wlanOutput = netsh wlan show profiles 2>&1
+    foreach ($line in $wlanOutput) {
+        Out-Log "  $line"
+    }
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get WiFi profiles: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 17. Restore Points (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Restore Points (CSV)" -FileName $null
+
+try {
+    $restorePoints = Get-ComputerRestorePoint -ErrorAction Stop |
+        Select-Object SequenceNumber, Description, RestorePointType,
+            @{N='CreationTime';E={$_.ConvertToDateTime($_.CreationTime)}} |
+        Sort-Object SequenceNumber
+
+    $outRestorePoints = Join-Path $targetDir "17_RestorePoints.csv"
+    $restorePoints | Export-Csv -Path $outRestorePoints -NoTypeInformation -Encoding UTF8
+    Out-Log "Restore points: $($restorePoints.Count) point(s) -> 17_RestorePoints.csv"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get restore points: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 18. Windows Defender / Antivirus Status
+# ----------------------------------------
+Start-Section -Title "Windows Defender Status" -FileName "18_DefenderStatus.txt"
+
+try {
+    $mpStatus = Get-MpComputerStatus -ErrorAction Stop
+
+    Out-Log "AMServiceEnabled:           $($mpStatus.AMServiceEnabled)"
+    Out-Log "AntispywareEnabled:         $($mpStatus.AntispywareEnabled)"
+    Out-Log "AntivirusEnabled:           $($mpStatus.AntivirusEnabled)"
+    Out-Log "RealTimeProtectionEnabled:  $($mpStatus.RealTimeProtectionEnabled)"
+    Out-Log "BehaviorMonitorEnabled:     $($mpStatus.BehaviorMonitorEnabled)"
+    Out-Log "IoavProtectionEnabled:      $($mpStatus.IoavProtectionEnabled)"
+    Out-Log "NISEnabled:                 $($mpStatus.NISEnabled)"
+    Out-Log "OnAccessProtectionEnabled:  $($mpStatus.OnAccessProtectionEnabled)"
+    Out-Log ""
+    Out-Log "AMEngineVersion:            $($mpStatus.AMEngineVersion)"
+    Out-Log "AMProductVersion:           $($mpStatus.AMProductVersion)"
+    Out-Log "AntivirusSignatureVersion:  $($mpStatus.AntivirusSignatureVersion)"
+    Out-Log "AntivirusSignatureLastUpdated: $($mpStatus.AntivirusSignatureLastUpdated)"
+    Out-Log ""
+    Out-Log "QuickScanEndTime:           $($mpStatus.QuickScanEndTime)"
+    Out-Log "FullScanEndTime:            $($mpStatus.FullScanEndTime)"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[WARN] Could not get Defender status (may be replaced by 3rd-party AV): $_" -Color Yellow
+    $sectionCount++
+}
+
+# ----------------------------------------
+# 19. Windows Update History (CSV Export)
+# ----------------------------------------
+Start-Section -Title "Windows Update History (CSV)" -FileName $null
+
+try {
+    $hotfixes = Get-HotFix -ErrorAction Stop |
+        Select-Object HotFixID, Description, InstalledBy,
+            @{N='InstalledOn';E={$_.InstalledOn}} |
+        Sort-Object InstalledOn -Descending
+
+    $outHotfixes = Join-Path $targetDir "19_WindowsUpdates.csv"
+    $hotfixes | Export-Csv -Path $outHotfixes -NoTypeInformation -Encoding UTF8
+    Out-Log "Windows updates: $($hotfixes.Count) update(s) -> 19_WindowsUpdates.csv"
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to get Windows update history: $_" -Color Red
+    $failCount++
 }
 
 # ----------------------------------------
