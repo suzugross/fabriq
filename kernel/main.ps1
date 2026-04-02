@@ -497,7 +497,9 @@ function Invoke-BatchExecution {
         [string]$ProfileName = "",
         # Full profile module list for checklist (covers pre-restart modules in resume)
         # If omitted, $SelectedModules is used as-is
-        [array]$FullProfileModules = $null
+        [array]$FullProfileModules = $null,
+        # Accumulated elapsed seconds from prior restart cycles
+        [double]$PriorElapsedSeconds = 0
     )
 
     # AutoPilot: set global flag (Profile scope, reset in finally)
@@ -540,12 +542,14 @@ function Invoke-BatchExecution {
             Write-Host "  Remaining: $($total - $current) modules after restart" -ForegroundColor White
             Write-Host ""
 
-            # Save resume state
+            # Save resume state (including accumulated elapsed time)
+            $elapsedSoFar = ((Get-Date) - $batchStartTime).TotalSeconds + $PriorElapsedSeconds
             Save-ResumeState -ProfilePath $ProfilePath `
                              -ProfileName $ProfileName `
                              -StopOnError $StopOnError.IsPresent `
                              -ResumeAfterOrder $module.Order `
-                             -CompletedModules $completedResults
+                             -CompletedModules $completedResults `
+                             -ElapsedSeconds $elapsedSoFar
 
             # Register RunOnce
             if (-not (Register-FabriqRunOnce)) {
@@ -744,8 +748,8 @@ function Invoke-BatchExecution {
     # All modules completed (no restart, or all restarts done)
     Remove-ResumeState
 
-    # Calculate elapsed time
-    $batchElapsed = (Get-Date) - $batchStartTime
+    # Calculate elapsed time (including prior restart cycles)
+    $batchElapsed = (Get-Date) - $batchStartTime + [System.TimeSpan]::FromSeconds($PriorElapsedSeconds)
 
     Show-ExecutionSummary -ElapsedTime $batchElapsed
 
@@ -1437,13 +1441,16 @@ if ($isResuming) {
         }
         Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
 
+        $priorSeconds = if ($resumeState.ElapsedSeconds) { [double]$resumeState.ElapsedSeconds } else { 0 }
+
         Invoke-BatchExecution -SelectedModules $remainingModules `
             -StopOnError:$resumeState.StopOnError `
             -AutoPilot:$resumeAutoPilot `
             -AutoPilotWaitSec $resumeAutoPilotWaitSec `
             -ProfilePath $resumeState.ProfilePath `
             -ProfileName $resumeState.ProfileName `
-            -FullProfileModules $validation.ValidModules
+            -FullProfileModules $validation.ValidModules `
+            -PriorElapsedSeconds $priorSeconds
 
         Remove-ResumeState
 
