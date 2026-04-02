@@ -213,12 +213,8 @@ foreach ($item in $enabledItems) {
         # 5c: Import profile via netsh
         # ----------------------------------------
         Show-Info "Importing profile: $($item.SSID)"
-        $netshOutput = netsh wlan add profile filename="$tempXml" 2>&1 | Out-String
+        $null = netsh wlan add profile filename="$tempXml" 2>&1
         $netshExitCode = $LASTEXITCODE
-
-        foreach ($line in ($netshOutput.Trim() -split "\r?\n")) {
-            Write-Host "  $line" -ForegroundColor DarkGray
-        }
 
         if ($netshExitCode -ne 0) {
             Show-Error "netsh wlan add profile failed (ExitCode=$netshExitCode): $($item.SSID)"
