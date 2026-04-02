@@ -79,7 +79,7 @@ Write-Host "    [1]  System Basic Info" -ForegroundColor White
 Write-Host "    [2]  Local Users (CSV)" -ForegroundColor White
 Write-Host "    [3]  Local Groups (CSV)" -ForegroundColor White
 Write-Host "    [4]  Local Group Members (CSV)" -ForegroundColor White
-Write-Host "    [5]  Domain / Azure AD Status" -ForegroundColor White
+Write-Host "    [5]  Domain / Azure AD Status + User Profiles" -ForegroundColor White
 Write-Host "    [6]  Network Settings (CSV)" -ForegroundColor White
 Write-Host "    [7]  Printers / Ports List (CSV)" -ForegroundColor White
 Write-Host "    [8]  BitLocker Status" -ForegroundColor White
@@ -205,8 +205,29 @@ try {
             }
         }
         catch {
-            # Orphaned SIDs or inaccessible groups: log and continue
-            Out-Log "  [WARN] Could not enumerate members of '$($group.Name)': $_" -Color Yellow
+            # Fallback: net localgroup (handles error 1789 / orphaned SIDs)
+            Out-Log "  [WARN] Get-LocalGroupMember failed for '$($group.Name)', using fallback..." -Color Yellow
+            try {
+                $netOutput = net localgroup "$($group.Name)" 2>&1
+                $inMembers = $false
+                foreach ($line in $netOutput) {
+                    $lineStr = "$line"
+                    if ($lineStr -match '^----') { $inMembers = $true; continue }
+                    if ($lineStr -match '^\s*$') { continue }
+                    if ($lineStr -match '^(コマンドは正常に|The command completed)') { break }
+                    if ($inMembers) {
+                        $allMembers += [PSCustomObject]@{
+                            GroupName       = $group.Name
+                            MemberName      = $lineStr.Trim()
+                            ObjectClass     = "Unknown"
+                            PrincipalSource = "Unknown"
+                        }
+                    }
+                }
+            }
+            catch {
+                Out-Log "  [WARN] Fallback also failed for '$($group.Name)': $_" -Color Yellow
+            }
         }
     }
 
@@ -257,66 +278,22 @@ try {
     }
     Out-Log ""
 
-    # 5d. Domain users and groups (only if domain-joined)
-    if ($cs.PartOfDomain) {
-        Out-Log "---- Domain Users ----" -Color Cyan
-        try {
-            $netUserOutput = net user /domain 2>&1
-            $domainUsers = @()
-            $parsing = $false
-            foreach ($line in $netUserOutput) {
-                $lineStr = "$line"
-                if ($lineStr -match "^-{5,}") {
-                    $parsing = -not $parsing
-                    continue
-                }
-                if ($parsing -and -not [string]::IsNullOrWhiteSpace($lineStr)) {
-                    # net user /domain outputs names in columns separated by spaces
-                    $names = $lineStr -split '\s{2,}' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-                    foreach ($name in $names) {
-                        $domainUsers += [PSCustomObject]@{ Name = $name.Trim() }
-                    }
-                }
-            }
+    # 5d. User Profiles on this PC (CSV)
+    Out-Log "---- User Profiles ----" -Color Cyan
+    try {
+        $profiles = Get-CimInstance Win32_UserProfile | Where-Object { -not $_.Special } |
+            Select-Object @{N='LocalPath';E={$_.LocalPath}},
+                          @{N='SID';E={$_.SID}},
+                          @{N='LastUseTime';E={$_.LastUseTime}},
+                          @{N='Loaded';E={$_.Loaded}} |
+            Sort-Object LocalPath
 
-            $outDomainUsers = Join-Path $targetDir "05_DomainUsers.csv"
-            $domainUsers | Export-Csv -Path $outDomainUsers -NoTypeInformation -Encoding UTF8
-            Out-Log "Domain users: $($domainUsers.Count) accounts -> 05_DomainUsers.csv"
-        }
-        catch {
-            Out-Log "  [WARN] Could not retrieve domain users: $_" -Color Yellow
-        }
-
-        Out-Log "---- Domain Groups ----" -Color Cyan
-        try {
-            $netGroupOutput = net group /domain 2>&1
-            $domainGroups = @()
-            $parsing = $false
-            foreach ($line in $netGroupOutput) {
-                $lineStr = "$line"
-                if ($lineStr -match "^-{5,}") {
-                    $parsing = -not $parsing
-                    continue
-                }
-                if ($parsing -and -not [string]::IsNullOrWhiteSpace($lineStr)) {
-                    # net group /domain outputs group names prefixed with *
-                    $groupName = $lineStr -replace '^\*', ''
-                    if (-not [string]::IsNullOrWhiteSpace($groupName)) {
-                        $domainGroups += [PSCustomObject]@{ Name = $groupName.Trim() }
-                    }
-                }
-            }
-
-            $outDomainGroups = Join-Path $targetDir "05_DomainGroups.csv"
-            $domainGroups | Export-Csv -Path $outDomainGroups -NoTypeInformation -Encoding UTF8
-            Out-Log "Domain groups: $($domainGroups.Count) groups -> 05_DomainGroups.csv"
-        }
-        catch {
-            Out-Log "  [WARN] Could not retrieve domain groups: $_" -Color Yellow
-        }
+        $outProfiles = Join-Path $targetDir "05_UserProfiles.csv"
+        $profiles | Export-Csv -Path $outProfiles -NoTypeInformation -Encoding UTF8
+        Out-Log "User profiles: $($profiles.Count) profiles -> 05_UserProfiles.csv"
     }
-    else {
-        Out-Log "Not domain-joined, skipping domain user/group collection"
+    catch {
+        Out-Log "  [WARN] Could not retrieve user profiles: $_" -Color Yellow
     }
 
     $sectionCount++
