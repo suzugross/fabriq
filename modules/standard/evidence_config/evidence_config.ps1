@@ -655,7 +655,14 @@ catch {
 Start-Section -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
 
 try {
-    $wlanOutput = netsh wlan show profiles 2>&1
+    $prevEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(932)
+        $wlanOutput = netsh wlan show profiles 2>&1
+    }
+    finally {
+        [Console]::OutputEncoding = $prevEncoding
+    }
     foreach ($line in $wlanOutput) {
         Out-Log "  $line"
     }
