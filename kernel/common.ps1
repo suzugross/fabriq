@@ -3066,7 +3066,7 @@ function Write-StatusFile {
         $results = @($script:ExecutionResults)
         $executionInfo = @{
             Phase          = $Phase
-            TotalCount     = $results.Count
+            TotalCount     = @($results | Where-Object { $_.Status -ne "Separator" }).Count
             SuccessCount   = @($results | Where-Object { $_.Status -eq "Success" }).Count
             ErrorCount     = @($results | Where-Object { $_.Status -eq "Error" }).Count
             SkippedCount   = @($results | Where-Object { $_.Status -eq "Skip" -or $_.Status -eq "Skipped" }).Count
