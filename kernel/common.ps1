@@ -2124,7 +2124,8 @@ function Save-ResumeState {
         [string]$ProfileName,
         [bool]$StopOnError,
         [int]$ResumeAfterOrder,
-        [array]$CompletedModules
+        [array]$CompletedModules,
+        [double]$ElapsedSeconds = 0
     )
 
     # Snapshot all host environment variables
@@ -2159,6 +2160,7 @@ function Save-ResumeState {
         })
         HostEnvironment  = $hostEnv
         EvidenceBasePath = $global:FabriqEvidenceBasePath
+        ElapsedSeconds   = $ElapsedSeconds
     }
 
     # Persist master passphrase (DPAPI LocalMachine encrypted) for post-reboot resume
