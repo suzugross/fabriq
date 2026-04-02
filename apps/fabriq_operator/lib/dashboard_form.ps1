@@ -34,8 +34,11 @@ function Show-OperatorDashboard {
     $headerPanel = New-StyledPanel -X 0 -Y 0 -Width 700 -Height 44 -BgColor $script:bgPanel
     $form.Controls.Add($headerPanel)
 
-    $headerTitle = New-StyledLabel -Text "FABRIQ" -X 16 -Y 4 -Width 200 -Height 28 -Font $script:fontLarge -FgColor $script:fgWhite
+    $headerTitle = New-StyledLabel -Text "FABRIQ" -X 16 -Y 4 -Width 100 -Height 28 -Font $script:fontLarge -FgColor $script:fgWhite
     $headerPanel.Controls.Add($headerTitle)
+
+    $headerSubtitle = New-StyledLabel -Text "- Manifeste du Surkitinisme -" -X 110 -Y 10 -Width 250 -Height 20 -Font $script:fontNormal -FgColor ([System.Drawing.Color]::FromArgb(160, 160, 160))
+    $headerPanel.Controls.Add($headerSubtitle)
 
     # CentreCOM-style accent stripe (blue / yellow / red)
     $stripePanel = New-Object System.Windows.Forms.Panel
