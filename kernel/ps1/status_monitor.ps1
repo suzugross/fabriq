@@ -132,7 +132,7 @@ $form.Text = "Fabriq - Status Monitor"
 # Scale form dimensions by DPI factor (designed at 96 DPI / 100%)
 $form.Size = New-Object System.Drawing.Size(
     [int](750 * $script:dpiScale),
-    [int](600 * $script:dpiScale)
+    [int](800 * $script:dpiScale)
 )
 $form.StartPosition = "Manual"
 $form.Location = New-Object System.Drawing.Point(
@@ -168,10 +168,14 @@ $execGroup.ForeColor = $accentCyan
 $execGroup.Font = $fontBold
 $mainLayout.Controls.Add($execGroup, 0, 0)
 
-$execLabel = New-Object System.Windows.Forms.Label
+$execLabel = New-Object System.Windows.Forms.RichTextBox
 $execLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
 $execLabel.ForeColor = $textWhite
+$execLabel.BackColor = $darkBg
 $execLabel.Font = $fontNormal
+$execLabel.ReadOnly = $true
+$execLabel.BorderStyle = "None"
+$execLabel.TabStop = $false
 $execLabel.Text = "No execution data yet."
 $execGroup.Controls.Add($execLabel)
 
@@ -495,7 +499,7 @@ function Update-StatusDisplay {
             $details = @($exec.Details)
             if ($details.Count -gt 0) {
                 $execText += "`r`n--- Details ---`r`n"
-                $maxShow = [Math]::Min($details.Count, 20)
+                $maxShow = $details.Count
                 for ($i = 0; $i -lt $maxShow; $i++) {
                     $d = $details[$i]
 
@@ -525,12 +529,8 @@ function Update-StatusDisplay {
                     $msg = if ($d.Message) { " $($d.Message)" } else { "" }
                     # メッセージが長い場合は切り詰め
                     $line = "$prefix$icon $($d.Operation)$msg"
-                    if ($line.Length -gt 50) { $line = $line.Substring(0, 47) + "..." }
+                    if ($line.Length -gt 70) { $line = $line.Substring(0, 67) + "..." }
                     $execText += "$line`r`n"
-                }
-                if ($details.Count -gt 20) {
-                    $remaining = $details.Count - 20
-                    $execText += "... and $remaining more`r`n"
                 }
             }
         }
