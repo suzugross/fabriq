@@ -267,6 +267,46 @@ function Set-ColorizedText {
         $pos = $idx + 4
     }
 
+    # [ER] -> red
+    $pos = 0
+    while (($idx = $RichTextBox.Text.IndexOf("[ER]", $pos)) -ge 0) {
+        $RichTextBox.Select($idx, 4)
+        $RichTextBox.SelectionColor = $errorRed
+        $pos = $idx + 4
+    }
+
+    # [SK] -> gray
+    $pos = 0
+    while (($idx = $RichTextBox.Text.IndexOf("[SK]", $pos)) -ge 0) {
+        $RichTextBox.Select($idx, 4)
+        $RichTextBox.SelectionColor = $textGray
+        $pos = $idx + 4
+    }
+
+    # [CA] -> gray
+    $pos = 0
+    while (($idx = $RichTextBox.Text.IndexOf("[CA]", $pos)) -ge 0) {
+        $RichTextBox.Select($idx, 4)
+        $RichTextBox.SelectionColor = $textGray
+        $pos = $idx + 4
+    }
+
+    # [PT] -> yellow
+    $pos = 0
+    while (($idx = $RichTextBox.Text.IndexOf("[PT]", $pos)) -ge 0) {
+        $RichTextBox.Select($idx, 4)
+        $RichTextBox.SelectionColor = $warnYellow
+        $pos = $idx + 4
+    }
+
+    # [WN] -> yellow
+    $pos = 0
+    while (($idx = $RichTextBox.Text.IndexOf("[WN]", $pos)) -ge 0) {
+        $RichTextBox.Select($idx, 4)
+        $RichTextBox.SelectionColor = $warnYellow
+        $pos = $idx + 4
+    }
+
     $RichTextBox.Select(0, 0)
 }
 
@@ -535,7 +575,7 @@ function Update-StatusDisplay {
             }
         }
 
-        $execLabel.Text = $execText
+        Set-ColorizedText -RichTextBox $execLabel -Text $execText
 
         # --- データ鮮度チェック ---
         $staleSeconds = 0

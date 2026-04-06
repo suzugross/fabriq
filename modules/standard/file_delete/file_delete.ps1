@@ -112,6 +112,31 @@ foreach ($item in $items) {
 }
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying deleted targets..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($item in $items) {
+    $targetPath = $item.TargetPath
+    $ifNotFound = if ($item.IfNotFound) { $item.IfNotFound } else { "Skip" }
+
+    if (-not (Test-Path $targetPath)) {
+        Write-Host "  [VERIFIED] $($item.Description) (not found)" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        Write-Host "  [VERIFY FAILED] $($item.Description) (still exists)" -ForegroundColor Red
+        $verifyFail++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "File Delete Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "File Delete Results" -Verified $verified)

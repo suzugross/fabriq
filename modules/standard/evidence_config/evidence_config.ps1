@@ -655,10 +655,12 @@ catch {
 Start-Section -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
 
 try {
+    # Use cmd /c with chcp 65001 to get UTF-8 output from netsh
+    # PowerShell 5.1 has issues decoding CP932 output when capturing to variable
     $prevEncoding = [Console]::OutputEncoding
     try {
-        [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(932)
-        $wlanOutput = netsh wlan show profiles 2>&1
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $wlanOutput = cmd /c "chcp 65001 >nul && netsh wlan show profiles" 2>&1
     }
     finally {
         [Console]::OutputEncoding = $prevEncoding

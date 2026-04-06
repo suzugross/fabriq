@@ -62,7 +62,29 @@ catch {
 
 Write-Host ""
 
+# ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+# Hostname change requires restart to take effect.
+# Verify that the pending hostname in registry matches the expected value.
+$verified = $null
+try {
+    $pendingName = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName" -Name "ComputerName" -ErrorAction Stop).ComputerName
+    $verified = ($pendingName -eq $newHostname)
+
+    if ($verified) {
+        Show-Success "[VERIFIED] Pending hostname: $pendingName"
+    } else {
+        Show-Warning "[VERIFY FAILED] Expected: $newHostname, Pending: $pendingName"
+    }
+}
+catch {
+    Show-Warning "Could not verify pending hostname: $_"
+}
+
+Write-Host ""
+
 Show-Warning "Restart is required to apply the hostname change."
 Write-Host ""
 
-return (New-ModuleResult -Status "Success" -Message "Hostname changed: $currentHostname -> $newHostname (restart required)")
+return (New-ModuleResult -Status "Success" -Message "Hostname changed: $currentHostname -> $newHostname (restart required)" -Verified $verified)

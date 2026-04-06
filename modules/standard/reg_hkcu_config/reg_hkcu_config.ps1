@@ -309,6 +309,57 @@ foreach ($item in $regItems) {
 }
 
 # ========================================
+# Step 5.5: Post-Apply Verification (before Hive unload)
+# ========================================
+Show-Info "Verifying applied settings..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($item in $regItems) {
+    $checkType = switch ($item.'Type') {
+        'REG_SZ'        { 'String' }
+        'REG_DWORD'     { 'DWord' }
+        'REG_QWORD'     { 'QWord' }
+        'REG_BINARY'    { 'Binary' }
+        'REG_MULTI_SZ'  { 'MultiString' }
+        'REG_EXPAND_SZ' { 'ExpandString' }
+        default         { 'String' }
+    }
+    $displayName = $item.'SettingTitle'
+
+    # Verify HKCU (current user)
+    $hkcuPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
+    $hkcuMatch = Test-RegistryValueMatch -Path $hkcuPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+
+    if ($hkcuMatch) {
+        Write-Host "  [VERIFIED] $displayName [HKCU]" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        Write-Host "  [VERIFY FAILED] $displayName [HKCU]" -ForegroundColor Red
+        $verifyFail++
+    }
+
+    # Verify HIVE (Default Profile) — only if hive is loaded
+    if ($hiveLoaded) {
+        $hivePath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKU:\Hive'
+        $hiveMatch = Test-RegistryValueMatch -Path $hivePath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+
+        if ($hiveMatch) {
+            Write-Host "  [VERIFIED] $displayName [HIVE]" -ForegroundColor Green
+            $verifyPass++
+        } else {
+            Write-Host "  [VERIFY FAILED] $displayName [HIVE]" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # Unload Hive
 # ========================================
 if ($hiveLoaded) {
@@ -424,4 +475,4 @@ if ($ENABLE_STARTUP_BATCH) {
 }
 
 # Summary
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results" -Verified $verified)

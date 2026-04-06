@@ -160,11 +160,51 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
+# Step 5.5: Post-Apply Verification (Optional)
+# ========================================
+# If this module can verify that settings were applied correctly,
+# implement verification logic here.
+# Read back the actual system state and compare with expected values.
+#
+# To enable verification:
+# 1. Uncomment the block below
+# 2. Replace the comparison logic with module-specific checks
+# 3. Pass -Verified $verified to New-BatchResult in Step 6
+#
+# Reference implementations:
+#   - reg_hklm_config : Uses Test-RegistryValueMatch to verify registry values
+#   - firewall_config : Uses Get-NetFirewallProfile to verify profile states
+#   - hostname_config : Checks pending hostname in registry
+# ========================================
+# $verifyPass = 0
+# $verifyFail = 0
+#
+# foreach ($item in $enabledItems) {
+#     $displayName = if ($item.Description) { $item.Description } else { $item.TargetName }
+#
+#     # TODO: Read back the current state
+#     # $actual = ...
+#     # $expected = $item.TargetName  # or relevant column
+#
+#     # if ($actual -eq $expected) {
+#     #     Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green
+#     #     $verifyPass++
+#     # } else {
+#     #     Write-Host "  [VERIFY FAILED] $displayName (expected: $expected, actual: $actual)" -ForegroundColor Red
+#     #     $verifyFail++
+#     # }
+# }
+#
+# $verified = ($verifyFail -eq 0)
+
+
+# ========================================
 # Step 6: 結果集計・返却
 # ========================================
 # New-BatchResult は Success/Skip/Fail の件数を集計し、
 # 件数に応じた Status（Success / Partial / Error / Skipped）を
 # 自動判定して New-ModuleResult を返す。
+# If Step 5.5 is implemented, add: -Verified $verified
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "[MODULE NAME] Results")   # ← タイトルをモジュール名に合わせて変更する
