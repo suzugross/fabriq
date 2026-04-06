@@ -186,30 +186,35 @@ foreach ($p in $profiles) {
 Write-Host ""
 
 # ========================================
-# Step 5: Verify Status After Change
+# Step 5.5: Post-Apply Verification
 # ========================================
-Show-Info "Verifying status after change..."
+Show-Info "Verifying applied settings..."
 Write-Host ""
 
+$verified = $null
 try {
     $afterProfiles = Get-NetFirewallProfile -ErrorAction Stop
-
-    Show-Separator
-    Write-Host "Firewall Status After Change" -ForegroundColor Cyan
-    Show-Separator
-    Write-Host ""
+    $verifyPass = 0
+    $verifyFail = 0
 
     foreach ($p in $afterProfiles) {
         $statusText = if ($p.Enabled) { "ON (Enabled)" } else { "OFF (Disabled)" }
-        $statusColor = if ($p.Enabled) { "Green" } else { "Red" }
-        Write-Host "  $($p.Name): " -NoNewline -ForegroundColor White
-        Write-Host "$statusText" -ForegroundColor $statusColor
+        $expectedState = ($targetEnabled -eq "True")
+
+        if ($p.Enabled -eq $expectedState) {
+            Write-Host "  [VERIFIED] $($p.Name): $statusText" -ForegroundColor Green
+            $verifyPass++
+        } else {
+            Write-Host "  [VERIFY FAILED] $($p.Name): expected $actionText, got $statusText" -ForegroundColor Red
+            $verifyFail++
+        }
     }
 
     Write-Host ""
+    $verified = ($verifyFail -eq 0)
 }
 catch {
-    Show-Warning "Failed to verify status after change"
+    Show-Warning "Failed to verify status after change: $_"
 }
 
-return (New-BatchResult -Success $successCount -Fail $failCount -Title "Configuration Results")
+return (New-BatchResult -Success $successCount -Fail $failCount -Title "Configuration Results" -Verified $verified)

@@ -457,8 +457,14 @@ function Invoke-KittingScript {
                 "Partial"   { Write-Host ""; Show-Warning "Script completed with partial results: $message" }
             }
 
-            Add-ExecutionResult -Operation $ModuleName -Status $status -Message $message
-            $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status $status -Message $message
+            # Verified field (Post-Apply Verification)
+            $verifiedStr = ""
+            if ($null -ne $moduleResult.Verified) {
+                $verifiedStr = if ($moduleResult.Verified) { "True" } else { "False" }
+            }
+
+            Add-ExecutionResult -Operation $ModuleName -Status $status -Message $message -Verified $moduleResult.Verified
+            $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status $status -Message $message -Verified $verifiedStr
             Capture-ScreenEvidence -ModuleName $ModuleName -Status $status
             return ($status -eq "Success")
         }
@@ -731,8 +737,14 @@ function Invoke-BatchExecution {
             }
         } while ($retryModule)
 
-        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message
-        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message
+        # Verified field (Post-Apply Verification)
+        $verifiedStr = ""
+        if ($null -ne $result.Verified) {
+            $verifiedStr = if ($result.Verified) { "True" } else { "False" }
+        }
+
+        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message -Verified $result.Verified
+        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr
         Capture-ScreenEvidence -ModuleName $module.MenuName -Status $result.Status
 
         # Track completed results for resume state

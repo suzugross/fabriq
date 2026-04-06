@@ -276,13 +276,15 @@ function New-ModuleResult {
         [ValidateSet("Success", "Error", "Cancelled", "Skipped", "Partial")]
         [string]$Status,
         [string]$Message = "",
-        [array]$Details = @()
+        [array]$Details = @(),
+        [Nullable[bool]]$Verified = $null
     )
     $resultObj = [PSCustomObject]@{
         _IsModuleResult = $true
         Status          = $Status
         Message         = $Message
         Details         = $Details
+        Verified        = $Verified
         Timestamp       = Get-Date
     }
     # グローバル変数にも保存（パイプライン出力キャプチャ失敗時のフォールバック）
@@ -304,7 +306,8 @@ function New-BatchResult {
         [int]$Skip = 0,
         [int]$Fail = 0,
         [string]$Title = "Execution Results",
-        [string]$MessageSuffix = ""
+        [string]$MessageSuffix = "",
+        [Nullable[bool]]$Verified = $null
     )
 
     Show-Separator
@@ -320,6 +323,13 @@ function New-BatchResult {
     if ($Fail -gt 0) {
         Write-Host "  Failed:  $Fail items" -ForegroundColor Red
     }
+    if ($null -ne $Verified) {
+        if ($Verified) {
+            Write-Host "  Verified: PASS" -ForegroundColor Green
+        } else {
+            Write-Host "  Verified: FAIL" -ForegroundColor Red
+        }
+    }
 
     Show-Separator
     Write-Host ""
@@ -333,7 +343,7 @@ function New-BatchResult {
     $msg = "Success: $Success, Skip: $Skip, Fail: $Fail"
     if ($MessageSuffix) { $msg += " $MessageSuffix" }
 
-    return (New-ModuleResult -Status $status -Message $msg)
+    return (New-ModuleResult -Status $status -Message $msg -Verified $Verified)
 }
 
 function Confirm-ModuleExecution {
@@ -855,6 +865,7 @@ function Invoke-SafeCommand {
         Message   = ""
         Duration  = [TimeSpan]::Zero
         Error     = $null
+        Verified  = $null
     }
 
     try {
@@ -884,6 +895,7 @@ function Invoke-SafeCommand {
             $result.Status = $moduleResult.Status
             $result.Message = $moduleResult.Message
             $result.Success = ($moduleResult.Status -eq "Success")
+            $result.Verified = $moduleResult.Verified
         }
         else {
             # レガシーパス: ModuleResult 未返却（全モジュール移行済み）
@@ -914,7 +926,8 @@ function Add-ExecutionResult {
     param(
         [string]$Operation,
         [string]$Status,
-        [string]$Message = ""
+        [string]$Message = "",
+        [Nullable[bool]]$Verified = $null
     )
 
     $script:ExecutionResults += [PSCustomObject]@{
@@ -922,6 +935,7 @@ function Add-ExecutionResult {
         Status    = $Status
         Message   = $Message
         Timestamp = Get-Date
+        Verified  = $Verified
     }
 
     # ステータスモニター更新
@@ -1160,7 +1174,8 @@ function Write-ExecutionHistory {
         [string]$ModuleName,
         [string]$Category,
         [string]$Status,
-        [string]$Message = ""
+        [string]$Message = "",
+        [string]$Verified = ""
     )
 
     $maxRetry = 3
@@ -1181,7 +1196,7 @@ function Write-ExecutionHistory {
         $escapedMessage = "`"$escapedMessage`""
     }
 
-    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID)"
+    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID),$Verified"
 
     # Create with header if file does not exist
     $needHeader = -not (Test-Path $script:HistoryPath)
@@ -1189,7 +1204,7 @@ function Write-ExecutionHistory {
     for ($i = 0; $i -lt $maxRetry; $i++) {
         try {
             if ($needHeader) {
-                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID"
+                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified"
                 $header | Out-File -FilePath $script:HistoryPath -Encoding UTF8 -Force
                 $needHeader = $false
             }
@@ -1283,6 +1298,12 @@ function Restore-ExecutionHistory {
             try { $ts = [datetime]::ParseExact($entry.Timestamp, "yyyy-MM-dd HH:mm:ss", $null) }
             catch { $ts = Get-Date }
 
+            # Restore Verified field from CSV ("True"/"False"/"" -> bool/$null)
+            $restoredVerified = $null
+            if (-not [string]::IsNullOrWhiteSpace($entry.Verified)) {
+                $restoredVerified = ($entry.Verified -eq "True")
+            }
+
             $restoredResults += [PSCustomObject]@{
                 Operation  = $entry.ModuleName
                 Status     = $entry.Status
@@ -1290,6 +1311,7 @@ function Restore-ExecutionHistory {
                 Timestamp  = $ts
                 IsRestored = $true
                 SessionID  = $entry.SessionID
+                Verified   = $restoredVerified
             }
         }
 
@@ -1460,7 +1482,7 @@ function Export-HtmlChecklist {
     $kanriNo     = if ($env:SELECTED_KANRI_NO)    { $env:SELECTED_KANRI_NO }    else { "-" }
     $oldPcName   = if ($env:SELECTED_OLD_PCNAME)  { $env:SELECTED_OLD_PCNAME }  else { "-" }
     $generatedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int]$ElapsedTime.TotalHours, $ElapsedTime.Minutes, $ElapsedTime.Seconds
+    $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int][math]::Floor($ElapsedTime.TotalHours), $ElapsedTime.Minutes, $ElapsedTime.Seconds
 
     # ----------------------------------------
     # System info: Printers (from env vars)
@@ -1608,6 +1630,9 @@ function Export-HtmlChecklist {
         $statusClass = "notrun"
         $message     = "-"
 
+        $verifiedLabel = "-"
+        $verifiedClass = "notrun"
+
         if ($null -ne $result) {
             switch ($result.Status) {
                 "Success"   { $statusLabel = "OK";      $statusClass = "ok";      $successTotal++ }
@@ -1621,6 +1646,17 @@ function Export-HtmlChecklist {
             }
             $message = if ($result.Message) { [System.Web.HttpUtility]::HtmlEncode($result.Message) } else { "-" }
             $ts      = if ($result.Timestamp) { $result.Timestamp.ToString("HH:mm:ss") } else { "-" }
+
+            # Post-Apply Verification status
+            if ($null -ne $result.Verified) {
+                if ($result.Verified -eq $true) {
+                    $verifiedLabel = "PASS"
+                    $verifiedClass = "ok"
+                } else {
+                    $verifiedLabel = "FAIL"
+                    $verifiedClass = "ng"
+                }
+            }
         }
         else {
             $notRunTotal++
@@ -1641,6 +1677,7 @@ function Export-HtmlChecklist {
             <td class="col-name">$([System.Web.HttpUtility]::HtmlEncode($module.MenuName))$(if($desc){"<br><span class='desc'>$desc</span>"})</td>
             <td class="col-cat">$([System.Web.HttpUtility]::HtmlEncode($module.Category))</td>
             <td class="col-status"><span class="badge $statusClass">$statusLabel</span></td>
+            <td class="col-status"><span class="badge $verifiedClass">$verifiedLabel</span></td>
             <td class="col-time">$ts</td>
             <td class="col-msg">$message</td>
         </tr>
@@ -1851,6 +1888,7 @@ $verifyPrinterSectionHtml
           <th class="col-name">Module</th>
           <th class="col-cat">Category</th>
           <th class="col-status">Result</th>
+          <th class="col-status">Verified</th>
           <th class="col-time">Time</th>
           <th class="col-msg">Message</th>
         </tr>
@@ -3085,6 +3123,7 @@ function Write-StatusFile {
                 Message    = $r.Message
                 Timestamp  = if ($r.Timestamp) { $r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
                 IsRestored = if ($r.IsRestored) { $true } else { $false }
+                Verified   = if ($null -ne $r.Verified) { $r.Verified } else { $null }
             }
         }
 

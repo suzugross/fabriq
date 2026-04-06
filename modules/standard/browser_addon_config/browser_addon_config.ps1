@@ -222,7 +222,34 @@ foreach ($item in $resolvedItems) {
 
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying applied settings..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($item in $resolvedItems) {
+    if ($item.IsInvalid) { continue }
+
+    $displayName = if ($item.Description) { $item.Description } else { $item.ResolvedId }
+    $isRegistered = Test-ExtensionInForcelist -RegPath $item.RegPath -ExtensionId $item.ResolvedId
+
+    if ($isRegistered) {
+        Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        Write-Host "  [VERIFY FAILED] $displayName" -ForegroundColor Red
+        $verifyFail++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # Step 6: 結果集計・返却
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "Browser Addon Configuration Results")
+    -Title "Browser Addon Configuration Results" -Verified $verified)

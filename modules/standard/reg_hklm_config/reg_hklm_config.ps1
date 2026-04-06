@@ -209,5 +209,45 @@ foreach ($item in $regItems) {
     Write-Host ""
 }
 
+# ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying applied settings..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($item in $regItems) {
+    $checkPath = $item.'KeyPath' -replace '^HKEY_LOCAL_MACHINE', 'HKLM:'
+    $checkPath = $checkPath -replace '^HKEY_CURRENT_USER', 'HKCU:'
+    $checkPath = $checkPath -replace '^HKEY_CLASSES_ROOT', 'HKCR:'
+    $checkPath = $checkPath -replace '^HKEY_USERS', 'HKU:'
+    $checkPath = $checkPath -replace '^HKEY_CURRENT_CONFIG', 'HKCC:'
+    $checkType = switch ($item.'Type') {
+        'REG_SZ'        { 'String' }
+        'REG_DWORD'     { 'DWord' }
+        'REG_QWORD'     { 'QWord' }
+        'REG_BINARY'    { 'Binary' }
+        'REG_MULTI_SZ'  { 'MultiString' }
+        'REG_EXPAND_SZ' { 'ExpandString' }
+        default         { 'String' }
+    }
+    $displayName = if ($item.'Description') { $item.'Description' } else { $item.'SettingTitle' }
+
+    $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+
+    if ($isMatch) {
+        Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        Write-Host "  [VERIFY FAILED] $displayName" -ForegroundColor Red
+        $verifyFail++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
 # Summary
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Configuration Results" -Verified $verified)

@@ -148,6 +148,40 @@ foreach ($item in $validItems) {
 }
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying brightness setting..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+try {
+    $verifyMonitor = Get-WmiObject -Namespace root\wmi -Class WmiMonitorBrightness -ErrorAction Stop
+    $actualBrightness = $verifyMonitor.CurrentBrightness
+
+    foreach ($item in $validItems) {
+        $targetBrightness = [int]$item.Brightness
+        $desc = if ($item.Description) { " ($($item.Description))" } else { "" }
+
+        if ($actualBrightness -eq $targetBrightness) {
+            Write-Host "  [VERIFIED] ${targetBrightness}%$desc" -ForegroundColor Green
+            $verifyPass++
+        } else {
+            Write-Host "  [VERIFY FAILED] ${targetBrightness}%$desc (actual: ${actualBrightness}%)" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+}
+catch {
+    Write-Host "  [VERIFY FAILED] Could not read brightness: $($_.Exception.Message)" -ForegroundColor Red
+    $verifyFail++
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # 7. Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Brightness Configuration Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Brightness Configuration Results" -Verified $verified)
