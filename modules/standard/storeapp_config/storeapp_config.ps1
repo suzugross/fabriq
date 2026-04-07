@@ -110,6 +110,38 @@ foreach ($app in $appList) {
 }
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying removed apps..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($app in $appList) {
+    $appName = $app.AppName
+    $displayName = $app.Description
+
+    $appxRemains = $null -ne (Get-AppxPackage $appName -ErrorAction SilentlyContinue)
+    $provRemains = $null -ne (Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq $appName })
+
+    if (-not $appxRemains -and -not $provRemains) {
+        Write-Host "  [VERIFIED] $displayName (not installed)" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        $remaining = @()
+        if ($appxRemains) { $remaining += "AppxPackage" }
+        if ($provRemains) { $remaining += "Provisioned" }
+        Write-Host "  [VERIFY FAILED] $displayName (still: $($remaining -join ', '))" -ForegroundColor Red
+        $verifyFail++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -Verified $verified)

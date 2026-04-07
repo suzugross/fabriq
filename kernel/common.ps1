@@ -2646,6 +2646,10 @@ function Resolve-ProfileModules {
                 $moduleWithOrder.MenuName = "$($found.MenuName) [seg:$segmentValue]"
             }
 
+            # ErrorMode (AutoPilot per-module error handling): "" / Ask / Skip / Retry
+            $errorModeValue = if ($entry.PSObject.Properties.Name -contains 'ErrorMode') { "$($entry.ErrorMode)".Trim() } else { "" }
+            $moduleWithOrder | Add-Member -NotePropertyName "_ErrorMode" -NotePropertyValue $errorModeValue
+
             $validModules += $moduleWithOrder
         }
         else {

@@ -243,7 +243,43 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying registered profiles..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+# Re-query current profiles after registration
+$postProfiles = @()
+$postOutput = netsh wlan show profiles 2>&1
+foreach ($line in $postOutput) {
+    if ("$line" -match "\s+:\s+(.+)$") {
+        $name = $Matches[1].Trim()
+        if ($name -ne "") {
+            $postProfiles += $name
+        }
+    }
+}
+
+foreach ($item in $enabledItems) {
+    $displayName = if ($item.Description) { $item.Description } else { $item.SSID }
+
+    if ($postProfiles -icontains $item.SSID) {
+        Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        Write-Host "  [VERIFY FAILED] $displayName (profile not found)" -ForegroundColor Red
+        $verifyFail++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+# ========================================
 # Step 6: Result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "SSID Config Results")
+    -Title "SSID Config Results" -Verified $verified)

@@ -1,0 +1,12 @@
+﻿Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+10,__AUTOPILOT__,1,WaitSec=1,,
+20,standard/test_harness_config/test_harness_config.ps1,1,Test Success+Verified PASS,success_verified,
+30,standard/test_harness_config/test_harness_config.ps1,1,Test Success+Verified FAIL,success_verifail,
+40,standard/test_harness_config/test_harness_config.ps1,1,Test Success no-verify,success_no_verify,
+50,standard/test_harness_config/test_harness_config.ps1,1,Test Skipped,skipped,
+60,standard/test_harness_config/test_harness_config.ps1,1,Test Partial,partial,
+70,standard/test_harness_config/test_harness_config.ps1,1,Test Cancelled,cancelled,
+80,standard/test_harness_config/test_harness_config.ps1,1,Test Error -> ErrorMode=Skip,error_basic,Skip
+90,standard/test_harness_config/test_harness_config.ps1,1,Test Retry success in 3,retry_success,Retry
+100,standard/test_harness_config/test_harness_config.ps1,1,Test Retry exhaust,retry_exhaust,Retry
+110,standard/test_harness_config/test_harness_config.ps1,1,Test Error -> Ask dialog,error_basic,
