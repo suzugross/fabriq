@@ -49,6 +49,7 @@ Set-ConsoleSize -Columns 75 -Lines 35
 $HOSTLIST_CSV = ".\kernel\csv\hostlist.csv"
 $COMMANDS_DIR = ".\commands"
 $APPS_DIR = ".\apps"
+$script:AutoPilotMaxRetry = 5
 
 # ========================================
 # Function: Load hostlist.csv
@@ -688,6 +689,7 @@ function Invoke-BatchExecution {
 
         # Retry loop for Error/Partial handling in AutoPilot mode
         $retryModule = $false
+        $autoRetryCount = 0
         do {
             if ($retryModule) {
                 Show-Info "Retrying: $($module.MenuName)"
@@ -724,15 +726,34 @@ function Invoke-BatchExecution {
                 Invoke-ErrorNotification -ModuleName $module.MenuName -Status $result.Status
 
                 if ($global:AutoPilotMode) {
-                    $dialogChoice = Show-AutoPilotErrorDialog `
-                        -ModuleName $module.MenuName `
-                        -Status $result.Status `
-                        -Message $result.Message
-                    if ($dialogChoice -eq "Retry") {
-                        $retryModule = $true
-                        continue
+                    $errorMode = if ($module._ErrorMode) { $module._ErrorMode.ToLower() } else { "" }
+
+                    if ($errorMode -eq "skip") {
+                        Show-Warning "[AUTOPILOT] ErrorMode=Skip -> recording $($result.Status) and continuing"
+                        # fall through: record original Error/Partial status
                     }
-                    # Skip: fall through to record original Error/Partial status
+                    elseif ($errorMode -eq "retry") {
+                        if ($autoRetryCount -lt $script:AutoPilotMaxRetry) {
+                            $autoRetryCount++
+                            Show-Warning "[AUTOPILOT] ErrorMode=Retry -> auto-retry ($autoRetryCount/$script:AutoPilotMaxRetry)"
+                            Start-Sleep -Seconds $global:AutoPilotWaitSec
+                            $retryModule = $true
+                        }
+                        else {
+                            Show-Error "[AUTOPILOT] ErrorMode=Retry -> max retry ($script:AutoPilotMaxRetry) reached, recording $($result.Status)"
+                        }
+                    }
+                    else {
+                        # Ask / empty = legacy interactive dialog
+                        $dialogChoice = Show-AutoPilotErrorDialog `
+                            -ModuleName $module.MenuName `
+                            -Status $result.Status `
+                            -Message $result.Message
+                        if ($dialogChoice -eq "Retry") {
+                            $retryModule = $true
+                        }
+                        # Skip: fall through to record original Error/Partial status
+                    }
                 }
             }
         } while ($retryModule)

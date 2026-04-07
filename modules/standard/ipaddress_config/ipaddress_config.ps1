@@ -261,9 +261,100 @@ else {
 
 Write-Host ""
 
+# ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying network configuration..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+# Verify each configured adapter
+$adapterChecks = @()
+if ($config.EthIP -and $config.EthIP.Trim() -ne '' -and $ethAdapter) {
+    $adapterChecks += @{
+        Name    = "Ethernet"
+        Adapter = $ethAdapter
+        IP      = $config.EthIP
+        Subnet  = $config.EthSubnet
+        Gateway = $config.EthGateway
+    }
+}
+if ($config.WiFiIP -and $config.WiFiIP.Trim() -ne '' -and $wifiAdapter) {
+    $adapterChecks += @{
+        Name    = "Wi-Fi"
+        Adapter = $wifiAdapter
+        IP      = $config.WiFiIP
+        Subnet  = $config.WiFiSubnet
+        Gateway = $config.WiFiGateway
+    }
+}
+
+foreach ($check in $adapterChecks) {
+    $ifIndex = $check.Adapter.ifIndex
+    $adapterLabel = $check.Name
+
+    # IP Address + Prefix verification
+    $expectedPrefix = Convert-SubnetMaskToPrefix -SubnetMask $check.Subnet
+    $currentIP = Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq $check.IP -and $_.PrefixLength -eq $expectedPrefix }
+
+    if ($currentIP) {
+        Write-Host "  [VERIFIED] $adapterLabel IP: $($check.IP)/$expectedPrefix" -ForegroundColor Green
+        $verifyPass++
+    } else {
+        $actualIP = (Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Select-Object -First 1)
+        $actualDisplay = if ($actualIP) { "$($actualIP.IPAddress)/$($actualIP.PrefixLength)" } else { "none" }
+        Write-Host "  [VERIFY FAILED] $adapterLabel IP: expected $($check.IP)/$expectedPrefix, actual $actualDisplay" -ForegroundColor Red
+        $verifyFail++
+    }
+
+    # Gateway verification
+    if ($check.Gateway -and $check.Gateway.Trim() -ne '') {
+        $netConfig = Get-NetIPConfiguration -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue
+        $gwMatch = $netConfig.IPv4DefaultGateway | Where-Object { $_.NextHop -eq $check.Gateway }
+
+        if ($gwMatch) {
+            Write-Host "  [VERIFIED] $adapterLabel Gateway: $($check.Gateway)" -ForegroundColor Green
+            $verifyPass++
+        } else {
+            $actualGw = if ($netConfig.IPv4DefaultGateway) { $netConfig.IPv4DefaultGateway.NextHop -join ', ' } else { "none" }
+            Write-Host "  [VERIFY FAILED] $adapterLabel Gateway: expected $($check.Gateway), actual $actualGw" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+
+    # DNS verification
+    $validDNS = @($dnsServers)
+    if ($validDNS.Count -gt 0) {
+        $currentDNS = @((Get-DnsClientServerAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses)
+        $dnsMatch = $true
+        for ($i = 0; $i -lt $validDNS.Count; $i++) {
+            if ($i -ge $currentDNS.Count -or $currentDNS[$i] -ne $validDNS[$i]) {
+                $dnsMatch = $false
+                break
+            }
+        }
+
+        if ($dnsMatch) {
+            Write-Host "  [VERIFIED] $adapterLabel DNS: $($validDNS -join ', ')" -ForegroundColor Green
+            $verifyPass++
+        } else {
+            $actualDNS = if ($currentDNS.Count -gt 0) { $currentDNS -join ', ' } else { "none" }
+            Write-Host "  [VERIFY FAILED] $adapterLabel DNS: expected $($validDNS -join ', '), actual $actualDNS" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+}
+
+Write-Host ""
+$verified = if ($adapterChecks.Count -eq 0) { $null } else { $verifyFail -eq 0 }
+
 # Return ModuleResult
 $overallStatus = if ($totalAdapters -eq 0) { "Skipped" }
     elseif ($successCount -eq $totalAdapters) { "Success" }
     elseif ($successCount -gt 0) { "Partial" }
     else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount/$totalAdapters adapters")
+return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount/$totalAdapters adapters" -Verified $verified)

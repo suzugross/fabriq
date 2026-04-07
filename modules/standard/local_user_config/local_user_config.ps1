@@ -144,4 +144,57 @@ foreach ($user in $enabledUsers) {
     Write-Host ""
 }
 
-return (New-BatchResult -Success $successCount -Fail $failCount)
+# ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+Show-Info "Verifying created users..."
+Write-Host ""
+
+$verifyPass = 0
+$verifyFail = 0
+
+foreach ($user in $enabledUsers) {
+    $displayName = $user.UserName
+
+    # Verify user exists
+    $localUser = Get-LocalUser -Name $user.UserName -ErrorAction SilentlyContinue
+    if ($null -eq $localUser) {
+        Write-Host "  [VERIFY FAILED] $displayName (user not found)" -ForegroundColor Red
+        $verifyFail++
+        continue
+    }
+
+    # Verify group membership
+    $groupFail = $false
+    if (-not [string]::IsNullOrWhiteSpace($user.Group)) {
+        $groups = $user.Group -split ';'
+        foreach ($group in $groups) {
+            $group = $group.Trim()
+            if ([string]::IsNullOrWhiteSpace($group)) { continue }
+
+            $isMember = $false
+            try {
+                $members = @(Get-LocalGroupMember -Group $group -ErrorAction Stop)
+                $isMember = $members | Where-Object { $_.Name -match "\\$($user.UserName)$" }
+            }
+            catch { }
+
+            if (-not $isMember) {
+                Write-Host "  [VERIFY FAILED] $displayName (not in group: $group)" -ForegroundColor Red
+                $groupFail = $true
+            }
+        }
+    }
+
+    if ($groupFail) {
+        $verifyFail++
+    } else {
+        Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green
+        $verifyPass++
+    }
+}
+
+Write-Host ""
+$verified = ($verifyFail -eq 0)
+
+return (New-BatchResult -Success $successCount -Fail $failCount -Verified $verified)

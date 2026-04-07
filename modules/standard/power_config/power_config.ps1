@@ -90,6 +90,7 @@ public static class PowerModeApi {
 # P/Invoke: powrprof.dll Power Write/Read APIs
 # These APIs are the same code path used by Control Panel UI,
 # bypassing OEM restrictions that affect powercfg.exe on some PCs (e.g., HP).
+# Read APIs are locale-independent (unlike powercfg /QUERY text output).
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -110,6 +111,22 @@ public static class PowerWriteApi {
         ref Guid SubGroupOfPowerSettingsGuid,
         ref Guid PowerSettingGuid,
         uint DcValueIndex);
+
+    [DllImport("powrprof.dll")]
+    public static extern uint PowerReadACValueIndex(
+        IntPtr RootPowerKey,
+        ref Guid SchemeGuid,
+        ref Guid SubGroupOfPowerSettingsGuid,
+        ref Guid PowerSettingGuid,
+        out uint AcValueIndex);
+
+    [DllImport("powrprof.dll")]
+    public static extern uint PowerReadDCValueIndex(
+        IntPtr RootPowerKey,
+        ref Guid SchemeGuid,
+        ref Guid SubGroupOfPowerSettingsGuid,
+        ref Guid PowerSettingGuid,
+        out uint DcValueIndex);
 
     [DllImport("powrprof.dll")]
     public static extern uint PowerSetActiveScheme(
@@ -161,6 +178,11 @@ function ConvertTo-SettingValue {
 # ========================================
 # Get Current Power Setting Value (for idempotency)
 # ========================================
+# Uses PowerReadACValueIndex/PowerReadDCValueIndex Win32 APIs directly instead of
+# parsing powercfg /QUERY text output, which is localized and breaks on non-English
+# Windows (e.g., Japanese). This API is the canonical read counterpart of
+# PowerWriteACValueIndex/PowerWriteDCValueIndex used for SET, ensuring SET/GET path
+# consistency and full locale independence.
 function Get-PowerConfigValue {
     param(
         [string]$PlanGuid,
@@ -171,19 +193,22 @@ function Get-PowerConfigValue {
     )
 
     try {
-        $output = & powercfg /QUERY $PlanGuid $SubGroupGuid $SettingGuid 2>&1
-        if ($LASTEXITCODE -ne 0) { return $null }
+        $scheme = [Guid]$PlanGuid
+        $sub    = [Guid]$SubGroupGuid
+        $sett   = [Guid]$SettingGuid
+        $val    = [uint32]0
 
-        $pattern = if ($PowerSource -eq 'AC') {
-            'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)'
-        } else {
-            'Current DC Power Setting Index:\s+0x([0-9a-fA-F]+)'
+        if ($PowerSource -eq 'AC') {
+            $hr = [PowerWriteApi]::PowerReadACValueIndex(
+                [IntPtr]::Zero, [ref]$scheme, [ref]$sub, [ref]$sett, [ref]$val)
+        }
+        else {
+            $hr = [PowerWriteApi]::PowerReadDCValueIndex(
+                [IntPtr]::Zero, [ref]$scheme, [ref]$sub, [ref]$sett, [ref]$val)
         }
 
-        foreach ($line in $output) {
-            if ($line -match $pattern) {
-                return [Convert]::ToInt64($matches[1], 16)
-            }
+        if ($hr -eq 0) {
+            return [int64]$val
         }
     }
     catch { }
@@ -865,16 +890,150 @@ function Main {
         Write-Host "`nActivating settings..." -ForegroundColor Gray
         & powercfg /SETACTIVE (Get-ActivePowerPlanGuid) | Out-Null
 
-        Write-Host "`n========================================" -ForegroundColor Green
+        # ========================================
+        # Step 5.5: Post-Apply Verification
+        # ========================================
+        Write-Host ""
+        Show-Info "Verifying applied settings..."
+        Write-Host ""
+
+        $verifyPass = 0
+        $verifyFail = 0
+
+        # Re-read active plan GUID for verification
+        $verifyPlanGuid = Get-ActivePowerPlanGuid
+
+        # --- Power Plan ---
+        $planTarget = ConvertTo-SettingValue $selectedProfile.PowerPlan
+        if ($null -ne $planTarget -and $script:PowerPlanGuids.ContainsKey($planTarget)) {
+            $expectedGuid = $script:PowerPlanGuids[$planTarget]
+            if ($verifyPlanGuid -eq $expectedGuid) {
+                Write-Host "  [VERIFIED] Power Plan: $planTarget" -ForegroundColor Green
+                $verifyPass++
+            } else {
+                Write-Host "  [VERIFY FAILED] Power Plan: expected $planTarget ($expectedGuid), actual $verifyPlanGuid" -ForegroundColor Red
+                $verifyFail++
+            }
+        }
+
+        # --- Power Mode Overlay ---
+        $modeTarget = ConvertTo-SettingValue $selectedProfile.PowerMode
+        if ($null -ne $modeTarget -and $script:PowerModeGuids.ContainsKey($modeTarget)) {
+            $expectedModeGuid = [Guid]::new($script:PowerModeGuids[$modeTarget])
+
+            foreach ($src in @('AC', 'DC')) {
+                $currentModeGuid = [Guid]::Empty
+                if ($src -eq 'AC') {
+                    [void][PowerModeApi]::GetACPowerMode([ref]$currentModeGuid)
+                } else {
+                    [void][PowerModeApi]::GetDCPowerMode([ref]$currentModeGuid)
+                }
+
+                if ($currentModeGuid -eq $expectedModeGuid) {
+                    Write-Host "  [VERIFIED] Power Mode ($src): $modeTarget" -ForegroundColor Green
+                    $verifyPass++
+                } else {
+                    Write-Host "  [VERIFY FAILED] Power Mode ($src): expected $modeTarget, actual $currentModeGuid" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+        }
+
+        # --- Timeout Settings ---
+        $timeoutChecks = @(
+            @{ Property = 'Display_TurnOff_AC';       Type = 'monitor-ac';   Label = 'Display Off (AC)' }
+            @{ Property = 'Display_TurnOff_Battery';   Type = 'monitor-dc';   Label = 'Display Off (DC)' }
+            @{ Property = 'Sleep_After_AC';            Type = 'standby-ac';   Label = 'Sleep (AC)' }
+            @{ Property = 'Sleep_After_Battery';       Type = 'standby-dc';   Label = 'Sleep (DC)' }
+            @{ Property = 'Hibernate_After_AC';        Type = 'hibernate-ac'; Label = 'Hibernate (AC)' }
+            @{ Property = 'Hibernate_After_Battery';   Type = 'hibernate-dc'; Label = 'Hibernate (DC)' }
+            @{ Property = 'HardDisk_TurnOff_AC';       Type = 'disk-ac';      Label = 'HDD Off (AC)' }
+            @{ Property = 'HardDisk_TurnOff_Battery';  Type = 'disk-dc';      Label = 'HDD Off (DC)' }
+        )
+
+        foreach ($tc in $timeoutChecks) {
+            $targetVal = ConvertTo-SettingValue $selectedProfile.($tc.Property)
+            if ($null -ne $targetVal) {
+                $currentMin = Get-TimeoutValue -TimeoutType $tc.Type -PlanGuid $verifyPlanGuid
+                if ($null -ne $currentMin -and $currentMin -eq [int]$targetVal) {
+                    Write-Host "  [VERIFIED] $($tc.Label): $targetVal min" -ForegroundColor Green
+                    $verifyPass++
+                } else {
+                    $actual = if ($null -ne $currentMin) { "$currentMin min" } else { "Unknown" }
+                    Write-Host "  [VERIFY FAILED] $($tc.Label): expected $targetVal min, actual $actual" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+        }
+
+        # --- Button/Lid Actions ---
+        $buttonSubGroup = $script:SubGroupGuids['PowerButtons']
+        $buttonChecks = @(
+            @{ Property = 'PowerButton_AC';   Guid = $script:SettingGuids['PowerButton']; Src = 'AC'; Label = 'Power Button (AC)' }
+            @{ Property = 'PowerButton_Battery'; Guid = $script:SettingGuids['PowerButton']; Src = 'DC'; Label = 'Power Button (DC)' }
+            @{ Property = 'SleepButton_AC';   Guid = $script:SettingGuids['SleepButton']; Src = 'AC'; Label = 'Sleep Button (AC)' }
+            @{ Property = 'SleepButton_Battery'; Guid = $script:SettingGuids['SleepButton']; Src = 'DC'; Label = 'Sleep Button (DC)' }
+            @{ Property = 'LidClose_AC';      Guid = $script:SettingGuids['LidClose'];    Src = 'AC'; Label = 'Lid Close (AC)' }
+            @{ Property = 'LidClose_Battery'; Guid = $script:SettingGuids['LidClose'];    Src = 'DC'; Label = 'Lid Close (DC)' }
+        )
+
+        foreach ($bc in $buttonChecks) {
+            $targetName = ConvertTo-SettingValue $selectedProfile.($bc.Property)
+            if ($null -ne $targetName -and $script:ActionValues.ContainsKey($targetName)) {
+                $expectedVal = $script:ActionValues[$targetName]
+                $currentVal = Get-PowerConfigValue -PlanGuid $verifyPlanGuid -SubGroupGuid $buttonSubGroup `
+                    -SettingGuid $bc.Guid -PowerSource $bc.Src
+
+                if ($null -ne $currentVal -and $currentVal -eq $expectedVal) {
+                    Write-Host "  [VERIFIED] $($bc.Label): $targetName" -ForegroundColor Green
+                    $verifyPass++
+                } else {
+                    $actual = if ($null -ne $currentVal) { $currentVal } else { "Unknown" }
+                    Write-Host "  [VERIFY FAILED] $($bc.Label): expected $targetName ($expectedVal), actual $actual" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+        }
+
+        # --- Processor States ---
+        $processorSubGroup = $script:SubGroupGuids['Processor']
+        $procChecks = @(
+            @{ Property = 'Processor_MinState_AC';      Guid = $script:SettingGuids['ProcessorMinState']; Src = 'AC'; Label = 'Min CPU (AC)' }
+            @{ Property = 'Processor_MinState_Battery';  Guid = $script:SettingGuids['ProcessorMinState']; Src = 'DC'; Label = 'Min CPU (DC)' }
+            @{ Property = 'Processor_MaxState_AC';      Guid = $script:SettingGuids['ProcessorMaxState']; Src = 'AC'; Label = 'Max CPU (AC)' }
+            @{ Property = 'Processor_MaxState_Battery';  Guid = $script:SettingGuids['ProcessorMaxState']; Src = 'DC'; Label = 'Max CPU (DC)' }
+        )
+
+        foreach ($pc in $procChecks) {
+            $targetVal = ConvertTo-SettingValue $selectedProfile.($pc.Property)
+            if ($null -ne $targetVal) {
+                $currentVal = Get-PowerConfigValue -PlanGuid $verifyPlanGuid -SubGroupGuid $processorSubGroup `
+                    -SettingGuid $pc.Guid -PowerSource $pc.Src
+
+                if ($null -ne $currentVal -and $currentVal -eq [int]$targetVal) {
+                    Write-Host "  [VERIFIED] $($pc.Label): $targetVal%" -ForegroundColor Green
+                    $verifyPass++
+                } else {
+                    $actual = if ($null -ne $currentVal) { "$currentVal%" } else { "Unknown" }
+                    Write-Host "  [VERIFY FAILED] $($pc.Label): expected $targetVal%, actual $actual" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+        }
+
+        Write-Host ""
+        $verified = if ($verifyPass -eq 0 -and $verifyFail -eq 0) { $null } else { $verifyFail -eq 0 }
+
+        Write-Host "========================================" -ForegroundColor Green
         Write-Host "  Configuration Results" -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  Changed: $($script:ChangeCount), Skipped: $($script:SkipCount)" -ForegroundColor Green
         Write-Host "========================================`n" -ForegroundColor Green
 
         if ($script:ChangeCount -eq 0 -and $script:SkipCount -gt 0) {
-            return (New-ModuleResult -Status "Skipped" -Message "All $($script:SkipCount) settings already configured")
+            return (New-ModuleResult -Status "Skipped" -Message "All $($script:SkipCount) settings already configured" -Verified $verified)
         }
-        return (New-ModuleResult -Status "Success" -Message "Changed: $($script:ChangeCount), Skip: $($script:SkipCount)")
+        return (New-ModuleResult -Status "Success" -Message "Changed: $($script:ChangeCount), Skip: $($script:SkipCount)" -Verified $verified)
     }
     catch {
         Write-Host ""

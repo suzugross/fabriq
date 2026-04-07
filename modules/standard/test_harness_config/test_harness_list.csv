@@ -1,0 +1,13 @@
+﻿Enabled,Segment,TestName,Behavior,Verified,FailFirstN,DelaySec,Description
+1,,t1,success,true,0,0,Default scenario - single success with Verified PASS
+1,success_verified,t1,success,true,0,0,Single success with Verified PASS
+1,success_verifail,t1,success,false,0,0,Success but Verified FAIL
+1,success_no_verify,t1,success,,0,0,Success without verification (Verified=null)
+1,skipped,t1,skip,,0,0,Single skip
+1,partial,t1,success,true,0,0,Partial - first item success
+1,partial,t2,fail,,0,0,Partial - second item fail
+1,cancelled,t1,cancel,,0,0,Cancelled simulation
+1,error_basic,t1,fail,,0,0,Always fail
+1,retry_success,t1,success,true,0,2,Fail first 2 attempts then succeed
+1,retry_exhaust,t1,fail,,0,99,Fail forever to exhaust 5 retries
+1,delay_demo,t1,success,true,0,3,Sleep 3 seconds then success (UI demo)
