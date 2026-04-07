@@ -1,0 +1,90 @@
+■ 概要
+fabriq の動作検証用シミュレーションモジュール。
+ファイルやレジストリに一切副作用を出さずに、Status / Verified /
+AutoPilot ErrorMode / Resume といった全機能パターンを再現できる。
+
+実環境を汚染しないため、開発中の動作確認や Profile 構築時の
+リハーサルに利用できる。
+
+■ 設定ファイル
+[test_harness_list.csv]
+  Enabled    : 有効フラグ（1=実行 / 0=スキップ）
+  Segment    : Profile 側の Segment 値で絞り込むキー（空欄=既定）
+  TestName   : 表示名 兼 状態保存キー
+  Behavior   : item の挙動（success / fail / skip / cancel）
+  Verified   : item の Verified 結果（true / false / 空欄）
+  FailFirstN : 整数。同 (Segment+TestName) の N 回目までは強制 fail
+  DelaySec   : 各 item 処理前のスリープ秒（進捗 UI 確認用）
+  Description: 説明（表示用）
+
+[記載例]
+  1,success_verified,t1,success,true,0,0,Single success with Verified PASS
+  1,partial,t1,success,true,0,0,Partial - first item success
+  1,partial,t2,fail,,0,0,Partial - second item fail
+  1,retry_success,t1,success,true,2,0,Fail first 2 attempts then succeed
+  1,error_basic,t1,fail,,0,0,Always fail
+
+■ シナリオ Behavior 一覧
+  success : Show-Success / 成功カウント++
+  fail    : Show-Error  / 失敗カウント++
+  skip    : Show-Skip   / スキップカウント++
+  cancel  : 即 Cancelled を返してモジュール全体を抜ける
+            （Confirm-ModuleExecution を介さないため
+              AutoPilot 中でも確実に Cancelled を再現可能）
+
+■ Verified の集計ルール
+  - 全 item の Verified 値を集約してモジュール全体の Verified を決定
+  - 1 つでも false  → モジュール全体 Verified=FAIL
+  - すべて true のみ → Verified=PASS
+  - 空欄混在（false なし） → Verified=null（検証なし扱い）
+
+■ FailFirstN とリトライ連携
+  - グローバル Hashtable $global:FabriqTestHarnessState に
+    "${Segment}::${TestName}" をキーとして累積試行回数を保存する
+  - 値はメモリ上のみ。fabriq セッション終了 / __RESTART__ で
+    PowerShell プロセスが終わると自動破棄されるため
+    ファイル / レジストリは一切汚染しない
+  - Profile の ErrorMode=retry と組み合わせると
+    「N 回失敗 → N+1 回目で成功」というリトライ成功シナリオを
+    再現できる（main.ps1 の AutoPilotMaxRetry=5 が上限）
+
+■ 前提条件
+  - 副作用がないため管理者権限は不要
+  - メニューから単独実行する場合、Confirm のため通常実行で十分
+
+■ Profile での使い方
+  Profile CSV から Segment 列でシナリオを選択する。
+  ErrorMode 列と組み合わせると AutoPilot のエラー処理を網羅検証可能。
+
+[Profile 例]
+  Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+  10,__AUTOPILOT__,1,WaitSec=1,,
+  20,standard/test_harness_config/test_harness_config.ps1,1,Success+VerifiedPASS,success_verified,
+  30,standard/test_harness_config/test_harness_config.ps1,1,Partial,partial,skip
+  40,__RESTART__,1,Mid-profile resume,,
+  50,standard/test_harness_config/test_harness_config.ps1,1,Retry success,retry_success,retry
+  60,standard/test_harness_config/test_harness_config.ps1,1,Retry exhaust,retry_exhaust,retry
+  70,standard/test_harness_config/test_harness_config.ps1,1,Error -> Ask dialog,error_basic,
+
+  完全なサンプルは profiles/_test_harness.csv を参照。
+
+■ 動作の流れ
+  1. test_harness_list.csv を読み込み（Segment フィルタが効く）
+  2. ドライラン表示で各 item の Behavior / Verified / FailFirstN / DelaySec を提示
+  3. Confirm-ModuleExecution（AutoPilot 時は自動 Y）
+  4. 各 item をループ処理
+     - DelaySec 指定時はスリープ
+     - cancel Behavior は即 Cancelled で全体を抜ける
+     - FailFirstN 指定かつ累積試行回数 ≤ FailFirstN なら強制 fail
+     - Behavior に応じて Show-* と count を更新
+  5. Verified を集計
+  6. New-BatchResult で Status と Verified を返却
+
+■ 注意事項
+  - __RESTART__ を跨ぐと FailFirstN カウンタはリセットされる
+    （PowerShell プロセス再起動のため、これは仕様）
+  - cancel Behavior は Confirm を介さないため Profile 全体の停止を
+    起こす可能性がある（Stop on Error モード時）。
+    検証用途以外では使用しないこと
+  - test_harness_config はテスト専用モジュールのため
+    本番用 Profile（Master_Config*.csv 等）に組み込まないこと
