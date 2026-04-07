@@ -4,9 +4,10 @@
 30,standard/test_harness_config/test_harness_config.ps1,1,Test Success+Verified FAIL,success_verifail,
 40,standard/test_harness_config/test_harness_config.ps1,1,Test Success no-verify,success_no_verify,
 50,standard/test_harness_config/test_harness_config.ps1,1,Test Skipped,skipped,
-60,standard/test_harness_config/test_harness_config.ps1,1,Test Partial,partial,
+55,__RESTART__,1,Mid-profile restart (resume test),,
+60,standard/test_harness_config/test_harness_config.ps1,1,Test Partial,partial,skip
 70,standard/test_harness_config/test_harness_config.ps1,1,Test Cancelled,cancelled,
-80,standard/test_harness_config/test_harness_config.ps1,1,Test Error -> ErrorMode=Skip,error_basic,Skip
-90,standard/test_harness_config/test_harness_config.ps1,1,Test Retry success in 3,retry_success,Retry
-100,standard/test_harness_config/test_harness_config.ps1,1,Test Retry exhaust,retry_exhaust,Retry
+80,standard/test_harness_config/test_harness_config.ps1,1,Test Error -> ErrorMode=skip,error_basic,skip
+90,standard/test_harness_config/test_harness_config.ps1,1,Test Retry success in 3,retry_success,retry
+100,standard/test_harness_config/test_harness_config.ps1,1,Test Retry exhaust,retry_exhaust,retry
 110,standard/test_harness_config/test_harness_config.ps1,1,Test Error -> Ask dialog,error_basic,

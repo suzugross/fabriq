@@ -27,6 +27,7 @@ Fabriq は、Windows PC の初期セットアップ（キッティング）を�
 |------|------|
 | **モジュールシステム** | 40 種類以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。AutoPilot モードで完全自動化 |
+| **AutoPilot ErrorMode** | プロファイルの `ErrorMode` 列でモジュール単位に `skip` / `retry` を宣言し、AutoPilot 中のエラー対応を自動化 |
 | **再起動跨ぎ** | `__RESTART__` マーカーにより、再起動後に RunOnce 経由で自動再開 |
 | **CSV 駆動** | `hostlist.csv` で PC 毎の設定を定義。各モジュールの設定も CSV で管理 |
 | **暗号化** | AES-256-CBC + PBKDF2 で CSV 中の機密値（パスワード、IP 等）を暗号化保持 |
@@ -109,18 +110,23 @@ Fabriq Studio を起動し、ワークスペースとして Fabriq フォルダ�
 **プロファイル CSV の例:**
 
 ```csv
-Order,ScriptPath,Enabled,Description
-10,standard\hostname_config\hostname_config.ps1,1,ホスト名設定
-20,standard\ipaddress_config\ipaddress_config.ps1,1,IP アドレス設定
-30,__RESTART__,1,再起動
-40,standard\reg_hklm_config\reg_hklm_config.ps1,1,レジストリ設定
-50,__SHUTDOWN__,1,シャットダウン
+Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+10,__AUTOPILOT__,1,WaitSec=3,,
+20,standard\hostname_config\hostname_config.ps1,1,ホスト名設定,,
+30,standard\ipaddress_config\ipaddress_config.ps1,1,IP アドレス設定,,retry
+40,__RESTART__,1,再起動,,
+50,standard\reg_hklm_config\reg_hklm_config.ps1,1,レジストリ設定,,skip
+60,__SHUTDOWN__,1,シャットダウン,,
 ```
+
+- `Segment` 列: 同モジュールを設定値別に呼び分ける場合に指定（省略可）
+- `ErrorMode` 列: AutoPilot 実行時のエラー処理ポリシー（省略=ダイアログ確認 / `skip`=自動スキップ / `retry`=最大 5 回自動リトライ）
 
 **特殊マーカー:**
 
 | マーカー | 動作 |
 |---------|------|
+| `__AUTOPILOT__` | 以降の Profile 実行を AutoPilot モードで自動化。Description に `WaitSec=N` でモジュール間ウェイト秒を指定可能 |
 | `__RESTART__` | Windows を再起動し、RunOnce 経由で自動再開 |
 | `__SHUTDOWN__` | Windows をシャットダウン |
 | `__PAUSE__` | ユーザー入力待ちで一時停止 |
