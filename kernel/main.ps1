@@ -372,6 +372,7 @@ function Enter-ScriptMenu {
             if ($selectedModules.Count -gt 0) {
                 Clear-Host
                 Invoke-BatchExecution -SelectedModules $selectedModules
+                Wait-KeyPress
                 Clear-Host
             }
             else {
@@ -847,8 +848,6 @@ function Invoke-BatchExecution {
             }
         }
     }
-
-    Wait-KeyPress
 
     } # end try
     finally {
