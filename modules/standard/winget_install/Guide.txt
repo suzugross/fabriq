@@ -1,25 +1,33 @@
 ■ 概要
-winget を使用してアプリケーションを一括インストールします。
-このモジュールには2つのスクリプトがあります。
+winget を使用してアプリケーションを一括管理します。
+このモジュールには3つのスクリプトがあります。
 
 [Winget App Installer Update]
   winget 自体（Microsoft.AppInstaller）を最新版に更新します。
-  winget_install の前に実行することを推奨します。
+  winget_install / winget_upgrade の前に実行することを推奨します。
 
 [Winget App Install]
   app_list.csv に定義されたアプリを winget でインストールします。
+  既にインストール済みのアプリはスキップします。
+
+[Winget App Upgrade]
+  app_list.csv に定義されたアプリのうち、既にインストール済みの
+  ものだけを winget で最新版に更新します。
+  未インストールのアプリはスキップします（install 側の責務）。
+  既に最新のアプリは Skipped として記録されます。
 
 ■ 設定ファイル
-[app_list.csv]
+[app_list.csv]   ※ install / upgrade で共有
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
   AppID       : winget のパッケージID（例: Google.Chrome）
-  Options     : 追加オプション（省略可）
+  Options     : 追加オプション（省略可、install/upgrade 共通）
   Description : 説明（表示用）
+  Segment     : セグメント分類（省略可）
 
 [記載例]
-  1,Google.Chrome,,Google Chrome
-  1,Adobe.Acrobat.Reader.64-bit,,Adobe Acrobat Reader DC
-  0,Git.Git,--override "/VERYSILENT",Git for Windows
+  1,Google.Chrome,,Google Chrome,
+  1,Adobe.Acrobat.Reader.64-bit,,Adobe Acrobat Reader DC,
+  0,Git.Git,--override "/VERYSILENT",Git for Windows,
 
 ■ 前提条件
 ・インターネット接続が必要です（自動でネットワーク確認を行います）
@@ -29,8 +37,41 @@ winget を使用してアプリケーションを一括インストールしま�
 コマンドプロンプトで「winget search アプリ名」を実行すると
 パッケージIDを確認できます。
 
-■ 動作の流れ
+■ install と upgrade の振り分け
+                        | install | upgrade
+  未インストール        | 対象    | スキップ
+  インストール済み      | スキップ| 対象
+  インストール済み(最新)| スキップ| Skipped (ExitCode -1978335212)
+
+■ 動作の流れ（共通）
 1. ネットワーク接続とwingetの利用可否を確認
 2. winget source をリセット
-3. app_list.csv を読み込み、インストール済みアプリをスキップ
-4. 実行確認（Y/N）後、順にインストール
+3. app_list.csv を読み込み、対象を振り分け
+4. 実行確認（Y/N）後、順に install / upgrade を実行
+5. 結果を集計して返却
+
+■ Profile での使い方
+[初回キッティング (install のみ)]
+  Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+  10,standard/winget_install/winget_update.ps1,1,winget update,,
+  20,__RESTART__,1,reboot,,
+  30,standard/winget_install/winget_install.ps1,1,install apps,,
+
+[定期メンテナンス (upgrade のみ)]
+  Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+  10,standard/winget_install/winget_update.ps1,1,winget update,,
+  20,__RESTART__,1,reboot,,
+  30,standard/winget_install/winget_upgrade.ps1,1,upgrade apps,,retry
+
+[フル更新 (install + upgrade)]
+  Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+  10,standard/winget_install/winget_update.ps1,1,winget update,,
+  20,__RESTART__,1,reboot,,
+  30,standard/winget_install/winget_install.ps1,1,install apps,,
+  40,standard/winget_install/winget_upgrade.ps1,1,upgrade apps,,
+
+■ ExitCode の扱い
+  0           : 成功
+  3010        : 成功（再起動保留）
+  -1978335212 : upgrade 対象が既に最新 → Skipped 扱い
+  その他      : 失敗
