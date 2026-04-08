@@ -70,8 +70,9 @@ winget を使用してアプリケーションを一括管理します。
   30,standard/winget_install/winget_install.ps1,1,install apps,,
   40,standard/winget_install/winget_upgrade.ps1,1,upgrade apps,,
 
-■ ExitCode の扱い
+■ ExitCode の扱い (winget_upgrade.ps1)
   0           : 成功
   3010        : 成功（再起動保留）
-  -1978335212 : upgrade 対象が既に最新 → Skipped 扱い
+  -1978335212 : NO_APPLICATIONS_FOUND   → 既に最新として Skipped
+  -1978335189 : UPDATE_NOT_APPLICABLE   → 既に最新として Skipped
   その他      : 失敗

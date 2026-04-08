@@ -10,8 +10,11 @@
 #   - Not-installed apps are skipped (handled by winget_install.ps1)
 # ========================================
 
-# Known ExitCode for "No applicable update found"
-$WINGET_NO_UPGRADE = -1978335212
+# Known ExitCodes that indicate "already up to date" (treated as Skipped)
+#   -1978335212 = 0x8A150014 APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND
+#   -1978335189 = 0x8A15002B APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE
+$WINGET_NO_APPLICATIONS_FOUND = -1978335212
+$WINGET_UPDATE_NOT_APPLICABLE = -1978335189
 
 Write-Host ""
 Show-Separator
@@ -158,7 +161,11 @@ foreach ($app in $toUpgrade) {
                 Show-Success "Upgrade completed (reboot pending)"
                 $successCount++
             }
-            $WINGET_NO_UPGRADE {
+            $WINGET_NO_APPLICATIONS_FOUND {
+                Show-Skip "Already up to date"
+                $skipCount++
+            }
+            $WINGET_UPDATE_NOT_APPLICABLE {
                 Show-Skip "Already up to date"
                 $skipCount++
             }
