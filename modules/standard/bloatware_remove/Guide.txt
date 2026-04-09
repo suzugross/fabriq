@@ -1,34 +1,37 @@
 ■ 概要
 bloatware_list.csv に定義されたデスクトップアプリケーションを一括アンインストールします。
-bloatware_export モジュールで出力したCSVを元に編集して使用します。
+DisplayName / MatchPattern をキーにレジストリから動的にアンインストール情報を取得するため、
+端末間のバージョン差異やパスの違いに左右されません。
 
 ■ 設定ファイル
 [bloatware_list.csv]
-  Enabled              : 有効フラグ（1=削除対象, 0=スキップ）
-  DisplayName          : アプリ名
-  Publisher            : 発行元
-  DisplayVersion       : バージョン
-  Architecture         : アーキテクチャ（64bit / 32bit）
-  WindowsInstaller     : MSIインストーラーか否か
-  QuietUninstallString : サイレントアンインストールコマンド
-  UninstallString      : アンインストールコマンド
-  NoRemove             : 削除不可フラグ（1=自動スキップ）
-  SystemComponent      : システムコンポーネント（1=自動スキップ）
-  InstallDate          : インストール日
-  RegistryKey          : レジストリパス
+  Enabled      : 有効フラグ（1=削除対象, 0=スキップ）
+  DisplayName  : アプリ名（MatchPattern省略時は完全一致で検索）
+  MatchPattern : ワイルドカードパターン（例: McAfee*）※省略可
+  Description  : 表示用ラベル（省略時はDisplayNameを使用）
+  Segment      : セグメントフィルタ（省略可）
 
-■ 運用方法
-1. まず bloatware_export モジュールでCSVを出力
-2. 出力されたCSVを bloatware_list.csv として配置
-3. 削除したいアプリの Enabled を 1 に変更
+[記載例]
+  1,McAfee,McAfee*,McAfee products,
+  1,Lenovo Now,,,
+  1,Microsoft 365,Microsoft 365*,Pre-installed Office,
+
+■ MatchPattern について
+・ワイルドカード（*）を使用して部分一致で検索できます
+・1つのパターンで複数アプリにマッチした場合、全てアンインストールします
+・省略した場合は DisplayName との完全一致で検索します
+・例: McAfee* → McAfee LiveSafe, McAfee WebAdvisor 等が全てマッチ
 
 ■ 前提条件
 ・管理者権限が必要です
 
 ■ 注意事項
-・NoRemove=1 または SystemComponent=1 のエントリは自動的にスキップされます
+・NoRemove=1 または SystemComponent=1 のアプリはレジストリの値から自動判定し、スキップされます
+・アンインストール情報はレジストリから実行時に動的取得します（CSVにパスを記載する必要はありません）
 
 ■ 動作の流れ
-1. bloatware_list.csv を読み込み、削除対象を一覧表示
-2. 実行確認（Y/N）
-3. QuietUninstallString → MSI → UninstallString の優先順で実行
+1. bloatware_list.csv を読み込み、レジストリから一致するアプリを検索
+2. 検出結果を一覧表示
+3. 実行確認（Y/N）
+4. QuietUninstallString → MSI → UninstallString の優先順で実行
+5. アンインストール後、レジストリを再検索して検証（Post-Apply Verification）
