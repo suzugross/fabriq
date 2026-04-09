@@ -1748,8 +1748,11 @@ if ($script:UseGui) {
                 Show-Info "Restarting Fabriq..."
                 Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
                 $fabriqRoot = (Resolve-Path ".").Path
+                $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
                 $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-                if (Test-Path $fabriqBat) {
+                if (Test-Path $fabriqExe) {
+                    Start-Process $fabriqExe -WorkingDirectory $fabriqRoot
+                } elseif (Test-Path $fabriqBat) {
                     Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
                 }
                 try { Stop-Transcript | Out-Null } catch { }
@@ -1961,13 +1964,15 @@ else {
             Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
 
             $fabriqRoot = (Resolve-Path ".").Path
+            $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
             $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-            if (Test-Path $fabriqBat) {
+            if (Test-Path $fabriqExe) {
+                Start-Process $fabriqExe -WorkingDirectory $fabriqRoot
+            } elseif (Test-Path $fabriqBat) {
                 Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
-            }
-            else {
-                Show-Error "Fabriq.bat not found: $fabriqBat"
+            } else {
+                Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
                 Wait-KeyPress
                 Clear-Host
                 continue

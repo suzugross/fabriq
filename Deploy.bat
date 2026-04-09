@@ -143,15 +143,20 @@ echo [SUCCESS] Deployment complete!
 echo   Destination: %DEST_DIR%
 echo   Media ID:    %VOL_SERIAL%
 echo.
-echo You can now run Fabriq.bat from:
-echo   %DEST_DIR%\Fabriq.bat
+echo You can now run Fabriq from:
+echo   %DEST_DIR%
 echo.
 
-set /p "RUN_FABRIQ=続けて Fabriq.bat を実行しますか？ (Y/N): "
+set /p "RUN_FABRIQ=続けて Fabriq を実行しますか？ (Y/N): "
 if /i "%RUN_FABRIQ%"=="Y" (
-    echo [INFO] Fabriq.bat を起動します...
     cd /d "%DEST_DIR%"
-    start "" "%DEST_DIR%\Fabriq.bat"
+    if exist "%DEST_DIR%\Fabriq.exe" (
+        echo [INFO] Fabriq.exe を起動します...
+        start "" "%DEST_DIR%\Fabriq.exe"
+    ) else (
+        echo [INFO] Fabriq.bat を起動します...
+        start "" "%DEST_DIR%\Fabriq.bat"
+    )
     exit /b 0
 )
 

@@ -598,17 +598,20 @@ $completedData | Out-File -FilePath $completedPath -Encoding UTF8 -Force
 Show-Info "Completion results saved: wu_completed.json"
 Write-Host ""
 
-# Auto-launch Fabriq.bat if configured
+# Auto-launch Fabriq if configured
 if ($autoLaunchFabriq) {
     $fabriqRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
     $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-    if (Test-Path $fabriqBat) {
+    if (Test-Path $fabriqExe) {
+        Show-Info "Launching Fabriq.exe..."
+        Start-Process $fabriqExe -Verb RunAs
+    } elseif (Test-Path $fabriqBat) {
         Show-Info "Launching Fabriq.bat..."
         Start-Process cmd -ArgumentList "/c `"$fabriqBat`"" -Verb RunAs
-    }
-    else {
-        Show-Warning "Fabriq.bat not found: $fabriqBat"
+    } else {
+        Show-Warning "Fabriq entry point not found (neither .exe nor .bat)"
     }
 }
 
