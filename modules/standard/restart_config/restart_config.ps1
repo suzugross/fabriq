@@ -9,18 +9,25 @@ Show-Separator
 Write-Host ""
 
 # ========================================
-# Resolve Fabriq.bat absolute path
+# Resolve Fabriq entry point (prefer .exe, fallback .bat)
 # ========================================
 $fabriqRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+$fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
 $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-if (-not (Test-Path $fabriqBat)) {
-    Show-Error "Fabriq.bat not found: $fabriqBat"
+if (Test-Path $fabriqExe) {
+    $runOnceValue = "`"$fabriqExe`""
+    $entryPoint = $fabriqExe
+} elseif (Test-Path $fabriqBat) {
+    $runOnceValue = "cmd /c `"$fabriqBat`""
+    $entryPoint = $fabriqBat
+} else {
+    Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Fabriq.bat not found: $fabriqBat")
+    return (New-ModuleResult -Status "Error" -Message "Fabriq entry point not found")
 }
 
-Show-Info "Fabriq.bat: $fabriqBat"
+Show-Info "Entry point: $entryPoint"
 Write-Host ""
 
 # ========================================
@@ -28,7 +35,6 @@ Write-Host ""
 # ========================================
 $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
 $runOnceName = "FabriqAutoStart"
-$runOnceValue = "cmd /c `"$fabriqBat`""
 
 # Check current RunOnce state
 $existingValue = Get-ItemProperty -Path $runOncePath -Name $runOnceName -ErrorAction SilentlyContinue

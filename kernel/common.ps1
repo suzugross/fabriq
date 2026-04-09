@@ -3350,10 +3350,18 @@ function Initialize-ModuleSystem {
 # ========================================
 function Register-FabriqRunOnce {
     $fabriqRoot = (Resolve-Path ".").Path
+    $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
     $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-    if (-not (Test-Path $fabriqBat)) {
-        Show-Error "Fabriq.bat not found: $fabriqBat"
+    # Determine entry point: prefer Fabriq.exe, fallback to Fabriq.bat
+    if (Test-Path $fabriqExe) {
+        $runOnceValue = "`"$fabriqExe`""
+        $entryPoint = "Fabriq.exe"
+    } elseif (Test-Path $fabriqBat) {
+        $runOnceValue = "cmd /c `"$fabriqBat`""
+        $entryPoint = "Fabriq.bat"
+    } else {
+        Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
         return $false
     }
 
@@ -3362,10 +3370,9 @@ function Register-FabriqRunOnce {
         if (-not (Test-Path $runOncePath)) {
             New-Item -Path $runOncePath -Force | Out-Null
         }
-        $runOnceValue = "cmd /c `"$fabriqBat`""
         New-ItemProperty -Path $runOncePath -Name "FabriqAutoStart" `
             -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-        Show-Success "RunOnce registered"
+        Show-Success "RunOnce registered ($entryPoint)"
         return $true
     }
     catch {
