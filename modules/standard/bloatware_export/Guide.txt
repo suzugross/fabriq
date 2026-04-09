@@ -2,8 +2,20 @@
 PCにインストールされているデスクトップアプリケーションの一覧をCSVに出力します。
 出力されたCSVは bloatware_remove モジュールの入力として使用できます。
 
-■ 設定ファイル
-設定CSVはありません。
+■ 出力CSV列
+  Enabled      : 有効フラグ（全て0で出力。削除対象は1に変更）
+  DisplayName  : アプリ名（レジストリから取得）
+  MatchPattern : ワイルドカードパターン（空欄で出力。必要に応じて編集）
+  Description  : 表示用ラベル（空欄で出力。必要に応じて編集）
+  Segment      : セグメントフィルタ（空欄で出力）
+  Publisher    : 発行元（参考情報）
+  Version      : バージョン（参考情報）
+
+■ 運用方法
+1. bloatware_export を実行してCSVを出力
+2. CSVを bloatware_list.csv としてコピー
+3. 削除対象の Enabled を 1 に変更
+4. 必要に応じて MatchPattern にワイルドカードを設定（例: McAfee*）
 
 ■ 前提条件
 ・管理者権限が必要です
@@ -13,5 +25,5 @@ evidence\inventory\app_inventory_日時_PC名.csv
 
 ■ 動作の流れ
 1. レジストリ（HKLM Uninstall）を64bit/32bitの両方スキャン
-2. インストール済みアプリの一覧を表示
+2. スキャン対象と出力先を表示
 3. 実行確認（Y/N）後、CSVファイルに出力

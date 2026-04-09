@@ -88,19 +88,13 @@ foreach ($rp in $regPaths) {
             $seenNames[$entry.DisplayName] = $true
 
             $allApps += [PSCustomObject]@{
-                Enabled              = "0"
-                DisplayName          = $entry.DisplayName
-                Publisher            = if ($entry.Publisher)            { $entry.Publisher }            else { "" }
-                DisplayVersion       = if ($entry.DisplayVersion)       { $entry.DisplayVersion }       else { "" }
-                Architecture         = $rp.Arch
-                WindowsInstaller     = if ($entry.WindowsInstaller)     { "$($entry.WindowsInstaller)" } else { "0" }
-                QuietUninstallString = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { "" }
-                UninstallString      = if ($entry.UninstallString)      { $entry.UninstallString }      else { "" }
-                NoRemove             = if ($entry.NoRemove)             { "$($entry.NoRemove)" }        else { "0" }
-                SystemComponent      = if ($entry.SystemComponent)      { "$($entry.SystemComponent)" } else { "0" }
-                InstallDate          = if ($entry.InstallDate)          { $entry.InstallDate }          else { "" }
-                RegistryKey          = $entry.PSPath -replace "Microsoft.PowerShell.Core\\Registry::HKEY_LOCAL_MACHINE", "HKLM:" `
-                                                    -replace "Microsoft.PowerShell.Core\\Registry::HKEY_CURRENT_USER",  "HKCU:"
+                Enabled      = "0"
+                DisplayName  = $entry.DisplayName
+                MatchPattern = ""
+                Description  = ""
+                Segment      = ""
+                Publisher    = if ($entry.Publisher)      { $entry.Publisher }      else { "" }
+                Version      = if ($entry.DisplayVersion) { $entry.DisplayVersion } else { "" }
             }
         }
     }
@@ -111,9 +105,6 @@ foreach ($rp in $regPaths) {
 }
 
 $allApps = @($allApps | Sort-Object Publisher, DisplayName)
-
-$sysCompCount  = @($allApps | Where-Object { $_.SystemComponent -eq "1" }).Count
-$noRemoveCount = @($allApps | Where-Object { $_.NoRemove -eq "1" }).Count
 
 Write-Host ""
 
@@ -134,13 +125,6 @@ try {
     $allApps | Export-Csv -Path $outPath -NoTypeInformation -Encoding UTF8 -Force
     Show-Success "Exported $($allApps.Count) apps to CSV"
     Show-Info "Output: $outPath"
-    Write-Host ""
-    if ($sysCompCount -gt 0) {
-        Show-Warning "$sysCompCount app(s) flagged SystemComponent=1 (do not remove without verification)"
-    }
-    if ($noRemoveCount -gt 0) {
-        Show-Warning "$noRemoveCount app(s) flagged NoRemove=1 (cannot be removed conventionally)"
-    }
 }
 catch {
     Show-Error "Failed to export CSV: $_"
