@@ -39,6 +39,14 @@
 /modules/standard/wallpaper_config/wallpaper/*
 !/modules/standard/wallpaper_config/wallpaper/.gitkeep
 
+# ランチャーアイコン素材（画像ファイルのみ無視、ソースは追跡）
+/dev/ico/*.ico
+/dev/ico/*.png
+/dev/ico/*.jpg
+/dev/ico/*.jpeg
+/dev/ico/*.bmp
+/dev/ico/*.gif
+
 # 一時ファイルやキャッシュ
 *.tmp
 *.log
