@@ -11,8 +11,9 @@ Write-Host ""
 $newHostname = $env:SELECTED_NEW_PCNAME
 
 if ([string]::IsNullOrWhiteSpace($newHostname)) {
-    Show-Error "No host selected. Please select a host from the main menu first."
-    return (New-ModuleResult -Status "Error" -Message "No host selected (SELECTED_NEW_PCNAME is empty)")
+    Show-Skip "NewPCName is not specified in hostlist. Hostname change skipped."
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "NewPCName not specified in hostlist")
 }
 
 $currentHostname = $env:COMPUTERNAME
