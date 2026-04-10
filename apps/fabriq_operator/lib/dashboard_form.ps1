@@ -132,7 +132,7 @@ function Show-OperatorDashboard {
     $tabProfiles.Controls.Add($profileGrid)
 
     # Profile options
-    $chkAutoPilot = New-StyledCheckBox -Text "AutoPilot" -X 10 -Y 280 -Width 120
+    $chkAutoPilot = New-StyledCheckBox -Text "AutoPilot" -X 10 -Y 280 -Width 120 -Checked $true
     $tabProfiles.Controls.Add($chkAutoPilot)
 
     $chkStopOnError = New-StyledCheckBox -Text "StopOnError" -X 140 -Y 280 -Width 130
