@@ -536,7 +536,7 @@ function Set-SleepSettings {
     $hibernateAc = ConvertTo-SettingValue $Profile.Hibernate_After_AC
     if ($null -ne $hibernateAc) {
         $current = Get-TimeoutValue -TimeoutType 'hibernate-ac' -PlanGuid $PlanGuid
-        if ($null -ne $current -and $current -eq [int]$hibernateAc) {
+        if ($null -ne $current -and [math]::Abs($current - [int]$hibernateAc) -le 1) {
             Show-Skip "Hibernate After (AC): already ${hibernateAc} min"
             $script:SkipCount++
         }
@@ -556,7 +556,7 @@ function Set-SleepSettings {
     $hibernateDc = ConvertTo-SettingValue $Profile.Hibernate_After_Battery
     if ($null -ne $hibernateDc) {
         $current = Get-TimeoutValue -TimeoutType 'hibernate-dc' -PlanGuid $PlanGuid
-        if ($null -ne $current -and $current -eq [int]$hibernateDc) {
+        if ($null -ne $current -and [math]::Abs($current - [int]$hibernateDc) -le 1) {
             Show-Skip "Hibernate After (Battery): already ${hibernateDc} min"
             $script:SkipCount++
         }
@@ -956,7 +956,12 @@ function Main {
             if ($null -ne $targetVal) {
                 $currentMin = Get-TimeoutValue -TimeoutType $tc.Type -PlanGuid $verifyPlanGuid
                 if ($null -ne $currentMin -and $currentMin -eq [int]$targetVal) {
+                    # Exact match
                     Write-Host "  [VERIFIED] $($tc.Label): $targetVal min" -ForegroundColor Green
+                    $verifyPass++
+                } elseif ($null -ne $currentMin -and [math]::Abs($currentMin - [int]$targetVal) -le 1) {
+                    # Within ±1 min tolerance (Windows internal adjustment)
+                    Write-Host "  [VERIFIED] $($tc.Label): $targetVal min (actual: $currentMin min, within tolerance)" -ForegroundColor Green
                     $verifyPass++
                 } else {
                     $actual = if ($null -ne $currentMin) { "$currentMin min" } else { "Unknown" }
