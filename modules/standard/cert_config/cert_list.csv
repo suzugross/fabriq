@@ -1,0 +1,4 @@
+Enabled,FileName,StoreScope,StoreName,Password,AutoRoute,Overwrite,FriendlyName,Description,Segment
+0,ca-root.cer,LocalMachine,Root,,0,0,,Root CA Certificate,
+0,%SELECTED_NEW_PCNAME%_*.p12,,,password,1,1,,Client Certificate (auto-route),
+0,example.pfx,LocalMachine,My,password,0,0,Example Cert,Example PFX certificate,

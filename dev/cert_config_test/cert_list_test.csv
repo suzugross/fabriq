@@ -1,0 +1,6 @@
+Enabled,FileName,StoreScope,StoreName,Password,AutoRoute,Overwrite,FriendlyName,Description,Segment
+1,test_root_ca.cer,LocalMachine,Root,,0,0,,Test Root CA (explicit),
+1,test_client.pfx,LocalMachine,My,test1234,0,1,Test Client,Test Client cert (explicit),
+1,test_autoroute_2tier.pfx,,,test1234,1,1,,AutoRoute 2-tier test,
+1,test_autoroute_3tier.pfx,,,test1234,1,1,,AutoRoute 3-tier test (intermediate CA),
+1,%SELECTED_NEW_PCNAME%_*.pfx,,,test1234,1,1,PC Cert,PC name wildcard match test,

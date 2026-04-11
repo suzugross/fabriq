@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Certificate Config,Security,cert_config.ps1,42,1

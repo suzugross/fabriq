@@ -1,0 +1,56 @@
+■ 概要
+証明書ファイル（.pfx/.p12/.cer/.crt）を Windows の証明書ストアにインポートします。
+certs/ ディレクトリに配置した証明書を、CSVで定義したストアにインポートします。
+
+2つの動作モードがあります：
+・明示指定モード（AutoRoute=0）: CSVでストアを直接指定してインポート
+・自動振り分けモード（AutoRoute=1）: PFX内の証明書をCA/Client別ストアに自動振り分け
+
+■ 設定ファイル
+[cert_list.csv]
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  FileName     : certs/ 内のファイル名（環境変数・ワイルドカード使用可）
+  StoreScope   : ストアスコープ（LocalMachine / CurrentUser）※AutoRoute=1時は空欄可
+  StoreName    : ストア名（My / Root / CA / TrustedPublisher 等）※AutoRoute=1時は空欄可
+  Password     : PFXパスワード（ENC:暗号化対応）。.cer/.crt は空欄
+  AutoRoute    : 自動振り分け（1=ON, 0または空=OFF）
+  Overwrite    : 上書き制御（1=既存を置換, 0=既存ならスキップ）
+  FriendlyName : フレンドリ名（PFXのClient証明書に設定。省略可）
+  Description  : 説明（表示用）
+  Segment      : セグメントフィルタ（省略可）
+
+[記載例]
+  1,ca-root.cer,LocalMachine,Root,,0,0,,ルートCA証明書,
+  1,%SELECTED_NEW_PCNAME%_*.p12,,,ENC:xxxx==,1,1,,PC別クライアント証明書,
+  1,codesign.pfx,LocalMachine,TrustedPublisher,ENC:yyyy==,0,0,Code Signing CA,コード署名証明書,
+
+■ 証明書ファイルの配置
+certs/ ディレクトリに証明書ファイルを配置してください。
+対応形式: .pfx, .p12（秘密鍵付き）, .cer, .crt（公開鍵のみ）
+
+■ PC名による自動マッチ
+FileName に環境変数とワイルドカードを使用できます。
+例: %SELECTED_NEW_PCNAME%_*.p12
+  → 環境変数を展開後、ワイルドカードで certs/ 内を検索し最初にマッチしたファイルを使用
+
+■ AutoRoute（自動振り分け）モード
+AutoRoute=1 を指定すると、PFX内の全証明書を自動的に振り分けます。
+・CA証明書（BasicConstraints CA=true）→ LocalMachine\Root
+・クライアント証明書（それ以外）    → LocalMachine\My
+複数証明書（ルートCA＋中間CA＋クライアント）が入ったPFXに対応しています。
+
+■ パスワード
+PFXファイルにはパスワードが必要です。
+・ENC: プレフィックスで暗号化パスワードを記載可（Fabriq Studioで暗号化）
+・平文での記載も可
+・.cer/.crt ファイルはパスワード不要（空欄）
+
+■ 前提条件
+・管理者権限が必要です（LocalMachineストアへの書き込み）
+・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+
+■ 動作の流れ
+1. cert_list.csv を読み込み、有効な行を抽出
+2. 各証明書の状態を確認し、対象一覧を表示（[IMPORT]/[SKIP]/[REPLACE]等）
+3. 実行確認（Y/N）後、証明書をインポート
+4. インポート後、ストア内のサムプリントで存在検証（Post-Apply Verification）
