@@ -1213,8 +1213,47 @@ if ($null -ne $resumeState) {
                 Show-Success "Master passphrase restored from resume state"
             }
             catch {
-                Show-Warning "Failed to restore passphrase: $_"
-                Show-Info "Encrypted CSV values may not be decrypted in this session"
+                Show-Warning "Failed to restore passphrase from DPAPI: $_"
+                Show-Info "Manual passphrase entry required to continue."
+                Write-Host ""
+
+                # Fallback: prompt for manual passphrase entry
+                $verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
+                if (-not (Test-Path $verifyTokenPath)) {
+                    Show-Error "Passphrase verification token not found: $verifyTokenPath"
+                    Show-Error "Cannot verify passphrase. Aborting."
+                    exit 1
+                }
+
+                $maxAttempts = 3
+                $passphraseAccepted = $false
+
+                for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                    $ppInput = Read-Host -Prompt "Master Passphrase"
+
+                    if ([string]::IsNullOrWhiteSpace($ppInput)) {
+                        $remaining = $maxAttempts - $attempt
+                        if ($remaining -gt 0) {
+                            Show-Warning "Passphrase is required. $remaining attempt(s) remaining."
+                        }
+                        continue
+                    }
+
+                    if (Test-MasterPassphrase -Passphrase $ppInput -VerifyTokenPath $verifyTokenPath) {
+                        $global:FabriqMasterPassphrase = $ppInput
+                        Show-Success "Master passphrase verified and set for this session"
+                        $passphraseAccepted = $true
+                        break
+                    }
+                    $remaining = $maxAttempts - $attempt
+                    if ($remaining -gt 0) {
+                        Show-Warning "Passphrase verification failed. $remaining attempt(s) remaining."
+                    }
+                }
+                if (-not $passphraseAccepted) {
+                    Show-Error "Passphrase verification failed $maxAttempts times. Aborting."
+                    exit 1
+                }
             }
         }
     }
