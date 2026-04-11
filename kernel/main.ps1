@@ -1483,11 +1483,6 @@ $groupedModules = $moduleSystem.GroupedModules
 $global:FabriqStatusMonitorProcess = Start-StatusMonitor
 
 # ========================================
-# Art Display (experimental)
-# ========================================
-$global:FabriqArtDisplayProcess = Start-ArtDisplay
-
-# ========================================
 # Resume Execution (if resuming)
 # ========================================
 if ($isResuming) {
@@ -1791,7 +1786,6 @@ if ($script:UseGui) {
             "Refabriq" {
                 Show-Info "Restarting Fabriq..."
                 Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
-                Stop-ArtDisplay -ArtProcess $global:FabriqArtDisplayProcess
                 $fabriqRoot = (Resolve-Path ".").Path
                 $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
                 $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
@@ -2007,7 +2001,6 @@ else {
             Show-Info "Restarting Fabriq..."
 
             Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
-            Stop-ArtDisplay -ArtProcess $global:FabriqArtDisplayProcess
 
             $fabriqRoot = (Resolve-Path ".").Path
             $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
