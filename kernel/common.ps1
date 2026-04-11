@@ -3202,11 +3202,23 @@ function Start-StatusMonitor {
         $monitorScript = ".\kernel\ps1\status_monitor.ps1"
         if (Test-Path $monitorScript) {
             $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-            $monitorProcess = Start-Process powershell.exe -ArgumentList @(
+            $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
+            $sentenceFile = ".\kernel\txt\art_sentences.txt"
+            $sentenceFileFullPath = if (Test-Path $sentenceFile) {
+                (Resolve-Path $sentenceFile).Path
+            } else { "" }
+
+            $argList = @(
                 "-NoProfile", "-ExecutionPolicy", "Unrestricted",
                 "-File", $monitorScript,
-                "-StatusFilePath", $statusFileFullPath
-            ) -WindowStyle Hidden -PassThru
+                "-StatusFilePath", $statusFileFullPath,
+                "-PulseFilePath", $pulseFileFullPath
+            )
+            if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
+                $argList += @("-SentenceFilePath", $sentenceFileFullPath)
+            }
+
+            $monitorProcess = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -PassThru
             Show-Info "Status Monitor started (PID: $($monitorProcess.Id))"
             Write-Host ""
 
@@ -3237,59 +3249,6 @@ function Stop-StatusMonitor {
 }
 
 # ========================================
-# Art Display Lifecycle
-# ========================================
-function Start-ArtDisplay {
-    $artProcess = $null
-    try {
-        $artScript = ".\kernel\ps1\art_display.ps1"
-        if (Test-Path $artScript) {
-            $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-            $sentenceFile = ".\kernel\txt\art_sentences.txt"
-            $sentenceFileFullPath = if (Test-Path $sentenceFile) {
-                (Resolve-Path $sentenceFile).Path
-            } else { "" }
-
-            $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
-
-            $argList = @(
-                "-NoProfile", "-ExecutionPolicy", "Unrestricted",
-                "-File", $artScript,
-                "-StatusFilePath", $statusFileFullPath,
-                "-PulseFilePath", $pulseFileFullPath
-            )
-            if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
-                $argList += @("-SentenceFilePath", $sentenceFileFullPath)
-            }
-
-            $artProcess = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -PassThru
-            Show-Info "Art Display started (PID: $($artProcess.Id))"
-
-            Start-Sleep -Milliseconds 800
-            Set-ConsoleForeground
-        }
-    }
-    catch {
-        Show-Warning "Failed to start Art Display: $_"
-    }
-    return $artProcess
-}
-
-function Stop-ArtDisplay {
-    param([System.Diagnostics.Process]$ArtProcess)
-
-    if ($ArtProcess -and -not $ArtProcess.HasExited) {
-        try {
-            $ArtProcess.CloseMainWindow() | Out-Null
-            if (-not $ArtProcess.WaitForExit(2000)) {
-                $ArtProcess.Kill()
-            }
-        }
-        catch { }
-    }
-}
-
-# ========================================
 # Function: Exit Fabriq (Centralized Cleanup)
 # ========================================
 function Exit-Fabriq {
@@ -3302,16 +3261,10 @@ function Exit-Fabriq {
     Show-Info "Exiting Fabriq..."
     Show-Separator
 
-    # Stop Status Monitor (if running)
+    # Stop Status Monitor (if running, also stops integrated Art Display)
     if ($null -ne $global:FabriqStatusMonitorProcess) {
         Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
         $global:FabriqStatusMonitorProcess = $null
-    }
-
-    # Stop Art Display (if running)
-    if ($null -ne $global:FabriqArtDisplayProcess) {
-        Stop-ArtDisplay -ArtProcess $global:FabriqArtDisplayProcess
-        $global:FabriqArtDisplayProcess = $null
     }
 
     # Disable sleep suppression

@@ -74,14 +74,14 @@ if ($consoleHwnd -ne [IntPtr]::Zero) {
 # Configuration
 # ========================================
 $script:FORM_W         = 580        # form width (base)
-$script:FORM_H         = 380        # form height (base)
+$script:FORM_H         = 520        # form height (base)
 $script:RENDER_INTERVAL = 40        # render timer interval (ms) ~25fps
 $script:POLL_INTERVAL   = 1500      # status.json poll interval (ms)
 $script:PULSE_INTERVAL  = 200       # pulse file poll interval (ms)
 $script:IDLE_SPEED      = 70        # ms per character (idle)
 $script:BURST_SPEED     = 18        # ms per character (triggered)
 $script:MAX_LINES       = 50        # max completed lines before trimming
-$script:LINE_HEIGHT     = 20        # line height in pixels (base)
+$script:LINE_HEIGHT     = 26        # line height in pixels (base)
 $script:GLITCH_CHARS    = @('_','#','@','!','^','~','`','|','{','}','[',']','<','>','/','?','+','=','*','0','1')
 
 # ========================================
@@ -161,8 +161,8 @@ $form.Controls.Add($canvas)
 # Double-buffered bitmap
 $script:bufferBitmap = $null
 $script:bufferGraphics = $null
-$script:font = New-Object System.Drawing.Font("Consolas", (10 * $script:dpiScale), [System.Drawing.FontStyle]::Regular)
-$script:fontBold = New-Object System.Drawing.Font("Consolas", (10 * $script:dpiScale), [System.Drawing.FontStyle]::Bold)
+$script:font = New-Object System.Drawing.Font("Consolas", (13 * $script:dpiScale), [System.Drawing.FontStyle]::Regular)
+$script:fontBold = New-Object System.Drawing.Font("Consolas", (13 * $script:dpiScale), [System.Drawing.FontStyle]::Bold)
 $script:lineH = [int]($script:LINE_HEIGHT * $script:dpiScale)
 
 # Colors
