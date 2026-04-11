@@ -14,6 +14,8 @@ $script:ResumeStatePath = ".\kernel\json\resume_state.json"
 $script:SessionFilePath = ".\kernel\json\session.json"
 $script:SourceMediaIdPath = ".\kernel\source_media.id"
 $script:WorkersCsvPath = ".\kernel\csv\workers.csv"
+$script:ArtPulseFilePath = ".\kernel\json\art_pulse.txt"
+$script:ArtPulseCounter = 0
 
 # Session info (populated by Initialize-Session)
 $script:SessionInfo = $null
@@ -241,29 +243,45 @@ function Show-CategorySeparator {
     Write-Host "=== $Name ===" -ForegroundColor Cyan
 }
 
+function Write-ArtPulse {
+    $script:ArtPulseCounter++
+    try {
+        [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) $script:ArtPulseFilePath),
+            $script:ArtPulseCounter.ToString()
+        )
+    }
+    catch { }
+}
+
 function Show-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
+    Write-ArtPulse
 }
 
 function Show-Success {
     param([string]$Message)
     Write-Host "[SUCCESS] $Message" -ForegroundColor Green
+    Write-ArtPulse
 }
 
 function Show-Warning {
     param([string]$Message)
     Write-Host "[WARNING] $Message" -ForegroundColor Yellow
+    Write-ArtPulse
 }
 
 function Show-Error {
     param([string]$Message)
     Write-Host "[ERROR] $Message" -ForegroundColor Red
+    Write-ArtPulse
 }
 
 function Show-Skip {
     param([string]$Message)
     Write-Host "[SKIP] $Message" -ForegroundColor DarkGray
+    Write-ArtPulse
 }
 
 # ========================================
@@ -3167,6 +3185,9 @@ function Remove-StatusFile {
         if (Test-Path $tempPath) {
             Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
         }
+        if (Test-Path $script:ArtPulseFilePath) {
+            Remove-Item $script:ArtPulseFilePath -Force -ErrorAction SilentlyContinue
+        }
     }
     catch { }
 }
@@ -3216,6 +3237,59 @@ function Stop-StatusMonitor {
 }
 
 # ========================================
+# Art Display Lifecycle
+# ========================================
+function Start-ArtDisplay {
+    $artProcess = $null
+    try {
+        $artScript = ".\kernel\ps1\art_display.ps1"
+        if (Test-Path $artScript) {
+            $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
+            $sentenceFile = ".\kernel\txt\art_sentences.txt"
+            $sentenceFileFullPath = if (Test-Path $sentenceFile) {
+                (Resolve-Path $sentenceFile).Path
+            } else { "" }
+
+            $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
+
+            $argList = @(
+                "-NoProfile", "-ExecutionPolicy", "Unrestricted",
+                "-File", $artScript,
+                "-StatusFilePath", $statusFileFullPath,
+                "-PulseFilePath", $pulseFileFullPath
+            )
+            if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
+                $argList += @("-SentenceFilePath", $sentenceFileFullPath)
+            }
+
+            $artProcess = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -PassThru
+            Show-Info "Art Display started (PID: $($artProcess.Id))"
+
+            Start-Sleep -Milliseconds 800
+            Set-ConsoleForeground
+        }
+    }
+    catch {
+        Show-Warning "Failed to start Art Display: $_"
+    }
+    return $artProcess
+}
+
+function Stop-ArtDisplay {
+    param([System.Diagnostics.Process]$ArtProcess)
+
+    if ($ArtProcess -and -not $ArtProcess.HasExited) {
+        try {
+            $ArtProcess.CloseMainWindow() | Out-Null
+            if (-not $ArtProcess.WaitForExit(2000)) {
+                $ArtProcess.Kill()
+            }
+        }
+        catch { }
+    }
+}
+
+# ========================================
 # Function: Exit Fabriq (Centralized Cleanup)
 # ========================================
 function Exit-Fabriq {
@@ -3232,6 +3306,12 @@ function Exit-Fabriq {
     if ($null -ne $global:FabriqStatusMonitorProcess) {
         Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
         $global:FabriqStatusMonitorProcess = $null
+    }
+
+    # Stop Art Display (if running)
+    if ($null -ne $global:FabriqArtDisplayProcess) {
+        Stop-ArtDisplay -ArtProcess $global:FabriqArtDisplayProcess
+        $global:FabriqArtDisplayProcess = $null
     }
 
     # Disable sleep suppression
