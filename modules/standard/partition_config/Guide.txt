@@ -1,0 +1,38 @@
+■ 概要
+パーティション分割モジュール。
+PowerShell Storage コマンドレットを使用して、既存パーティションの縮小と新規パーティションの作成を行う。
+複数パーティション分割（例: C → D → E）に対応。
+
+■ 前提条件
+- 管理者権限が必要
+- 対象ディスクに縮小可能な空き容量があること
+- 縮小対象のドライブが他のプロセスによってロックされていないこと
+
+■ CSV列の説明 (partition_list.csv)
+
+  Enabled           : 有効フラグ（1=実行, 0=スキップ）
+  DiskNumber        : 対象ディスク番号（通常はプライマリディスクの 0）
+  SourceDriveLetter : 縮小対象のドライブレター（例: C）
+  SourceSizeMB      : 縮小後のサイズ（MB単位）
+  NewDriveLetter    : 新規パーティションのドライブレター（例: D）
+  NewSizeMB         : 新規パーティションのサイズ（MB単位）。0 を指定すると残り全領域を使用
+  FileSystem        : ファイルシステム（NTFS または ReFS）
+  VolumeLabel       : ボリュームラベル
+  Description       : 説明（表示用）
+  Segment           : セグメント名（任意。空欄=全セグメント共通）
+
+■ 記述例
+
+[単一分割: C → D]
+  Enabled,DiskNumber,SourceDriveLetter,SourceSizeMB,NewDriveLetter,NewSizeMB,FileSystem,VolumeLabel,Description,Segment
+  1,0,C,102400,D,0,NTFS,Data,C:を100GBに縮小しD:を作成,
+
+[複数分割: C → D + E]
+  1,0,C,102400,D,51200,NTFS,Data,D: 50GB固定サイズ,
+  1,0,C,102400,E,0,NTFS,Backup,E: 残り全領域,
+
+■ 注意事項
+- NewSizeMB=0（残り全領域）を指定できるのは1エントリのみ、かつCSVの最終行であること
+- 同一 SourceDriveLetter を参照する複数行がある場合でも、縮小処理は1回のみ実行される
+- 冪等性: NewDriveLetter が既に存在する場合はスキップされる
+- 適用後検証では、パーティションの存在・ファイルシステム・サイズ（±5%許容）を確認する

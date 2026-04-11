@@ -1,0 +1,2 @@
+Enabled,DiskNumber,SourceDriveLetter,SourceSizeMB,NewDriveLetter,NewSizeMB,FileSystem,VolumeLabel,Description,Segment
+1,0,C,102400,D,0,NTFS,Data,Shrink C: to 100GB and create D: with remaining space,
