@@ -315,6 +315,10 @@ function Show-OperatorDashboard {
 
     $btnRefabriq = New-StyledButton -Text "Refabriq" -X 436 -Y $settY -Width 212 -Height 30
     $tabSettings.Controls.Add($btnRefabriq)
+    $settY += 44
+
+    $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 16 -Y $settY -Width 200 -Height 30
+    $tabSettings.Controls.Add($btnSystemLauncher)
     $settY += 50
 
     # Separator
@@ -504,6 +508,11 @@ function Show-OperatorDashboard {
 
     $btnManifesto.Add_Click({
         $result.Action = "Manifesto"
+        $form.Close()
+    })
+
+    $btnSystemLauncher.Add_Click({
+        $result.Action = "SystemLauncher"
         $form.Close()
     })
 
