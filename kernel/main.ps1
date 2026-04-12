@@ -1713,6 +1713,17 @@ if ($script:UseGui) {
                 }
             }
 
+            "SystemLauncher" {
+                $launcherScript = ".\apps\system_launcher\system_launcher.ps1"
+                if (Test-Path $launcherScript) {
+                    & $launcherScript
+                }
+                else {
+                    Show-Error "System Launcher not found"
+                    Wait-KeyPress
+                }
+            }
+
             "HistoryExport" {
                 $null = Export-ExecutionHistory
                 Wait-KeyPress
