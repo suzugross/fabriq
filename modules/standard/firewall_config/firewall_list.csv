@@ -1,3 +1,4 @@
-Enabled,status,id,Description,Segment
-1,on,1,Enable Firewall for security,
-0,off,2,Disable Firewall for testing,
+Enabled,Profile,Status,Description,Segment
+1,Domain,on,Domain profile enabled,
+1,Private,on,Private profile enabled,
+1,Public,on,Public profile enabled,
