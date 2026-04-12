@@ -1,0 +1,32 @@
+■ 概要
+PC 本体のマスター音量とミュート状態を設定します。
+Windows Core Audio API を使用し、即時反映されます。
+
+■ 設定ファイル
+[volume_list.csv]
+  Enabled     : 有効フラグ（1=適用, 0=スキップ）
+  Volume      : 音量（0〜100 の整数、%指定）
+  Mute        : ミュート状態（on=ミュート, off=解除, 空=変更しない）
+  Description : 説明（表示用）
+  Segment     : プロファイル Segment フィルタ（省略可）
+
+[記載例]
+  Enabled,Volume,Mute,Description,Segment
+  1,50,off,Master volume 50%,
+  1,0,on,完全ミュート,
+
+■ 動作の流れ
+1. volume_list.csv から有効な行を読み込み（最初の 1 行を採用）
+2. 現在の音量・ミュート状態を取得して表示
+3. 冪等性チェック（既に目標値一致なら SKIP）
+4. Core Audio API で音量・ミュートを即時設定
+5. Post-Apply Verification で読み返して検証
+
+■ 前提条件
+・オーディオデバイスが存在すること
+  （VM でオーディオ無効の場合はエラーで安全終了）
+
+■ 技術情報
+・IAudioEndpointVolume COM インターフェースを使用
+・デフォルトオーディオデバイスのマスター音量を制御
+・タスクバーの音量スライダーに即時反映
