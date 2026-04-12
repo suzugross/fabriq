@@ -1,18 +1,54 @@
 ■ 概要
-Windowsファイアウォールの有効/無効を切り替えます。
-全プロファイル（ドメイン、プライベート、パブリック）に一括適用されます。
+Windows ファイアウォールの各プロファイル（Domain / Private / Public）を
+個別に有効/無効に設定します。
 
 ■ 設定ファイル
 [firewall_list.csv]
-  Enabled     : 有効フラグ（1=実行, 0=スキップ）
-  status      : ファイアウォール状態（on=有効化, off=無効化）
-  id          : 識別番号（表示用）
+  Enabled     : 有効フラグ（1=適用, 0=スキップ）
+  Profile     : プロファイル名（Domain / Private / Public）
+  Status      : on（有効） / off（無効）
   Description : 説明（表示用）
+  Segment     : プロファイル Segment フィルタ（省略可）
 
 [記載例]
-  1,on,1,ファイアウォール有効化
-  0,off,2,テスト用に無効化
+  Enabled,Profile,Status,Description,Segment
+  1,Domain,on,ドメイン有効,
+  1,Private,off,プライベート無効,
+  1,Public,off,パブリック無効,
+
+■ 動作モード
+
+  [CSV mode]
+  firewall_list.csv に有効な行がある場合、プロファイルごとに
+  Status の値に従って有効/無効を設定します。
+  冪等性あり：既に期待値と一致するプロファイルはスキップします。
+
+  [Legacy CSV mode]
+  旧形式の CSV（Profile 列なし、status 列のみ）の場合、
+  従来通り3プロファイル一括で on/off を適用します。
+
+  [Manual mode]
+  CSV がない場合や有効な行がない場合、手動メニューを表示します。
+  個別のプロファイルを番号で選択してトグルできます。
+  複数選択（カンマ区切り）や一括 ON/OFF も可能です。
+
+    [1] Domain  : ON  -> OFF
+    [2] Private : ON  -> OFF
+    [3] Public  : ON  -> OFF
+    [4] All OFF
+    [5] All ON
+    [0] Cancel
 
 ■ 動作の流れ
-1. firewall_list.csv を読み込み
-2. ファイアウォールの有効/無効を設定
+1. 現在の3プロファイルの状態を取得・表示
+2. CSV またはマニュアルメニューで目標状態を決定
+3. 冪等性チェック（変更不要なプロファイルは SKIP）
+4. 変更が必要なプロファイルのみ Set-NetFirewallProfile で適用
+5. Post-Apply Verification で適用結果を読み返して検証
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+適用後、Get-NetFirewallProfile で各プロファイルの状態を読み返し、
+期待値と一致するか検証します。結果は -Verified で返却されます。
