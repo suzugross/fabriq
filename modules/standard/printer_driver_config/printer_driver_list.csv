@@ -1,0 +1,3 @@
+Enabled,TargetHost,DriverName,Description
+0,NEW-PC-01,EPSON PX-S505 Series,Sample: host-specific driver
+0,,Canon LBP6230,Sample: shared driver for all hosts
