@@ -5,6 +5,7 @@
 *.iso
 *.exe
 *.msi
+*.dll
 
 # 特定のフォルダの中身をまるごと除外
 /modules/standard/driver_config/driver/*
