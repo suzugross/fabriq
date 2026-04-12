@@ -5,7 +5,8 @@
   INF/ ディレクトリ内のドライバーをWindowsに登録します。
 
 [Register Printers]
-  hostlist.csv のプリンター情報をもとにプリンターを登録します。
+  hostlist.csv および printer_list.csv のプリンター情報をもとに
+  プリンターを登録します（両方を union して適用）。
 
 [Uninstall Printer Drivers]
   登録済みのプリンタードライバーを削除します。
@@ -21,48 +22,118 @@ INF/ ディレクトリにプリンターモデルごとのフォルダを配置
     Canon LBP6230/
       ...
 
+■ EXE/ZIP 自動展開（新機能）
+INF/ ディレクトリにドライバーの EXE ファイルや ZIP ファイルを
+直接配置すると、自動的に同名フォルダに展開してからスキャンします。
+手動での事前展開は不要です。
+
+  [配置例]
+  INF/
+    Canon_LBP6230_driver.exe     ← そのまま置くだけ
+    EPSON_PX-S505.zip            ← そのまま置くだけ
+    EPSON PX-S505 Series/        ← 従来の手動展開フォルダも共存可能
+
+  [展開結果]
+  INF/
+    Canon_LBP6230_driver/        ← 自動生成（EXE名と同じフォルダ）
+    EPSON_PX-S505/               ← 自動生成（ZIP名と同じフォルダ）
+    EPSON PX-S505 Series/        ← そのまま
+
+  ・展開済みフォルダが既にある場合はスキップされます（冪等）
+  ・再展開したい場合は展開先フォルダを手動で削除してください
+
+  [前提条件]
+  tools/ ディレクトリに 7z.exe と 7z.dll を配置してください。
+  7-Zip のフル版（x64）から以下の 2 ファイルをコピーするだけです。
+  ターゲット PC に 7-Zip をインストールする必要はありません。
+
+    tools/
+      7z.exe    ← 7-Zip フル版から
+      7z.dll    ← 7-Zip フル版から
+
+  ・7z.exe が無い場合、.exe の展開はスキップされます
+  ・7z.exe が無い場合でも .zip は PowerShell の Expand-Archive で
+    展開を試みます（フォールバック）
+  ・従来の手動展開済みフォルダは 7z.exe の有無に関係なく動作します
+
 ■ 動作モード（Printer Drivers）
 
   [Auto mode]
-  ホストが選択済みの場合、hostlist.csv の PrinterXDriver の値と
-  INFファイル内のドライバー名を自動照合し、一致するドライバーを
-  自動インストールします。
+  hostlist.csv の PrinterXDriver、または printer_driver_list.csv の
+  DriverName 列から対象ドライバー名を収集し、INFファイル内のドライバー名を
+  自動照合して一致するドライバーを自動インストールします。
   ※ フォルダ名ではなく、INFファイル内に記載されたドライバー名
     （モデル名）で照合するため、フォルダの命名に依存しません。
+  hostlist と CSV のどちらか片方でもエントリがあれば Auto mode で動作します。
 
   [Interactive mode]
-  ホストが未選択（環境変数なし）の場合、従来通りモデルフォルダを
+  どちらのソースにもドライバー指定がない場合、従来通りモデルフォルダを
   手動選択してインストールします。
 
 ■ プリンター登録（Register Printers）
-設定CSVはありません。
-hostlist.csv の以下の列が使用されます（最大10台）：
-  Printer1Name / Printer1Driver / Printer1Port
-  Printer2Name / Printer2Driver / Printer2Port
-  ...
+プリンター情報は以下の2ソースから union で収集されます。
+
+  [ソース1] hostlist.csv（従来通り、最大10台）
+    Printer1Name / Printer1Driver / Printer1Port
+    Printer2Name / Printer2Driver / Printer2Port
+    ...
+    選択されたホストの行のみが環境変数経由で自動適用されます。
+
+  [ソース2] printer_list.csv（新規、任意）
+    このモジュール配下に配置するモジュール固有 CSV です。
+    hostlist の 10 台枠を超えるプリンターを追加したい場合や、
+    複数ホスト共通のプリンターを宣言したい場合に使用します。
+
+    カラム:
+      Enabled      : 0/1（0 の行は無視）
+      TargetHost   : NewPCName と完全一致した行のみ採用。
+                     空欄の行は全ホストで採用（共通プリンター）
+      PrinterName  : Add-Printer に渡す表示名
+      DriverName   : 既にインストール済みのドライバー名と一致させる
+      PortAddress  : IP アドレス（ポート名は IP_<address> で自動生成）
+      Description  : 表示用メモ
+
+    CSV ファイルが存在しない場合は、従来通り hostlist のみで動作します。
 
 Port にはプリンターのIPアドレスを指定します。
 TCP/IPポートが自動作成され、プリンターが登録されます。
+重複する PrinterName は、既存の Get-Printer 存在チェックで自動的にスキップされます。
+
+■ プリンタードライバー CSV（printer_driver_list.csv）
+Auto mode で hostlist 枠を超えるドライバーを追加したい場合に使用します。
+
+  カラム:
+    Enabled      : 0/1
+    TargetHost   : NewPCName と完全一致、空欄は全ホスト
+    DriverName   : INF 内のモデル名と完全一致させる
+    Description  : 表示用メモ
 
 ■ 前提条件
 ・プリンター登録の前にドライバーのインストールが必要です
 ・Fabriq起動時にホストを選択済みであること（Register Printers / Auto mode）
+・printer_list.csv / printer_driver_list.csv は任意。無くても従来通り動作
 
 ■ 動作の流れ（Printer Drivers - Auto mode）
-1. hostlist.csv の PrinterXDriver から一意なドライバー名を収集
+0. INF/ 直下の EXE/ZIP を 7z.exe で自動展開（冪等）
+1. hostlist.csv の PrinterXDriver および printer_driver_list.csv から
+   TargetHost マッチする一意なドライバー名を収集
 2. INF/ 配下の全フォルダ・全INFファイルをスキャンし、ドライバー名を抽出
-3. hostlist のドライバー名とINF内のドライバー名を完全一致で照合
+3. 収集したドライバー名と INF 内のドライバー名を完全一致で照合
 4. 一致したドライバーの一覧を表示し、実行確認（Y/N）
 5. pnputil でドライバーストアに登録
 6. Add-PrinterDriver でプリンタードライバーを登録
+7. Post-Apply Verification で登録結果を読み返して検証
 
 ■ 動作の流れ（Printer Drivers - Interactive mode）
+0. INF/ 直下の EXE/ZIP を 7z.exe で自動展開（冪等）
 1. INF/ 内のモデルフォルダを一覧表示し、選択
 2. INFファイルを検出し、アーキテクチャ互換性を確認
 3. pnputil でドライバーストアに登録
 4. Add-PrinterDriver でプリンタードライバーを登録
 
 ■ 動作の流れ（Register Printers）
-1. hostlist.csv からプリンター情報を読み込み
-2. ドライバーの存在を確認し、一覧表示
+1. hostlist.csv の環境変数および printer_list.csv から
+   TargetHost マッチするプリンター情報を union
+2. ドライバーの存在を確認し、一覧表示（[Hostlist]/[CSV] で区別）
 3. 実行確認（Y/N）後、TCPポート作成 → プリンター登録
+4. Post-Apply Verification で Printer / Driver / Port の一致を検証

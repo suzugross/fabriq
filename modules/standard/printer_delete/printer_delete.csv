@@ -1,4 +1,5 @@
-Enabled,PrinterName,Description,Segment
-1,Fax,Remove Fax printer,
-1,Microsoft XPS Document Writer,Remove XPS Document Writer,
-0,OneNote,Example - disabled,
+Enabled,TargetHost,PrinterName,Description,Segment
+1,,Fax,Remove Fax printer (all hosts),
+1,,Microsoft XPS Document Writer,Remove XPS Document Writer (all hosts),
+0,NEW-PC-05,OldNetPrinter,Sample: delete only on NEW-PC-05,
+0,,OneNote,Sample disabled entry,

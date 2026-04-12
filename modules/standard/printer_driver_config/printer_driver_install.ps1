@@ -199,6 +199,68 @@ if (-not (Test-Path $INF_DIR)) {
     return (New-ModuleResult -Status "Error" -Message "INF folder not found")
 }
 
+# ========================================
+# Step 0: Auto-extract EXE/ZIP archives in INF/
+# ========================================
+# If INF/ contains .exe or .zip files, extract them to same-named folders
+# using the bundled 7z.exe. Already-extracted folders are skipped (idempotent).
+# If 7z.exe is not available, .zip files fall back to Expand-Archive.
+$7zPath = Join-Path $PSScriptRoot "tools\7z.exe"
+$has7z = Test-Path $7zPath
+
+$archives = @(Get-ChildItem -Path $INF_DIR -File | Where-Object {
+    $_.Extension -in @('.exe', '.zip')
+})
+
+if ($archives.Count -gt 0) {
+    Show-Info "Found $($archives.Count) archive(s) in INF/"
+
+    if (-not $has7z) {
+        Show-Warning "7z.exe not found in tools/ - cannot extract .exe archives"
+        Show-Info "Place 7z.exe + 7z.dll in: $(Join-Path $PSScriptRoot 'tools')"
+
+        foreach ($arc in $archives) {
+            if ($arc.Extension -eq '.zip') {
+                $targetDir = Join-Path $INF_DIR ($arc.BaseName)
+                if (Test-Path $targetDir) {
+                    Show-Skip "Already extracted: $($arc.Name)"
+                    continue
+                }
+                Show-Info "Extracting (Expand-Archive): $($arc.Name)"
+                try {
+                    Expand-Archive -Path $arc.FullName -DestinationPath $targetDir -Force -ErrorAction Stop
+                    Show-Success "Extracted: $($arc.Name) -> $($arc.BaseName)/"
+                }
+                catch {
+                    Show-Warning "Failed to extract $($arc.Name): $_"
+                }
+            }
+        }
+    }
+    else {
+        foreach ($arc in $archives) {
+            $targetDir = Join-Path $INF_DIR ($arc.BaseName)
+            if (Test-Path $targetDir) {
+                Show-Skip "Already extracted: $($arc.Name)"
+                continue
+            }
+            Show-Info "Extracting: $($arc.Name)"
+            $null = & $7zPath x $arc.FullName "-o$targetDir" -y -bso0 -bsp0 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Show-Success "Extracted: $($arc.Name) -> $($arc.BaseName)/"
+            }
+            else {
+                Show-Warning "Failed to extract $($arc.Name) (exit code: $LASTEXITCODE)"
+                if (Test-Path $targetDir) {
+                    Remove-Item -Path $targetDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
+    Write-Host ""
+}
+
 # Get subfolders in INF (assumed as model names)
 $modelFolders = Get-ChildItem -Path $INF_DIR -Directory
 if ($modelFolders.Count -eq 0) {
@@ -210,11 +272,48 @@ if ($modelFolders.Count -eq 0) {
 # ========================================
 # Mode Detection
 # ========================================
+# Collect driver names from two sources (unioned):
+#   1. Hostlist environment variables (SELECTED_PRINTER_1..10_DRIVER)
+#   2. printer_driver_list.csv (optional, module-local, TargetHost filtered)
 $autoDriverNames = @()
+
 for ($i = 1; $i -le 10; $i++) {
     $driverName = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_${i}_DRIVER")
     if (-not [string]::IsNullOrEmpty($driverName) -and $driverName -notin $autoDriverNames) {
         $autoDriverNames += $driverName
+    }
+}
+
+# Collect from printer_driver_list.csv (optional)
+# TargetHost column: empty = all hosts, value = exact match with SELECTED_NEW_PCNAME.
+$driverCsvPath = Join-Path $PSScriptRoot "printer_driver_list.csv"
+$currentHost = [Environment]::GetEnvironmentVariable("SELECTED_NEW_PCNAME")
+
+if (Test-Path $driverCsvPath) {
+    $csvDrivers = Import-ModuleCsv -Path $driverCsvPath -FilterEnabled `
+        -RequiredColumns @("Enabled", "TargetHost", "DriverName")
+
+    if ($null -eq $csvDrivers) {
+        Show-Warning "Failed to load printer_driver_list.csv (continuing with hostlist only)"
+    }
+    else {
+        $csvMatched = 0
+        foreach ($row in @($csvDrivers)) {
+            $targetHost = if ($null -ne $row.TargetHost) { $row.TargetHost.Trim() } else { "" }
+            $isAllHosts = [string]::IsNullOrEmpty($targetHost)
+            $isMatch = $isAllHosts -or ($targetHost -ieq $currentHost)
+
+            if (-not $isMatch) { continue }
+
+            $name = $row.DriverName
+            if (-not [string]::IsNullOrEmpty($name) -and $name -notin $autoDriverNames) {
+                $autoDriverNames += $name
+                $csvMatched++
+            }
+        }
+        if ($csvMatched -gt 0) {
+            Show-Info "printer_driver_list.csv: $csvMatched new driver(s) added"
+        }
     }
 }
 
@@ -334,7 +433,34 @@ if ($isAutoMode) {
 
     $failCount += $unmatchedDrivers.Count
 
-    return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Installation Results")
+    # ========================================
+    # Step 5.5: Post-Apply Verification
+    # ========================================
+    # Read back the printer driver store and confirm each matched driver is registered.
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Post-Apply Verification" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    $verifyPass = 0
+    $verifyFail = 0
+
+    foreach ($m in $matchedDrivers) {
+        $actual = Get-PrinterDriver -Name $m.DriverName -ErrorAction SilentlyContinue
+        if ($null -ne $actual) {
+            Write-Host "  [VERIFIED] $($m.DriverName)" -ForegroundColor Green
+            $verifyPass++
+        }
+        else {
+            Write-Host "  [VERIFY FAILED] $($m.DriverName) - not found in driver store" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+
+    Write-Host ""
+    $verified = ($verifyFail -eq 0)
+
+    return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+        -Title "Installation Results" -Verified $verified)
 }
 else {
     # ========================================
