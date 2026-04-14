@@ -1,12 +1,36 @@
 # ========================================
-# Windows Update Automation Script
+# Windows Update - Single Pass Module
 # ========================================
-# Scans, downloads, and installs all available Windows Updates
+# Scans, downloads, and installs available Windows Updates
 # using the Microsoft.Update.Session COM API.
-# Supports self-contained reboot loops with state persistence.
+#
+# This module performs ONE iteration of scan/download/install.
+# The reboot loop is managed by main.ps1 (Invoke-WindowsUpdateLoop)
+# following the same pattern as Profile __RESTART__.
 #
 # Prerequisites: Administrator privileges, network connectivity
 # ========================================
+
+param(
+    [string[]]$SkipKBs = @(),
+    [switch]$AutoConfirm
+)
+
+# Start transcript log for WU operations
+$wuLogDir = Join-Path $PSScriptRoot "..\..\..\logs"
+if (-not (Test-Path $wuLogDir)) { New-Item -Path $wuLogDir -ItemType Directory -Force | Out-Null }
+$wuTimestamp = Get-Date -Format "yyyy_MM_dd_HHmmss"
+$wuUniqueId  = Get-HardwareUniqueId
+$wuHostname  = $env:COMPUTERNAME
+$wuLogFile   = Join-Path $wuLogDir "wu_${wuTimestamp}_${wuUniqueId}_${wuHostname}.log"
+$wuTranscriptStarted = $false
+try {
+    Start-Transcript -Path $wuLogFile -Append -ErrorAction Stop | Out-Null
+    $wuTranscriptStarted = $true
+}
+catch {
+    # Transcript may already be running (e.g. launched from main.ps1)
+}
 
 Write-Host ""
 Show-Separator
@@ -15,7 +39,7 @@ Show-Separator
 Write-Host ""
 
 # ========================================
-# Step 1: Load Configuration + State
+# Step 1: Load Configuration
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "windows_update_list.csv"
 
@@ -23,7 +47,7 @@ $configItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
     -RequiredColumns @("Enabled", "SettingName", "Value")
 
 if ($null -eq $configItems) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load windows_update_list.csv")
+    return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
 }
 
 # Parse SettingName/Value pairs into hashtable
@@ -32,55 +56,10 @@ foreach ($item in $configItems) {
     $config[$item.SettingName] = $item.Value
 }
 
-$maxLoops         = if ($config["MaxRebootLoops"])         { [int]$config["MaxRebootLoops"] }         else { 5 }
-$scanTimeout      = if ($config["ScanTimeoutMinutes"])     { [int]$config["ScanTimeoutMinutes"] }     else { 30 }
-$downloadTimeout  = if ($config["DownloadTimeoutMinutes"]) { [int]$config["DownloadTimeoutMinutes"] } else { 60 }
-$installTimeout   = if ($config["InstallTimeoutMinutes"])  { [int]$config["InstallTimeoutMinutes"] }  else { 120 }
 $suspendBitLocker = ($config["SuspendBitLocker"] -eq "1")
-$rebootCountdown  = if ($config["RebootCountdownSeconds"]) { [int]$config["RebootCountdownSeconds"] } else { 15 }
-$autoLaunchFabriq = ($config["AutoLaunchFabriq"] -eq "1")
-$autoLogonEnabled = ($config["AutoLogonEnabled"] -eq "1")
 $includeOptional  = ($config["IncludeOptionalUpdates"] -eq "1")
 $includeSeeker    = ($config["IncludeSeekerUpdates"] -eq "1")
 $autoInstall      = ($config["AutoInstall"] -eq "1")
-
-# Load state file (reboot loop persistence)
-$statePath = Join-Path $PSScriptRoot "wu_state.json"
-$isResumedLoop = $false
-
-if (Test-Path $statePath) {
-    try {
-        $stateRaw = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $isResumedLoop = $true
-
-        # Convert to mutable structure
-        $state = @{
-            LoopCount        = [int]$stateRaw.LoopCount
-            MaxLoops         = [int]$stateRaw.MaxLoops
-            InstalledKBs     = @($stateRaw.InstalledKBs)
-            StartTime        = $stateRaw.StartTime
-            LastRebootReason = $stateRaw.LastRebootReason
-            UserConfirmed    = [bool]$stateRaw.UserConfirmed
-        }
-
-        Show-Info "Resumed from reboot loop (Loop $($state.LoopCount) of $($state.MaxLoops))"
-    }
-    catch {
-        Show-Warning "Failed to load wu_state.json, starting fresh: $_"
-        $isResumedLoop = $false
-    }
-}
-
-if (-not $isResumedLoop) {
-    $state = @{
-        LoopCount        = 0
-        MaxLoops         = $maxLoops
-        InstalledKBs     = @()
-        StartTime        = (Get-Date).ToString("o")
-        LastRebootReason = ""
-        UserConfirmed    = $false
-    }
-}
 
 # ========================================
 # Step 2: Prerequisite Checks
@@ -88,17 +67,18 @@ if (-not $isResumedLoop) {
 
 # Admin privilege check
 if (-not (Test-AdminPrivilege)) {
-    return (New-ModuleResult -Status "Error" -Message "Administrator privileges required")
+    return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
 }
 
 # Wait for base system services
 Wait-SystemReady -RequiredServices @("LanmanWorkstation", "Dnscache")
 Write-Host ""
 
-# Start Windows Update service (Manual startup type, must be started explicitly)
+# Start Windows Update service
 $wuSvc = Get-Service -Name "wuauserv" -ErrorAction SilentlyContinue
 if ($null -eq $wuSvc) {
-    return (New-ModuleResult -Status "Error" -Message "Windows Update service (wuauserv) not found")
+    Show-Error "Windows Update service (wuauserv) not found"
+    return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
 }
 if ($wuSvc.Status -ne "Running") {
     Show-Info "Starting Windows Update service..."
@@ -108,7 +88,7 @@ if ($wuSvc.Status -ne "Running") {
     }
     catch {
         Show-Error "Failed to start Windows Update service: $_"
-        return (New-ModuleResult -Status "Error" -Message "Failed to start wuauserv: $_")
+        return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
     }
 }
 else {
@@ -119,26 +99,6 @@ Write-Host ""
 # Wait for network connectivity
 Wait-NetworkReady
 Write-Host ""
-
-# Safety valve: max loop count
-if ($state.LoopCount -ge $state.MaxLoops) {
-    Show-Warning "Max reboot loop limit reached ($($state.MaxLoops)). Stopping."
-    Write-Host ""
-
-    # Clean up state file
-    if (Test-Path $statePath) {
-        Remove-Item $statePath -Force -ErrorAction SilentlyContinue
-    }
-
-    $totalInstalled = $state.InstalledKBs.Count
-    $msg = "Max loop limit reached. $totalInstalled updates installed across $($state.LoopCount) loops"
-
-    if ($isResumedLoop) {
-        Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status "Partial" -Message $msg
-    }
-
-    return (New-ModuleResult -Status "Partial" -Message $msg)
-}
 
 # Prevent sleep during updates
 Enable-SleepSuppression
@@ -158,15 +118,8 @@ if ($suspendBitLocker) {
 }
 
 # ========================================
-# Step 3-6: Scan, Confirm, Install Loop
+# Step 3: COM API Scan
 # ========================================
-# Inner loop handles no-reboot re-scans
-$maxNoRebootScans = 3
-$noRebootScanCount = 0
-$totalSuccessCount = 0
-$totalFailCount = 0
-
-# Create COM session once
 $updateSession = New-Object -ComObject Microsoft.Update.Session
 $updateSearcher = $updateSession.CreateUpdateSearcher()
 
@@ -186,17 +139,19 @@ if ($includeOptional) {
     $updateSearcher.ServiceID = "7971f918-a847-4430-9279-4a52d1efe18d"
 }
 
+# Inner loop for no-reboot re-scans only (cascading updates within same session)
+$maxNoRebootScans = 3
+$noRebootScanCount = 0
+$totalSuccessCount = 0
+$totalFailCount = 0
+$allInstalledKBs = @()
+$allFailedKBs = @()
+$rebootRequired = $false
+
 while ($true) {
-    # ========================================
-    # Step 3: COM API Scan + Dry-Run Display
-    # ========================================
     Show-Info "Scanning for available updates..."
     Write-Host ""
 
-    # Primary scan (uses Microsoft Update service if configured)
-    # When IncludeSeekerUpdates is enabled, expand criteria to include
-    # OptionalInstallation updates (seeker/gradual rollout patches that
-    # the default "IsInstalled=0" query does not return).
     $searchCriteria = "IsInstalled=0"
     if ($includeSeeker) {
         $searchCriteria = "IsInstalled=0 and DeploymentAction='Installation' or IsInstalled=0 and DeploymentAction='OptionalInstallation'"
@@ -207,15 +162,32 @@ while ($true) {
     catch {
         Show-Error "Update scan failed: $_"
         Disable-SleepSuppression
-
-        if ($isResumedLoop) {
-            Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status "Error" -Message "Scan failed: $_"
-        }
-
-        return (New-ModuleResult -Status "Error" -Message "Update scan failed: $_")
+        return @{ Status = "Error"; RebootRequired = $false; InstalledCount = $totalSuccessCount; FailedCount = $totalFailCount; InstalledKBs = @($allInstalledKBs); FailedKBs = @($allFailedKBs); UpdatesFound = 0 }
     }
 
     $availableUpdates = $searchResult.Updates
+
+    # Filter out skipped KBs (phantom re-appearing updates)
+    if ($SkipKBs.Count -gt 0 -and $availableUpdates.Count -gt 0) {
+        $filteredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
+        $skippedCount = 0
+        for ($i = 0; $i -lt $availableUpdates.Count; $i++) {
+            $update = $availableUpdates.Item($i)
+            $kb = ""
+            if ($update.Title -match '(KB\d+)') { $kb = $Matches[1] }
+            if ($kb -and $SkipKBs -contains $kb) {
+                Show-Warning "Skipping $kb (re-appeared after previous install): $($update.Title)"
+                $skippedCount++
+            }
+            else {
+                $filteredUpdates.Add($update) | Out-Null
+            }
+        }
+        if ($skippedCount -gt 0) {
+            Write-Host ""
+        }
+        $availableUpdates = $filteredUpdates
+    }
 
     # No updates available -> all done
     if ($availableUpdates.Count -eq 0) {
@@ -224,7 +196,9 @@ while ($true) {
         break
     }
 
-    # Display available updates (dry-run)
+    # ========================================
+    # Step 4: Display + Confirmation
+    # ========================================
     Write-Host "========================================" -ForegroundColor Yellow
     Write-Host "Available Updates ($($availableUpdates.Count) found)" -ForegroundColor Yellow
     Write-Host "========================================" -ForegroundColor Yellow
@@ -244,10 +218,7 @@ while ($true) {
     Write-Host "========================================" -ForegroundColor Yellow
     Write-Host ""
 
-    # ========================================
-    # Step 4: User Confirmation
-    # ========================================
-    if (-not $state.UserConfirmed) {
+    if ($noRebootScanCount -eq 0 -and -not $AutoConfirm) {
         if ($autoInstall) {
             Show-Info "[AUTO-INSTALL] Skipping confirmation, proceeding automatically"
         }
@@ -255,26 +226,20 @@ while ($true) {
             $cancelResult = Confirm-ModuleExecution -Message "Install all $($availableUpdates.Count) updates?"
             if ($null -ne $cancelResult) {
                 Disable-SleepSuppression
-                # Clean up state file if exists
-                if (Test-Path $statePath) {
-                    Remove-Item $statePath -Force -ErrorAction SilentlyContinue
-                }
-                return $cancelResult
+                return @{ Status = "Cancelled"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = $availableUpdates.Count }
             }
         }
-        $state.UserConfirmed = $true
     }
     else {
-        Show-Info "[AUTO-RESUME] Loop $($state.LoopCount + 1) of $($state.MaxLoops) - proceeding automatically"
+        Show-Info "[AUTO] Proceeding automatically"
     }
-
     Write-Host ""
 
     # ========================================
     # Step 5: Download + Install
     # ========================================
 
-    # --- Download Phase (per-update for progress visibility) ---
+    # --- Download Phase ---
     $downloader = $updateSession.CreateUpdateDownloader()
     $downloadNeeded = 0
     $downloadDone = 0
@@ -322,12 +287,7 @@ while ($true) {
         if ($downloadFailed -gt 0 -and $downloadDone -eq 0) {
             Show-Error "All downloads failed"
             Disable-SleepSuppression
-
-            if ($isResumedLoop) {
-                Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status "Error" -Message "All downloads failed"
-            }
-
-            return (New-ModuleResult -Status "Error" -Message "All downloads failed")
+            return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = $downloadFailed; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = $availableUpdates.Count }
         }
         elseif ($downloadFailed -gt 0) {
             Show-Warning "Download completed: $downloadDone succeeded, $downloadFailed failed"
@@ -342,7 +302,7 @@ while ($true) {
 
     Write-Host ""
 
-    # --- Install Phase (per-update for progress visibility) ---
+    # --- Install Phase ---
     $installTargetCount = 0
     for ($i = 0; $i -lt $availableUpdates.Count; $i++) {
         if ($availableUpdates.Item($i).IsDownloaded) { $installTargetCount++ }
@@ -359,20 +319,20 @@ while ($true) {
     $installer = $updateSession.CreateUpdateInstaller()
     $successCount = 0
     $failCount = 0
-    $rebootRequired = $false
     $newKBs = @()
+    $newFailedKBs = @()
     $instIndex = 0
 
     for ($i = 0; $i -lt $availableUpdates.Count; $i++) {
         $update = $availableUpdates.Item($i)
         if (-not $update.IsDownloaded) { continue }
 
-        $instIndex++
-        Show-Info "[$instIndex/$installTargetCount] Installing: $($update.Title)"
-
         # Extract KB number from title
         $kb = ""
         if ($update.Title -match '(KB\d+)') { $kb = $Matches[1] }
+
+        $instIndex++
+        Show-Info "[$instIndex/$installTargetCount] Installing: $($update.Title)"
 
         try {
             $singleUpdate = New-Object -ComObject Microsoft.Update.UpdateColl
@@ -385,236 +345,100 @@ while ($true) {
             if ($itemResult.ResultCode -eq 2) {
                 Show-Success "$($update.Title)"
                 $successCount++
-                $newKBs += @{ KB = $kb; Title = $update.Title; Loop = ($state.LoopCount + 1) }
+                $newKBs += @{ KB = $kb; Title = $update.Title }
+
+                # Explicit commit to finalize OptionalInstall updates
+                # (COM API Install() may only stage the update without committing to CBS)
+                try {
+                    $installer.Commit(0)
+                    Show-Info "  Commit called"
+                }
+                catch {
+                    # Commit not supported or not needed on this version — non-fatal
+                }
             }
             else {
-                Show-Error "$($update.Title) (ResultCode: $($itemResult.ResultCode))"
+                $hresult = "0x{0:X8}" -f $itemResult.HResult
+                Show-Error "$($update.Title)"
+                Show-Error "  ResultCode: $($itemResult.ResultCode) | HResult: $hresult"
                 $failCount++
+                $newFailedKBs += @{ KB = $kb; Title = $update.Title; HResult = $hresult }
             }
 
-            if ($itemResult.RebootRequired) { $rebootRequired = $true }
-            if ($singleResult.RebootRequired) { $rebootRequired = $true }
+            # Only count reboot requirement from successfully installed updates
+            if ($itemResult.ResultCode -eq 2) {
+                if ($itemResult.RebootRequired) { $rebootRequired = $true }
+                if ($singleResult.RebootRequired) { $rebootRequired = $true }
+            }
         }
         catch {
             Show-Error "Install failed: $($update.Title) - $_"
             $failCount++
+            $newFailedKBs += @{ KB = $kb; Title = $update.Title; HResult = "N/A" }
         }
     }
 
     $totalSuccessCount += $successCount
     $totalFailCount += $failCount
+    $allInstalledKBs += $newKBs
+    $allFailedKBs += $newFailedKBs
 
     Write-Host ""
-    Show-Info "Iteration result: $successCount succeeded, $failCount failed"
+    Show-Info "Result: $successCount succeeded, $failCount failed"
+
+    # Check system-wide reboot pending (catches non-mandatory reboots missed by per-update check)
+    if (-not $rebootRequired -and $successCount -gt 0) {
+        $comType = [Type]::GetTypeFromProgID("Microsoft.Update.SystemInformation")
+        if ($null -ne $comType) {
+            try {
+                $sysInfo = [Activator]::CreateInstance($comType)
+                if ($sysInfo.RebootRequired) {
+                    Show-Info "System-wide reboot pending detected"
+                    $rebootRequired = $true
+                }
+            }
+            catch { }
+        }
+    }
+
     Write-Host ""
 
-    # Update state with newly installed KBs
-    $state.InstalledKBs = @($state.InstalledKBs) + $newKBs
-    $state.LoopCount = $state.LoopCount + 1
-
-    # ========================================
-    # Step 6: Post-Install Decision
-    # ========================================
-
-    if ($rebootRequired -and $state.LoopCount -lt $state.MaxLoops) {
-        # --- Reboot required: save state and restart ---
-        $state.LastRebootReason = "Updates require restart"
-
-        # Save state file
-        $stateJson = [PSCustomObject]@{
-            LoopCount        = $state.LoopCount
-            MaxLoops         = $state.MaxLoops
-            InstalledKBs     = $state.InstalledKBs
-            StartTime        = $state.StartTime
-            LastRebootReason = $state.LastRebootReason
-            UserConfirmed    = $state.UserConfirmed
-        } | ConvertTo-Json -Depth 5
-
-        $stateJson | Out-File -FilePath $statePath -Encoding UTF8 -Force
-        Show-Info "State saved: Loop $($state.LoopCount), Total KBs: $($state.InstalledKBs.Count)"
-
-        # Register RunOnce for auto-resume after reboot
-        $launcherPath = Join-Path $PSScriptRoot "wu_launcher.bat"
-        $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
-        $runOnceName = "FabriqWindowsUpdate"
-        $runOnceValue = "cmd /c `"$launcherPath`""
-
-        try {
-            if (-not (Test-Path $runOncePath)) {
-                New-Item -Path $runOncePath -Force | Out-Null
-            }
-
-            $existing = Get-ItemProperty -Path $runOncePath -Name $runOnceName -ErrorAction SilentlyContinue
-            if ($existing) {
-                Set-ItemProperty -Path $runOncePath -Name $runOnceName -Value $runOnceValue -Type String -Force -ErrorAction Stop
-            }
-            else {
-                New-ItemProperty -Path $runOncePath -Name $runOnceName -Value $runOnceValue -PropertyType String -Force -ErrorAction Stop | Out-Null
-            }
-
-            Show-Success "RunOnce registered: $runOnceName"
-        }
-        catch {
-            Show-Error "Failed to register RunOnce: $_"
-            Disable-SleepSuppression
-            return (New-ModuleResult -Status "Error" -Message "Failed to register RunOnce: $_")
-        }
-
-        # Set one-time AutoLogon before reboot (matching autologon_config pattern)
-        if ($autoLogonEnabled) {
-            $alCsvPath = Join-Path $PSScriptRoot "..\..\standard\autologon_config\autologon_list.csv"
-            if (Test-Path $alCsvPath) {
-                try {
-                    $alEntries = Import-ModuleCsv -Path $alCsvPath -RequiredColumns @("Enabled", "No", "User", "Password")
-                    $alEnabled = @($alEntries | Where-Object { $_.Enabled -eq "1" })
-                    $currentUser = $env:USERNAME
-                    $alTarget = $alEnabled | Where-Object { $_.User -eq $currentUser } | Select-Object -First 1
-
-                    if ($alTarget) {
-                        $winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
-                        Set-ItemProperty -Path $winlogonPath -Name "AutoAdminLogon" -Value "1" -Type String -Force -ErrorAction Stop
-                        Set-ItemProperty -Path $winlogonPath -Name "DefaultUserName" -Value $alTarget.User -Type String -Force -ErrorAction Stop
-                        Set-ItemProperty -Path $winlogonPath -Name "DefaultPassword" -Value $alTarget.Password -Type String -Force -ErrorAction Stop
-                        Set-ItemProperty -Path $winlogonPath -Name "AutoLogonCount" -Value 1 -Type DWord -Force -ErrorAction Stop
-                        if (-not [string]::IsNullOrWhiteSpace($alTarget.Domain)) {
-                            Set-ItemProperty -Path $winlogonPath -Name "DefaultDomainName" -Value $alTarget.Domain -Type String -Force -ErrorAction Stop
-                        }
-                        Show-Success "AutoLogon configured for '$currentUser' (one-time)"
-                    }
-                    else {
-                        Show-Warning "AutoLogon: no matching entry for '$currentUser' in autologon_list.csv"
-                    }
-                }
-                catch {
-                    Show-Warning "AutoLogon configuration failed (non-fatal): $_"
-                }
-            }
-            else {
-                Show-Warning "AutoLogon: autologon_list.csv not found"
-            }
-        }
-
-        Write-Host ""
-
-        # Write execution history (wu_launcher.bat does not go through main.ps1)
-        if ($isResumedLoop) {
-            Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status "Success" -Message "Loop $($state.LoopCount): $successCount installed, rebooting"
-        }
-
-        # Return result BEFORE reboot (matches restart_config pattern)
-        $result = New-ModuleResult -Status "Success" -Message "Loop $($state.LoopCount): $successCount installed, $failCount failed. Rebooting..."
-
-        Invoke-CountdownRestart -Seconds $rebootCountdown
-
-        return $result
-    }
-    elseif (-not $rebootRequired) {
-        # --- No reboot needed: re-scan for cascading updates ---
-        $noRebootScanCount++
-
-        if ($noRebootScanCount -ge $maxNoRebootScans) {
-            Show-Info "Max no-reboot re-scan limit reached ($maxNoRebootScans). Finishing."
-            break
-        }
-
-        Show-Info "No reboot required. Re-scanning for additional updates..."
-        Write-Host ""
-        continue
-    }
-    else {
-        # Max loops reached with reboot still required
-        Show-Warning "Max reboot loop limit reached ($($state.MaxLoops)). Additional updates may remain."
+    # Post-install decision (within same session, no reboot)
+    if ($rebootRequired) {
+        # Reboot needed — return to orchestrator (main.ps1) for reboot handling
         break
     }
-}
 
-# ========================================
-# All Done: Final Summary
-# ========================================
+    # No reboot needed: re-scan for cascading updates
+    $noRebootScanCount++
+    if ($noRebootScanCount -ge $maxNoRebootScans) {
+        Show-Info "Max no-reboot re-scan limit reached ($maxNoRebootScans). Finishing."
+        break
+    }
 
-# Clean up state file
-if (Test-Path $statePath) {
-    Remove-Item $statePath -Force -ErrorAction SilentlyContinue
+    Show-Info "No reboot required. Re-scanning for additional updates..."
+    Write-Host ""
+    continue
 }
 
 Disable-SleepSuppression
 
-$allKBs = @($state.InstalledKBs)
-$totalInstalled = $allKBs.Count
-$elapsed = (Get-Date) - [datetime]$state.StartTime
-$elapsedMinutes = [math]::Round($elapsed.TotalMinutes, 1)
-
-# Display final summary
-Show-Separator
-Write-Host "Windows Update Complete" -ForegroundColor Cyan
-Show-Separator
-Write-Host ""
-Write-Host "  Total loops:     $($state.LoopCount)" -ForegroundColor White
-Write-Host "  Total installed: $totalInstalled updates" -ForegroundColor Green
-Write-Host "  Total failed:    $totalFailCount updates" -ForegroundColor $(if ($totalFailCount -gt 0) { "Red" } else { "White" })
-Write-Host "  Elapsed time:    ${elapsedMinutes} minutes" -ForegroundColor White
-Write-Host ""
-
-if ($state.LoopCount -ge $state.MaxLoops) {
-    Show-Warning "Max loop limit reached. Additional updates may remain."
-    Write-Host ""
+# Stop WU transcript
+if ($wuTranscriptStarted) {
+    Show-Info "WU log saved: $wuLogFile"
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 }
 
-if ($allKBs.Count -gt 0) {
-    Write-Host "  Installed updates:" -ForegroundColor DarkGray
-    foreach ($kb in $allKBs) {
-        $kbId = if ($kb.KB) { $kb.KB } else { "N/A" }
-        $kbTitle = if ($kb.Title) { $kb.Title } else { "Unknown" }
-        Write-Host "    [Loop $($kb.Loop)] $kbId - $kbTitle" -ForegroundColor DarkGray
-    }
-    Write-Host ""
+# Return result to orchestrator (main.ps1)
+return @{
+    Status         = if ($totalSuccessCount -gt 0 -and $totalFailCount -eq 0) { "Success" }
+                     elseif ($totalSuccessCount -gt 0 -and $totalFailCount -gt 0) { "Partial" }
+                     elseif ($totalSuccessCount -eq 0 -and $totalFailCount -gt 0) { "Error" }
+                     else { "Success" }
+    RebootRequired = $rebootRequired
+    InstalledCount = $totalSuccessCount
+    FailedCount    = $totalFailCount
+    InstalledKBs   = @($allInstalledKBs)
+    FailedKBs      = @($allFailedKBs)
+    UpdatesFound   = $availableUpdates.Count
 }
-
-Show-Separator
-Write-Host ""
-
-# Write execution history for resumed loops
-if ($isResumedLoop) {
-    $historyMsg = "$totalInstalled updates installed ($($state.LoopCount) loops, ${elapsedMinutes}min)"
-    $historyStatus = if ($totalFailCount -eq 0 -and $totalInstalled -gt 0) { "Success" }
-        elseif ($totalInstalled -gt 0 -and $totalFailCount -gt 0) { "Partial" }
-        elseif ($totalInstalled -eq 0 -and $totalFailCount -gt 0) { "Error" }
-        else { "Success" }
-    Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $historyStatus -Message $historyMsg
-}
-
-# Save completion result for next fabriq session import
-$completedPath = Join-Path $PSScriptRoot "wu_completed.json"
-$completedData = [PSCustomObject]@{
-    TotalInstalled = $totalInstalled
-    TotalFailed    = $totalFailCount
-    TotalLoops     = $state.LoopCount
-    ElapsedMinutes = $elapsedMinutes
-    InstalledKBs   = @($allKBs | ForEach-Object { $_.KB })
-    CompletedAt    = (Get-Date).ToString("o")
-} | ConvertTo-Json -Depth 3
-
-$completedData | Out-File -FilePath $completedPath -Encoding UTF8 -Force
-Show-Info "Completion results saved: wu_completed.json"
-Write-Host ""
-
-# Auto-launch Fabriq if configured
-if ($autoLaunchFabriq) {
-    $fabriqRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
-    $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
-    $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-
-    if (Test-Path $fabriqExe) {
-        Show-Info "Launching Fabriq.exe..."
-        Start-Process $fabriqExe -Verb RunAs
-    } elseif (Test-Path $fabriqBat) {
-        Show-Info "Launching Fabriq.bat..."
-        Start-Process cmd -ArgumentList "/c `"$fabriqBat`"" -Verb RunAs
-    } else {
-        Show-Warning "Fabriq entry point not found (neither .exe nor .bat)"
-    }
-}
-
-return (New-BatchResult -Success $totalInstalled -Skip 0 -Fail $totalFailCount `
-    -Title "Windows Update Results" `
-    -MessageSuffix "(Loops: $($state.LoopCount))")

@@ -1132,6 +1132,278 @@ function Enter-AppMode {
 }
 
 # ========================================
+# Function: Windows Update AutoLogon Helper
+# ========================================
+# Sets AutoLogon with enough count to survive WU reboot loops.
+# CBS finalization after WU install consumes 1 AutoLogonCount per reboot,
+# so we need MaxLoops * 2 (1 for CBS + 1 for actual user logon per loop).
+# Credentials are cleaned up by Clear-WindowsUpdateAutoLogon when WU completes.
+function Set-WindowsUpdateAutoLogon {
+    param([int]$MaxLoops = 5)
+
+    $alCsvPath = Join-Path (Resolve-Path ".").Path "modules\standard\autologon_config\autologon_list.csv"
+    if (-not (Test-Path $alCsvPath)) {
+        Show-Warning "AutoLogon: autologon_list.csv not found"
+        return
+    }
+    try {
+        $alEntries = Import-ModuleCsv -Path $alCsvPath -RequiredColumns @("Enabled", "No", "User", "Password")
+        $alEnabled = @($alEntries | Where-Object { $_.Enabled -eq "1" })
+        $currentUser = $env:USERNAME
+        $alTarget = $alEnabled | Where-Object { $_.User -eq $currentUser } | Select-Object -First 1
+
+        if ($alTarget) {
+            $winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+            $logonCount = $MaxLoops * 2
+            Set-ItemProperty -Path $winlogonPath -Name "AutoAdminLogon" -Value "1" -Type String -Force -ErrorAction Stop
+            Set-ItemProperty -Path $winlogonPath -Name "DefaultUserName" -Value $alTarget.User -Type String -Force -ErrorAction Stop
+            Set-ItemProperty -Path $winlogonPath -Name "DefaultPassword" -Value $alTarget.Password -Type String -Force -ErrorAction Stop
+            Set-ItemProperty -Path $winlogonPath -Name "AutoLogonCount" -Value $logonCount -Type DWord -Force -ErrorAction Stop
+            if (-not [string]::IsNullOrWhiteSpace($alTarget.Domain)) {
+                Set-ItemProperty -Path $winlogonPath -Name "DefaultDomainName" -Value $alTarget.Domain -Type String -Force -ErrorAction Stop
+            }
+            Show-Success "AutoLogon configured for '$currentUser' (count=$logonCount)"
+        }
+        else {
+            Show-Warning "AutoLogon: no matching entry for '$currentUser' in autologon_list.csv"
+        }
+    }
+    catch {
+        Show-Warning "AutoLogon configuration failed (non-fatal): $_"
+    }
+}
+
+# ========================================
+# Function: Clear Windows Update AutoLogon
+# ========================================
+# Removes AutoLogon registry values after WU loop completes.
+# Ensures no credentials remain in the registry.
+function Clear-WindowsUpdateAutoLogon {
+    $winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    try {
+        Set-ItemProperty -Path $winlogonPath -Name "AutoAdminLogon" -Value "0" -Type String -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $winlogonPath -Name "DefaultPassword" -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $winlogonPath -Name "AutoLogonCount" -Force -ErrorAction SilentlyContinue
+        Show-Info "AutoLogon credentials cleared"
+    }
+    catch {
+        Show-Warning "Failed to clear AutoLogon (non-fatal): $_"
+    }
+}
+
+# ========================================
+# Function: Windows Update Orchestration Loop
+# ========================================
+# Manages the WU reboot loop using the same pattern as Profile __RESTART__:
+#   Register-FabriqRunOnce -> AutoLogon -> Invoke-CountdownRestart
+# WU module (windows_update.ps1) performs a single pass per call.
+function Invoke-WindowsUpdateLoop {
+    $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
+    $wuStatePath = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\wu_state.json"
+    $wuConfigPath = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update_list.csv"
+
+    if (-not (Test-Path $wuScript)) {
+        Show-Error "windows_update.ps1 not found: $wuScript"
+        return
+    }
+
+    # --- Load or initialize WU state ---
+    if (Test-Path $wuStatePath) {
+        try {
+            $stateRaw = Get-Content $wuStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $wuState = @{
+                LoopCount    = [int]$stateRaw.LoopCount
+                MaxLoops     = [int]$stateRaw.MaxLoops
+                InstalledKBs = @($stateRaw.InstalledKBs)
+                FailedKBs    = @($stateRaw.FailedKBs)
+                StartTime    = $stateRaw.StartTime
+                RebootSec    = if ($stateRaw.RebootSec) { [int]$stateRaw.RebootSec } else { 15 }
+                AutoLogon    = if ($null -ne $stateRaw.AutoLogon) { [bool]$stateRaw.AutoLogon } else { $true }
+            }
+            Show-Info "Resumed WU loop (Loop $($wuState.LoopCount) of $($wuState.MaxLoops))"
+        }
+        catch {
+            Show-Warning "Failed to load wu_state.json, starting fresh: $_"
+            Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
+            $wuState = $null
+        }
+    }
+
+    if ($null -eq $wuState) {
+        # Read config from CSV
+        $maxLoops = 5
+        $rebootSec = 15
+        $autoLogon = $true
+        if (Test-Path $wuConfigPath) {
+            try {
+                $cfgItems = Import-ModuleCsv -Path $wuConfigPath -FilterEnabled -RequiredColumns @("Enabled", "SettingName", "Value")
+                $cfgMap = @{}
+                foreach ($c in $cfgItems) { $cfgMap[$c.SettingName] = $c.Value }
+                if ($cfgMap["MaxRebootLoops"]) { $maxLoops = [int]$cfgMap["MaxRebootLoops"] }
+                if ($cfgMap["RebootCountdownSeconds"]) { $rebootSec = [int]$cfgMap["RebootCountdownSeconds"] }
+                if ($cfgMap["AutoLogonEnabled"] -eq "0") { $autoLogon = $false }
+            }
+            catch { }
+        }
+        $wuState = @{
+            LoopCount    = 0
+            MaxLoops     = $maxLoops
+            InstalledKBs = @()
+            FailedKBs    = @()
+            StartTime    = (Get-Date).ToString("o")
+            RebootSec    = $rebootSec
+            AutoLogon    = $autoLogon
+        }
+    }
+
+    # --- Safety valve ---
+    if ($wuState.LoopCount -ge $wuState.MaxLoops) {
+        Show-Warning "Max WU loop limit reached ($($wuState.MaxLoops)). Stopping."
+        Write-Host ""
+        if ($wuState.AutoLogon) { Clear-WindowsUpdateAutoLogon }
+        Show-WindowsUpdateSummary -WuState $wuState
+        Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    # --- Build skip list: KBs installed 2+ times (phantom re-appearing updates) ---
+    $kbCounts = @{}
+    foreach ($ik in $wuState.InstalledKBs) {
+        $k = if ($ik.KB) { $ik.KB } else { continue }
+        if ($kbCounts.ContainsKey($k)) { $kbCounts[$k]++ } else { $kbCounts[$k] = 1 }
+    }
+    $skipKBs = @($kbCounts.GetEnumerator() | Where-Object { $_.Value -ge 3 } | ForEach-Object { $_.Key })
+
+    if ($skipKBs.Count -gt 0) {
+        Show-Warning "Skipping $($skipKBs.Count) re-appearing KB(s): $($skipKBs -join ', ')"
+        Write-Host ""
+    }
+
+    # --- Run WU single pass ---
+    $autoConfirm = ($wuState.LoopCount -gt 0)  # Auto-confirm on resumed loops
+    $result = & $wuScript -SkipKBs $skipKBs -AutoConfirm:$autoConfirm
+
+    if ($null -eq $result -or $result.Status -eq "Cancelled") {
+        Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    # --- Track results ---
+    $wuState.LoopCount++
+    $wuState.InstalledKBs = @($wuState.InstalledKBs) + @($result.InstalledKBs | ForEach-Object {
+        @{ KB = $_.KB; Title = $_.Title; Loop = $wuState.LoopCount }
+    })
+    $wuState.FailedKBs = @($wuState.FailedKBs) + @($result.FailedKBs | ForEach-Object {
+        @{ KB = $_.KB; Title = $_.Title; HResult = $_.HResult; Loop = $wuState.LoopCount }
+    })
+
+    # Record in execution history
+    $loopMsg = "Loop $($wuState.LoopCount): $($result.InstalledCount) installed, $($result.FailedCount) failed"
+    Add-ExecutionResult -Operation "Windows Update" -Status $result.Status -Message $loopMsg
+    $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $result.Status -Message $loopMsg
+
+    # --- Reboot decision (same as Profile __RESTART__) ---
+    if ($result.RebootRequired -and $result.InstalledCount -gt 0 -and $wuState.LoopCount -lt $wuState.MaxLoops) {
+
+        # Save WU state
+        $wuState | ConvertTo-Json -Depth 5 | Out-File -FilePath $wuStatePath -Encoding UTF8 -Force
+        Show-Info "WU state saved: Loop $($wuState.LoopCount), Total KBs: $($wuState.InstalledKBs.Count)"
+
+        # AutoLogon (same pattern as Profile, count covers CBS consumption)
+        if ($wuState.AutoLogon) {
+            Set-WindowsUpdateAutoLogon -MaxLoops $wuState.MaxLoops
+        }
+
+        # Register RunOnce (same function as Profile __RESTART__)
+        if (-not (Register-FabriqRunOnce)) {
+            Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
+            Show-Error "Failed to register RunOnce for WU resume"
+            return
+        }
+
+        # Reboot (same function as Profile __RESTART__)
+        Invoke-CountdownRestart -Seconds $wuState.RebootSec
+        return  # Process ends here
+    }
+
+    # --- All done (no reboot needed, or all updates complete) ---
+
+    # Clean up AutoLogon credentials (remove remaining count + password)
+    if ($wuState.AutoLogon) {
+        Clear-WindowsUpdateAutoLogon
+    }
+
+    Show-WindowsUpdateSummary -WuState $wuState
+    Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
+
+    # Save wu_completed.json for session import
+    $completedPath = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\wu_completed.json"
+    $completedData = [PSCustomObject]@{
+        TotalInstalled = ($wuState.InstalledKBs | Measure-Object).Count
+        TotalFailed    = ($wuState.FailedKBs | Measure-Object).Count
+        TotalLoops     = $wuState.LoopCount
+        ElapsedMinutes = [math]::Round(((Get-Date) - [datetime]$wuState.StartTime).TotalMinutes, 1)
+        InstalledKBs   = @($wuState.InstalledKBs | ForEach-Object { $_.KB })
+        FailedKBs      = @($wuState.FailedKBs)
+        CompletedAt    = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 5
+    $completedData | Out-File -FilePath $completedPath -Encoding UTF8 -Force
+    Show-Info "Completion results saved: wu_completed.json"
+    Write-Host ""
+}
+
+# ========================================
+# Function: Windows Update Summary Display
+# ========================================
+function Show-WindowsUpdateSummary {
+    param([hashtable]$WuState)
+
+    $allKBs = @($WuState.InstalledKBs)
+    $allFailed = @($WuState.FailedKBs)
+    $elapsed = (Get-Date) - [datetime]$WuState.StartTime
+    $elapsedMinutes = [math]::Round($elapsed.TotalMinutes, 1)
+
+    Show-Separator
+    Write-Host "Windows Update Complete" -ForegroundColor Cyan
+    Show-Separator
+    Write-Host ""
+    Write-Host "  Total loops:     $($WuState.LoopCount)" -ForegroundColor White
+    Write-Host "  Total installed: $($allKBs.Count) updates" -ForegroundColor Green
+    Write-Host "  Total failed:    $($allFailed.Count) updates" -ForegroundColor $(if ($allFailed.Count -gt 0) { "Red" } else { "White" })
+    Write-Host "  Elapsed time:    ${elapsedMinutes} minutes" -ForegroundColor White
+    Write-Host ""
+
+    if ($WuState.LoopCount -ge $WuState.MaxLoops) {
+        Show-Warning "Max loop limit reached. Additional updates may remain."
+        Write-Host ""
+    }
+
+    if ($allKBs.Count -gt 0) {
+        Write-Host "  Installed updates:" -ForegroundColor DarkGray
+        foreach ($kb in $allKBs) {
+            $kbId = if ($kb.KB) { $kb.KB } else { "N/A" }
+            $kbTitle = if ($kb.Title) { $kb.Title } else { "Unknown" }
+            Write-Host "    [Loop $($kb.Loop)] $kbId - $kbTitle" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+    }
+
+    if ($allFailed.Count -gt 0) {
+        Write-Host "  Failed updates:" -ForegroundColor Red
+        foreach ($fk in $allFailed) {
+            $fkTitle = if ($fk.Title) { $fk.Title } else { "Unknown" }
+            $fkHR = if ($fk.HResult) { $fk.HResult } else { "N/A" }
+            Write-Host "    $($fk.KB) - $fkTitle" -ForegroundColor Red
+            Write-Host "      HResult: $fkHR (Loop $($fk.Loop))" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+    }
+
+    Show-Separator
+    Write-Host ""
+}
+
+# ========================================
 # Main Process
 # ========================================
 
@@ -1162,7 +1434,25 @@ Write-Host ""
 # ========================================
 $global:FabriqMasterPassphrase = $null
 $isResuming = $false
+$isWuResuming = $false
 $resumeState = Load-ResumeState
+
+# Windows Update resume detection (wu_state.json presence = mid-loop reboot)
+# WU resume runs immediately — no passphrase, worker, or host selection needed.
+# Uses Invoke-WindowsUpdateLoop which follows the Profile __RESTART__ pattern.
+# After WU completes (all loops done), main.ps1 continues normal startup.
+$wuStatePath = Join-Path $PSScriptRoot "..\modules\standard\windows_update\wu_state.json"
+if (Test-Path $wuStatePath) {
+    $isWuResuming = $true
+
+    Initialize-ExecutionHistory
+
+    Invoke-WindowsUpdateLoop
+    # If WU rebooted, execution does not reach here (process ends at Invoke-CountdownRestart).
+    # If WU completed all loops, continue to normal startup below.
+    $isWuResuming = $false
+    Write-Host ""
+}
 
 if ($null -ne $resumeState) {
     Write-Host ""
@@ -1482,6 +1772,7 @@ $groupedModules = $moduleSystem.GroupedModules
 # ========================================
 $global:FabriqStatusMonitorProcess = Start-StatusMonitor
 
+
 # ========================================
 # Resume Execution (if resuming)
 # ========================================
@@ -1763,18 +2054,7 @@ if ($script:UseGui) {
             }
 
             "WindowsUpdate" {
-                $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
-                if (Test-Path $wuScript) {
-                    $wuResult = & $wuScript
-                    if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
-                        Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
-                        $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
-                        Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
-                    }
-                }
-                else {
-                    Show-Error "windows_update.ps1 not found"
-                }
+                Invoke-WindowsUpdateLoop
                 Wait-KeyPress
             }
 
@@ -1962,19 +2242,8 @@ else {
 
         # Windows Update
         if ($choice -eq 'WU' -or $choice -eq 'wu') {
-            $wuScript = Join-Path (Resolve-Path ".").Path "modules\standard\windows_update\windows_update.ps1"
-            if (Test-Path $wuScript) {
-                Write-Host ""
-                $wuResult = & $wuScript
-                if ($null -ne $wuResult -and $wuResult._IsModuleResult) {
-                    Add-ExecutionResult -Operation "Windows Update" -Status $wuResult.Status -Message $wuResult.Message
-                    $null = Write-ExecutionHistory -ModuleName "Windows Update" -Category "Maintenance" -Status $wuResult.Status -Message $wuResult.Message
-                    Capture-ScreenEvidence -ModuleName "Windows Update" -Status $wuResult.Status
-                }
-            }
-            else {
-                Show-Error "windows_update.ps1 not found: $wuScript"
-            }
+            Write-Host ""
+            Invoke-WindowsUpdateLoop
             Wait-KeyPress
             Clear-Host
             continue

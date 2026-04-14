@@ -1,9 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM ===== Windows Update Auto-Resume Launcher =====
-REM This batch file is registered in RunOnce to re-launch
-REM the Windows Update module after a reboot.
+REM ===== Windows Update Auto-Resume Launcher (DEPRECATED) =====
+REM This file is no longer used for WU resume.
+REM WU now uses Register-FabriqRunOnce (Fabriq.exe) and main.ps1
+REM detects wu_state.json to auto-resume the update loop.
+REM Kept for reference only.
 
 REM ===== administrator check =====
 net session >nul 2>&1
