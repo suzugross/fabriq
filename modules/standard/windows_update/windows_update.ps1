@@ -101,7 +101,7 @@ Wait-NetworkReady
 Write-Host ""
 
 # Prevent sleep during updates
-Enable-SleepSuppression
+# Sleep suppression is managed by main.ps1 (Enable on startup, Disable on Exit-Fabriq)
 
 # Suspend BitLocker if configured
 if ($suspendBitLocker) {
@@ -161,7 +161,7 @@ while ($true) {
     }
     catch {
         Show-Error "Update scan failed: $_"
-        Disable-SleepSuppression
+
         return @{ Status = "Error"; RebootRequired = $false; InstalledCount = $totalSuccessCount; FailedCount = $totalFailCount; InstalledKBs = @($allInstalledKBs); FailedKBs = @($allFailedKBs); UpdatesFound = 0 }
     }
 
@@ -225,7 +225,7 @@ while ($true) {
         else {
             $cancelResult = Confirm-ModuleExecution -Message "Install all $($availableUpdates.Count) updates?"
             if ($null -ne $cancelResult) {
-                Disable-SleepSuppression
+        
                 return @{ Status = "Cancelled"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = $availableUpdates.Count }
             }
         }
@@ -286,7 +286,7 @@ while ($true) {
         Write-Host ""
         if ($downloadFailed -gt 0 -and $downloadDone -eq 0) {
             Show-Error "All downloads failed"
-            Disable-SleepSuppression
+    
             return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = $downloadFailed; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = $availableUpdates.Count }
         }
         elseif ($downloadFailed -gt 0) {
@@ -421,7 +421,7 @@ while ($true) {
     continue
 }
 
-Disable-SleepSuppression
+# Sleep suppression cleanup is handled by Exit-Fabriq in main.ps1
 
 # Stop WU transcript
 if ($wuTranscriptStarted) {
