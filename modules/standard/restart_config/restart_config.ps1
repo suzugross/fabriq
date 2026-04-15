@@ -9,23 +9,19 @@ Show-Separator
 Write-Host ""
 
 # ========================================
-# Resolve Fabriq entry point (prefer .exe, fallback .bat)
+# Resolve Fabriq entry point
 # ========================================
 $fabriqRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
-$fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-if (Test-Path $fabriqExe) {
-    $runOnceValue = "`"$fabriqExe`""
-    $entryPoint = $fabriqExe
-} elseif (Test-Path $fabriqBat) {
-    $runOnceValue = "cmd /c `"$fabriqBat`""
-    $entryPoint = $fabriqBat
-} else {
-    Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
+if (-not (Test-Path $fabriqExe)) {
+    Show-Error "Fabriq.exe not found: $fabriqExe"
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Fabriq entry point not found")
+    return (New-ModuleResult -Status "Error" -Message "Fabriq.exe not found")
 }
+
+$runOnceValue = "`"$fabriqExe`""
+$entryPoint = $fabriqExe
 
 Show-Info "Entry point: $entryPoint"
 Write-Host ""

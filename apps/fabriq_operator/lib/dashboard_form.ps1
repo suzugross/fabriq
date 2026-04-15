@@ -21,7 +21,6 @@ function Show-OperatorDashboard {
         ProfileName        = ""
         SelectedModules    = @()
         AutoPilot          = $false
-        StopOnError        = $false
         AutoPilotWaitSec   = 3
     }
 
@@ -134,9 +133,6 @@ function Show-OperatorDashboard {
     # Profile options
     $chkAutoPilot = New-StyledCheckBox -Text "AutoPilot" -X 10 -Y 280 -Width 120 -Checked $true
     $tabProfiles.Controls.Add($chkAutoPilot)
-
-    $chkStopOnError = New-StyledCheckBox -Text "StopOnError" -X 140 -Y 280 -Width 130
-    $tabProfiles.Controls.Add($chkStopOnError)
 
     # Execute Profile button
     $btnExecProfile = New-StyledButton -Text "Execute Profile" -X 498 -Y 278 -Width 150 -Height 32 -BgColor $script:bgAccent
@@ -319,6 +315,9 @@ function Show-OperatorDashboard {
 
     $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 16 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnSystemLauncher)
+
+    $btnApps = New-StyledButton -Text "FabriqApps" -X 226 -Y $settY -Width 200 -Height 30
+    $tabSettings.Controls.Add($btnApps)
     $settY += 50
 
     # Separator
@@ -412,7 +411,6 @@ function Show-OperatorDashboard {
         $result.ProfilePath = $profileGrid.Rows[$idx].Cells["FilePath"].Value
         $result.ProfileName = $profileGrid.Rows[$idx].Cells["ProfileName"].Value
         $result.AutoPilot = $chkAutoPilot.Checked
-        $result.StopOnError = $chkStopOnError.Checked
         $form.Close()
     })
 
@@ -513,6 +511,11 @@ function Show-OperatorDashboard {
 
     $btnSystemLauncher.Add_Click({
         $result.Action = "SystemLauncher"
+        $form.Close()
+    })
+
+    $btnApps.Add_Click({
+        $result.Action = "AppsMode"
         $form.Close()
     })
 

@@ -22,16 +22,17 @@ if (Test-Path $manifestoPath) {
     . $manifestoPath
 }
 
-# Load Fabriq Operator GUI (unless -NoGui)
-$script:UseGui = (-not $NoGui)
-if ($script:UseGui) {
-    $operatorPath = ".\apps\fabriq_operator\fabriq_operator.ps1"
-    if (Test-Path $operatorPath) {
-        . $operatorPath
-    }
-    else {
-        $script:UseGui = $false
-    }
+# Load Fabriq Operator GUI
+# GUI is mandatory for menu navigation. -NoGui is deprecated and will exit.
+$operatorPath = ".\apps\fabriq_operator\fabriq_operator.ps1"
+if (Test-Path $operatorPath) {
+    . $operatorPath
+}
+
+if (-not $script:UseGui) {
+    Show-Error "Failed to load fabriq operator GUI."
+    Show-Error "Ensure fabriq_operator files exist and System.Windows.Forms is available."
+    exit 1
 }
 
 # Enable sleep suppression while Fabriq is running
@@ -47,7 +48,6 @@ Set-ConsoleSize -Columns 75 -Lines 35
 # Constants
 # ========================================
 $HOSTLIST_CSV = ".\kernel\csv\hostlist.csv"
-$COMMANDS_DIR = ".\commands"
 $APPS_DIR = ".\apps"
 $script:AutoPilotMaxRetry = 5
 
@@ -73,64 +73,6 @@ function Load-HostList {
 
 # (Load-Categories, Load-ModulesFromDirectory, Load-AllModules, Build-CategoryMenu
 #  have been consolidated into Initialize-ModuleSystem and Build-CategoryMenu in common.ps1)
-
-# ========================================
-# Function: Select Host
-# ========================================
-function Select-Host {
-    param([array]$HostList)
-
-    $currentPCName = $env:COMPUTERNAME
-    Show-Info "Current PC Name: $currentPCName"
-    Write-Host ""
-
-    # Check auto-selection
-    # Note: CSV header 'NewPCName' is required
-    $autoSelected = $HostList | Where-Object { $_.'NewPCName' -eq $currentPCName }
-
-    if ($autoSelected) {
-        # Note: CSV header 'AdminID', 'OldPCName', 'NewPCName' are required
-        Show-Success "Auto-selected: ID [$($autoSelected.'AdminID')] - $($autoSelected.'OldPCName') -> $($autoSelected.'NewPCName')"
-        return $autoSelected
-    }
-
-    # Manual selection
-    Show-Info "Please select the target device."
-    Write-Host ""
-    Show-Separator
-    Write-Host "Target Device List" -ForegroundColor Cyan
-    Show-Separator
-
-    foreach ($pc in $HostList) {
-        Write-Host "[$($pc.'AdminID')] $($pc.'OldPCName') -> $($pc.'NewPCName')"
-    }
-
-    Write-Host "  [Q] Quit" -ForegroundColor DarkGray
-    Show-Separator
-    Write-Host ""
-
-    while ($true) {
-        Write-Host -NoNewline "Please enter the ID: "
-        $userInput = Read-Host
-
-        if ($userInput -eq 'q' -or $userInput -eq 'Q') {
-            return $null
-        }
-
-        $selected = $HostList | Where-Object { $_.'AdminID' -eq $userInput }
-
-        if ($selected) {
-            Write-Host ""
-            Show-Success "Selected: ID [$($selected.'AdminID')] - $($selected.'OldPCName') -> $($selected.'NewPCName')"
-            return $selected
-        }
-        else {
-            Write-Host ""
-            Show-Error "Invalid ID. Please try again."
-            Write-Host ""
-        }
-    }
-}
 
 # ========================================
 # Function: Set Environment Variables
@@ -186,222 +128,6 @@ function Set-SelectedHostEnvironment {
     }
 
     Show-Info "Environment variables set."
-}
-
-# ========================================
-# Function: New Kitting Session
-# ========================================
-function Invoke-NewKittingSession {
-    Write-Host ""
-    Show-Separator
-    Write-Host "New Kitting Session" -ForegroundColor Magenta
-    Show-Separator
-    Write-Host ""
-
-    # Reset all in-memory state and start a new transcript
-    Reset-FabriqState
-
-    # Re-initialize session (worker selection)
-    $sessionResult = Initialize-Session
-    if ($sessionResult -eq $false) {
-        Show-Info "New session canceled - returning to main menu"
-        Write-Host ""
-        return
-    }
-    Write-Host ""
-
-    # Re-load host list and re-select target device
-    Show-Info "Loading hostlist.csv..."
-    $hostListNew = Load-HostList
-    if (-not $hostListNew) {
-        Show-Error "Failed to load hostlist.csv - returning to main menu"
-        Write-Host ""
-        return
-    }
-    Write-Host ""
-
-    $selectedHostNew = Select-Host -HostList $hostListNew
-    if ($null -eq $selectedHostNew) {
-        Show-Info "New session canceled - returning to main menu"
-        Write-Host ""
-        return
-    }
-    Write-Host ""
-    Set-SelectedHostEnvironment -SelectedHost $selectedHostNew
-    Write-Host ""
-    Initialize-EvidenceBasePath
-    Write-Host ""
-
-    Restore-ExecutionHistory
-    Write-Host ""
-
-    Show-Success "New session ready. Target: $env:SELECTED_NEW_PCNAME"
-    Write-Host ""
-}
-
-# ========================================
-# Function: Show Main Menu (Navigation Hub)
-# ========================================
-function Show-MainMenu {
-    Write-Host ""
-    Show-Separator
-    Write-Host "Fabriq ver2.1 - Manifeste du Surkitinisme -" -ForegroundColor Green
-    Show-Separator
-    Write-Host "  Selected Host: $env:SELECTED_NEW_PCNAME" -ForegroundColor White
-    Show-Separator
-    Write-Host ""
-    Write-Host "  [S] Script Menu" -ForegroundColor White
-    Write-Host "  [A] FabriqApps" -ForegroundColor White
-    Write-Host "  [C] Command" -ForegroundColor White
-    Write-Host "  [P] Run Profile" -ForegroundColor White
-    Write-Host "  [N] New Session" -ForegroundColor White
-    Write-Host "  [R] History" -ForegroundColor White
-    Write-Host ""
-    Write-Host "----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  [eh] History Export" -ForegroundColor DarkGray
-    Write-Host "  [cl] Regenerate Checklist" -ForegroundColor DarkGray
-    Write-Host "  [wu] Windows Update" -ForegroundColor DarkGray
-    Write-Host "  [re] Windows Restart" -ForegroundColor DarkGray
-    Write-Host "  [rf] Refabriq" -ForegroundColor DarkGray
-    Write-Host "  [m]  Manifeste du Surkitinisme" -ForegroundColor DarkGray
-    Write-Host "----------------------------------------" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  [Q]  Quit" -ForegroundColor DarkGray
-}
-
-# ========================================
-# Function: Show Host Info
-# ========================================
-function Show-HostInfo {
-    Write-Host ""
-    Show-Separator
-    Write-Host "Selected PC Info" -ForegroundColor Green
-    Show-Separator
-    Write-Host "[ID] $env:SELECTED_KANRI_NO"
-    Write-Host "[Old Name] $env:SELECTED_OLD_PCNAME"
-    Write-Host "[New Name] $env:SELECTED_NEW_PCNAME"
-    Write-Host ""
-    Write-Host "[Ethernet]" -ForegroundColor Yellow
-    Write-Host "  IP: $env:SELECTED_ETH_IP"
-    Write-Host "  Subnet: $env:SELECTED_ETH_SUBNET"
-    Write-Host "  Gateway: $env:SELECTED_ETH_GATEWAY"
-    Write-Host ""
-    Write-Host "[Wi-Fi]" -ForegroundColor Yellow
-    Write-Host "  IP: $env:SELECTED_WIFI_IP"
-    Write-Host "  Subnet: $env:SELECTED_WIFI_SUBNET"
-    Write-Host "  Gateway: $env:SELECTED_WIFI_GATEWAY"
-    Write-Host ""
-    Write-Host "[DNS]" -ForegroundColor Yellow
-    Write-Host "  DNS1: $env:SELECTED_DNS1"
-    Write-Host "  DNS2: $env:SELECTED_DNS2"
-    Write-Host "  DNS3: $env:SELECTED_DNS3"
-    Write-Host "  DNS4: $env:SELECTED_DNS4"
-
-    $hasPrinter = $false
-    for ($i = 1; $i -le 10; $i++) {
-        $printerName = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_NAME")
-        if (-not [string]::IsNullOrEmpty($printerName)) {
-            if (-not $hasPrinter) {
-                Write-Host ""
-                Write-Host "[Printer]" -ForegroundColor Yellow
-                $hasPrinter = $true
-            }
-            $printerDriver = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_DRIVER")
-            $printerPort = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_PORT")
-            Write-Host "  Printer${i}:"
-            Write-Host "    Name: $printerName"
-            Write-Host "    Driver: $printerDriver"
-            Write-Host "    Port: $printerPort"
-        }
-    }
-
-    Show-Separator
-    Wait-KeyPress
-}
-
-# ========================================
-# Function: Script Menu (Module Selection)
-# ========================================
-function Enter-ScriptMenu {
-    param(
-        [array]$GroupedModules,
-        [array]$AllModules
-    )
-
-    while ($true) {
-        $menuMap = @{}
-
-        Write-Host ""
-        Show-Separator
-        Write-Host "Script Menu" -ForegroundColor Magenta
-        Show-Separator
-        Write-Host "  Selected Host: $env:SELECTED_NEW_PCNAME" -ForegroundColor White
-        Show-Separator
-
-        $menuIndex = 1
-        foreach ($category in $GroupedModules) {
-            Show-CategorySeparator -Name $category.Name
-            $items = $category.Group | Sort-Object Order
-            foreach ($item in $items) {
-                Write-Host "  [$menuIndex] $($item.MenuName)" -ForegroundColor White
-                $menuMap[$menuIndex] = $item
-                $menuIndex++
-            }
-        }
-
-        Write-Host ""
-        Write-Host "  * Batch Run: 1,3,5 or 1-5" -ForegroundColor DarkGray
-        Write-Host "  [0] Back" -ForegroundColor Yellow
-        Show-Separator
-
-        Write-Host -NoNewline "Please select: "
-        $choice = Read-Host
-
-        # Back
-        if ($choice -eq '0') { return }
-
-        # Batch Input
-        if (Test-BatchInput -InputString $choice) {
-            $selectedNumbers = Parse-MenuSelection -InputString $choice
-            $selectedModules = @()
-            foreach ($num in $selectedNumbers) {
-                if ($menuMap.ContainsKey($num)) {
-                    $selectedModules += $menuMap[$num]
-                }
-            }
-            if ($selectedModules.Count -gt 0) {
-                Clear-Host
-                Invoke-BatchExecution -SelectedModules $selectedModules
-                Wait-KeyPress
-                Clear-Host
-            }
-            else {
-                Write-Host ""
-                Show-Error "No valid numbers specified"
-                Write-Host ""
-            }
-            continue
-        }
-
-        # Single Number Selection
-        $menuNum = 0
-        if ([int]::TryParse($choice, [ref]$menuNum) -and $menuMap.ContainsKey($menuNum)) {
-            $selectedModule = $menuMap[$menuNum]
-            Clear-Host
-            Show-Info "Executing [$($selectedModule.MenuName)]"
-            Write-Host ""
-            $null = Invoke-KittingScript -ScriptPath $selectedModule.Script `
-                                         -ModuleName $selectedModule.MenuName `
-                                         -Category $selectedModule.Category
-            Wait-KeyPress
-            Clear-Host
-        }
-        else {
-            Write-Host ""
-            Show-Error "Invalid selection"
-            Write-Host ""
-        }
-    }
 }
 
 # ========================================
@@ -497,7 +223,6 @@ function Invoke-KittingScript {
 function Invoke-BatchExecution {
     param(
         [array]$SelectedModules,
-        [switch]$StopOnError,
         [switch]$AutoPilot,
         [int]$AutoPilotWaitSec = 3,
         # Profile restart support (optional)
@@ -554,7 +279,6 @@ function Invoke-BatchExecution {
             $elapsedSoFar = ((Get-Date) - $batchStartTime).TotalSeconds + $PriorElapsedSeconds
             Save-ResumeState -ProfilePath $ProfilePath `
                              -ProfileName $ProfileName `
-                             -StopOnError $StopOnError.IsPresent `
                              -ResumeAfterOrder $module.Order `
                              -CompletedModules $completedResults `
                              -ElapsedSeconds $elapsedSoFar
@@ -564,7 +288,7 @@ function Invoke-BatchExecution {
                 Remove-ResumeState
                 Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed"
                 $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed"
-                if ($StopOnError) { break } else { continue }
+                continue
             }
 
             # Record in execution history
@@ -597,7 +321,6 @@ function Invoke-BatchExecution {
             catch {
                 Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message
                 $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message
-                if ($StopOnError) { break }
             }
             $completedResults += @{ MenuName = "[REEXPLORER]"; Status = "Success" }
             continue
@@ -771,12 +494,6 @@ function Invoke-BatchExecution {
 
         # Track completed results for resume state
         $completedResults += @{ MenuName = $module.MenuName; Status = $result.Status }
-
-        # StopOnError は Error ステータス時のみ発動（Cancelled/Skipped では停止しない）
-        if (-not $result.Success -and $result.Status -eq "Error" -and $StopOnError) {
-            Show-Error "Process aborted due to error"
-            break
-        }
     }
 
     # All modules completed (no restart, or all restarts done)
@@ -854,280 +571,6 @@ function Invoke-BatchExecution {
         # AutoPilot: always reset (Profile scope guarantee)
         $global:AutoPilotMode = $false
         $global:AutoPilotWaitSec = 3
-    }
-}
-
-# ========================================
-# Function: Profile Execution
-# ========================================
-function Invoke-ProfileExecution {
-    param([array]$AllModules)
-
-    $profiles = @(Load-Profiles -AllModules $AllModules)
-
-    if ($profiles.Count -eq 0) {
-        Show-Warning "No profile files found in profiles/ directory"
-        Wait-KeyPress
-        return
-    }
-
-    while ($true) {
-        Show-ProfileMenu -Profiles $profiles
-
-        Write-Host -NoNewline "Please select: "
-        $choice = Read-Host
-
-        if ($choice -eq '0') {
-            return
-        }
-
-        $profileNum = 0
-        if ([int]::TryParse($choice, [ref]$profileNum) -and $profileNum -ge 1 -and $profileNum -le $profiles.Count) {
-            $selectedProfile = $profiles[$profileNum - 1]
-
-            # Resolve modules from individual CSV
-            $validation = Resolve-ProfileModules -ProfileCsvPath $selectedProfile.FilePath -AllModules $AllModules
-
-            if ($validation.ValidModules.Count -eq 0) {
-                Show-Error "No executable modules found"
-                Wait-KeyPress
-                continue
-            }
-
-            # Confirmation + execution mode selection
-            Clear-Host
-            $confirmation = Show-ProfileConfirmation `
-                -SelectedProfile $selectedProfile `
-                -Modules $validation.ValidModules `
-                -InvalidPaths $validation.InvalidPaths `
-                -AutoPilotFromCsv $validation.AutoPilot `
-                -AutoPilotWaitSec $validation.AutoPilotWaitSec
-
-            if ($null -ne $confirmation -and $confirmation.Confirmed) {
-                Invoke-BatchExecution -SelectedModules $validation.ValidModules `
-                    -StopOnError:$confirmation.StopOnError `
-                    -AutoPilot:$confirmation.AutoPilot `
-                    -AutoPilotWaitSec $confirmation.AutoPilotWaitSec `
-                    -ProfilePath $selectedProfile.FilePath `
-                    -ProfileName $selectedProfile.ProfileName
-            }
-            else {
-                Show-Info "Profile execution canceled"
-            }
-
-            return
-        }
-        else {
-            Write-Host ""
-            Show-Error "Invalid selection"
-            Write-Host ""
-        }
-    }
-}
-
-# ========================================
-# Function: History Menu
-# ========================================
-function Enter-HistoryMode {
-    while ($true) {
-        Write-Host ""
-        Show-Separator
-        Write-Host "Execution History Menu" -ForegroundColor Magenta
-        Show-Separator
-        Write-Host ""
-        Write-Host "  [1] Show last 20 entries (All hosts)" -ForegroundColor White
-        Write-Host "  [2] Current host history only" -ForegroundColor White
-        Write-Host "  [3] Export history" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  [4] Clear Runtime Logs" -ForegroundColor Yellow
-        Write-Host "  [5] Clear Evidence" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "  [0] Back" -ForegroundColor Yellow
-        Show-Separator
-
-        Write-Host -NoNewline "Please select: "
-        $choice = Read-Host
-
-        switch ($choice) {
-            '0' { return }
-            '1' {
-                Clear-Host
-                Show-ExecutionHistory -Limit 20
-                Wait-KeyPress
-                Clear-Host
-            }
-            '2' {
-                Clear-Host
-                Show-ExecutionHistory -CurrentHostOnly -Limit 20
-                Wait-KeyPress
-                Clear-Host
-            }
-            '3' {
-                Export-ExecutionHistory
-                Wait-KeyPress
-            }
-            '4' {
-                Clear-AllLogs
-                Wait-KeyPress
-                Clear-Host
-            }
-            '5' {
-                Clear-Evidence
-                Wait-KeyPress
-                Clear-Host
-            }
-            default {
-                Write-Host ""
-                Show-Error "Invalid selection"
-            }
-        }
-    }
-}
-
-# ========================================
-# Function: Command Mode
-# ========================================
-function Enter-CommandMode {
-    if (-not (Test-Path $COMMANDS_DIR)) {
-        Show-Error "commands folder not found: $COMMANDS_DIR"
-        Wait-KeyPress
-        return
-    }
-
-    while ($true) {
-        $scripts = @(Get-ChildItem -Path $COMMANDS_DIR -Filter "*.ps1" -File | Sort-Object Name)
-
-        if ($scripts.Count -eq 0) {
-            Show-Info "No executable commands found"
-            Wait-KeyPress
-            return
-        }
-
-        Write-Host ""
-        Show-Separator
-        Write-Host "Command Menu" -ForegroundColor Magenta
-        Show-Separator
-        Write-Host ""
-
-        for ($i = 0; $i -lt $scripts.Count; $i++) {
-            Write-Host "[$($i + 1)] $($scripts[$i].BaseName)"
-        }
-
-        Write-Host ""
-        Write-Host "[0] Back" -ForegroundColor Yellow
-        Show-Separator
-
-        Write-Host -NoNewline "Please select: "
-        $cmdChoice = Read-Host
-
-        if ($cmdChoice -eq '0') {
-            return
-        }
-
-        $cmdNum = 0
-        if (-not [int]::TryParse($cmdChoice, [ref]$cmdNum) -or $cmdNum -lt 1 -or $cmdNum -gt $scripts.Count) {
-            Write-Host ""
-            Show-Error "Invalid selection"
-            Write-Host ""
-            continue
-        }
-
-        $targetScript = $scripts[$cmdNum - 1]
-        Clear-Host
-        Show-Info "Executing [$($targetScript.BaseName)]"
-        Write-Host ""
-
-        try {
-            & $targetScript.FullName
-            Write-Host ""
-            Show-Success "Command execution completed"
-        }
-        catch {
-            Write-Host ""
-            Show-Error "Error executing command: $_"
-        }
-
-        Wait-KeyPress
-        Clear-Host
-    }
-}
-
-# ========================================
-# Function: App Mode
-# ========================================
-function Enter-AppMode {
-    if (-not (Test-Path $APPS_DIR)) {
-        Show-Error "apps folder not found: $APPS_DIR"
-        Wait-KeyPress
-        return
-    }
-
-    while ($true) {
-        # Discover apps: each subdirectory containing a .ps1 with the same name
-        $appDirs = @(Get-ChildItem -Path $APPS_DIR -Directory | Sort-Object Name)
-        $apps = @()
-        foreach ($dir in $appDirs) {
-            $entryScript = Join-Path $dir.FullName "$($dir.Name).ps1"
-            if (Test-Path $entryScript) {
-                $apps += [PSCustomObject]@{
-                    Name = $dir.Name
-                    Path = $entryScript
-                }
-            }
-        }
-
-        if ($apps.Count -eq 0) {
-            Show-Info "No apps found"
-            Wait-KeyPress
-            return
-        }
-
-        Write-Host ""
-        Show-Separator
-        Write-Host "Apps Menu" -ForegroundColor Magenta
-        Show-Separator
-        Write-Host ""
-
-        for ($i = 0; $i -lt $apps.Count; $i++) {
-            Write-Host "[$($i + 1)] $($apps[$i].Name)"
-        }
-
-        Write-Host ""
-        Write-Host "[0] Back" -ForegroundColor Yellow
-        Show-Separator
-
-        Write-Host -NoNewline "Please select: "
-        $appChoice = Read-Host
-
-        if ($appChoice -eq '0') {
-            return
-        }
-
-        $appNum = 0
-        if (-not [int]::TryParse($appChoice, [ref]$appNum) -or $appNum -lt 1 -or $appNum -gt $apps.Count) {
-            Write-Host ""
-            Show-Error "Invalid selection"
-            Write-Host ""
-            continue
-        }
-
-        $targetApp = $apps[$appNum - 1]
-        Clear-Host
-        Show-Info "Launching [$($targetApp.Name)]"
-        Write-Host ""
-
-        try {
-            & $targetApp.Path
-            Write-Host ""
-            Show-Success "App closed"
-        }
-        catch {
-            Write-Host ""
-            Show-Error "Error launching app: $_"
-        }
-
-        Wait-KeyPress
-        Clear-Host
     }
 }
 
@@ -1567,150 +1010,70 @@ if (-not $isResuming) {
     }
 
     # --- GUI Session Setup ---
-    if ($script:UseGui) {
-        # Load data for the GUI form
-        $hostList = Load-HostList
-        if (-not $hostList) {
-            Show-Error "Aborting process"
-            Exit-Fabriq
-            exit 1
-        }
-
-        $workers = @()
-        if (Test-Path $script:WorkersCsvPath) {
-            try { $workers = @(Import-Csv -Path $script:WorkersCsvPath -Encoding Default) } catch { }
-        }
-
-        Hide-ConsoleWindow
-
-        $sessionSetup = Show-SessionSetupForm `
-            -Workers $workers `
-            -HostList $hostList `
-            -VerifyTokenPath $verifyTokenPath `
-            -CurrentPCName $env:COMPUTERNAME
-
-        Show-ConsoleWindow
-
-        if ($sessionSetup.Cancelled) {
-            Exit-Fabriq
-            exit 0
-        }
-
-        # Apply session results
-        $global:FabriqMasterPassphrase = $sessionSetup.MasterPassphrase
-        Show-Success "Master passphrase verified and set for this session"
-
-        # Build and save session info (mirrors Initialize-Session logic)
-        $mediaSerial = ""
-        if (Test-Path $script:SourceMediaIdPath) {
-            try { $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim() } catch { }
-        }
-        if ([string]::IsNullOrWhiteSpace($mediaSerial)) {
-            $currentDrive = (Resolve-Path ".").Drive.Name + ":"
-            $mediaSerial = Get-VolumeSerial -DriveLetter $currentDrive
-        }
-
-        $script:SessionInfo = [PSCustomObject]@{
-            WorkerID     = $sessionSetup.WorkerID
-            WorkerName   = $sessionSetup.WorkerName
-            MediaSerial  = $mediaSerial
-            StartTime    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            WindowsUser  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-            ComputerName = $env:COMPUTERNAME
-        }
-        try {
-            $script:SessionInfo | ConvertTo-Json -Depth 3 | Out-File -FilePath $script:SessionFilePath -Encoding UTF8 -Force
-        } catch { Show-Warning "Failed to save session.json: $_" }
-        $env:FABRIQ_WORKER_NAME = $sessionSetup.WorkerName
-        Show-Success "Session initialized: Worker=$($sessionSetup.WorkerName)"
-
-        # Set host environment
-        $selectedHost = $sessionSetup.SelectedHost
-        Set-SelectedHostEnvironment -SelectedHost $selectedHost
-        Initialize-EvidenceBasePath
-        Write-Host ""
+    $hostList = Load-HostList
+    if (-not $hostList) {
+        Show-Error "Aborting process"
+        Exit-Fabriq
+        exit 1
     }
-    # --- Console Session Setup (original flow) ---
-    else {
-        Write-Host "Enter the master passphrase to continue." -ForegroundColor DarkGray
-        Write-Host ""
 
-        $maxAttempts = 3
-        $passphraseAccepted = $false
-
-        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            $ppInput = Read-Host -Prompt "Master Passphrase"
-
-            if ([string]::IsNullOrWhiteSpace($ppInput)) {
-                $remaining = $maxAttempts - $attempt
-                if ($remaining -gt 0) {
-                    Show-Warning "Passphrase is required. $remaining attempt(s) remaining."
-                }
-                continue
-            }
-
-            if (Test-MasterPassphrase -Passphrase $ppInput -VerifyTokenPath $verifyTokenPath) {
-                $global:FabriqMasterPassphrase = $ppInput
-                Show-Success "Master passphrase verified and set for this session"
-                $passphraseAccepted = $true
-                break
-            }
-            $remaining = $maxAttempts - $attempt
-            if ($remaining -gt 0) {
-                Show-Warning "Passphrase verification failed. $remaining attempt(s) remaining."
-            }
-        }
-        if (-not $passphraseAccepted) {
-            Show-Error "Passphrase verification failed $maxAttempts times. Aborting."
-            exit 1
-        }
-        Write-Host ""
-
-        # Clear history CSV on fresh startup
-        $historyFile = ".\logs\history\execution_history.csv"
-        if (Test-Path $historyFile) {
-            Remove-Item $historyFile -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path "$historyFile.bak") {
-            Remove-Item "$historyFile.bak" -Force -ErrorAction SilentlyContinue
-        }
-
-        # Initialize history
-        Initialize-ExecutionHistory
-
-        # Initialize session (worker, media serial)
-        $sessionResult = Initialize-Session
-        if ($sessionResult -eq $false) {
-            Exit-Fabriq
-            exit 0
-        }
-
-        # Host Selection
-        Show-Info "Loading hostlist.csv..."
-        $hostList = Load-HostList
-        if (-not $hostList) {
-            Write-Host ""
-            Show-Error "Aborting process"
-            Exit-Fabriq
-            exit 1
-        }
-        Write-Host ""
-
-        $selectedHost = Select-Host -HostList $hostList
-        if ($null -eq $selectedHost) {
-            Exit-Fabriq
-            exit 0
-        }
-        Write-Host ""
-        Set-SelectedHostEnvironment -SelectedHost $selectedHost
-        Write-Host ""
-        Initialize-EvidenceBasePath
-        Write-Host ""
+    $workers = @()
+    if (Test-Path $script:WorkersCsvPath) {
+        try { $workers = @(Import-Csv -Path $script:WorkersCsvPath -Encoding Default) } catch { }
     }
+
+    Hide-ConsoleWindow
+
+    $sessionSetup = Show-SessionSetupForm `
+        -Workers $workers `
+        -HostList $hostList `
+        -VerifyTokenPath $verifyTokenPath `
+        -CurrentPCName $env:COMPUTERNAME
+
+    Show-ConsoleWindow
+
+    if ($sessionSetup.Cancelled) {
+        Exit-Fabriq
+        exit 0
+    }
+
+    # Apply session results
+    $global:FabriqMasterPassphrase = $sessionSetup.MasterPassphrase
+    Show-Success "Master passphrase verified and set for this session"
+
+    # Build and save session info (mirrors Initialize-Session logic)
+    $mediaSerial = ""
+    if (Test-Path $script:SourceMediaIdPath) {
+        try { $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim() } catch { }
+    }
+    if ([string]::IsNullOrWhiteSpace($mediaSerial)) {
+        $currentDrive = (Resolve-Path ".").Drive.Name + ":"
+        $mediaSerial = Get-VolumeSerial -DriveLetter $currentDrive
+    }
+
+    $script:SessionInfo = [PSCustomObject]@{
+        WorkerID     = $sessionSetup.WorkerID
+        WorkerName   = $sessionSetup.WorkerName
+        MediaSerial  = $mediaSerial
+        StartTime    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        WindowsUser  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        ComputerName = $env:COMPUTERNAME
+    }
+    try {
+        $script:SessionInfo | ConvertTo-Json -Depth 3 | Out-File -FilePath $script:SessionFilePath -Encoding UTF8 -Force
+    } catch { Show-Warning "Failed to save session.json: $_" }
+    $env:FABRIQ_WORKER_NAME = $sessionSetup.WorkerName
+    Show-Success "Session initialized: Worker=$($sessionSetup.WorkerName)"
+
+    # Set host environment
+    $selectedHost = $sessionSetup.SelectedHost
+    Set-SelectedHostEnvironment -SelectedHost $selectedHost
+    Initialize-EvidenceBasePath
+    Write-Host ""
 }
 
-# Clear history CSV on fresh startup (GUI path also needs this)
-if (-not $isResuming -and $script:UseGui) {
+# Clear history CSV on fresh startup
+if (-not $isResuming) {
     $historyFile = ".\logs\history\execution_history.csv"
     if (Test-Path $historyFile) {
         Remove-Item $historyFile -Force -ErrorAction SilentlyContinue
@@ -1806,7 +1169,6 @@ if ($isResuming) {
         $priorSeconds = if ($resumeState.ElapsedSeconds) { [double]$resumeState.ElapsedSeconds } else { 0 }
 
         Invoke-BatchExecution -SelectedModules $remainingModules `
-            -StopOnError:$resumeState.StopOnError `
             -AutoPilot:$resumeAutoPilot `
             -AutoPilotWaitSec $resumeAutoPilotWaitSec `
             -ProfilePath $resumeState.ProfilePath `
@@ -1847,11 +1209,10 @@ if ($isResuming) {
 # Track last execution result summary for GUI status bar
 $script:lastGuiResultSummary = ""
 
-if ($script:UseGui) {
-    # ========================================
-    # GUI Main Loop (Fabriq Operator Dashboard)
-    # ========================================
-    $script:guiExitRequested = $false
+# ========================================
+# GUI Main Loop (Fabriq Operator Dashboard)
+# ========================================
+$script:guiExitRequested = $false
     while (-not $script:guiExitRequested) {
         Write-StatusFile -Phase "idle"
         Hide-ConsoleWindow
@@ -1882,7 +1243,6 @@ if ($script:UseGui) {
                 Write-Host ""
 
                 Invoke-BatchExecution -SelectedModules $validation.ValidModules `
-                    -StopOnError:$guiSelection.StopOnError `
                     -AutoPilot:$guiSelection.AutoPilot `
                     -AutoPilotWaitSec $guiSelection.AutoPilotWaitSec `
                     -ProfilePath $guiSelection.ProfilePath `
@@ -2015,6 +1375,25 @@ if ($script:UseGui) {
                 }
             }
 
+            "AppsMode" {
+                $appResult = Show-AppsDialog -AppsDir $APPS_DIR
+                if ($appResult.Action -eq "Launch" -and $appResult.AppPath) {
+                    Clear-Host
+                    Show-Info "Launching [$($appResult.AppName)]"
+                    Write-Host ""
+                    try {
+                        & $appResult.AppPath
+                        Write-Host ""
+                        Show-Success "App closed"
+                    }
+                    catch {
+                        Write-Host ""
+                        Show-Error "Error launching app: $_"
+                    }
+                    Wait-KeyPress
+                }
+            }
+
             "HistoryExport" {
                 $null = Export-ExecutionHistory
                 Wait-KeyPress
@@ -2079,11 +1458,12 @@ if ($script:UseGui) {
                 Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
                 $fabriqRoot = (Resolve-Path ".").Path
                 $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
-                $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
                 if (Test-Path $fabriqExe) {
                     Start-Process $fabriqExe -WorkingDirectory $fabriqRoot
-                } elseif (Test-Path $fabriqBat) {
-                    Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
+                } else {
+                    Show-Error "Fabriq.exe not found: $fabriqExe"
+                    Wait-KeyPress
+                    continue
                 }
                 try { Stop-Transcript | Out-Null } catch { }
                 exit 0
@@ -2104,216 +1484,6 @@ if ($script:UseGui) {
             }
         }
     }
-}
-else {
-    # ========================================
-    # Console Main Loop (Original)
-    # ========================================
-    while ($true) {
-        Write-StatusFile -Phase "idle"
-        Show-MainMenu
-
-        Write-Host ""
-        Write-Host -NoNewline "Please select: "
-        $choice = Read-Host
-
-        # Quit
-        if ($choice -eq "Q" -or $choice -eq "q" -or $choice -eq "0") {
-            Exit-Fabriq
-            break
-        }
-
-        # Script Menu
-        if ($choice -eq 'S' -or $choice -eq 's') {
-            Clear-Host
-            Enter-ScriptMenu -GroupedModules $groupedModules -AllModules $allModules
-            Clear-Host
-            continue
-        }
-
-        # Command Mode
-        if ($choice -eq 'C' -or $choice -eq 'c') {
-            Clear-Host
-            Enter-CommandMode
-            Clear-Host
-            continue
-        }
-
-        # App Mode
-        if ($choice -eq 'A' -or $choice -eq 'a') {
-            Clear-Host
-            Enter-AppMode
-            Clear-Host
-            continue
-        }
-
-        # Run Profile
-        if ($choice -eq 'P' -or $choice -eq 'p') {
-            Clear-Host
-            Invoke-ProfileExecution -AllModules $allModules
-            Write-Host ""
-            Show-Separator
-
-            $hasErrors = @($script:ExecutionResults | Where-Object {
-                $_.Status -eq "Error" -and -not $_.IsRestored
-            }).Count -gt 0
-
-            if ($hasErrors) {
-                Write-Host "Profile Completed with Errors" -ForegroundColor Yellow
-                Show-Separator
-                Write-Host ""
-                Show-Warning "Some modules had errors. You can re-run them from the Script Menu [S]."
-                Show-Info "Checklist can be regenerated from [cl] after fixing."
-            } else {
-                Write-Host "Profile Execution Completed" -ForegroundColor Green
-                Show-Separator
-            }
-            Write-Host ""
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        # New Kitting Session
-        if ($choice -eq 'N' -or $choice -eq 'n') {
-            Clear-Host
-            Invoke-NewKittingSession
-            Clear-Host
-            continue
-        }
-
-        # History
-        if ($choice -eq 'R' -or $choice -eq 'r') {
-            Clear-Host
-            Enter-HistoryMode
-            Clear-Host
-            continue
-        }
-
-        # Export History
-        if ($choice -eq 'EH' -or $choice -eq 'eh') {
-            Write-Host ""
-            $null = Export-ExecutionHistory
-            Write-Host ""
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        # Regenerate Checklist
-        if ($choice -eq 'CL' -or $choice -eq 'cl') {
-            Write-Host ""
-            if ([string]::IsNullOrEmpty($global:FabriqLastProfileName)) {
-                Show-Warning "No profile has been executed in this session"
-                Wait-KeyPress
-                Clear-Host
-                continue
-            }
-            Show-Info "Regenerating checklist..."
-            $null = Export-ExecutionHistory
-            $checklistPath = Export-HtmlChecklist `
-                -ProfileName      $global:FabriqLastProfileName `
-                -ProfilePath      $global:FabriqLastProfilePath `
-                -DefinedModules   $global:FabriqLastProfileModules `
-                -ExecutionResults  $script:ExecutionResults
-            if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
-                $viewerScript = ".\kernel\ps1\view_report.ps1"
-                if (Test-Path $viewerScript) {
-                    & $viewerScript -HtmlPath $checklistPath
-                }
-            }
-
-            # Auto-upload to log destinations
-            $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
-            if (Test-Path $uploaderScript) {
-                Write-Host ""
-                Show-Info "Uploading updated evidence..."
-                $uploadResult = & $uploaderScript
-                if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
-                    Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
-                    $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
-                }
-            }
-
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        # Windows Update
-        if ($choice -eq 'WU' -or $choice -eq 'wu') {
-            Write-Host ""
-            Invoke-WindowsUpdateLoop
-            Wait-KeyPress
-            Clear-Host
-            continue
-        }
-
-        # Restart with AutoRun
-        if ($choice -eq 'RE' -or $choice -eq 're') {
-            Write-Host ""
-            Show-Separator
-            Write-Host "Restart with AutoRun" -ForegroundColor Yellow
-            Show-Separator
-            Write-Host ""
-
-            if (-not (Confirm-Execution -Message "Register RunOnce and restart the computer?")) {
-                Show-Info "Canceled"
-                Wait-KeyPress
-                Clear-Host
-                continue
-            }
-
-            Write-Host ""
-            if (-not (Register-FabriqRunOnce)) {
-                Wait-KeyPress
-                Clear-Host
-                continue
-            }
-
-            Invoke-CountdownRestart
-            continue
-        }
-
-        # Refabriq (Restart Fabriq)
-        if ($choice -eq 'RF' -or $choice -eq 'rf') {
-            Write-Host ""
-            Show-Info "Restarting Fabriq..."
-
-            Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
-
-            $fabriqRoot = (Resolve-Path ".").Path
-            $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
-            $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
-
-            if (Test-Path $fabriqExe) {
-                Start-Process $fabriqExe -WorkingDirectory $fabriqRoot
-            } elseif (Test-Path $fabriqBat) {
-                Start-Process cmd.exe -ArgumentList "/c `"$fabriqBat`"" -WorkingDirectory $fabriqRoot
-            } else {
-                Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
-                Wait-KeyPress
-                Clear-Host
-                continue
-            }
-
-            try { Stop-Transcript | Out-Null } catch { }
-            exit 0
-        }
-
-        # Manifeste du Surkitinisme
-        if ($choice -eq 'M' -or $choice -eq 'm') {
-            Show-Manifesto
-            Clear-Host
-            continue
-        }
-
-        # Invalid selection
-        Write-Host ""
-        Show-Error "Invalid selection"
-        Write-Host ""
-    }
-}
 
 # Safety net: Exit-Fabriq is idempotent, safe to call even if already called
 Exit-Fabriq
