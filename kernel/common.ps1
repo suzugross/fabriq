@@ -2178,7 +2178,6 @@ function Save-ResumeState {
     param(
         [string]$ProfilePath,
         [string]$ProfileName,
-        [bool]$StopOnError,
         [int]$ResumeAfterOrder,
         [array]$CompletedModules,
         [double]$ElapsedSeconds = 0
@@ -2206,7 +2205,6 @@ function Save-ResumeState {
     $state = @{
         ProfilePath      = $ProfilePath
         ProfileName      = $ProfileName
-        StopOnError      = $StopOnError
         AutoPilot        = $global:AutoPilotMode
         AutoPilotWaitSec = $global:AutoPilotWaitSec
         SessionID        = $script:SessionID
@@ -2763,7 +2761,6 @@ function Show-ProfileConfirmation {
 
         return [PSCustomObject]@{
             Confirmed        = $true
-            StopOnError      = $false
             AutoPilot        = $true
             AutoPilotWaitSec = $AutoPilotWaitSec
         }
@@ -2777,18 +2774,15 @@ function Show-ProfileConfirmation {
     # Execution mode prompt
     Write-Host ""
     Write-Host "  [1] Continue on Error (Default)" -ForegroundColor White
-    Write-Host "  [2] Stop on Error" -ForegroundColor White
-    Write-Host "  [3] AutoPilot (Auto-confirm all)" -ForegroundColor Magenta
+    Write-Host "  [2] AutoPilot (Auto-confirm all)" -ForegroundColor Magenta
     Write-Host ""
     Write-Host -NoNewline "Execution mode [1]: "
     $modeChoice = Read-Host
 
-    $stopOnError = ($modeChoice -eq "2")
-    $autoPilot = ($modeChoice -eq "3")
+    $autoPilot = ($modeChoice -eq "2")
 
     return [PSCustomObject]@{
         Confirmed        = $true
-        StopOnError      = $stopOnError
         AutoPilot        = $autoPilot
         AutoPilotWaitSec = $AutoPilotWaitSec
     }
@@ -3384,19 +3378,14 @@ function Initialize-ModuleSystem {
 function Register-FabriqRunOnce {
     $fabriqRoot = (Resolve-Path ".").Path
     $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
-    $fabriqBat = Join-Path $fabriqRoot "Fabriq.bat"
 
-    # Determine entry point: prefer Fabriq.exe, fallback to Fabriq.bat
-    if (Test-Path $fabriqExe) {
-        $runOnceValue = "`"$fabriqExe`""
-        $entryPoint = "Fabriq.exe"
-    } elseif (Test-Path $fabriqBat) {
-        $runOnceValue = "cmd /c `"$fabriqBat`""
-        $entryPoint = "Fabriq.bat"
-    } else {
-        Show-Error "Fabriq entry point not found (neither .exe nor .bat)"
+    if (-not (Test-Path $fabriqExe)) {
+        Show-Error "Fabriq.exe not found: $fabriqExe"
         return $false
     }
+
+    $runOnceValue = "`"$fabriqExe`""
+    $entryPoint = "Fabriq.exe"
 
     $runOncePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
     try {

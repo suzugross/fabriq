@@ -154,8 +154,7 @@ if /i "%RUN_FABRIQ%"=="Y" (
         echo [INFO] Fabriq.exe を起動します...
         start "" "%DEST_DIR%\Fabriq.exe"
     ) else (
-        echo [INFO] Fabriq.bat を起動します...
-        start "" "%DEST_DIR%\Fabriq.bat"
+        echo [ERROR] Fabriq.exe が見つかりません: %DEST_DIR%\Fabriq.exe
     )
     exit /b 0
 )
