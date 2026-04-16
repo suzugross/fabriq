@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Network Profile Config,Network,network_profile_config.ps1,13,1
