@@ -1,0 +1,112 @@
+■ 概要
+HKLM 配下のネットワークプロファイル (NetworkList\Profiles\{GUID}) に対し、
+ProfileName をキーに GUID サブキーを動的解決し、Category 値
+(0=Public / 1=Private / 2=Domain) を統一的に書き込みます。
+
+マシンごとに異なる GUID を気にせず、CSV で指定した条件に一致する
+全プロファイルへ一括適用できます。
+
+■ 設定ファイル
+
+[network_profile_list.csv]
+  Enabled     : 有効フラグ（1=適用, 0=スキップ）
+  ProfileName : 検索対象のプロファイル名
+                 MatchMode=All の場合は無視される（空欄推奨）
+  Category    : 設定する種別
+                 0 = Public（パブリック）
+                 1 = Private（プライベート）
+                 2 = Domain（ドメイン / NLA が自動管理する領域）
+  MatchMode   : マッチ方式
+                 Exact    = 完全一致（既定、空欄時もこの扱い）
+                 Wildcard = PowerShell -like 演算子（* / ? 使用可）
+                 All      = 全プロファイル一括（ProfileName を無視）
+  Description : 表示用説明
+  Segment     : Segment フィルタ（空欄 = 全対象）
+
+  [記載例]
+  1,,1,All,Baseline: set all existing profiles to Private,
+  1,Guest-WiFi,0,Exact,Override: Guest WiFi as Public,
+  1,CorpNet*,1,Wildcard,All corporate LANs as Private,
+
+■ MatchMode=All の使い方
+
+「まず全プロファイルを Private に」「その上で特定プロファイルのみ Public に」
+といったベースライン＋例外の運用を 1 CSV で表現できます。
+
+  [典型例]
+  1,,1,All,全プロファイルを Private に統一,
+  1,Guest-WiFi,0,Exact,ゲスト WiFi のみ Public に上書き,
+
+CSV の記述順に適用されるため、同じプロファイルが複数行にマッチした場合、
+後に書かれた行の Category が最終値になります。
+従って「All は先頭（ベースライン）」「個別上書きは下」の順で記述してください。
+
+■ 適用の流れ
+
+1. network_profile_list.csv を読み込み（Enabled=1 のみ）
+2. 前提条件チェック
+   - 管理者権限の確認
+   - HKLM:\...\NetworkList\Profiles キーの存在確認
+   - Category 値が 0/1/2 であることを検証
+   - MatchMode 値が Exact/Wildcard/All であることを検証
+3. ドライラン表示
+   - 各行ごとにマッチするプロファイル一覧を表示
+   - [APPLY] / [CURRENT] / [NOT FOUND] の 3 状態で色分け
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. 各プロファイルへ Category を書き込み（冪等性チェック付き）
+6. Post-Apply Verification
+   - 書き込み後、全対象プロファイルの Category を読み返して検証
+   - オーバーライド（後勝ち）ルールを考慮した最終期待値と比較
+
+■ 前提条件
+
+- 管理者権限が必要です（HKLM レジストリへの書き込み）
+- ネットワークプロファイルが既に 1 件以上存在していること
+  （まだネットワーク接続がない状態では何も適用されません）
+
+■ 注意事項
+
+- Category=2 (Domain) は通常 NLA (Network Location Awareness) が
+  自動管理する領域です。手動で設定しても、ドメイン参加状態など
+  により Windows 側で自動的に上書きされることがあります。
+- MatchMode=All の行が複数ある、または MatchMode=All で ProfileName を
+  指定した場合は Warning 表示されますが、処理は継続します。
+- 新規プロファイルの作成は行いません。既存プロファイルの
+  Category 値のみを変更します。
+- NetworkList\Signatures 側は変更しません（Category を書けば
+  Windows 側で追従します）。
+
+■ 動作確認のヒント
+
+- 事前スナップショット確認（PowerShell）:
+  Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles' |
+      ForEach-Object {
+          $p = Get-ItemProperty -Path $_.PSPath
+          [pscustomobject]@{ Guid = $_.PSChildName; Name = $p.ProfileName; Category = $p.Category }
+      } | Format-Table
+
+- 冪等性テスト: 同じ設定で 2 回実行すると、2 回目は全件 [CURRENT] でスキップされます。
+
+- Wildcard テスト: 日本語の既定プロファイル名 (「ネットワーク」「ネットワーク 2」等) には
+  MatchMode=Wildcard + ProfileName=ネットワーク* が有効です。
+
+■ CSV エンコーディング
+
+network_profile_list.csv は UTF-8 BOM 付きで保存してください。
+BOM がないと、日本語 Windows 環境で Description や ProfileName の
+日本語が文字化けする可能性があります。
+
+  確認方法（PowerShell）:
+  $bytes = [System.IO.File]::ReadAllBytes("network_profile_list.csv")
+  $bytes[0..2]  # → 239, 187, 191 (= EF BB BF) であれば BOM 付き
+
+■ SetupComplete.cmd 経由での実行（任意）
+
+OOBE 完了直後に適用したい場合、sysprep_config/source/ に本モジュールの
+.ps1 と .csv を配置し、setupcomplete_list.csv に以下のような行を追記
+することで、Sysprep 展開先で自動実行させることも可能です。
+
+  1,50,Command,powershell.exe -ExecutionPolicy Bypass -NoProfile -File "C:\Windows\Setup\Scripts\source\network_profile_config.ps1",,Apply network profile,
+
+ただし SetupComplete は非対話セッションのため、対話型確認 (Y/N) が
+ブロック要因になる場合は AutoPilot モード相当の呼び出しが必要です。

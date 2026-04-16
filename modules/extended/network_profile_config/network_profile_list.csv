@@ -1,0 +1,5 @@
+﻿Enabled,ProfileName,Category,MatchMode,Description,Segment
+1,,1,All,Baseline: set all existing profiles to Private,
+0,Guest-WiFi,0,Exact,Override: Guest WiFi as Public,
+0,CorpNet,2,Exact,Override: Corporate LAN as Domain,
+0,ネットワーク*,1,Wildcard,Default Ethernet auto-named profiles (Japanese),
