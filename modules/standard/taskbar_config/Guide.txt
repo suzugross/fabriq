@@ -42,3 +42,23 @@ LinkPath に指定したファイルが実行時点で存在しない場合、
 2. 各ショートカットの存在確認を行い、対象一覧を表示
 3. 実行確認（Y/N）
 4. LayoutModification.xml を生成し、Default User プロファイルへ配置
+5. 同じ XML を sysprep_config/source/ へ自動コピー（Sysprep ワークフロー用素材）
+
+■ sysprep_config との連携
+本モジュールは、生成した LayoutModification.xml を Default User へ配置すると同時に、
+modules\standard\sysprep_config\source\LayoutModification.xml へも自動コピーします。
+このコピーは無条件で毎回実行され、sysprep_config/source/ ディレクトリが存在しない場合は自動作成します。
+コピーに失敗した場合は警告のみ表示し、モジュール全体の結果は Success のまま維持します。
+
+受け取る側の sysprep_config モジュールでは、setupcomplete_list.csv に以下のエントリが
+あらかじめ登録されています。
+  1,20,CopyFile,LayoutModification.xml,C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\,Deploy taskbar layout,
+
+このエントリにより、Sysprep 実行時に sysprep_config/source/ 内の XML は
+C:\Windows\Setup\Scripts\source\ へステージングされ、SetupComplete.cmd から
+新規キッティング環境の Default User 配下へ再配置されます。
+
+結果として、taskbar_config を 1 回実行するだけで、
+・現環境の Default User への即時反映用パス
+・Sysprep 配布用のステージング素材
+の 2 箇所が同時に最新化されます。Sysprep ワークフローを使わない場合でも無害です。
