@@ -8,7 +8,8 @@
 param(
     [string]$StatusFilePath = ".\kernel\json\status.json",
     [string]$PulseFilePath = ".\kernel\json\art_pulse.txt",
-    [string]$SentenceFilePath = ".\kernel\txt\art_sentences.txt"
+    [string]$SentenceFilePath = ".\kernel\txt\art_sentences.txt",
+    [string]$SilenceFlagPath = ".\kernel\txt\silence.flag"
 )
 
 # ========================================
@@ -181,6 +182,9 @@ $script:artLastStatusWriteTime = [DateTime]::MinValue
 $script:artLastDetailCount = 0
 $script:artCurrentPhase = "idle"
 
+# Art Display - Silence mode (toggled by presence of silence.flag)
+$script:artSilent = $false
+
 # Load Sentences
 # Load art text and split into 3 granularity pools
 $script:artByParagraph = @()
@@ -337,7 +341,6 @@ $form.Controls.Add($statusBar)
 # Update Function
 # ========================================
 $script:lastWriteTime = [datetime]::MinValue
-$script:lastUpdatedAt = $null
 
 function Set-ColorizedText {
     param(
@@ -432,21 +435,10 @@ function Update-StatusDisplay {
             return
         }
 
-        # ファイル変更チェック（変更なければ鮮度チェックのみ実行）
+        # File change check (skip reparse if unchanged)
         $fileInfo = Get-Item $StatusFilePath -ErrorAction SilentlyContinue
         if ($null -eq $fileInfo) { return }
-        if ($fileInfo.LastWriteTime -eq $script:lastWriteTime) {
-            # ファイル未変更でも鮮度チェックは実行
-            if ($null -ne $script:lastUpdatedAt) {
-                $staleSeconds = ([datetime]::Now - $script:lastUpdatedAt).TotalSeconds
-                if ($staleSeconds -gt 60) {
-                    $staleDisplay = [Math]::Floor($staleSeconds)
-                    $statusLabel.ForeColor = $warnYellow
-                    $statusLabel.Text = "WARNING: Data stale (${staleDisplay}s) - main process may have exited"
-                }
-            }
-            return
-        }
+        if ($fileInfo.LastWriteTime -eq $script:lastWriteTime) { return }
         $script:lastWriteTime = $fileInfo.LastWriteTime
 
         # ロックフリー読み取り（リトライ付き）
@@ -466,14 +458,6 @@ function Update-StatusDisplay {
         if ([string]::IsNullOrEmpty($jsonText)) { return }
 
         $status = $jsonText | ConvertFrom-Json
-
-        # UpdatedAt を datetime としてキャッシュ（鮮度チェック用）
-        try {
-            $script:lastUpdatedAt = [datetime]::ParseExact($status.UpdatedAt, "yyyy-MM-dd HH:mm:ss", $null)
-        }
-        catch {
-            $script:lastUpdatedAt = $null
-        }
 
         # --- PC Info 比較更新 ---
         $pc  = $status.PCInfo
@@ -683,28 +667,8 @@ function Update-StatusDisplay {
 
         Set-ColorizedText -RichTextBox $execLabel -Text $execText
 
-        # --- データ鮮度チェック ---
-        $staleSeconds = 0
-        try {
-            $updatedTime = [datetime]::ParseExact($status.UpdatedAt, "yyyy-MM-dd HH:mm:ss", $null)
-            $staleSeconds = ([datetime]::Now - $updatedTime).TotalSeconds
-        }
-        catch {
-            # パース失敗時はスキップ（通常の表示を継続）
-            $staleSeconds = 0
-        }
-
-        if ($staleSeconds -gt 60) {
-            # 60秒以上古い → 警告表示
-            $staleDisplay = [Math]::Floor($staleSeconds)
-            $statusLabel.ForeColor = $warnYellow
-            $statusLabel.Text = "WARNING: Data stale (${staleDisplay}s) - main process may have exited"
-        }
-        else {
-            # 正常
-            $statusLabel.ForeColor = $textGray
-            $statusLabel.Text = "Last update: $($status.UpdatedAt)"
-        }
+        $statusLabel.ForeColor = $textGray
+        $statusLabel.Text = "Last update: $($status.UpdatedAt)"
     }
     catch {
         $statusLabel.ForeColor = $warnYellow
@@ -765,6 +729,48 @@ function Invoke-ArtTrigger {
     # Select new sentence and begin typing
     Select-NextArtSentence
     $script:artState = "typing"
+}
+
+function Poll-ArtSilenceFlag {
+    # Toggle silent mode by presence of silence.flag
+    try {
+        $resolvedFlagPath = $SilenceFlagPath
+        if (-not [System.IO.Path]::IsPathRooted($SilenceFlagPath)) {
+            $resolvedFlagPath = Join-Path (Get-Location) $SilenceFlagPath
+        }
+        $present = Test-Path $resolvedFlagPath
+        if ($present -eq $script:artSilent) { return }
+
+        if ($present) {
+            # OFF -> ON: clear all art state so silent canvas is clean
+            $script:artDisplayLines.Clear()
+            $script:artCurrentText   = ""
+            $script:artCursorPos     = 0
+            $script:artState         = "waiting"
+            $script:artTriggerQueue  = 0
+            $script:artFlashFrames   = 0
+            $script:artGlitchFrames  = 0
+            $script:artContinueOnSameLine = $false
+        }
+        else {
+            # ON -> OFF: catch up pulse counter so accumulated pulses during
+            # silence do not flood the canvas on release
+            try {
+                $resolvedPulsePath = $PulseFilePath
+                if (-not [System.IO.Path]::IsPathRooted($PulseFilePath)) {
+                    $resolvedPulsePath = Join-Path (Get-Location) $PulseFilePath
+                }
+                if (Test-Path $resolvedPulsePath) {
+                    $val = [int][System.IO.File]::ReadAllText($resolvedPulsePath).Trim()
+                    $script:artLastPulseValue = $val
+                }
+            }
+            catch { }
+        }
+
+        $script:artSilent = $present
+    }
+    catch { }
 }
 
 function Poll-ArtPulseFile {
@@ -941,6 +947,14 @@ function Draw-ColoredText {
 
 function Render-ArtFrame {
     if ($null -eq $script:artBufferGraphics) { return }
+
+    # Silent mode: draw a blank frame and skip all art logic
+    if ($script:artSilent) {
+        $script:artBufferGraphics.FillRectangle($script:artBgBrush, 0, 0,
+            $script:artBufferBitmap.Width, $script:artBufferBitmap.Height)
+        $artCanvas.Image = $script:artBufferBitmap
+        return
+    }
 
     $now = [DateTime]::Now
     $g = $script:artBufferGraphics
@@ -1130,6 +1144,7 @@ $artRenderTimer.Start()
 $artPulseTimer = New-Object System.Windows.Forms.Timer
 $artPulseTimer.Interval = $script:ART_PULSE_INTERVAL
 $artPulseTimer.Add_Tick({
+    Poll-ArtSilenceFlag
     Poll-ArtPulseFile
     Poll-ArtStatusFile
 })
