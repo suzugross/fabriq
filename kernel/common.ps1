@@ -3201,12 +3201,14 @@ function Start-StatusMonitor {
             $sentenceFileFullPath = if (Test-Path $sentenceFile) {
                 (Resolve-Path $sentenceFile).Path
             } else { "" }
+            $silenceFlagFullPath = (Join-Path (Get-Location) ".\kernel\txt\silence.flag")
 
             $argList = @(
                 "-NoProfile", "-ExecutionPolicy", "Unrestricted",
                 "-File", $monitorScript,
                 "-StatusFilePath", $statusFileFullPath,
-                "-PulseFilePath", $pulseFileFullPath
+                "-PulseFilePath", $pulseFileFullPath,
+                "-SilenceFlagPath", $silenceFlagFullPath
             )
             if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
                 $argList += @("-SentenceFilePath", $sentenceFileFullPath)
