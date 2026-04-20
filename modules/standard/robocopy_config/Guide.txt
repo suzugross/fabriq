@@ -7,6 +7,14 @@ CSV (robocopy_list.csv) に定義されたジョブに基づき、
 Robocopy によるファイル/フォルダコピーを実行するモジュールです。
 主要オプションは 0/1 フラグで指定し、タイポ事故を防止します。
 
+■ Prerequisites (前提条件)
+・管理者権限で実行すること（特に CopyACL=1 使用時、所有者・監査情報の
+  コピーに SeSecurityPrivilege/SeBackupPrivilege が必要）
+・Windows 標準搭載の robocopy.exe が利用可能であること
+・UNC 共有を対象とする場合、ネットワーク接続が確立していること
+・AuthUser/AuthPass で UNC 認証する場合、対象共有へのアクセス権が付与
+  されたアカウントであること
+
 ■ CSV Columns (robocopy_list.csv)
 
   Enabled       : 1=有効, 0=無効
@@ -27,6 +35,8 @@ Robocopy によるファイル/フォルダコピーを実行するモジュー�
   AuthPass      : UNC認証パスワード（任意。ENC: プレフィックス対応）
   Description   : 表示名
   Segment       : セグメントフィルタ（空欄=全セグメント対象）
+                  kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                  自動フィルタするため、モジュール側に追加実装は不要。
 
 ■ Baseline Options (常時強制付与)
 
@@ -76,6 +86,12 @@ Robocopy によるファイル/フォルダコピーを実行するモジュー�
   初回テストには Recursive=1 + SkipOlder=1 の安全な
   組み合わせを推奨します。
 
+  冪等性リスク:
+    Mirror=1 は再実行のたびに Destination を Source と同期するため、
+    Source 側が変化している限り結果が毎回異なります（厳密な冪等では
+    ない）。さらに、Source 側で削除されたファイルが次回実行で
+    Destination から削除される点に注意してください。
+
 ■ UNC Authentication (AuthUser / AuthPass)
 
   ネットワーク共有へのアクセスに認証が必要な場合に使用します。
@@ -100,7 +116,17 @@ Robocopy によるファイル/フォルダコピーを実行するモジュー�
   4-7   : ミスマッチあり              → Warning (Success扱い)
   8+    : 重大エラー                  → Error
 
-■ Verification Commands
+■ AutoPilot
+  AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+  本モジュールは自動の Post-Apply Verification を実装していません。
+  Robocopy の ExitCode 判定はジョブ個別の成否判定であって、実ファイル
+  レベルでの完全一致検証は行いません。New-BatchResult に -Verified を
+  渡していないため、実行履歴の Verified 列は空欄になります。
+  検証が必要な場合、以下のコマンドを手動で実行してください。
+
+■ Verification Commands (手動検証)
 
   # プレビュー実行（ドライラン）
   # CustomOptions に /L を指定すると実際のコピーは行わず一覧表示のみ

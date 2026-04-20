@@ -1,26 +1,63 @@
 ■ 概要
 このモジュールには2つのスクリプトがあります。
 
-[Desktop Icon Backup]
-  デスクトップのアイコン配置をレジストリから .reg ファイルにバックアップします。
+[Desktop Icon Backup] (desktop_icon_backup.ps1)
+  デスクトップのアイコン配置をレジストリ
+  (HKCU\Software\Microsoft\Windows\Shell\Bags\1\Desktop) から
+  .reg ファイルにバックアップします。
+  SYSTEM 起動時は Resolve-HkcuRoot により現在ログオン中ユーザーの
+  HKU ハイブをソースとして使用し、エクスポート後に HKEY_CURRENT_USER 形式へ
+  正規化してポータブルな .reg を生成します。
 
-[Desktop Icon Restore]
+[Desktop Icon Restore] (desktop_icon_restore.ps1)
   バックアップした .reg ファイルからアイコン配置を復元します。
+  backup/ 内で最も新しいタイムスタンプの .reg が対象となります。
+  HKCU リダイレクト時は .reg の HKEY_CURRENT_USER を HKU\<SID> に書き換えて
+  TEMP に一時ファイルを作成し、それをインポートします（処理後に自動削除）。
 
 ■ 設定ファイル
 設定CSVはありません。
 
 ■ バックアップの保存先
 backup/ ディレクトリにタイムスタンプ付きの .reg ファイルが作成されます。
+ファイル名: DesktopIcons_yyyyMMdd_HHmmss.reg
+
+■ 前提条件
+・管理者権限が必要です
+  （SYSTEM 起動時などの HKCU リダイレクトで HKU\<SID> ハイブを
+   reg export / reg import する場合に必要）
+・Backup 実行前に、アイコンを好みの位置に配置してから実行してください
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして処理を自動実行します。
+（Backup: 即エクスポート / Restore: 最新バックアップを即インポート）
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+Backup は reg.exe の ExitCode と書き出しファイルサイズで成否を判定しますが、
+書き出した .reg の内容がキー構造と一致しているかの検証はありません。
+Restore は reg.exe の ExitCode で成否を判定しますが、実際のアイコン配置への
+反映はサインアウト/再起動後であり、適用直後の読み返し検証は意味がないため
+実装していません。
+New-ModuleResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 注意事項
 ・復元後はサインアウトまたは再起動が必要です
 ・バックアップ前にアイコンを好みの位置に配置してから実行してください
 
 ■ 動作の流れ（Backup）
-1. 実行確認（Y/N）
-2. デスクトップアイコンのレジストリキーを .reg ファイルにエクスポート
+1. Resolve-HkcuRoot で書き込み先ハイブ（HKCU or HKU\<SID>）を決定
+2. 対象レジストリキーの存在確認
+3. 実行確認（Y/N）
+4. デスクトップアイコンのレジストリキーを .reg ファイルにエクスポート
+5. HKCU リダイレクト時は HKEY_USERS\<SID> を HKEY_CURRENT_USER に正規化
 
 ■ 動作の流れ（Restore）
-1. backup/ 内のバックアップ一覧を表示
-2. 最新の .reg ファイルをインポート
+1. backup/ 内の DesktopIcons_*.reg を新しい順に列挙
+2. 最新ファイルをターゲットとして表示（最大5件まで一覧表示）
+3. 実行確認（Y/N）
+4. 必要なら HKEY_CURRENT_USER → HKEY_USERS\<SID> へ書き換えた
+   一時 .reg を TEMP に作成
+5. reg.exe import で .reg ファイルをインポート
+6. 一時ファイルをクリーンアップ

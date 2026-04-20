@@ -3,6 +3,12 @@
 NIC設定の反映待ち、ドライバDLの一時的失敗、外部サービスへの接続待ちなど、
 時間経過やリトライで解決できるスクリプトの自動再実行に使用します。
 
+■ 前提条件
+・対象スクリプトが実行可能な権限で本モジュールが起動されていること
+  （対象スクリプトが管理者権限を要するなら、本モジュールも管理者権限）
+・ScriptPath が fabriq ルート（Fabriq.bat の作業ディレクトリ）から解決
+  できる相対パス、または絶対パスであること
+
 ■ 設定ファイル
 [looper_list.csv]
 
@@ -14,6 +20,10 @@ NIC設定の反映待ち、ドライバDLの一時的失敗、外部サービス
   IntervalSec   Yes   リトライ間隔・秒（後述）
   Condition     Yes   リトライ条件（後述）
   Description   No    管理用の説明文（コンソール表示にも使用）
+  Segment       No    Segment フィルタ（省略可）
+                      kernel/common.ps1 の Import-ModuleCsv が共通機構
+                      として自動フィルタするため、モジュール側に追加
+                      実装は不要。
 
 ■ 各カラムの詳細
 
@@ -120,6 +130,17 @@ NIC設定の反映待ち、ドライバDLの一時的失敗、外部サービス
   成功と失敗が混在            → Partial
   全エントリ失敗              → Error
   全エントリスキップ          → Skipped
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します
+（Step 4 の実行確認が自動的に Y となります）。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+対象スクリプトの責務として検証を行うべき（各モジュールが自身の
+Verified を返すべき）設計のため、ループ側では読み返しを行いません。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列
+は空欄になります。
 
 ■ 対象スクリプトの要件
 - New-ModuleResult を返す fabriq 準拠スクリプトを推奨します。

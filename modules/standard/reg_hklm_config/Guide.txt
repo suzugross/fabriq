@@ -16,6 +16,7 @@
   KeyName      : レジストリ値の名前
   Type         : 型（REG_DWORD / REG_SZ / REG_EXPAND_SZ / REG_QWORD / REG_BINARY / REG_MULTI_SZ）
   Value        : 設定する値
+  Segment      : Segment フィルタ（省略可）
 
 [記載例]
   1,1,ファイアウォール無効化,HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile,EnableFirewall,REG_DWORD,0
@@ -29,7 +30,25 @@
 ・管理者権限が必要です
 ・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
 
+■ $FORCE_OVERWRITE フラグ（reg_hklm_config.ps1 の先頭で定義）
+既定値は $true。全エントリを現在値に関係なく常に上書き適用します。
+$false に書き換えると、Test-RegistryValueMatch による冪等性チェックで
+既に目標値と一致するエントリは [Skip] として適用をスキップするようになります。
+どちらの場合でも Step 5.5（Post-Apply Verification）は常に実行されます。
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュール（Registry Config (HKLM)）は Post-Apply Verification を実装しています。
+適用後に Test-RegistryValueMatch で全エントリを再度読み返し、
+期待値と一致するか検証します。全件一致時のみ -Verified=$true を
+New-BatchResult に渡します。検証失敗が 1 件でもあれば -Verified=$false。
+※ Registry Delete (HKLM) (reg_hklm_delete.ps1) 側は Verification を
+  実装していないため Verified 列は空欄になります。
+
 ■ 動作の流れ
 1. reg_hklm_list*.csv を全て読み込み、有効エントリを集約
-2. 設定/削除対象を一覧表示
+2. 設定/削除対象を一覧表示（冪等性チェック結果を [Current]/[Change] で表示）
 3. 実行確認（Y/N）後、レジストリに書き込み/削除を実行
+4. (Config のみ) Step 5.5 で全エントリを読み返して検証

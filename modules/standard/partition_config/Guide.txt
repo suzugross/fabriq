@@ -20,6 +20,9 @@ PowerShell Storage コマンドレットを使用して、既存パーティシ�
   VolumeLabel       : ボリュームラベル
   Description       : 説明（表示用）
   Segment           : セグメント名（任意。空欄=全セグメント共通）
+                       kernel/common.ps1 の Import-ModuleCsv が共通機構
+                       として自動フィルタするため、モジュール側に追加
+                       実装は不要。
 
 ■ 記述例
 
@@ -36,3 +39,13 @@ PowerShell Storage コマンドレットを使用して、既存パーティシ�
 - 同一 SourceDriveLetter を参照する複数行がある場合でも、縮小処理は1回のみ実行される
 - 冪等性: NewDriveLetter が既に存在する場合はスキップされる
 - 適用後検証では、パーティションの存在・ファイルシステム・サイズ（±5%許容）を確認する
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装しています。
+ディスク操作完了後に対象 NewDriveLetter のパーティションを再取得し、
+存在・FileSystem・サイズ（±5% 許容）を比較した結果を New-BatchResult
+の -Verified に渡して返却します。実行履歴の Verified 列に True/False
+が記録されます。

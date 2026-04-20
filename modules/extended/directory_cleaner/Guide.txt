@@ -2,23 +2,47 @@
 指定したディレクトリの中身を削除、またはディレクトリ自体を削除します。
 一時ファイルやキャッシュのクリーンアップに使用します。
 
+■ 前提条件
+・管理者権限で実行すること（システム領域の一時ファイル等を削除する場合）
+・環境変数を含むパスは Expand-UserEnvironmentVariables により展開される
+
 ■ 設定ファイル
 [clean_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
   TargetPath  : 対象ディレクトリパス（%LOCALAPPDATA% 等の環境変数使用可）
   Mode        : 削除モード（contents=中身のみ削除 / directory=フォルダごと削除）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
 
 [記載例]
   1,%LOCALAPPDATA%\Temp,contents,ユーザー一時ファイル
   1,%WINDIR%\Temp,contents,システム一時ファイル
   0,C:\Logs\OldLogs,directory,古いログフォルダ削除
 
-■ 安全対策
-C:\、C:\Windows、C:\Program Files などの重要パスは削除対象から
-自動的に除外されます。
+■ 安全対策（Forbidden Path Whitelist）
+スクリプト内で固定のホワイトリスト（forbiddenPaths）を保持し、
+C:\、C:\Windows、C:\Program Files、C:\Users、C:\ProgramData、
+%USERPROFILE%、%PUBLIC%、fabriq リポジトリ自体のルート等を削除対象から
+自動的に除外します。チェックは 3 種類:
+  A) 正規化後の完全一致
+  B) 対象が禁止パスの親ディレクトリになっていないか
+  C) セグメント数 3 未満（例: C:\Users 等）は一律ブロック
+CSV 投入時の表示ステップと実行ステップの両方で二重チェックされ、
+ブロック対象は [BLOCKED] としてスキップされます。
 
 ■ 動作の流れ
 1. clean_list.csv を読み込み、対象ディレクトリの存在を確認
 2. 削除対象の一覧を表示し、実行確認（Y/N）
-3. 各ディレクトリを順に処理
+3. 各ディレクトリを順に処理（既に空/不在の場合は Skip = 冪等性維持）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+contents モードでは削除直後に新たな一時ファイルが生成され得るため、
+読み返し検証による false PASS/FAIL リスクを避ける設計です。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
+空欄になります。

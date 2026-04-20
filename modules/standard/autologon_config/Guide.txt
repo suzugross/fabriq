@@ -6,23 +6,82 @@ AutoLogonCount=1 により、次回の1回のみ自動ログオンし、
 ■ 設定ファイル
 [autologon_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
-  No          : 識別番号（選択画面での表示用）
+  No          : 識別番号（選択画面での表示用、Profile からの指定にも使用）
   User        : ユーザー名
-  Password    : パスワード
+  Password    : パスワード（ENC: プレフィックス暗号化対応）
   Domain      : ドメイン名（ローカルユーザーの場合は空欄）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                ※ Segment は kernel/common.ps1 の Import-ModuleCsv が
+                  自動フィルタする共通機構。
 
 [記載例]
-  1,1,admin01,P@ssw0rd,,ローカル管理者
-  1,2,user01,Pass1234,example.local,ドメインユーザー
+  1,1,admin01,P@ssw0rd,,ローカル管理者,
+  1,2,user01,Pass1234,example.local,ドメインユーザー,
 
 ■ ユーザーの選択
 ・有効なエントリが1件の場合は自動選択されます
 ・複数ある場合はNo番号で選択します
 ・プロファイル実行時は __AUTO_to_ユーザー名__ で自動指定できます
 
+■ 前提条件
+・管理者権限が必要です
+  - HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon への書き込みに必須
+  - 本スクリプトは Test-AdminPrivilege の明示チェックを持ちませんが、
+    HKLM 書き込みは管理者権限なしでは失敗します
+・Script Menu から単体実行する場合は通常のユーザー対話 (No 番号入力) が可能
+・Profile 実行時は $env:FABRIQ_AUTOLOGON_NO で対象 User を自動指定
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして
+CSV の設定を自動適用します。
+
+■ $env:FABRIQ_AUTOLOGON_NO について
+Profile から本モジュールを呼び出す際、設定ファイル（profile 側）で
+"__AUTO_to_<User>__" を指定すると、Fabriq ランナーが
+$env:FABRIQ_AUTOLOGON_NO = <User> を設定してから本モジュールを起動します。
+
+動作:
+- $env:FABRIQ_AUTOLOGON_NO が設定済み → その User と一致する行を自動選択
+- 設定されていない、または空文字列 → 対話選択モード
+  - Enabled=1 が 1 件のみ → 自動選択
+  - 複数件 → No 番号を Read-Host で入力
+
+※ 変数名は NO（Number）ではなく「どの User を使うか」を意味します。
+  値には User 列の文字列を指定してください。
+
+■ 冪等性（レジストリ既存値チェック）
+適用前に HKLM\...\Winlogon の以下 3 値を読み返し、すべて一致する場合は
+Skipped を返して再書き込みを行いません。
+  - AutoAdminLogon       = "1"
+  - DefaultUserName      = CSV で指定した User と一致
+  - AutoLogonCount       >= 1（DWORD）
+
+これにより、同じ設定での再実行時は冪等に Skipped となります。
+（Password / Domain は可読性・安全性の観点から比較対象外）
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-ModuleResult に -Verified は渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+[Verification を実装しない理由]
+- DefaultPassword の一致比較は平文パスワードをログに露出しうるため非推奨
+- AutoLogonCount は次回ログオン時に自動デクリメントされる一時値で、
+  実行直後の 1 と、ログオン後の 0 のどちらも正常状態となり判定が曖昧
+- 必要であれば Step 6 の Set-ItemProperty 呼び出しの ErrorAction Stop による
+  失敗検知（$failCount）で実質的な反映検証を代替しています
+
+■ 使用環境変数
+- $env:FABRIQ_AUTOLOGON_NO : Profile 実行時の対象 User 指定（上記参照）
+- $env:SELECTED_SEGMENT    : Segment フィルタ（Import-ModuleCsv が暗黙参照）
+
 ■ 動作の流れ
 1. autologon_list.csv を読み込み
-2. 対象ユーザーを選択・表示（パスワードはマスク表示）
-3. 実行確認（Y/N）
-4. レジストリ（Winlogon）に自動ログオン情報を設定
+2. $env:FABRIQ_AUTOLOGON_NO または対話 No 選択で対象 User を決定
+3. 対象の設定を表示（パスワードはマスク表示）
+4. 現在のレジストリ値を読み返し、一致すれば Skipped で終了（冪等性）
+5. 実行確認（Y/N）
+6. レジストリ（Winlogon）に自動ログオン情報を設定
+   (AutoAdminLogon / DefaultUserName / DefaultPassword / DefaultDomainName /
+    AutoLogonCount = 1)

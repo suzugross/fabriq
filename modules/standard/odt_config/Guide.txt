@@ -1,35 +1,117 @@
 ■ 概要
-Office Deployment Tool (ODT) を使用して Microsoft Office をインストールします。
-XML構成ファイルに従ってオフラインまたはオンラインでインストールできます。
+Office Deployment Tool (ODT) 経由で Microsoft Office（Microsoft 365,
+Visio, Project 等）をインストールするモジュールです。
+
+ODT の XML 構成ファイルをエントリごとに指定でき、実行時に SourcePath を
+対応 assets フォルダの絶対パスに自動書き換えて setup.exe /configure を実行します。
+オフラインソース（Office\ フォルダ）を同梱しておけばオフラインインストールも可能です。
+
+既存 Click-to-Run Office が検出された場合はエラーで中止します（共存不可のため）。
 
 ■ 設定ファイル
+
 [odt_list.csv]
   Enabled      : 有効フラグ（1=実行, 0=スキップ）
-  XmlFileName  : XML構成ファイル名（例: configuration.xml）
+  XmlFileName  : ODT 構成 XML のファイル名（AssetsFolder 配下で解決）
   Description  : 説明（表示用）
-  AssetsFolder : アセットフォルダのパス（省略時は assets\）
+  AssetsFolder : エントリ固有の assets フォルダ（省略時は assets\）
+                  ・相対パス → モジュールルート基準で解決
+                  ・絶対パス → そのまま使用
+                  ・setup.exe は常に assets\ から読み込まれます
+  Segment      : Segment フィルタ（省略可）
 
-[記載例]
-  1,configuration.xml,Microsoft 365 Install,assets\M365
-  1,configuration.xml,Visio Install,assets\VISIO
+  [記載例]
+  Enabled,XmlFileName,Description,AssetsFolder,Segment
+  1,configuration.xml,Microsoft 365 Install,assets\M365,
+  1,configuration.xml,Visio Install,assets\VISIO,
 
-■ フォルダ構成
-  assets/
-    setup.exe            ← ODT実行ファイル（必須、共通で使用）
-    M365/
-      configuration.xml  ← XML構成ファイル
-      Office/            ← オフラインソース（オフラインインストール時）
-    VISIO/
-      configuration.xml
-      Office/
+■ フォルダ構成（推奨）
 
-■ AssetsFolder について
-・各エントリごとに異なるフォルダを指定できます
-・相対パスはモジュールルートからの相対です
-・省略した場合は assets\ が使用されます
-・setup.exe は常に assets\ から読み込まれます
+  odt_config/
+    odt_install.ps1
+    odt_list.csv
+    assets/
+      setup.exe              ← ODT 実行ファイル（必須、共通で使用）
+      M365/
+        configuration.xml    ← ODT 構成 XML
+        Office/              ← オフラインソース（任意）
+      VISIO/
+        configuration.xml
+        Office/
+
+CSV で `AssetsFolder=assets\M365` を指定した場合、以下のように解決されます:
+  XML パス         : <module>\assets\M365\configuration.xml
+  SourcePath 書換え: <module>\assets\M365  （setup.exe 実行時に XML へ注入）
+  setup.exe        : <module>\assets\setup.exe（CSV 設定に関わらず固定）
+
+■ 前提条件
+・管理者権限が必要です（Windows Installer / サービス操作 / ClickToRunSvc 操作）
+・既存の Click-to-Run Office が存在しないこと
+  （HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration\ProductReleaseIds
+    が空でなければ中止）
+  既存 Office がある場合は SaRA（https://aka.ms/SaRA-officeUninstallFromPC）で
+  事前アンインストールしてください。
+・システムドライブに 10 GB 以上の空き容量を推奨（10 GB 未満は Warning）
+・`assets\setup.exe` が存在すること（ない場合は Error 終了）
 
 ■ 動作の流れ
-1. odt_list.csv を読み込み、XMLファイルの存在を確認
-2. 実行確認（Y/N）
-3. XMLの SourcePath を自動書き換え後、setup.exe /configure を実行
+1. odt_list.csv 読み込み（Enabled=1 のみ対象）
+2. ドライラン表示
+   ・各エントリの XML / AssetsFolder 存在確認
+   ・setup.exe 不在なら Error で早期終了
+3. 環境事前チェック + クリーンアップ（Step 3.5）
+   3-a. 実行中 Office プロセス（WINWORD, EXCEL, OUTLOOK, POWERPNT, ONENOTE,
+        MSPUB, MSACCESS, VISIO, LYNC, Teams, OfficeClickToRun,
+        OfficeC2RClient）を Stop-Process
+   3-b. ClickToRunSvc サービスが Running なら Stop
+   3-c. ストア版 Office AppX（OneNote, Office.Desktop, Office.OneNote,
+        OfficeSway）を現ユーザー・プロビジョン双方から削除
+   3-d. Windows Installer サービス（msiserver）が Disabled なら Manual に昇格
+   3-e. システムドライブ空き容量確認（10GB 未満は Warning）
+   3-f. 既存 C2R Office 検出 → あれば Error で中止
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. エントリごとの実行ループ
+   5-a. XML 不在なら Skip
+   5-b. 構成 XML を読み込み、<Configuration><Add> の SourcePath を
+        エントリの AssetsFolder 絶対パスに書換え、%TEMP% に一時 XML 保存
+   5-c. setup.exe /configure "<temp_xml>" を同期実行（-Wait）
+   5-d. 終了コード 0 → Success、それ以外 → Error
+   5-e. finally 句で一時 XML 削除 + ODT ログ（SetupExe(*.log)）を
+        エビデンスディレクトリ（$global:FabriqEvidenceBasePath\odt_logs\
+        または .\evidence\odt_logs\）にコピー
+6. 集計結果を Status で返却
+   ・Success 0 + Fail>0       → Error
+   ・Success>0 + Fail>0       → Partial
+   ・全件 XML 不在 (Skip=total)→ Skipped
+   ・その他（全成功）         → Success
+
+■ AutoPilot
+AutoPilot モードでは確認が自動 Y になります。setup.exe /configure は
+Wait 同期実行のため、インストール完了まで Profile の次ステップに進みません。
+
+■ Post-Apply Verification
+本モジュールは現在 Post-Apply Verification を実装していません。
+New-ModuleResult には -Verified を渡しておらず、実行履歴の Verified 列は空欄です。
+
+setup.exe の終了コードが成功判定の唯一の根拠です。ODT ログは
+エビデンスディレクトリに自動収集されるため、詳細検証が必要な場合は
+そちらを参照してください。
+
+Microsoft 365 のアクティベーション状態の検証は `office_license_config` の
+`Activate Windows License`（相当モジュール）や OSPP.vbs /dstatus で別途確認します。
+
+■ 冪等性
+本モジュールは冪等ではありません。
+ODT の `/configure` は同じ XML で複数回実行しても害はありませんが、
+常に setup.exe が再実行されます（既インストール検出による Skip は行いません）。
+
+■ 注意事項
+・既存の C2R Office が検出された場合は問答無用で Error 終了します。
+  SaRA 等で事前に綺麗にしてから実行してください。
+・ODT の XML は自動書換えされるため、リポジトリ上の XML ファイルは
+  SourcePath 属性が実行環境に依存しない状態で保管できます。
+  （実行時の書換えは一時ファイルに対して行われます）
+・ストア版 OneNote などの AppX は環境クリーンアップフェーズで削除されます。
+  ユーザーデータへの影響がない構成であることを事前確認してください。
+・AutoPilot で連続実行する場合、setup.exe の所要時間（数分〜十数分）を
+  見越して後続モジュールとの順序を設計してください。

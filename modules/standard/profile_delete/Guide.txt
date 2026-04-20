@@ -5,20 +5,55 @@ WMI（Win32_UserProfile）を使用してWindowsに正しく登録解除しま�
 ■ 設定ファイル
 [profile_list.csv]
   Enabled     : 有効フラグ（1=削除対象, 0=スキップ）
-  UserName    : 削除対象のユーザー名
+  UserName    : 削除対象のユーザー名（C:\Users\<UserName> のフォルダ名）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                ※ Segment は kernel/common.ps1 の Import-ModuleCsv が
+                  自動フィルタする共通機構。
 
 [記載例]
-  1,test,テストユーザーのプロファイル
-  1,defaultuser0,初期ユーザーのクリーンアップ
+  1,test,テストユーザーのプロファイル,
+  1,defaultuser0,初期ユーザーのクリーンアップ,
 
 ■ 前提条件
-・管理者権限が必要です
+・管理者権限が必要です（Test-AdminPrivilege でスクリプト先頭にて明示チェック）
+  - Win32_UserProfile.Remove-CimInstance の実行に必須
+  - %SystemDrive%\Users 配下のフォルダ削除に必須
+・WMI (Win32_UserProfile) が利用可能な Windows 環境であること
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして
+CSV の設定を自動適用します。
 
 ■ 注意事項
 ・現在ログオン中のユーザーのプロファイルは削除できません
+・WMI 削除が成功してもフォルダが残る場合があり、その場合は
+  Remove-Item によるフォルダ強制削除にフォールバックします
+・削除されたユーザーの SID / プロファイル情報は Windows から登録解除されます
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-BatchResult に -Verified は渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+[実装推奨メモ]
+削除後に以下を検証する Step 5.5 を追加することで Verification を実装できます：
+  - Test-Path "$env:SystemDrive\Users\<UserName>" が $false であること
+  - Get-CimInstance Win32_UserProfile で該当 LocalPath が存在しないこと
+両方とも成立した場合のみ -Verified $true を返す実装が可能です。
+（現状は成功カウント／失敗カウントのみで結果を返却）
+
+■ 使用環境変数
+- $env:SystemDrive     : ユーザープロファイルのベースパス決定に使用
+                         （C:\Users や D:\Users 等、インストールドライブに追従）
+- $env:SELECTED_SEGMENT : Segment フィルタ（Import-ModuleCsv が暗黙参照）
 
 ■ 動作の流れ
-1. profile_list.csv を読み込み、削除対象を一覧表示
-2. 実行確認（Y/N）
-3. WMI経由でプロファイルを削除（失敗時は物理削除にフォールバック）
+1. 管理者権限チェック（Test-AdminPrivilege）
+2. profile_list.csv を読み込み、削除対象を一覧表示
+3. 実行確認（Y/N）
+4. 各対象について:
+   - Win32_UserProfile をクエリして WMI 経由で登録解除
+   - WMI 登録が無い（orphan）または削除後もフォルダが残る場合は
+     Remove-Item -Recurse -Force でフォルダ物理削除
+5. 成功／スキップ／失敗のカウントを New-BatchResult で返却

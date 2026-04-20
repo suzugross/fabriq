@@ -109,9 +109,52 @@ Auto mode で hostlist 枠を超えるドライバーを追加したい場合に
     Description  : 表示用メモ
 
 ■ 前提条件
+・管理者権限が必要です
+  - pnputil /add-driver, /delete-driver の実行
+  - Add-PrinterDriver / Add-Printer / Add-PrinterPort / Remove-Printer / Remove-PrinterDriver
+  - Print Spooler サービスの Restart-Service
+  - いずれも管理者権限なしでは失敗します
 ・プリンター登録の前にドライバーのインストールが必要です
 ・Fabriq起動時にホストを選択済みであること（Register Printers / Auto mode）
 ・printer_list.csv / printer_driver_list.csv は任意。無くても従来通り動作
+
+■ TargetHost 列について（printer_list.csv / printer_driver_list.csv 共通）
+・TargetHost 列 = 空欄 の行 → 全ホストで採用（共通エントリ）
+・TargetHost 列 = 値あり の行 → $env:SELECTED_NEW_PCNAME と
+  大文字小文字無視の完全一致の行のみ採用
+・hostlist.csv 側の環境変数ソースと union（重複排除あり）されます
+
+■ Segment 列について
+本モジュール配下の CSV には Segment 列はありません（TargetHost ベースの
+ホストフィルタで運用する思想のため）。Segment によるプロファイル分岐が
+必要な場合は hostlist 側で対応してください。
+
+■ AutoPilot
+・Printer Drivers（printer_driver_install.ps1）
+  Auto mode の場合、Confirm-ModuleExecution をスキップして
+  matched drivers を自動インストールします。
+  Interactive mode（hostlist／CSV どちらにもエントリが無い場合）は
+  AutoPilot でもモデル選択入力が必要なため、通常は実行前にエントリを
+  用意しておきます。
+・Register Printers（printer_config.ps1）
+  AutoPilot モードでは確認をスキップして union 結果を自動登録します。
+・Uninstall Printer Drivers（printer_driver_uninstall.ps1）
+  対話選択が必要なため主にメニュー実行用です。
+
+■ Post-Apply Verification
+・Printer Drivers     : Get-PrinterDriver でドライバーストア登録を検証し
+                       -Verified で返却
+・Register Printers   : Get-Printer / Get-PrinterPort で Printer 名／
+                       DriverName／PortName／PrinterHostAddress の
+                       4 項目一致を検証し -Verified で返却
+・Uninstall Drivers   : Verification 未実装（結果サマリのみ）
+
+■ 使用環境変数
+- $env:SELECTED_NEW_PCNAME  : TargetHost マッチングに使用（両 CSV 共通）
+- $env:SELECTED_PRINTER_1_NAME  .. _10_NAME   : hostlist からのプリンタ名
+- $env:SELECTED_PRINTER_1_DRIVER .. _10_DRIVER : hostlist からのドライバ名
+- $env:SELECTED_PRINTER_1_PORT  .. _10_PORT   : hostlist からのポート IP
+- $global:AutoPilotMode : AutoPilot 判定（kernel 側で設定）
 
 ■ 動作の流れ（Printer Drivers - Auto mode）
 0. INF/ 直下の EXE/ZIP を 7z.exe で自動展開（冪等）

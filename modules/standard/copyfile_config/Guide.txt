@@ -1,24 +1,110 @@
 ■ 概要
-ファイルやフォルダを指定先へコピーします。
-source/ ディレクトリに配置したファイルを、CSVで定義した宛先にコピーします。
+source/ ディレクトリに配置したファイル・フォルダを、CSV で指定した
+宛先へコピーするモジュールです。上書き制御はエントリ単位で可能です。
+
+コピー後は Mark-of-the-Web（Zone.Identifier 代替ストリーム）を自動解除するため、
+ネットワーク経由で取得したファイルでもブロック解除済みの状態で配置できます。
 
 ■ 設定ファイル
+
 [copy_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
-  FileName    : source/ 内のファイル名またはフォルダ名
-  DestPath    : コピー先ディレクトリパス（%USERPROFILE% 等の環境変数使用可）
+  FileName    : source/ 直下のファイル名、またはフォルダ名
+                 （フォルダ指定時は中身ごと再帰コピー）
+  DestPath    : コピー先ディレクトリパス
+                 ・Windows 環境変数（%USERPROFILE%, %LOCALAPPDATA%,
+                   %APPDATA%, %ProgramData%, %SystemRoot% 等）使用可
+                 ・昇格セッション時は kernel/common.ps1 の
+                   Expand-UserEnvironmentVariables によりログオンユーザーの
+                   %USERPROFILE% / %LOCALAPPDATA% / %APPDATA% に解決されます
   Overwrite   : 上書き制御（1=上書き, 0=既存ならスキップ）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
 
-[記載例]
-  1,config.ini,C:\Program Files\MyApp,1,アプリ設定ファイル
-  1,templates,%USERPROFILE%\Documents,0,テンプレートフォルダ
+  [記載例]
+  Enabled,FileName,DestPath,Overwrite,Description,Segment
+  1,test.txt,C:\Users\Public\Desktop,1,Sample file to Public Desktop,Phase1
+  1,templates,%USERPROFILE%\Documents,0,Template folder,
+  1,config.ini,C:\Program Files\MyApp,1,App config file,
 
-■ ファイルの配置
-source/ ディレクトリにコピー元のファイルやフォルダを配置してください。
-フォルダを指定した場合、中身ごと再帰コピーされます。
+■ source/ ディレクトリ構成
+
+  copyfile_config/
+    copyfile_config.ps1
+    copy_list.csv
+    source/
+      test.txt              ← FileName="test.txt" で参照
+      templates/            ← FileName="templates" でフォルダごとコピー
+        template1.docx
+        template2.xlsx
+      config.ini
+
+FileName の値は source/ 配下のエントリ名（相対）として解釈されます。
+source/ ディレクトリが存在しない場合は Error で中止します。
+
+■ 前提条件
+・copyfile_config/source/ ディレクトリが存在すること
+・管理者権限は状況により必要です
+  ・コピー先が %USERPROFILE% など書き込み可能な場所 → 管理者権限不要
+  ・C:\Program Files 等の保護領域 → 管理者権限必要
 
 ■ 動作の流れ
-1. copy_list.csv を読み込み、有効な行を抽出
-2. コピー対象の一覧を表示し、実行確認（Y/N）
-3. 各ファイルを順にコピーし、結果を表示
+1. copy_list.csv を読み込み（Enabled=1 のみ対象）
+2. DestPath に含まれる Windows 環境変数を展開
+   （Expand-UserEnvironmentVariables によりログオンユーザー基準で解決）
+3. source/ ディレクトリ存在確認
+4. ドライラン表示
+   ・[Missing]    : source/ 側に FileName が存在しない
+   ・[Current]    : コピー先に既存 + Overwrite=0 → スキップ予定
+   ・[Overwrite]  : コピー先に既存 + Overwrite=1 → 上書き予定
+   ・[Copy]       : コピー先にまだ存在しない → 新規コピー予定
+5. 実行確認（Y/N、AutoPilot モードは自動 Y）
+6. 各エントリを順次コピー
+   ・Source 不在 → Error カウント
+   ・DestPath が未作成なら自動作成（New-Item -Force）
+   ・宛先に既存 + Overwrite=0 → Skip
+   ・Copy-Item -Recurse -Force でコピー
+   ・コピー後に Remove-ZoneIdentifier でブロック解除
+7. New-BatchResult で結果集計・返却
+
+■ AutoPilot
+AutoPilot モードでは確認が自動 Y になります。
+Overwrite=0 のエントリは既存ファイルがあれば Skip されるため、
+冪等的な再実行には向きますが、真の冪等性（内容差分検出）は本モジュール
+では行いません。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません（意図的）。
+
+  理由:
+    Copy-Item の成功後に Test-Path だけで検証すると、
+    「コピーしたつもりだが内容が古い」「権限未変更で実体は前のまま」
+    といったケースでも VERIFIED になってしまい、誤 PASS のリスクが
+    高いと判断しました。
+    本当の検証には内容ハッシュ比較・権限比較・Mark-of-the-Web 除去の
+    二重確認などが必要ですが、配置先・用途が多様で一律実装が難しいため
+    本モジュールでは Verification を省略しています。
+
+  補完手段:
+    ・コピー直後のログで [Copy] / [Overwrite] / [Skip] / Error は明確に記録されます
+    ・Mark-of-the-Web は Remove-ZoneIdentifier で必ず解除されます
+    ・厳密な検証が必要な場合は、運用側で Get-FileHash や
+      icacls によるチェックを別途実行してください
+
+New-BatchResult に -Verified は渡していないため、実行履歴の
+Verified 列は常に空欄になります。
+
+■ 冪等性
+Overwrite=0 指定のエントリは既存ファイルがあれば [Current] 判定で Skip されるため、
+再実行しても既存ファイルに影響しません。
+Overwrite=1 指定は毎回上書きになるため、タイムスタンプは更新されます。
+
+■ 注意事項
+・FileName にフォルダを指定した場合、Copy-Item -Recurse -Force で
+  中身ごと上書きされます（Overwrite=1 時）。個別ファイルの差分取捨選択は
+  できないため、フォルダ単位で丸ごと配布される前提で設計してください。
+・DestPath が UNC パス（\\server\share）の場合、管理者権限や認証の都合で
+  失敗することがあります。必要に応じて net use で事前接続してください。
+・Expand-UserEnvironmentVariables の対象は %USERPROFILE% / %LOCALAPPDATA% /
+  %APPDATA% を中心とした標準変数です。任意のユーザー定義環境変数は
+  現ユーザー（昇格ユーザー）のコンテキストで展開されます。

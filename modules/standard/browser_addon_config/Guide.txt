@@ -1,0 +1,93 @@
+■ 概要
+Chrome / Edge の拡張機能をグループポリシー（HKLM レジストリ）経由で
+強制インストール対象に登録するモジュールです。
+
+書き込み先:
+  Chrome: HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist
+  Edge  : HKLM\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist
+
+登録後、ブラウザ再起動または gpupdate /force により拡張機能が
+自動的にダウンロード・インストールされます。
+
+■ 設定ファイル
+
+[browser_addon_list.csv]
+  Enabled     : 有効フラグ（1=登録, 0=スキップ）
+  Browser     : 対象ブラウザ（Chrome または Edge）
+  ExtensionId : 拡張機能 ID、または Chrome Web Store URL
+                （下記「ExtensionId 指定方法」参照）
+  Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+
+  [記載例]
+  Enabled,Browser,ExtensionId,Description,Segment
+  1,Chrome,llindcahmibpekmcgchfjlnpljjeeeoe,Sample Chrome Extension,
+  1,Edge,llindcahmibpekmcgchfjlnpljjeeeoe,Sample Edge Extension,
+  1,Chrome,https://chrome.google.com/webstore/detail/sample/llindcahmibpekmcgchfjlnpljjeeeoe,URL 形式,
+
+■ ExtensionId 指定方法
+
+  [方法 1] 拡張 ID を直接指定
+    32 文字の a-p のみで構成される ID をそのまま記述
+    例: llindcahmibpekmcgchfjlnpljjeeeoe
+
+  [方法 2] Chrome Web Store URL を指定
+    /detail/ 以降から 32 文字 ID を自動抽出します
+    例: https://chrome.google.com/webstore/detail/<name-slug>/<id>
+    例: https://chrome.google.com/webstore/detail/<id>
+
+  [方法 3] 文字列中の最初の 32 文字 a-p を抽出（フォールバック）
+    上記 2 つに合致しない場合、文字列中に 32 文字の a-p 系列があれば
+    それを ID として採用します。
+
+  Edge 拡張の ID 形式も Chrome 同様 32 文字 a-p です。
+  Microsoft Edge Add-ons ストア URL は現時点で方法 1/3 での指定を推奨します。
+
+■ 前提条件
+・管理者権限が必要です（HKLM への書き込み）
+・Chrome / Edge のインストール自体は本モジュールでは確認しません。
+  レジストリ登録のみで、ブラウザ未インストール環境でも書き込み自体は成功します。
+・変更の反映にはブラウザ再起動、または gpupdate /force + ブラウザ起動が必要です。
+
+■ 動作の流れ
+1. browser_addon_list.csv を読み込み（Enabled=1 のみ対象）
+2. 前処理
+   ・Browser 値の検証（Chrome / Edge 以外は [ERROR] 表示）
+   ・ExtensionId の解決（Resolve-ExtensionId で 3 方法のいずれかで抽出）
+   ・解決に失敗したエントリは [ERROR] 表示
+3. ドライラン表示
+   ・各エントリを [Current]（登録済み） / [Change]（新規） / [ERROR] で色分け
+   ・Browser / Extension ID / 書き込み先レジストリパスを併記
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. 設定適用ループ
+   ・不正エントリはエラー扱いで Fail カウント
+   ・既登録エントリは Skip（冪等性あり、Test-ExtensionInForcelist で判定）
+   ・新規エントリはレジストリキーを必要に応じ作成し、
+     Get-NextForcelistIndex で次のインデックス（最大値+1）を算出して
+     <id>;https://clients2.google.com/service/update2/crx の形式で書き込み
+     （update_url は Edge 拡張でも Chrome Web Store を使用するのが Microsoft の推奨動作）
+6. Post-Apply Verification
+   ・全対象エントリを Test-ExtensionInForcelist で再検証
+   ・[VERIFIED] / [VERIFY FAILED] で結果表示
+
+■ 冪等性
+同じ設定で再実行すると、全エントリが [Current] と判定されて Skip されます。
+インデックスの重複書き込みや、同一 ID の二重登録は発生しません。
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+レジストリに実際に書き込まれたか確認します。結果は -Verified で返却されます。
+※ この検証は「レジストリ登録の成功」を確認するもので、ブラウザ側で
+  実際に拡張機能がダウンロード・インストールされたかまでは検証しません。
+  反映状況の最終確認はブラウザの chrome://extensions や edge://extensions で
+  行ってください。
+
+■ 注意事項
+・既存の ExtensionInstallForcelist に別の拡張が登録されている場合、
+  それらは変更せず新しい拡張を次インデックスで追記します。
+・拡張 ID の削除機能は本モジュールにはありません。削除が必要な場合は
+  reg_hklm_delete 等のレジストリ削除モジュールを使用してください。
+・update_url は "https://clients2.google.com/service/update2/crx" 固定で、
+  プライベート CRX レジストリの指定には対応していません。

@@ -2,6 +2,12 @@
 バッチファイル（.bat）をCSV定義に従って順に実行します。
 タイムアウトや成功判定コードを個別に設定できます。
 
+■ 前提条件
+・管理者権限で実行すること（バッチ内の処理が管理者権限を要する場合）
+・assets/ フォルダ（またはモジュールフォルダ直下）に実行対象 .bat を配置
+  する前提で、相対パスは PSScriptRoot 基準で解決されます
+・バッチ側で独自に終了コードを返す設計になっていること（SuccessCodes 判定）
+
 ■ 設定ファイル
 [batch_list.csv]
   Enabled      : 有効フラグ（1=実行, 0=スキップ）
@@ -11,6 +17,9 @@
   TimeoutSec   : タイムアウト秒数（0 または空欄=無制限）
   SuccessCodes : 成功とみなすExitCode（カンマ区切り、省略時は 0）
   Encoding     : エンコーディング（省略可）
+  Segment      : Segment フィルタ（省略可）
+                 kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                 自動フィルタするため、モジュール側に追加実装は不要。
 
 [記載例]
   1,初期設定,assets\setup.bat,,60,0,
@@ -25,3 +34,13 @@
 1. batch_list.csv を読み込み、ファイルの存在を確認
 2. 実行確認（Y/N）
 3. 各バッチを順に実行し、ExitCode で成否判定
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+バッチ内部の処理内容はモジュールから観測不能なため、検証は行いません。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
+空欄になります。必要なら各バッチ内で独自の検証ステップを組み込んで
+ください。

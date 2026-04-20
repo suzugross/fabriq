@@ -8,11 +8,25 @@ Windows APIで即時反映されるため、再起動は不要です。
   Width       : 横幅（ピクセル）
   Height      : 高さ（ピクセル）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
 
 [記載例]
   1,1920,1080,Full HD
   0,2560,1440,QHD
   0,1366,768,WXGA
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を部分的にのみ実装しています。
+ChangeDisplaySettings 呼び出し前に ResolutionHandler::GetCurrentResolution で
+現在解像度を読み出し、目標値と同値であればスキップ（冪等性判定）しますが、
+適用後に期待値と一致するかを読み返して検証する専用ステップはありません。
+また ChangeDisplaySettings が DISP_CHANGE_RESTART を返した場合は
+「再起動後に反映」の旨を警告表示します。
+New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 動作の流れ
 1. resolution_list.csv を読み込み

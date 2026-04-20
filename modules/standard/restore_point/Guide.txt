@@ -20,6 +20,8 @@ Restore Point Configuration - Guide
   Description   : 表示用の説明文
   Value         : 操作ごとの値（容量%, RestorePointType 等）
   Segment       : プロファイル用フィルタ（空=全対象）
+                  kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                  自動フィルタするため、モジュール側に追加実装は不要。
 
 ■ 対応する操作種別 (SettingName)
 
@@ -66,3 +68,24 @@ Restore Point Configuration - Guide
     1,remove_24h_limit,,24時間制限の解除,,
     0,set_storage_size,C:\,シャドウコピー容量設定,5,
     1,create_restore_point,,キッティング前復元ポイント,MODIFY_SETTINGS,
+
+■ 冪等性の操作別差異
+  操作ごとに冪等性の扱いが異なります。
+
+  enable_protection    : 冪等（DisableSR=0 を確認して Skip）
+  remove_24h_limit     : 冪等（SystemRestorePointCreationFrequency=0 を確認）
+  set_storage_size     : 非冪等（vssadmin は状態確認なしで毎回実行）
+  create_restore_point : 非冪等（Checkpoint-Computer は毎回新規作成を試行。
+                         Windows 側の 24 時間制限で実際は Skip される場合あり）
+
+■ AutoPilot
+  AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+  本モジュールの Post-Apply Verification は限定的です。
+  enable_protection / remove_24h_limit についてはレジストリ読み返しに
+  よる冪等性チェックが実装されており事実上の Verification になりますが、
+  set_storage_size / create_restore_point は読み返し検証を行いません。
+  New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列
+  は空欄になります。実効性は vssadmin list shadowstorage や
+  Get-ComputerRestorePoint で手動確認してください。

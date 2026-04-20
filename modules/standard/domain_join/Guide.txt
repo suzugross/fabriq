@@ -3,18 +3,22 @@ PCをActive Directoryドメインに参加させます。
 
 ■ 設定ファイル
 [domain.csv]
-  Enabled : 有効フラグ（1=実行, 0=スキップ）
-  domain  : ドメイン名（例: example.local）
-  user    : ドメイン参加用アカウント
-  pass    : パスワード
-  dns     : DNSサーバのIPアドレス（接続確認に使用）
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  domain      : ドメイン名（例: example.local）
+  user        : ドメイン参加用アカウント
+  pass        : パスワード（ENC: プレフィックス付き暗号化文字列も利用可）
+  dns         : DNS サーバの IP アドレス（接続確認に使用）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
 
 [記載例]
-  1,example.local,Administrator,P@ssword123,192.168.1.1,本番ドメイン
+  Enabled,domain,user,pass,dns,Description,Segment
+  1,example.local,Administrator,P@ssword123,192.168.1.1,本番ドメイン,
 
 ■ 前提条件
-・DNSサーバへのネットワーク接続が必要です
+・管理者権限が必要です（Add-Computer の実行）
+・DNS サーバへのネットワーク接続が必要です
+・ENC: パスワードを使う場合は Fabriq 起動時のマスターパスフレーズ入力が必要
 
 ■ 注意事項
 ・参加失敗時はGUIダイアログでエラー内容が表示され、リトライできます
@@ -22,5 +26,18 @@ PCをActive Directoryドメインに参加させます。
 
 ■ 動作の流れ
 1. domain.csv から有効なエントリを読み込み
-2. DNSサーバへのPing接続を確認
-3. ドメイン参加を実行（失敗時はリトライループ）
+2. DNS サーバへの Ping 接続を確認
+3. 実行確認（Y/N、AutoPilot モードは自動 Y）
+4. ドメイン参加を実行（失敗時はリトライループ）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+ドメイン参加失敗時のリトライダイアログは、無人運用では手動介入が
+必要になるため AutoPilot+ErrorMode=retry と組合せる運用が典型的です。
+
+■ Post-Apply Verification
+本モジュールは現在 Post-Apply Verification を実装していません。
+New-ModuleResult に -Verified は渡していないため、実行履歴の Verified 列は
+空欄になります。Add-Computer の成否とリトライダイアログでの到達可否で
+結果判定しています。ドメイン参加状態は再起動後に
+`(Get-WmiObject Win32_ComputerSystem).PartOfDomain` 等で手動確認してください。

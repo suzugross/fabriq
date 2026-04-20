@@ -7,13 +7,30 @@ hostlist.csv で選択したホストの NewPCName が適用されます。
 hostlist.csv の NewPCName 列の値が使用されます。
 
 ■ 前提条件
-・Fabriq起動時にホストを選択済みであること
+・管理者権限が必要です（Rename-Computer の実行）
+・Fabriq 起動時にホストを選択済みであること
+・hostlist.csv の NewPCName が非空であること（空欄の場合は Skip）
 
-■ 注意事項
-・変更の反映にはOSの再起動が必要です
-・既に同じホスト名の場合は自動的にスキップされます
+■ 使用環境変数
+・$env:SELECTED_NEW_PCNAME — hostlist.csv から選択時にセットされる新ホスト名
 
 ■ 動作の流れ
-1. 現在のホスト名と変更先を表示
-2. 実行確認（Y/N）
-3. Rename-Computer でホスト名を変更
+1. $env:SELECTED_NEW_PCNAME の取得（未設定時は Skip）
+2. 現在のホスト名と変更先を表示
+3. 現在値と目標値が同じなら Skip（冪等性）
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. Rename-Computer でホスト名を変更
+6. Post-Apply Verification
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして自動実行します。
+
+■ Post-Apply Verification
+Rename-Computer は再起動で反映されるため、現行名は変わりません。
+代わりに HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName
+配下の ComputerName 値（保留中のホスト名）を読み返し、目標値と一致するか
+検証します。結果は -Verified で返却されます。
+
+■ 注意事項
+・変更の反映にはOSの再起動が必要です（Verification は保留値のみ確認）
+・既に同じホスト名の場合は自動的にスキップされます

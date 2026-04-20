@@ -1,11 +1,18 @@
 ■ 概要
 指定したプロセスを強制終了します。
 
+■ 前提条件
+・管理者権限で実行すること（他ユーザー所有プロセスを終了する場合に必要）
+・ProcessName は .exe 拡張子なしで記述（Get-Process -Name に渡す形式）
+
 ■ 設定ファイル
 [process_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
   ProcessName : プロセス名（.exe なし。例: msedge, notepad）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
 
 [記載例]
   1,msedge,Microsoft Edge
@@ -15,4 +22,18 @@
 ■ 動作の流れ
 1. process_list.csv を読み込み、対象プロセスを一覧表示
 2. 実行確認（Y/N）
-3. 各プロセスを強制終了（実行中でない場合はスキップ）
+3. 各プロセスを強制終了（実行中でない場合は Skip = 冪等性維持）
+
+■ 冪等性
+対象プロセスが既に停止している場合は Get-Process が空を返すため、
+Stop-Process を呼ばずに Skip として計上します。再実行しても副作用は
+発生しません。
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
+空欄になります。終了直後に同名プロセスが再起動するケース（常駐監視型
+プロセス）も想定されるため、読み返し検証は行わない設計です。

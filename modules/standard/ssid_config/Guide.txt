@@ -1,0 +1,75 @@
+■ 概要
+Wi-Fi（WLAN）プロファイルを netsh wlan add profile で登録するモジュールです。
+CSV に定義した SSID ごとに動的に WLAN プロファイル XML を生成し、
+一時ファイル経由で netsh に取り込みます。
+
+対応認証方式: WPA2PSK / WPA3SAE / open
+
+■ 設定ファイル
+
+[ssid_list.csv]
+  Enabled        : 有効フラグ（1=登録, 0=スキップ）
+  SSID           : ネットワーク名（SSID）
+  Authentication : 認証方式（WPA2PSK / WPA3SAE / open）
+  Encryption     : 暗号化方式（AES / none）
+                    ・open の場合は none
+                    ・WPA2PSK / WPA3SAE の場合は通常 AES
+  Password       : パスフレーズ
+                    ・open の場合は空欄
+                    ・ENC: プレフィックス付き暗号化文字列も利用可
+                     （Fabriq Studio で暗号化、実行時に自動復号）
+  AutoConnect    : 自動接続設定（1=auto, 0=manual）
+  NonBroadcast   : 隠れネットワーク（1=有効, 0=通常）
+  Description    : 説明（表示用）
+  Segment        : Segment フィルタ（省略可）
+
+  [記載例]
+  Enabled,SSID,Authentication,Encryption,Password,AutoConnect,NonBroadcast,Description,Segment
+  1,Office-WiFi,WPA2PSK,AES,P@ssw0rd123,1,0,Office wireless network,
+  1,Guest-WiFi,open,none,,0,0,Guest network (no password),
+  1,Secure-WiFi,WPA3SAE,AES,SecureKey456,1,0,WPA3 secure network,
+
+■ 前提条件
+・管理者権限が必要です（netsh wlan add profile）
+・WLAN サービスが有効で、無線アダプタが存在すること
+  ※ netsh wlan show profiles が応答することで判定します
+・パスワードに ENC: を使う場合は Fabriq 起動時のマスターパスフレーズ入力が必要
+
+■ 動作の流れ
+1. ssid_list.csv を読み込み（Enabled=1 のみ対象）
+2. 前提条件チェック
+   ・netsh wlan show profiles で WLAN サービス応答確認
+   ・既存プロファイル名を抽出（多言語対応: 日英の出力に対応）
+3. ドライラン表示
+   ・既存プロファイルと大文字小文字を無視して照合（-icontains）
+   ・登録済みは [SKIP]、新規は [ADD] で色分け
+   ・認証方式、接続モード（Auto/Manual）、Hidden フラグを併記
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. 設定適用ループ
+   ・既登録プロファイルは Skip（冪等性あり）
+   ・Authentication に応じた WLAN プロファイル XML を動的生成
+     - open: sharedKey ブロックなし
+     - WPA2PSK / WPA3SAE: sharedKey ブロック（passPhrase, 平文埋込）
+   ・SSID と Password は XML 用にエスケープ（SecurityElement.Escape）
+   ・一時 XML を %TEMP% に生成して netsh wlan add profile で取り込み
+   ・成功・失敗に関わらず finally 句で一時 XML を削除（パスワード残留防止）
+6. Post-Apply Verification
+   ・登録後に netsh wlan show profiles を再実行し、全対象 SSID が
+     プロファイル一覧に存在することを検証
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+適用後に netsh wlan show profiles を読み返し、各 SSID が
+プロファイル一覧に存在するか検証します。結果は -Verified で返却されます。
+
+■ 注意事項
+・既存プロファイルの上書き（設定変更）は行いません。既登録は常に Skip です。
+  パスワード変更などが必要な場合は、事前に netsh wlan delete profile
+  で削除してから本モジュールを実行してください。
+・WPA3SAE は Windows 10 2004 以降かつ対応アダプタのみで機能します。
+  非対応環境では登録は成功しますが、接続時にエラーとなることがあります。
+・一時 XML は %TEMP% に UUID 付きで生成し、処理後必ず削除します。
+  中断時でも finally 句で削除するため、パスワード付き XML が
+  残留するリスクは最小化されています。

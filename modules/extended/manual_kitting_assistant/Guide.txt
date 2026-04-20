@@ -2,17 +2,36 @@
 手動で行う必要があるキッティング作業を、GUIで手順案内するアシスタントです。
 ステップごとにアプリ起動、クリップボードコピー、貼り付け操作をボタンで支援します。
 
+■ 前提条件
+・対話型セッションで実行すること（GUI 表示が必要）
+・Windows デスクトップ環境（Windows Forms が使用可能）
+・PromptFile を使用するステップがある場合、本モジュール直下の
+  prompt/ ディレクトリが存在していること
+・管理者権限は必須ではありません（ただし OpenCommand で起動する
+  ツールが管理者権限を要求するなら本モジュールも管理者で起動）
+
 ■ 設定ファイル
 [step_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
   StepID      : ステップID（例: S001）
   StepTitle   : ステップ名（GUIに表示）
-  PromptFile  : 手順説明テキストファイル名（省略可）
+  PromptFile  : 手順説明テキストファイル名（省略可。prompt/ 配下に
+                実ファイルを配置すること）
   OpenCommand : 実行ボタンで起動するコマンド（省略可）
   OpenArgs    : コマンドの引数（省略可）
   Copy1       : コピー1ボタンでクリップボードにコピーする値（省略可）
   Copy2       : コピー2ボタンの値（省略可）
   Copy3       : コピー3ボタンの値（省略可）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
+
+■ prompt/ ディレクトリ
+本モジュール直下の prompt/ フォルダに、PromptFile カラムで参照する
+手順説明テキストファイル（.txt）を配置します。
+例: edge_open.txt, edge_homepage_set.txt, edge_homepage_confirm.txt
+PromptFile 空欄のステップはコンパクトモード（説明エリアなし）で表示
+されます。
 
 [記載例]
   1,S001,Edgeを起動する,edge_open.txt,msedge.exe,,,
@@ -34,3 +53,15 @@ GUIの説明欄に内容が表示されます。
 2. 各ステップのGUIウィンドウを画面右下に表示
 3. 操作者がボタン操作で手動作業を実施
 4. 全ステップ完了後に結果を集計
+
+■ AutoPilot
+本モジュールは人手の GUI 操作を前提とするため、AutoPilot の運用には
+適しません。AutoPilot モード時でも Confirm-ModuleExecution は通過
+しますが、GUI 表示後は操作者のクリック待ちでブロックされます。
+AutoPilot プロファイルからは本モジュールを除外することを推奨します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+手動操作の結果は OS 側の個別モジュール（reg_hkcu_config 等）で
+検証してください。New-ModuleResult に -Verified を渡していないため、
+実行履歴の Verified 列は空欄になります。

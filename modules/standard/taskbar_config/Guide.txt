@@ -9,6 +9,7 @@ Default User プロファイルへ配置します。配置後に作成された�
   Order       : タスクバー上の表示順序（昇順）
   LinkPath    : アプリのパス（.lnk または .exe）（%APPDATA% 等の環境変数使用可）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
 
 [記載例]
   1,10,%APPDATA%\Microsoft\Windows\Start Menu\Programs\File Explorer.lnk,File Explorer
@@ -36,6 +37,18 @@ LinkPath に指定したファイルが実行時点で存在しない場合、
 ■ 前提条件
 ・管理者権限が必要です（Default User プロファイルへの書き込みのため）
 ・既存の LayoutModification.xml は上書きされます
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+XML 書き出し直後にファイルの存在とサイズ（0バイトでないこと）は確認しますが、
+XML の内容が期待通りかをパース検証するステップはありません。
+実際にピン留めが反映されるのは「配置後に新規作成される Default User プロファイル」
+であり、このホストでの読み返し検証は仕組み上困難です。
+New-ModuleResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 動作の流れ
 1. taskbar_list.csv を読み込み、Order 昇順でソート

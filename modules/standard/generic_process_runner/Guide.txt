@@ -3,6 +3,11 @@
 Office更新、サイレントインストーラ、コマンドラインツールなど、
 EXEパスと引数を指定して実行する用途全般に使用します。
 
+■ 前提条件
+・管理者権限で実行すること（対象 EXE がシステム領域にアクセスする場合）
+・ExecutablePath で指定する EXE 本体が実在していること
+・WaitProcessName を使う場合、子プロセス名が .exe なしで既知であること
+
 ■ 設定ファイル
 [process_list.csv]
 
@@ -16,6 +21,10 @@ EXEパスと引数を指定して実行する用途全般に使用します。
   TimeoutSec         No    タイムアウト秒数（後述）
   SuccessCodes       No    正常終了コード（後述）
   NoNewWindow        No    ウィンドウ制御（後述）
+  Segment            No    Segment フィルタ（省略可）
+                           kernel/common.ps1 の Import-ModuleCsv が共通
+                           機構として自動フィルタするため、モジュール側に
+                           追加実装は不要。
   WaitProcessName    No    プロセス終了待機（後述）
 
 ■ 各カラムの詳細
@@ -138,6 +147,21 @@ EXEパスと引数を指定して実行する用途全般に使用します。
   成功と失敗が混在            → Partial
   全エントリ失敗              → Error
   全エントリスキップ          → Skipped
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ 冪等性
+本モジュールは冪等性を持ちません。Enabled=1 のエントリは毎回
+Start-Process によって再実行されます（ExecutablePath の存在確認以外に
+事前状態チェックは行いません）。再実行による多重実行リスクがある
+EXE では、EXE 側で多重起動防止や状態確認を行ってください。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+起動した EXE の処理内容はモジュールから観測不能なため、読み返し検証
+は行いません。New-BatchResult に -Verified を渡していないため、実行
+履歴の Verified 列は空欄になります。
 
 ■ パス解決の優先順位
 ExecutablePath の解決は以下の順序で行われます。

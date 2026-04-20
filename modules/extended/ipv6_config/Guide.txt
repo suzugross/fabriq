@@ -5,13 +5,19 @@
 [ipv6_list.csv]
   Enabled        : 有効フラグ（1=実行, 0=スキップ）
   AdapterPattern : アダプター名のパターン（ワイルドカード使用可）
-  IPv6State      : 設定状態（Enabled=有効化 / Disabled=無効化）
+  IPv6State      : 設定状態（0=Disable=無効化 / 1=Enable=有効化）
+                   ※ 実装は数値文字列 "0" / "1" で判定します。
+                   "Enabled"/"Disabled" の文字列では動作しません。
   Description    : 説明（表示用）
+  Segment        : Segment フィルタ（省略可）
+                   kernel/common.ps1 の Import-ModuleCsv が共通機構と
+                   して自動フィルタするため、モジュール側に追加実装は
+                   不要。
 
 [記載例]
-  1,イーサネット*,Disabled,有線LANのIPv6無効化
-  1,Ethernet*,Disabled,有線LAN（英語名）のIPv6無効化
-  1,Wi-Fi*,Disabled,Wi-FiのIPv6無効化
+  1,イーサネット*,0,有線LANのIPv6無効化,
+  1,Ethernet*,0,有線LAN（英語名）のIPv6無効化,
+  1,Wi-Fi*,0,Wi-FiのIPv6無効化,
 
 ■ AdapterPattern について
 ワイルドカード（*）が使用できます。
@@ -25,3 +31,14 @@ OSの言語によりアダプター名が異なるため、日本語名と英語
 1. ipv6_list.csv を読み込み、対象アダプターを一覧表示
 2. 実行確認（Y/N）
 3. 各アダプターの IPv6 バインディングを有効/無効に設定
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+Set-NetAdapterBinding の戻り値を信頼してモジュール結果を返却します。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified
+列は空欄になります。手動で
+  Get-NetAdapterBinding -Name <name> -ComponentID ms_tcpip6
+等で確認してください。

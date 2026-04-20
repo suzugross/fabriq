@@ -4,17 +4,55 @@
 ■ 設定ファイル
 [builtin_admin.csv]
   Enabled              : 有効フラグ（1=実行, 0=スキップ）
-  Password             : 設定するパスワード
+                         ※ この列は有効化フラグと Enable/Disable の両方を兼ねます。
+                           1 = Administrator アカウントを有効化してパスワードを設定
+                           0 = Administrator アカウントを無効化
+                         ※ Import-ModuleCsv -FilterEnabled を使わず手動で取得するため、
+                           0 の行でも読み込まれ、Disable 操作が実行されます。
+  Password             : 設定するパスワード（ENC: プレフィックス暗号化対応）
   PasswordNeverExpires : パスワード無期限（1=無期限, 0=有効期限あり）
   Description          : 説明（表示用）
+  Segment              : Segment フィルタ（省略可）
+                         ※ Segment は kernel/common.ps1 の Import-ModuleCsv が
+                           自動フィルタする共通機構。
 
 [記載例]
-  1,P@ssw0rd123,1,Administratorアカウント設定
+  1,P@ssw0rd123,1,Administratorアカウント設定,
 
 ■ 前提条件
 ・管理者権限が必要です
+  - Set-LocalUser / Enable-LocalUser / Disable-LocalUser の実行に必須
+  - 本スクリプトは Test-AdminPrivilege の明示チェックを持ちませんが、
+    管理者権限なしでは Set-LocalUser が失敗します
+・Administrator アカウントが存在すること（Get-LocalUser で事前確認）
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして
+CSV の設定を自動適用します。
+
+■ 冪等性について
+- アカウント存在確認（Get-LocalUser）は実装されています
+- ただし、パスワード・有効期限・説明は「現在値との比較」なしで毎回上書きします
+  （パスワードは Get-LocalUser では読み取れないため構造的に比較不可）
+- 何度実行しても結果は同じですが、毎回 Set-LocalUser が呼ばれる点に注意
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-ModuleResult に -Verified は渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+[Verification を実装しない理由]
+- パスワード値は Get-LocalUser では取得できない（セキュリティ上の仕様）
+- 結果として「パスワードが正しく設定されたか」を読み返しで検証できません
+- Enabled 状態や PasswordExpires 状態の検証は技術的には可能ですが、
+  肝心のパスワード検証ができないため Verification 全体を非実装としています
+
+■ 使用環境変数
+- $env:SELECTED_SEGMENT : Segment フィルタ（Import-ModuleCsv が暗黙参照）
+- その他の Fabriq 環境変数は参照しません
 
 ■ 動作の流れ
 1. builtin_admin.csv を読み込み
 2. Administrator アカウントの存在を確認
-3. 実行確認（Y/N）後、パスワードと有効期限ポリシーを設定
+3. 実行確認（Y/N）後、アカウント Enable/Disable → パスワード設定 →
+   PasswordNeverExpires → Description の順に適用

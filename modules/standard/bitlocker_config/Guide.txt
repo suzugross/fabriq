@@ -1,29 +1,154 @@
 ■ 概要
-BitLockerドライブ暗号化を有効にし、回復キーをエビデンスとして保存します。
+BitLocker ドライブ暗号化の「有効化 → 進捗待機 → 無効化」を行うモジュールです。
+回復キーは自動的にエビデンスとして保存されます。
+
+■ 収録スクリプト（module.csv）
+
+[BitLocker Enable]     bitlocker_config.ps1
+  対象ドライブの BitLocker を有効化し、回復キーをエビデンス保存する。
+  TPM-only / TPM+PIN（TpmAndPin）両対応。
+
+[BitLocker Disable]    bitlocker_disable.ps1
+  対象ドライブの BitLocker を無効化（復号化）する。
+  既に FullyDecrypted / DecryptionInProgress のドライブは冪等にスキップ。
+  EncryptionInProgress のドライブは暗号化を中断して復号に転じる。
+
+[BitLocker Await]      bitlocker_await.ps1
+  Encrypting / Decrypting 中のドライブが完了（FullyEncrypted /
+  FullyDecrypted）するまでポーリング待機する。
+  30 秒間隔、30 分進行なしでドライブ単位に停滞タイムアウト判定。
 
 ■ 設定ファイル
+
 [bitlocker_list.csv]
   Enabled          : 有効フラグ（1=実行, 0=スキップ）
   TargetDrive      : 対象ドライブ（例: C:, D:）
-  EncryptionMethod : 暗号化方式（例: XtsAes128, XtsAes256）
+  EncryptionMethod : 暗号化方式（XtsAes128 / XtsAes256 等）
   UsedSpaceOnly    : 使用領域のみ暗号化（TRUE / FALSE）
   SkipHardwareTest : ハードウェアテストをスキップ（TRUE / FALSE）
   AutoUnlock       : 自動ロック解除（TRUE / FALSE）※データドライブ向け
   Description      : 説明（表示用）
+  Pin              : TpmAndPin Protector 用 PIN（空欄=TPM-only、下記参照）
+                     ENC: プレフィックス付き暗号化文字列も利用可
+  Segment          : Segment フィルタ（省略可）
 
-[記載例]
-  1,C:,XtsAes128,FALSE,TRUE,FALSE,システムドライブ
-  1,D:,XtsAes128,FALSE,FALSE,TRUE,データドライブ
+  [記載例]
+  Enabled,TargetDrive,EncryptionMethod,UsedSpaceOnly,SkipHardwareTest,AutoUnlock,Description,Pin,Segment
+  1,C:,XtsAes128,FALSE,TRUE,FALSE,System drive,,
+  1,D:,XtsAes128,FALSE,FALSE,TRUE,Data drive,,
+
+■ PIN（TpmAndPin Protector）の指定方法
+
+PIN 解決の優先順位:
+  1. 環境変数 $env:SELECTED_PIN（hostlist.csv からセッション開始時に設定）
+  2. bitlocker_list.csv の Pin 列
+  3. 指定なし → TPM-only で暗号化
+
+PIN が数字のみでない（記号・英字を含む）場合、自動的に Enhanced PIN が
+有効化されます（HKLM\SOFTWARE\Policies\Microsoft\FVE\UseEnhancedPin=1）。
+
+ENC: プレフィックス付きの PIN は Fabriq 起動時のマスターパスフレーズで
+復号されます。復号に失敗した ENC: 値は PIN として使えず、
+モジュールは Error で停止します。
+
+PIN Protector は OS ドライブ（VolumeType=OperatingSystem）にのみ適用されます。
+データドライブに PIN が指定されていても、Warning 表示後に TPM-only として扱います。
 
 ■ 前提条件
-・TPMが搭載され、有効化されていること
-
-■ 回復キーの保存先
-統合パスモード: {セッションタイムスタンプ}_{PC名}_{SN}_evidence\bitlocker\
-フォールバック:  evidence\bitlocker\日付_UID_PC名\
+・TPM が搭載され、有効化されていること（Get-Tpm.TpmPresent が true）
+  ※ TpmReady=false でも Warning を出しつつ処理は継続します
+・管理者権限が必要です（Enable/Disable/Await すべて）
+・PIN を使用する場合は Fabriq 起動時のマスターパスフレーズ入力が必要
+  （ENC: を復号するため）
 
 ■ 動作の流れ
-1. TPMの状態を確認
-2. bitlocker_list.csv を読み込み、ドライブの現在の状態を表示
-3. 実行確認（Y/N）
-4. BitLockerを有効化し、回復キーをエビデンスに保存
+
+  [BitLocker Enable]
+  1. TPM 状態確認（TpmPresent 必須、TpmReady は Warning のみ）
+  2. bitlocker_list.csv を読み込み（Enabled=1 のみ）
+  3. PIN 解決（hostlist → CSV → なし）、ENC: ガード判定
+  4. ドライブ存在確認 + 現在の BitLocker 状態表示
+  5. 実行確認（Y/N、AutoPilot モードは自動 Y）
+  6. PIN 利用がある場合のみ FVE レジストリポリシーを設定
+     （UseAdvancedStartup=1, UseTPMPIN=1, 必要に応じ UseEnhancedPin=1）
+  7. エビデンス出力ディレクトリ決定
+     ・統合パスモード: $global:FabriqEvidenceBasePath\bitlocker\
+     ・フォールバック: evidence\bitlocker\<日付>_<UID>_<PC名>\
+  8. ドライブごとに BitLocker 処理
+     ・既に ProtectionStatus=On かつ PIN 要求あり + TpmPin 未保有
+       → TpmAndPin 追加 + 古い Tpm-only Protector 削除
+     ・既に ProtectionStatus=On（PIN 要件満たす or PIN 不要）→ Skip
+     ・未暗号化 → Enable-BitLocker で有効化
+       - PIN あり: TpmAndPinProtector + RecoveryPasswordProtector を別途追加
+       - PIN なし: TPM-only + RecoveryPasswordProtector
+  9. 回復キー（RecoveryPassword）取得
+  10. エビデンスファイル出力（<PC名>_<ドライブ名>.txt、TpmPin は記録しない）
+  11. AutoUnlock=TRUE のデータドライブで Enable-BitLockerAutoUnlock
+
+  [BitLocker Disable]
+  1. bitlocker_list.csv 読み込み（Enabled=1 のみ、TargetDrive 列のみ使用）
+  2. ドライブごとの現状表示
+     ・FullyDecrypted → [ALREADY OFF]
+     ・DecryptionInProgress → [DECRYPTING]
+     ・EncryptionInProgress → [DISABLE]（暗号化を中断し復号に転じる）
+     ・FullyEncrypted / その他 → [DISABLE]
+  3. 無効化対象が 0 件なら Status=Skipped で終了
+  4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+  5. Disable-BitLocker 実行（復号化はバックグラウンドで進行）
+
+  [BitLocker Await]
+  1. bitlocker_list.csv 読み込み（Enabled=1 のみ）
+  2. ドライブごとの現状表示
+     ・FullyEncrypted / FullyDecrypted / NOT FOUND / その他 → 監視対象外
+     ・EncryptionInProgress / DecryptionInProgress → [ENCRYPTING] / [DECRYPTING]
+  3. 監視対象が 0 件なら Status=Skipped で終了
+  4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+  5. 30 秒間隔で進捗ポーリング
+     ・暗号化: EncryptionPercentage 増加で進行と判定
+     ・復号化: EncryptionPercentage 減少で進行と判定
+     ・30 分進行なしのドライブ個別にタイムアウト（Error 表示、監視対象外に）
+  6. 全ドライブが完了またはタイムアウトすればループ終了
+  7. 最終確認で FullyEncrypted / FullyDecrypted を Success、
+     想定外状態を Error として集計
+
+■ AutoPilot
+全 3 スクリプトとも AutoPilot モードで確認が自動 Y になります。
+典型的な Profile 構成:
+  ... hostname_config, ipaddress_config 等 ...
+  → bitlocker_config.ps1           （有効化トリガー）
+  → bitlocker_await.ps1            （完了まで待機、バッチで時間を消費）
+  → 後続モジュール
+
+■ Post-Apply Verification
+現在、Enable/Disable/Await のいずれも `-Verified` フラグは返却していません。
+
+・Enable : 回復キー取得 + エビデンスファイル出力をもって成功扱い。
+           暗号化は非同期でバックグラウンド進行するため、ここでの
+           Verified=true は「完了」を意味しないこと。完了確認は
+           bitlocker_await.ps1 に委譲しています。
+・Disable: Disable-BitLocker 実行の受理をもって成功扱い。復号完了は Await で確認。
+・Await  : FullyEncrypted / FullyDecrypted 判定で Success 集計しますが、
+           BatchResult の -Verified フラグは未設定です。
+
+■ 冪等性
+・Enable  : ProtectionStatus=On のドライブは Skip（PIN 追加が必要な場合のみ
+            Tpm→TpmAndPin へアップグレード）。回復キーは改めて保存。
+・Disable : FullyDecrypted / DecryptionInProgress のドライブは Skip。
+・Await   : 進行中でないドライブは最終集計側で Skip 扱い。
+
+■ 使用環境変数
+・$env:SELECTED_PIN       — hostlist.csv の Pin 列（PC 固有の PIN 指定）
+・$env:SELECTED_NEW_PCNAME — エビデンスファイル名の PC 名部分
+・$global:FabriqEvidenceBasePath — 統合パスモード時の出力先
+・$global:FabriqUniqueId         — フォールバック時のエビデンスパス UID
+
+■ 注意事項
+・Enable でエビデンスに保存されるのは RecoveryPassword のみで、
+  TpmPin の内容は記録しません（セキュリティ配慮）。
+・PIN 使用時に FVE レジストリポリシーを書き換えるため、
+  グループポリシーで FVE を管理している環境では運用方針と衝突しないか
+  事前確認してください。
+・AutoUnlock はシステムドライブが FullyEncrypted になってから有効化される
+  仕様のため、Enable 直後の AutoUnlock 設定は失敗することがあります
+  （Warning のみで処理は継続）。bitlocker_await の後に再実行すると
+  Skip パスから AutoUnlock が適用可能です。

@@ -10,6 +10,8 @@ AutoPilot ErrorMode / Resume といった全機能パターンを再現できる
 [test_harness_list.csv]
   Enabled    : 有効フラグ（1=実行 / 0=スキップ）
   Segment    : Profile 側の Segment 値で絞り込むキー（空欄=既定）
+               kernel/common.ps1 の Import-ModuleCsv が共通機構として
+               自動フィルタするため、モジュール側に追加実装は不要。
   TestName   : 表示名 兼 状態保存キー
   Behavior   : item の挙動（success / fail / skip / cancel）
   Verified   : item の Verified 結果（true / false / 空欄）
@@ -51,6 +53,16 @@ AutoPilot ErrorMode / Resume といった全機能パターンを再現できる
 ■ 前提条件
   - 副作用がないため管理者権限は不要
   - メニューから単独実行する場合、Confirm のため通常実行で十分
+
+■ 使用環境変数 / グローバル変数
+  - $global:FabriqTestHarnessState : FailFirstN の試行回数カウンタ
+    （メモリ上の Hashtable。PowerShell プロセス終了でリセット）
+  - $env:FABRIQ_SEGMENT            : Import-ModuleCsv の Segment フィルタ
+    に共通層で使用される（main.ps1 が Profile 実行時にセット）
+
+■ AutoPilot
+  AutoPilot モードでは Confirm-ModuleExecution を自動 Y 相当で通過し、
+  CSV シナリオを自動適用します。
 
 ■ Profile での使い方
   Profile CSV から Segment 列でシナリオを選択する。

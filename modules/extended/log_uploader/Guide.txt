@@ -2,15 +2,30 @@
 Fabriq の logs/ および evidence/ ディレクトリを指定先にアップロードします。
 プロファイル実行完了後に自動実行されるほか、手動でも実行できます。
 
+■ 前提条件
+・管理者権限で実行すること（robocopy が UNC 共有へ書き込む場合など）
+・ネットワーク接続（UNC 宛先を使用する場合）
+・Windows 標準の robocopy.exe が利用可能であること
+
 ■ 設定ファイル
 [kernel\csv\log_destinations.csv]（モジュール外の共通設定）
-  Enabled  : 有効フラグ（1=実行, 0=スキップ）
-  DestPath : アップロード先パス（ローカルパスまたはUNCパス）
+  本モジュールは、自モジュール内に専用 CSV を持たず、fabriq の共通
+  CSV ディレクトリ（kernel\csv\log_destinations.csv）を参照します。
+  これにより同じアップロード先設定を他モジュールとも共有できます。
+
+  Path        : アップロード先パス（ローカルパスまたはUNCパス）
+  Type        : 種別（UNC / Local）
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  AuthUser    : UNC 認証用ユーザー名（省略可。空欄で認証スキップ）
+  AuthPass    : UNC 認証用パスワード（省略可）
+                ENC: プレフィックスによる暗号化値にも対応
   Description : 説明（表示用）
 
+  ※ Segment 列は本 CSV にはありません（全セグメント共通で使用）。
+
 [記載例]
-  1,\\\\server\share\kitting_logs,ファイルサーバー
-  1,D:\KittingLogs,ローカルバックアップ
+  \\server\share\kitting_logs,UNC,1,DOMAIN\svc,P@ssw0rd,ファイルサーバー
+  D:\KittingLogs,Local,1,,,ローカルバックアップ
 
 ■ アップロード先のフォルダ構成
 アップロード先に「タイムスタンプ_ホスト名_シリアル番号」のフォルダが作成され、
@@ -19,5 +34,25 @@ Fabriq の logs/ および evidence/ ディレクトリを指定先にアップ�
 ■ 動作の流れ
 1. log_destinations.csv を読み込み
 2. トランスクリプトを一時停止（ログファイルのロック解除）
-3. robocopy で各宛先にコピー
-4. トランスクリプトを再開
+3. AuthUser/AuthPass が両方設定されている UNC 宛先は net use で認証
+4. robocopy で各宛先にコピー（/E /NJH /NJS /NDL /NP /R:2 /W:1）
+5. finally 句で net use /delete により確実に切断
+6. トランスクリプトを再開
+
+■ UNC 認証（AuthUser / AuthPass）
+AuthUser と AuthPass が両方空でない場合にのみ net use による認証を
+試みます。どちらか一方でも空ならば認証をスキップし、現在のユーザー
+コンテキストでアクセスを試みます。ENC: プレフィックスの暗号化
+パスワードは kernel/common.ps1 の復号処理に委譲されます。
+
+■ AutoPilot
+本モジュールは Confirm-ModuleExecution を介した確認プロンプトを持たず、
+ログ転送の性質上 AutoPilot/手動どちらでも同一動作で実行されます。
+
+■ Post-Apply Verification
+厳密な Post-Apply Verification は実装していませんが、各 robocopy
+実行の ExitCode を受けて成功/失敗を判定し、$successCount / $failCount
+に集計して New-ModuleResult で返却します。ただし New-ModuleResult の
+-Verified パラメータは使用していないため、実行履歴の Verified 列は
+空欄になります。手動で UNC / ローカルパス側の生成フォルダ
+（タイムスタンプ_ホスト名_シリアル番号）を開いて中身を確認してください。

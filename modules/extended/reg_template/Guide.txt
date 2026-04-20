@@ -12,6 +12,7 @@
   Enabled      : 有効フラグ（1=実行, 0=スキップ）
   RegistryPath : レジストリパス（フルパス）
   Description  : 説明（表示用）
+  Segment      : Segment フィルタ（省略可）
 
 [記載例]
   1,HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Bags\1\Desktop,デスクトップアイコン配置
@@ -20,6 +21,24 @@
 ■ バックアップの保存先
 backup/ ディレクトリにタイムスタンプ付きの .reg ファイルが作成されます。
 同じキーの複数バックアップが保持され、インポート時は最新が使用されます。
+ファイル名形式: yyyyMMdd_HHmmss_<サニタイズ済みレジストリパス>.reg
+
+■ 前提条件
+・管理者権限が必要です
+  （HKLM 配下のキーを reg export / reg import する場合に必要。
+   HKCU のみを扱う場合でも、運用環境によっては管理者権限が必要になります）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして処理を自動実行します。
+（Backup: 対象キーを即エクスポート / Import: 各キーの最新 .reg を即インポート）
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+Backup / Import とも reg.exe の ExitCode で成否を判定しますが、
+書き出した .reg の内容検証、あるいはインポート後のレジストリ値の読み返し
+検証は行っていません。
+New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 動作の流れ（Backup）
 1. reg_list.csv を読み込み、レジストリキーの存在を確認

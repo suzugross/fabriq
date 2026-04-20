@@ -1,0 +1,166 @@
+■ 概要
+Windows 11 のスタートメニュー（ピン留めレイアウト）を
+「Backup → Build → Import → Delete」の 4 フェーズで管理するモジュールです。
+
+フロー全体像:
+  [現在のスタートメニュー]
+      │
+      │ Backup: Export-StartLayout
+      ▼
+  json/<FileName>.json
+      │
+      │ Build: customizations.xml 生成 + ICD.exe でビルド
+      ▼
+  xml/<FileName>.xml  +  ppkg/<FileName>.ppkg
+      │
+      │ Import: Install-ProvisioningPackage
+      ▼
+  [PPKG 適用されたスタートメニュー]
+      │
+      │ Delete: Get-/Remove-ProvisioningPackage
+      ▼
+  [PPKG 解除]
+
+■ 収録スクリプト（module.csv）
+
+[Start Layout Backup]     startlayout_backup_config.ps1
+  現在のスタートメニューを JSON にエクスポート
+
+[Start Layout Build]      startlayout_build_config.ps1
+  JSON → customizations.xml → .ppkg へビルド（Windows ADK 必須）
+
+[Start Layout Import]     startlayout_import_config.ps1
+  生成済み .ppkg をシステムにインストール
+
+[Start Layout Delete]     startlayout_delete_config.ps1
+  インストール済み PPKG をアンインストールし、ファイル本体も削除
+
+■ 設定ファイル
+
+[startlayout_list.csv]
+  Enabled  : 有効フラグ（1=実行, 0=スキップ）
+  Id       : 連番識別子（表示用）
+  FileName : ファイル共通ベース名（拡張子なし。json/xml/ppkg で共通）
+  Segment  : Segment フィルタ（省略可）
+
+  [記載例]
+  Enabled,Id,FileName,Segment
+  1,1,startlayout,
+
+  ※ FileName="startlayout" の場合、
+     json/startlayout.json / xml/startlayout.xml / ppkg/startlayout.ppkg
+     が入出力対象になります。
+
+■ サブディレクトリ構成
+  startlayout_config/
+    startlayout_backup_config.ps1
+    startlayout_build_config.ps1
+    startlayout_import_config.ps1
+    startlayout_delete_config.ps1
+    startlayout_list.csv
+    json/   ← Backup の出力先（自動作成）
+    xml/    ← Build の中間成果物（自動作成）
+    ppkg/   ← Build の最終成果物、Import の入力（自動作成）
+
+■ 前提条件（スクリプト別）
+
+  [Backup]
+  ・Windows 11 環境（Export-StartLayout cmdlet 必須）
+  ・管理者権限は不要（現ユーザーのレイアウトをエクスポート）
+
+  [Build]
+  ・Windows ADK（Configuration Designer コンポーネント）がインストール済み
+    ICD.exe の検索パス:
+      ${ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\
+          Imaging and Configuration Designer\x86\ICD.exe
+      $ProgramFiles\Windows Kits\10\Assessment and Deployment Kit\
+          Imaging and Configuration Designer\x86\ICD.exe
+      または PATH 上の ICD.exe
+  ・StoreFile (Microsoft-Desktop-Provisioning.dat 等) が ICD.exe と同じ
+    ディレクトリにあれば自動検出（なければ ICD 既定を使用）
+  ・入力 JSON が json/<FileName>.json に存在すること
+
+  [Import]
+  ・Install-ProvisioningPackage cmdlet（Windows 10/11 標準）
+  ・管理者権限が必要
+  ・入力 PPKG が ppkg/<FileName>.ppkg に存在すること
+
+  [Delete]
+  ・Get-ProvisioningPackage / Remove-ProvisioningPackage cmdlet
+  ・管理者権限が必要
+
+■ 動作の流れ
+
+  [Backup]
+  1. startlayout_list.csv を読み込み（Enabled=1 のみ）
+  2. Export-StartLayout cmdlet の存在確認
+  3. ドライラン表示（出力先ごとに [NEW] / [OVERWRITE]）
+  4. 実行確認（Y/N）
+  5. json/ ディレクトリ自動作成 → Export-StartLayout で JSON 出力
+  6. 出力後、ファイル存在とサイズ>0 を検証
+
+  [Build]
+  1. startlayout_list.csv を読み込み（Enabled=1 のみ）
+  2. 前提条件チェック
+     ・ICD.exe 検出
+     ・StoreFile 検出（オプション）
+     ・入力 JSON 存在確認
+  3. ドライラン表示（PPKG 既存なら [REBUILD]、なければ [NEW]）
+  4. 実行確認（Y/N）
+  5. 実行
+     5-1. xml/, ppkg/ ディレクトリを必要に応じて作成
+     5-2. JSON を読込・パース、pinnedList の件数を表示
+     5-3. JSON を圧縮 + XML エスケープ
+     5-4. customizations.xml を UTF-8 BOM 付きで生成
+          （Settings/Customizations/Common/Policies/Start/ConfigureStartPins
+            に圧縮 JSON を埋め込み）
+     5-5. ICD.exe で .ppkg にビルド
+
+  [Import]
+  1. startlayout_list.csv を読み込み（Enabled=1 のみ）
+  2. Install-ProvisioningPackage cmdlet / PPKG ファイル存在確認
+  3. ドライラン表示（既インストールなら [REINSTALL]、なければ [INSTALL]）
+  4. 実行確認（Y/N）
+  5. Install-ProvisioningPackage -QuietInstall -ForceInstall で適用
+
+  [Delete]
+  1. startlayout_list.csv を読み込み（Enabled=1 のみ）
+  2. Get-/Remove-ProvisioningPackage cmdlet の存在確認
+  3. ドライラン表示（インストール済みなら [INSTALLED] + PackageId、
+                    なければ [NOT FOUND]）
+  4. 実行確認（Y/N）
+  5. 削除処理
+     Phase 1: Remove-ProvisioningPackage -PackageId で cmdlet 経由削除
+     Phase 2: $pkg.PackagePath の .ppkg ファイルが残っていれば物理削除
+     Phase 3: Get-ProvisioningPackage で再クエリし、完全に解除されたことを検証
+
+■ AutoPilot
+全 4 スクリプトとも AutoPilot モードで確認が自動 Y になります。
+典型的な運用では「Build だけ手動で事前実施、Import は Profile に組み込み」
+という使い分けになります。
+
+■ Post-Apply Verification
+
+  [Backup]  ファイル存在 + サイズ>0 のチェックあり
+  [Build]   中間 XML・最終 PPKG の生成可否は実装で検証、ただし
+            New-BatchResult に -Verified は渡していません
+  [Import]  Install-ProvisioningPackage の成否のみで判定（-Verified なし）
+  [Delete]  Phase 3 で Get-ProvisioningPackage 再クエリによる
+            削除完了検証あり（ただし -Verified 引数は未使用）
+
+■ 冪等性
+・Backup : 既存 JSON は上書き（[OVERWRITE] 表示で明示）
+・Build  : 既存 PPKG は再生成（[REBUILD] 表示で明示）
+・Import : 既インストール PPKG は ForceInstall で上書きインストール
+・Delete : 未インストールの PPKG は Skip
+
+■ 注意事項
+・Build 段階で埋め込む JSON は pinnedList キーを想定しています。
+  キーがない場合も処理は継続しますが、Warning が表示されます。
+・Import で PPKG を適用しても、既にサインイン中のユーザーの
+  スタートメニューへの反映には再ログオンが必要な場合があります。
+・Delete は「PPKG のアンインストール + .ppkg ファイル本体の物理削除」
+  を行います。PPKG で配布した他の設定（ポリシー等）も同時に解除される
+  点に注意してください。
+・本モジュールは Windows 10 では Export-StartLayout の JSON 形式非対応の
+  ため、原則 Windows 11 環境でのみ使用してください。
