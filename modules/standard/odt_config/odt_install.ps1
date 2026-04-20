@@ -12,9 +12,16 @@
 #   XmlFileName : ODT config XML filename (resolved under AssetsFolder)
 #   Description : Display name
 #   AssetsFolder: (optional) Per-entry assets folder containing XmlFileName
-#                 and the Office\ offline source. Relative paths are resolved
-#                 from the module root. If omitted, defaults to assets\.
+#                 and (Offline mode only) the Office\ offline source.
+#                 Relative paths are resolved from the module root.
+#                 If omitted, defaults to assets\.
 #                 setup.exe is always loaded from assets\ regardless.
+#   Mode        : (optional) "Offline" (default) or "Online".
+#                  Offline: SourcePath is forcibly rewritten to AssetsFolder
+#                           absolute path. Office\ offline source required.
+#                  Online : SourcePath attribute is removed so ODT downloads
+#                           from the Microsoft CDN. Office\ not required.
+#                  If the column is absent or empty, Offline is assumed.
 # ========================================
 
 Write-Host ""
@@ -47,6 +54,15 @@ if ($enabledEntries.Count -eq 0) {
 $AssetsDir   = Join-Path $PSScriptRoot "assets"
 $SetupExePath = Join-Path $AssetsDir "setup.exe"
 
+# Resolve install mode from entry (Offline default, optional Mode column)
+function Get-EntryMode {
+    param($Entry)
+    if ($Entry.PSObject.Properties['Mode'] -and -not [string]::IsNullOrWhiteSpace($Entry.Mode)) {
+        if ($Entry.Mode.Trim() -ieq "Online") { return "Online" }
+    }
+    return "Offline"
+}
+
 # ========================================
 # 3. Pre-flight Check
 # ========================================
@@ -76,15 +92,19 @@ foreach ($entry in $enabledEntries) {
     $xmlPath   = Join-Path $entryAssetsDir $entry.XmlFileName
     $xmlExists = Test-Path $xmlPath
 
+    $entryMode = Get-EntryMode -Entry $entry
+
     if ($xmlExists) {
         Write-Host "  $desc" -ForegroundColor Yellow
         Write-Host "    XML:    $($entry.XmlFileName)"
         Write-Host "    Assets: $entryAssetsDir"
+        Write-Host "    Mode:   $entryMode"
     }
     else {
         Write-Host "  $desc [XML NOT FOUND]" -ForegroundColor Red
         Write-Host "    XML:    $($entry.XmlFileName)"
         Write-Host "    Assets: $entryAssetsDir"
+        Write-Host "    Mode:   $entryMode"
         $missingCount++
     }
     Write-Host ""
@@ -227,8 +247,9 @@ foreach ($entry in $enabledEntries) {
     }
 
     try {
-        # (a) Load XML and rewrite <Add SourcePath> to absolute assets path
-        Show-Info "Rewriting SourcePath in $($entry.XmlFileName)..."
+        # (a) Load XML and adjust <Add SourcePath> based on Mode
+        $entryMode = Get-EntryMode -Entry $entry
+        Show-Info "Preparing XML for $entryMode install..."
         $XmlContent = [xml](Get-Content $ConfigXmlPath -Encoding UTF8)
 
         if ($null -eq $XmlContent.Configuration) {
@@ -244,9 +265,20 @@ foreach ($entry in $enabledEntries) {
             continue
         }
 
-        $AddNode.SetAttribute("SourcePath", $entryAssetsDir)
+        if ($entryMode -ieq "Online") {
+            # Online: remove SourcePath so ODT downloads from Microsoft CDN
+            if ($AddNode.HasAttribute("SourcePath")) {
+                $AddNode.RemoveAttribute("SourcePath")
+            }
+            Show-Info "Online mode: SourcePath removed (CDN download)"
+        }
+        else {
+            # Offline: rewrite SourcePath to the absolute assets path
+            $AddNode.SetAttribute("SourcePath", $entryAssetsDir)
+            Show-Info "Offline mode: SourcePath set to $entryAssetsDir"
+        }
+
         $XmlContent.Save($TempXmlPath)
-        Show-Info "SourcePath set to: $entryAssetsDir"
 
         # (b) Execute setup.exe /configure
         Show-Info "Starting setup.exe. This may take several minutes..."

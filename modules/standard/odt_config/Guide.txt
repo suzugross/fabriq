@@ -2,9 +2,20 @@
 Office Deployment Tool (ODT) 経由で Microsoft Office（Microsoft 365,
 Visio, Project 等）をインストールするモジュールです。
 
-ODT の XML 構成ファイルをエントリごとに指定でき、実行時に SourcePath を
-対応 assets フォルダの絶対パスに自動書き換えて setup.exe /configure を実行します。
-オフラインソース（Office\ フォルダ）を同梱しておけばオフラインインストールも可能です。
+エントリごとに以下の 2 つのインストール方式を選択できます:
+
+  [Offline（既定）]
+    AssetsFolder 配下に事前ダウンロード済みの `Office\` フォルダを置いておき、
+    そこからインストールする。スクリプト実行時に XML の <Add SourcePath> を
+    AssetsFolder の絶対パスへ自動書き換えします。
+
+  [Online]
+    Microsoft CDN（officecdn.microsoft.com）から逐次ダウンロードしてインストール
+    する。スクリプトは XML の <Add SourcePath> を除去してから setup.exe を実行
+    するため、XML 側に SourcePath が残っていても無害です。
+
+同一の XML を両モードで共用できるよう、SourcePath 属性はスクリプト側で制御します。
+XML には SourcePath を書かず保管し、CSV の `Mode` 列でモード切替するのが推奨です。
 
 既存 Click-to-Run Office が検出された場合はエラーで中止します（共存不可のため）。
 
@@ -18,12 +29,22 @@ ODT の XML 構成ファイルをエントリごとに指定でき、実行時�
                   ・相対パス → モジュールルート基準で解決
                   ・絶対パス → そのまま使用
                   ・setup.exe は常に assets\ から読み込まれます
+                  ・Online モードでも XML を置く場所として使用します
+                    （Office\ オフラインソースは不要）
+  Mode         : インストール方式（省略または空欄 = Offline）
+                  ・Offline : AssetsFolder の `Office\` からインストール
+                             （SourcePath を絶対パスに強制書換え）
+                  ・Online  : Microsoft CDN からダウンロードしてインストール
+                             （SourcePath 属性を除去）
   Segment      : Segment フィルタ（省略可）
 
   [記載例]
-  Enabled,XmlFileName,Description,AssetsFolder,Segment
-  1,configuration.xml,Microsoft 365 Install,assets\M365,
-  1,configuration.xml,Visio Install,assets\VISIO,
+  Enabled,XmlFileName,Description,AssetsFolder,Mode,Segment
+  1,configuration.xml,Microsoft 365 Install (Offline),assets\M365,Offline,
+  1,configuration.xml,Visio Install (Offline),assets\VISIO,Offline,
+  1,configuration.xml,Project Install (Online),assets\PROJECT,Online,
+
+  ※ 既存の CSV に Mode 列が無い場合は後方互換で Offline として扱われます。
 
 ■ フォルダ構成（推奨）
 
@@ -34,10 +55,19 @@ ODT の XML 構成ファイルをエントリごとに指定でき、実行時�
       setup.exe              ← ODT 実行ファイル（必須、共通で使用）
       M365/
         configuration.xml    ← ODT 構成 XML
-        Office/              ← オフラインソース（任意）
+        Office/              ← オフラインソース（Offline モード時のみ必須）
       VISIO/
         configuration.xml
         Office/
+      PROJECT/
+        configuration.xml    ← Online モードなら Office\ は不要
+
+Offline モードで使用するエントリの AssetsFolder には、ODT の
+`setup.exe /download <xml>` で事前にダウンロードした `Office\` フォルダが
+必須です。Office\ が無いまま Offline で実行すると、書き換えられた
+SourcePath のパスにソースが見つからず setup.exe がエラーで終了します。
+
+Online モードのエントリでは Office\ フォルダは不要です（XML のみ配置）。
 
 CSV で `AssetsFolder=assets\M365` を指定した場合、以下のように解決されます:
   XML パス         : <module>\assets\M365\configuration.xml
@@ -53,6 +83,11 @@ CSV で `AssetsFolder=assets\M365` を指定した場合、以下のように解
   事前アンインストールしてください。
 ・システムドライブに 10 GB 以上の空き容量を推奨（10 GB 未満は Warning）
 ・`assets\setup.exe` が存在すること（ない場合は Error 終了）
+・各 AssetsFolder 配下に ODT 構成 XML が存在すること
+・Offline モードを使う場合、該当 AssetsFolder 配下に `Office\` オフラインソース
+  が事前に配置されていること（`setup.exe /download <xml>` で取得する。
+  本モジュールは download 機能を持たない）
+・Online モードを使う場合、Microsoft CDN への HTTPS 疎通が必要
 
 ■ 動作の流れ
 1. odt_list.csv 読み込み（Enabled=1 のみ対象）
@@ -72,11 +107,14 @@ CSV で `AssetsFolder=assets\M365` を指定した場合、以下のように解
 4. 実行確認（Y/N、AutoPilot モードは自動 Y）
 5. エントリごとの実行ループ
    5-a. XML 不在なら Skip
-   5-b. 構成 XML を読み込み、<Configuration><Add> の SourcePath を
-        エントリの AssetsFolder 絶対パスに書換え、%TEMP% に一時 XML 保存
-   5-c. setup.exe /configure "<temp_xml>" を同期実行（-Wait）
-   5-d. 終了コード 0 → Success、それ以外 → Error
-   5-e. finally 句で一時 XML 削除 + ODT ログ（SetupExe(*.log)）を
+   5-b. Mode 列を解決（空欄または未定義 → Offline）
+   5-c. 構成 XML を読み込み、<Configuration><Add> を Mode に応じて編集:
+         ・Offline: SourcePath を AssetsFolder の絶対パスに書換え
+         ・Online : SourcePath 属性があれば除去（CDN ダウンロードに変更）
+        編集結果を %TEMP% に一時 XML として保存
+   5-d. setup.exe /configure "<temp_xml>" を同期実行（-Wait）
+   5-e. 終了コード 0 → Success、それ以外 → Error
+   5-f. finally 句で一時 XML 削除 + ODT ログ（SetupExe(*.log)）を
         エビデンスディレクトリ（$global:FabriqEvidenceBasePath\odt_logs\
         または .\evidence\odt_logs\）にコピー
 6. 集計結果を Status で返却
@@ -108,9 +146,15 @@ ODT の `/configure` は同じ XML で複数回実行しても害はありませ
 ■ 注意事項
 ・既存の C2R Office が検出された場合は問答無用で Error 終了します。
   SaRA 等で事前に綺麗にしてから実行してください。
-・ODT の XML は自動書換えされるため、リポジトリ上の XML ファイルは
-  SourcePath 属性が実行環境に依存しない状態で保管できます。
-  （実行時の書換えは一時ファイルに対して行われます）
+・ODT の XML は Mode に応じて自動編集されるため、リポジトリ上の XML は
+  SourcePath 属性を省略した形で保管するのが推奨です。
+  （実行時の編集は一時ファイルに対して行われ、リポジトリの XML は不変）
+・同じ XML を Offline / Online で共用する運用が可能です。
+  Mode=Offline のエントリでは AssetsFolder が SourcePath に注入され、
+  Mode=Online のエントリでは SourcePath が除去されます。
+・Online モードは Microsoft CDN からのダウンロードに数 GB 単位の通信が
+  発生します。setup.exe は Wait 同期実行のため、回線次第で数十分要します。
+  AutoPilot で Profile 実行する場合は所要時間を見越して順序設計してください。
 ・ストア版 OneNote などの AppX は環境クリーンアップフェーズで削除されます。
   ユーザーデータへの影響がない構成であることを事前確認してください。
 ・AutoPilot で連続実行する場合、setup.exe の所要時間（数分〜十数分）を
