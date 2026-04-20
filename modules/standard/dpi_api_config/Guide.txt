@@ -8,10 +8,21 @@ Windows APIで即時反映されるため、再起動は不要です。
   MonitorIndex : モニター番号（0=プライマリ, 1=セカンダリ, ...）
   ScalePercent : 拡大率（例: 100, 125, 150, 175, 200）
   Description  : 説明（表示用）
+  Segment      : Segment フィルタ（省略可）
 
 [記載例]
   1,0,150,プライマリモニターを150%に設定
   1,1,125,セカンダリモニターを125%に設定
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+NativeDpiHelper::GetCurrentDpi による現在値読み出しは適用前の冪等性チェック
+（既に目標値であればスキップ）のために使用しており、適用後に期待値と一致するかの
+読み返し検証は行いません。New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 動作の流れ
 1. dpi_list.csv を読み込み

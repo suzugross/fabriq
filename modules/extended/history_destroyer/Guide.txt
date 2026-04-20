@@ -2,13 +2,47 @@
 Windowsの各種履歴・キャッシュ・一時ファイルを一括削除します。
 キッティング完了後のクリーンアップに使用します。
 
+■ 前提条件
+・管理者権限で実行すること（イベントログ消去、レジストリ編集、
+  Prefetch 削除、Wi-Fi プロファイル削除などが管理者権限必須）
+・Explorer を一時停止 → 再起動するため、作業中は GUI 操作不可
+・Edge/Chrome のキャッシュ削除時、それぞれのプロセスが強制終了される
+
 ■ 設定ファイル
-[ssid_list.csv]（キッティング用Wi-FIプロファイル削除用）
+本モジュールは次の 3 つの CSV で構成されます。
+  1. module.csv       : モジュール登録情報（fabriq 共通）
+  2. destroy_list.csv : 削除ターゲット定義（本モジュールの中核）
+  3. ssid_list.csv    : Wi-Fi プロファイル削除対象リスト
+
+[destroy_list.csv] — 削除ターゲット定義
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  GroupName   : グループ名（表示・集計用。例: ExplorerHistory, TempFiles）
+  TargetName  : ターゲット名（表示・識別用）
+  ActionType  : 実行方式（次の 4 種類）
+                  DeletePath     : TargetPath 配下を再帰削除
+                                   （ワイルドカード指定対応）
+                  ClearRegistry  : TargetPath のレジストリキーの値を全削除
+                  Command        : TargetPath に書かれた PowerShell 文を
+                                   Invoke-Expression で実行
+                  Special        : 専用ハンドラ（TargetPath がハンドラ名）
+                                   例: clear-all-eventlogs / recycle-bin /
+                                   office-mru / edge-cleanup / chrome-cleanup /
+                                   search-index / wifi-ssid
+  TargetPath  : 削除対象パス／レジストリキー／コマンド文字列／ハンドラ名
+                （ActionType に応じて解釈が変わる）
+  IfNotFound  : 対象不在時の動作（Skip / Error）
+  Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
+
+[ssid_list.csv] — キッティング用Wi-FIプロファイル削除リスト
   Enabled     : 有効フラグ（1=削除対象, 0=スキップ）
   SSID        : 削除するWi-FiのSSID名
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可、共通機構で処理）
 
-[記載例]
+[記載例 (ssid_list.csv)]
   1,KittingNet-01,キッティング専用AP
   1,Setup-WiFi-Temp,セットアップ用一時SSID
 
@@ -29,5 +63,16 @@ Windowsの各種履歴・キャッシュ・一時ファイルを一括削除し�
 
 ■ 動作の流れ
 1. 実行確認（Y/N）
-2. 13ステップを順に実行
-3. Explorer を再起動して完了
+2. destroy_list.csv の Enabled=1 行を ActionType 別に処理
+3. Wi-Fi プロファイル削除（ssid_list.csv 参照）
+4. Explorer を再起動して完了
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+キャッシュ系は削除直後に OS が再生成する可能性があり、読み返し検証で
+false FAIL を引き起こすリスクが高いため意図的に非対応としています。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
+空欄になります。

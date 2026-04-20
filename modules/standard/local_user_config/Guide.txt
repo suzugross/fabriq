@@ -1,32 +1,92 @@
 ■ 概要
-このモジュールには2つのスクリプトがあります。
+このモジュールには 2 つのスクリプトがあります。
 
 [Create Local Users]
-  ローカルユーザーアカウントを作成し、グループに追加します。
+  ローカルユーザーアカウントを作成し、グループへ追加します。
 
 [Delete Local Users]
   ローカルユーザーアカウントを削除します。
 
 ■ 設定ファイル
-[local_user_list.csv]
-  Enabled                  : 有効フラグ（1=実行, 0=スキップ）
-  UserName                 : ユーザー名
-  Password                 : パスワード
-  PasswordNeverExpires     : パスワード無期限（1=無期限, 0=有効期限あり）
-  UserMayNotChangePassword : パスワード変更禁止（1=禁止, 0=変更可）
-  Group                    : 所属グループ（セミコロン区切りで複数指定可）
-  Description              : 説明（表示用）
 
-[記載例]
-  1,admin_user,P@ssw0rd,1,1,Administrators,管理者ユーザー
-  1,standard_user,Pass1234,0,0,Users,一般ユーザー
-  1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,リモート接続用
+[local_user_list.csv]
+  全 PC 共通で作成/削除するユーザーを定義します。
+    Enabled                  : 有効フラグ（1=実行, 0=スキップ）
+    UserName                 : ユーザー名
+    Password                 : パスワード
+    PasswordNeverExpires     : パスワード無期限（1=無期限, 0=有効期限あり）
+    UserMayNotChangePassword : パスワード変更禁止（1=禁止, 0=変更可）
+    Group                    : 所属グループ（セミコロン区切りで複数指定可）
+    Description              : 説明（表示用）
+    Segment                  : Segment フィルタ（省略可）
+
+  [記載例]
+    Enabled,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description,Segment
+    1,admin_user,P@ssw0rd,1,1,Administrators,管理者ユーザー,
+    1,standard_user,Pass1234,0,0,Users,一般ユーザー,
+    1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,リモート接続用,
+
+[local_user_host_list.csv] （任意）
+  PC 固有で追加するユーザーを定義します。
+  hostlist.csv の NewPCName と一致する行のみが対象に追加されます。
+  全 PC 共通ユーザーは local_user_list.csv 側に記載し、こちらは
+  PC 名で限定したい追加ユーザーのみを記載します。
+    Enabled                  : 有効フラグ（1=実行, 0=スキップ）
+    NewPCName                : 対象 PC 名（hostlist.csv の NewPCName と一致）
+    UserName                 : ユーザー名
+    Password                 : パスワード
+    PasswordNeverExpires     : 同上
+    UserMayNotChangePassword : 同上
+    Group                    : 同上
+    Description              : 説明（表示用）
+    Segment                  : Segment フィルタ（省略可）
+
+  [記載例]
+    Enabled,NewPCName,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description,Segment
+    1,NEW-PC-01,pc01_local,Pass0001,1,1,Users,PC01 専用アカウント,
 
 ■ Group の指定
 セミコロン（;）区切りで複数グループを指定できます。
-例: Users;Remote Desktop Users
+  例: Users;Remote Desktop Users
+
+■ 動作モード
+
+  [全 PC 共通モード]
+  local_user_host_list.csv が存在しない、または SELECTED_NEW_PCNAME が
+  未設定の場合、local_user_list.csv の内容のみを処理します。
+
+  [PC 固有マージモード]
+  local_user_host_list.csv が存在し、かつ SELECTED_NEW_PCNAME と一致する
+  行があれば、それらを共通ユーザー一覧に追加して処理します。
 
 ■ 動作の流れ
-1. local_user_list.csv を読み込み、対象ユーザーを一覧表示
-2. 実行確認（Y/N）
-3. ユーザー作成、パスワードポリシー設定、グループ追加を順に実行
+
+  [Create Local Users]
+  1. local_user_list.csv を読み込む
+  2. local_user_host_list.csv が存在すれば NewPCName で突合して追加
+  3. Enabled=1 のユーザーを一覧表示（Enabled=0 は [DISABLED] 表示）
+  4. 実行確認（Y/N）
+  5. ユーザー作成
+     ・既存ユーザーは SKIP（冪等性あり）
+     ・PasswordNeverExpires / UserMayNotChangePassword を反映
+     ・AccountNeverExpires は常に true で作成
+  6. Group 列のグループへ Add-LocalGroupMember で追加
+  7. Post-Apply Verification で各ユーザーの存在とグループ所属を検証
+
+  [Delete Local Users]
+  1. local_user_list.csv を読み込む（Enabled フィルタなし＝全行対象）
+  2. local_user_host_list.csv が存在すれば NewPCName で突合して追加
+  3. 削除対象ユーザーを一覧表示
+  4. 実行確認（Y/N）
+  5. ユーザー削除
+     ・存在しないユーザーは SKIP
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+Create Local Users のみ実装しています。
+適用後、Get-LocalUser でユーザーの存在を確認し、
+Get-LocalGroupMember で Group 列の各グループへの所属を検証します。
+結果は -Verified で返却されます。
+Delete Local Users は検証ステップを持ちません。

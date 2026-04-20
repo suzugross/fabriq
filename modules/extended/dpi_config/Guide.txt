@@ -1,32 +1,129 @@
 ■ 概要
-モニターごとのDPIスケーリング（拡大率）をレジストリ経由で設定します。
-standard の dpi_api_config（即時反映）とは異なり、サインアウトまたは再起動後に反映されます。
-Default プロファイルにも適用されるため、新規ユーザーにも設定が引き継がれます。
+モニターごとの DPI スケーリング（拡大率）をレジストリ経由で設定するモジュールです。
+以下 2 箇所に同時書き込みを行います:
+
+  ・HKCU\Control Panel\Desktop\PerMonitorSettings\<DisplayKey>\DpiValue
+  ・C:\Users\Default\ntuser.dat（HKU:\Hive）配下の同じパス
+
+これにより、現ユーザーと新規ユーザー（Default プロファイル）の両方に
+DPI スケーリングを設定できます。設定の反映にはサインアウトまたは再起動が必要です。
+
+即時反映で単一ディスプレイのみ対応する standard の `dpi_api_config` と比べ、
+extended の本モジュールは複数モニター・HardwareID 指定・Default プロファイル
+書き込みをサポートします。
 
 ■ 設定ファイル
+
 [dpi_list.csv]
   Enabled      : 有効フラグ（1=実行, 0=スキップ）
-  HardwareID   : ディスプレイのハードウェアID（AUTO=自動検出、空欄=対話選択）
-  ScalePercent : 拡大率（100 / 125 / 150 / 175 / 200）
+  HardwareID   : ディスプレイのハードウェア ID、AUTO、または空欄
+                  ・AUTO = プライマリディスプレイを自動検出
+                  ・具体的 ID（例: CMN14D40）= 前方一致で検索
+                  ・空欄 = 実行時に対話形式で選択（Interactive Display）
+  ScalePercent : 拡大率 100 / 125 / 150 / 175 / 200 のいずれか
+                  ・「0」または数値以外 = 実行時に対話形式で選択
+                                         （Interactive Scale）
   Description  : 説明（表示用）
+  Segment      : Segment フィルタ（省略可）
 
-[記載例]
-  1,AUTO,150,プライマリディスプレイ150%
-  1,CMN14D40,150,内蔵ディスプレイ
-  0,AUO403D0,125,外部モニター
+  [記載例]
+  Enabled,HardwareID,ScalePercent,Description,Segment
+  1,AUTO,150,Primary Display 150% (Auto Detect),
+  1,CMN14D40,150,Internal Display 150%,
+  0,AUO403D0,125,External Monitor 125%,
 
 ■ HardwareID の指定方法
-・AUTO : プライマリディスプレイを自動検出
-・具体的なID : デバイスマネージャーのモニターのハードウェアIDを指定
-・空欄 : 実行時に対話形式で選択
+
+HardwareID は Windows デバイスマネージャのモニターのハードウェア ID を
+参考にします。レジストリ上では
+  HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Configuration
+配下や
+  HKCU:\Control Panel\Desktop\PerMonitorSettings
+配下のサブキー名の先頭部分と前方一致します。
+
+[AUTO モード]
+  1. まず PerMonitorSettings 配下のキーを検索
+  2. 見つからなければ GraphicsDrivers\Configuration 配下を検索
+  3. 複数ヒットまたは 1 件も見つからなければ対話選択にフォールバック
+
+[空欄モード（Interactive Display）]
+  PerMonitorSettings + GraphicsDrivers から検出した全ディスプレイを
+  番号付きで表示して選択させます。
+
+[具体的 ID モード]
+  指定 ID で前方一致検索。ヒットしたキーに書き込みます。
+
+■ 拡大率（ScalePercent）の指定方法
+
+CSV に 100 / 125 / 150 / 175 / 200 を指定するか、「0」や数値以外を
+指定することで Interactive Scale モード（実行時に候補から選択）になります。
+対話選択ではモニター固有の「推奨値」マップに基づき Recommended 表示も
+併記されます（存在する場合）。
+
+内部的には DPI 値は「推奨値からの相対値」として保存されるため、
+モニターごとの推奨 DPI 情報に基づき ScalePercent → DpiValue を算出します。
 
 ■ 前提条件
-・管理者権限が必要です
-
-■ 注意事項
-・変更の反映にはサインアウトまたは再起動が必要です
+・管理者権限が必要です（`Test-AdminPrivilege` によるチェックあり、
+  不足時は Error で終了）
+・Default プロファイルへの書き込みのため、C:\Users\Default\ntuser.dat
+  へのアクセス権が必要です
+・HKCU リダイレクト（昇格セッション対応）のため `Resolve-HkcuRoot` を
+  利用します（ログオンユーザーと昇格ユーザーが異なる場合、
+  `HKU:\<SID>` に書き込みます）
 
 ■ 動作の流れ
-1. dpi_list.csv を読み込み
-2. 対象ディスプレイと変更先のDPIを表示
-3. 実行確認（Y/N）後、HKCU と Default プロファイルの両方にレジストリ書き込み
+1. 管理者権限チェック
+2. HKCU ターゲット解決（Resolve-HkcuRoot）
+3. dpi_list.csv を読み込み（Enabled=1 のみ対象）
+4. CSV 検証
+   ・HardwareID または ScalePercent 空欄・無効値は対話モードとして記録
+   ・無効行が全件なら Error で終了
+5. 対象ディスプレイ特定
+   ・空欄 → Interactive Display フラグ
+   ・AUTO → PerMonitorSettings → GraphicsDrivers の順で検索、
+            未検出/複数検出で Interactive にフォールバック
+   ・具体的 ID → 前方一致で検索
+6. ドライラン表示（番号付きで各エントリを表示、Interactive の箇所は
+   「[Interactive]」マーカー）
+7. 実行確認（Y/N、AutoPilot モードは自動 Y）
+8. Default プロファイル load（reg load $env:SystemDrive\Users\Default\
+   ntuser.dat → HKU:\Hive）
+9. 書き込みループ
+   9-1. Interactive Display なら対話選択
+   9-2. Interactive Scale なら対話選択（Recommended 値を表示）
+   9-3. ScalePercent → DpiValue 変換（推奨値との相対値）
+   9-4. HKCU 側の該当キーに DpiValue 書き込み（現在値と一致なら Skip）
+   9-5. HIVE 側の同じパスにも DpiValue 書き込み（Skip 判定あり）
+10. Default プロファイル unload（2 回までリトライ）
+11. 結果集計（`New-BatchResult` に -Verified は渡していません）
+
+■ AutoPilot
+AutoPilot モードでは初回確認（Y/N）が自動 Y になります。
+ただし Interactive Display / Interactive Scale が発生する構成では
+対話入力が必要なため、AutoPilot で完全自動実行したい場合は
+HardwareID と ScalePercent を両方とも CSV 側で具体的に指定してください。
+
+■ Post-Apply Verification
+本モジュールは現在 Post-Apply Verification を実装していません。
+New-BatchResult に -Verified フラグは渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+検証したい場合は、手動で以下を確認してください:
+  Get-ItemProperty 'HKCU:\Control Panel\Desktop\PerMonitorSettings\<key>' `
+      -Name DpiValue
+
+■ 冪等性
+各書き込みの直前に現在の DpiValue を取得し、目標値と一致していれば
+HKCU / HIVE それぞれで Skip します。HKCU も HIVE も一致なら全体として Skip。
+
+■ 注意事項
+・DPI の反映にはサインアウトまたは再起動が必要です。
+・モニターの追加・接続替え直後は PerMonitorSettings 配下に該当キーが
+  存在しないことがあります。この場合 AUTO / 前方一致ともに何も見つからず
+  Interactive フォールバックになります。
+・「推奨値（Recommended）」はモニター固有の推奨マップに基づきます。
+  未登録モニターでは共通のフォールバック推奨値（100%）を使用します。
+・本モジュールは Default プロファイルへの書き込みを伴うため、
+  単体実行ではなくプロファイル運用（hostname → 各種設定 → 新規ユーザー作成）
+  の一環で使うのが典型的な想定です。

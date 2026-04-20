@@ -7,10 +7,28 @@ This module automates Windows Update using the native COM API
 (Microsoft.Update.Session). It supports self-contained reboot loops:
 scan -> download -> install -> reboot -> repeat until no updates remain.
 
-[Standalone Operation]
-This module operates independently from fabriq Profiles.
-It manages its own reboot loop via RunOnce registry entries
-and a dedicated launcher (wu_launcher.bat).
+[Standalone Architecture]
+This module is intentionally STANDALONE: it does NOT have a module.csv,
+and is therefore NOT registered as a regular Profile-runnable module.
+Invocation happens from the main menu ([wu] shortcut) or programmatically
+via kernel/main.ps1 -> Invoke-WindowsUpdateLoop. Invoke-WindowsUpdateLoop
+owns the reboot loop: scan/download/install is one pass (this script),
+and the loop control (RunOnce, state handoff, post-reboot resume) lives
+in kernel/main.ps1.
+
+[Prerequisites]
+- Administrator privileges (Windows Update COM API requires SYSTEM-level
+  install rights which are acquired via admin + UAC elevation)
+- Network connectivity to Microsoft Update / WSUS
+- For AutoLogon-assisted reboot, modules/standard/autologon_config/
+  autologon_list.csv must contain a matching entry for the current user
+
+[Script Parameters (windows_update.ps1)]
+- SkipKBs     : string[]  Update IDs (KB numbers) to exclude from install
+- AutoConfirm : switch    When present, suppresses the confirmation
+                          prompt at scan-result display. Passed by
+                          Invoke-WindowsUpdateLoop during reboot-resume
+                          passes, and by main.ps1 when AutoInstall=1.
 
 [How to Use]
 1. Launch fabriq (Fabriq.bat)
@@ -47,12 +65,21 @@ and a dedicated launcher (wu_launcher.bat).
                           query explicitly includes DeploymentAction
                           'OptionalInstallation' alongside 'Installation'.
 
-[Session Integration]
-When AutoLaunchFabriq=1, the module saves wu_completed.json upon
-completion. When fabriq starts next, it detects this file and
-imports a summary line into execution_history.csv, so the Windows
-Update result appears in the same session report as subsequent
-Profile execution.
+[External Dependencies]
+- modules/standard/autologon_config/autologon_list.csv
+    When AutoLogonEnabled=1 is set in windows_update_list.csv, main.ps1
+    (Invoke-WindowsUpdateLoop) reads this CSV to configure a one-time
+    AutoLogon before reboot. The entry matching $env:USERNAME is used.
+    If the file is missing or no entry matches, AutoLogon is skipped
+    with a warning.
+
+[Session Integration via wu_completed.json]
+When Invoke-WindowsUpdateLoop finishes (either all updates installed
+or MaxRebootLoops reached), it writes wu_completed.json in this module
+directory. On next startup main.ps1 detects this file and imports a
+summary line into execution_history.csv, so the Windows Update result
+appears in the same session report as subsequent Profile execution.
+main.ps1 consumes and removes wu_completed.json as part of that import.
 
 [Runtime Files]
 - wu_state.json     : Loop state (created during reboot loop, deleted on completion)
@@ -64,3 +91,17 @@ Profile execution.
 - The module requires administrator privileges and network connectivity.
 - COM API operations are synchronous; MaxRebootLoops serves as the
   ultimate safety valve against indefinite execution.
+
+[AutoPilot]
+Under fabriq AutoPilot mode (or when AutoInstall=1 in CSV), main.ps1
+invokes windows_update.ps1 with -AutoConfirm. This suppresses the
+confirmation prompt at the scan-result screen and installs all
+discovered updates automatically.
+
+[Post-Apply Verification]
+This module does NOT call New-ModuleResult with -Verified.
+Each pass reports success/failure via the COM API's install-result
+HRESULT. Verification in the strict fabriq sense (read-back compare)
+is deferred to the next scan iteration: if a subsequent scan returns
+0 updates, the state is treated as fully applied. execution_history.csv
+Verified column remains empty for this module.

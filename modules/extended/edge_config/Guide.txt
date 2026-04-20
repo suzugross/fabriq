@@ -9,25 +9,75 @@
 
 ■ 設定ファイル（Restore用）
 [restore_dest.csv]
-  Enable   : 有効フラグ（1=実行, 0=スキップ）
-  DestPath : 復元先パス（%LOCALAPPDATA% 等の環境変数使用可）
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  DestPath    : 復元先パス（%LOCALAPPDATA% / %USERPROFILE% 等の
+                環境変数使用可。Expand-UserEnvironmentVariables で展開）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が自動フィルタします。
 
 [記載例]
-  1,C:\Users\Default\AppData\Local\Microsoft,Default Profile
-  1,%LOCALAPPDATA%\Microsoft,Current User
+  1,C:\Users\Default\AppData\Local\Microsoft,Default Profile,
+  1,%LOCALAPPDATA%\Microsoft,Current User,
 
 ■ バックアップの保存先
-backup/ ディレクトリに Edge プロファイルがミラーコピーされます。
+backup/Edge/ ディレクトリに Edge プロファイルがミラーコピーされます。
+バックアップ元は %LOCALAPPDATA%\Microsoft\Edge です。
+
+■ 前提条件
+・backup は %LOCALAPPDATA%\Microsoft\Edge が存在すること（Edge がインストール済み）
+・restore は backup/Edge/ にコンテンツが存在すること（Edge Profile Backup を事前実行）
+・robocopy.exe が利用可能であること
+・宛先ディレクトリへの書き込み権限
+  （C:\Users\Default 等、管理者権限が必要な場合があります）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+Edge プロセス起動中の終了確認、および backup/restore 本体の実行確認の
+両方とも Confirm-ModuleExecution を経由します。
+
+■ Edge プロセスの自動終了
+backup / restore の実行前に msedge プロセスが存在するか確認します。
+起動中の場合:
+  1. Confirm-ModuleExecution で終了と続行の確認を取得
+  2. Stop-Process -Name msedge -Force で強制終了
+  3. 2秒待機後、残存プロセスを再確認
+  4. 残存していれば Error で中断
+起動していない場合はそのまま処理に進みます。
 
 ■ 注意事項
 ・バックアップ/復元時に Edge のプロセスが自動的に終了されます
-・復元すると対象の Edge 設定が完全に上書きされます
+・復元すると対象の Edge 設定が完全に上書きされます（robocopy /MIR）
 
 ■ 動作の流れ（Backup）
-1. Edge プロセスの終了確認
-2. robocopy /MIR で Edge プロファイルを backup/ にミラーコピー
+1. Edge プロセスの終了確認・自動終了
+2. robocopy /MIR /XJ /MT /R:1 /W:1 で
+   %LOCALAPPDATA%\Microsoft\Edge を backup/Edge/ にミラーコピー
+3. robocopy ExitCode < 8 を成功と判定
 
 ■ 動作の流れ（Restore）
-1. Edge プロセスの終了確認
-2. restore_dest.csv の各宛先に robocopy でコピー
+1. Edge プロセスの終了確認・自動終了
+2. restore_dest.csv の各宛先に robocopy /MIR でコピー
+3. 各宛先の ExitCode < 8 を成功として集計
+
+■ 冪等性（backup と restore の非対称性）
+edge_backup.ps1:
+  既存の backup/Edge/ の有無に関わらず毎回 robocopy /MIR を実行し、
+  完全上書き（ミラー）します。冪等性は提供しません。
+edge_restore.ps1:
+  backup/Edge/ の存在とコンテンツの有無のみ確認し、存在すれば
+  毎回 robocopy /MIR で宛先を上書きします。宛先側との差分比較は
+  行いません。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+robocopy の ExitCode < 8 による成否判定のみを行い、宛先側での
+ファイルハッシュ検証や Edge 起動確認は行いません。
+New-ModuleResult / New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
+
+■ 使用環境変数
+  LOCALAPPDATA : backup のソース（%LOCALAPPDATA%\Microsoft\Edge）に使用。
+                  restore_dest.csv の DestPath でも展開可能。
+  USERPROFILE  : restore_dest.csv の DestPath で展開可能。
+  その他の %VAR% も Expand-UserEnvironmentVariables により展開されます。

@@ -25,6 +25,18 @@ Windows Core Audio API を使用し、即時反映されます。
 ■ 前提条件
 ・オーディオデバイスが存在すること
   （VM でオーディオ無効の場合はエラーで安全終了）
+・Windows Core Audio API（MMDeviceAPI / EndpointVolume）が利用可能であること
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+適用後に Core Audio API（IAudioEndpointVolume::GetMasterVolumeLevelScalar /
+GetMute）で音量とミュート状態を読み返し、CSV の期待値と一致するか検証します。
+結果は -Verified で New-ModuleResult に返却されます。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。
 
 ■ 技術情報
 ・IAudioEndpointVolume COM インターフェースを使用

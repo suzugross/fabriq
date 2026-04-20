@@ -15,7 +15,44 @@ IP が空欄のアダプタは設定をスキップします。
 ・管理者権限が必要です
 ・Fabriq起動時にホストを選択済みであること
 
+■ 使用環境変数
+hostlist.csv 選択時に以下の環境変数がセットされ、本モジュールはこれらを
+参照します:
+  $env:SELECTED_KANRI_NO / SELECTED_OLD_PCNAME / SELECTED_NEW_PCNAME
+  $env:SELECTED_ETH_IP / SELECTED_ETH_SUBNET / SELECTED_ETH_GATEWAY
+  $env:SELECTED_WIFI_IP / SELECTED_WIFI_SUBNET / SELECTED_WIFI_GATEWAY
+  $env:SELECTED_DNS1 / SELECTED_DNS2 / SELECTED_DNS3 / SELECTED_DNS4
+
+■ 物理アダプタの自動検出ロジック
+`Get-NetAdapter -Physical` で取得した物理アダプタから、
+InterfaceDescription を使って以下の方法で振り分けます。
+
+  Ethernet: InterfaceDescription が Wi-Fi / Wireless / WLAN / 802.11 /
+            Bluetooth のいずれにも一致しないもの
+  Wi-Fi   : InterfaceDescription が Wi-Fi / Wireless / WLAN / 802.11 の
+            いずれかに一致するもの
+Disabled 状態のアダプタは除外されますが、Disconnected（未接続）は対象になります。
+
 ■ 動作の流れ
-1. hostlist.csv から読み込んだ設定を表示
-2. 物理ネットワークアダプタを自動検出
-3. netsh でIPアドレスとDNSを設定
+1. 管理者権限チェック
+2. hostlist.csv 由来の環境変数を読み込み・表示
+3. 物理ネットワークアダプタの自動検出（Ethernet / Wi-Fi）
+4. 実行確認は行わず、空欄でないアダプタに対して自動適用
+   （hostlist 選択が同意代わり）
+5. netsh でIPアドレス / ゲートウェイ / DNS を設定
+6. Post-Apply Verification
+
+■ AutoPilot
+本モジュールは実行確認を行わないため、AutoPilot モードでも通常モードでも
+挙動は同じです。hostlist の値のみが実行判断根拠になります。
+
+■ Post-Apply Verification
+適用後に各アダプタの状態を検証します:
+  ・IP アドレス + プレフィックス長: Get-NetIPAddress で照合
+  ・デフォルトゲートウェイ: Get-NetIPConfiguration の
+    IPv4DefaultGateway で照合
+  ・DNS サーバ: Get-DnsClientServerAddress の ServerAddresses を順序込みで照合
+
+全項目一致なら -Verified=true、1 件でも不一致があれば false を返します。
+設定対象アダプタが 0 件の場合（hostlist で Ethernet/Wi-Fi 両方空欄）は
+Verified=null となります。

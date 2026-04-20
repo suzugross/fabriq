@@ -80,6 +80,38 @@ office_key.csv の別行に定義できます。
 認証スクリプト（/act）は全製品を一括で認証します。
 
 
+■ 前提条件
+・管理者権限が必要です（Test-AdminPrivilege で自動チェック）
+・Office（C2R または MSI）がインストール済みで OSPP.vbs が存在すること
+・MAK の場合は activation.sls.microsoft.com:443 への HTTPS 到達性
+  （ping 8.8.8.8 で代替可能なプロキシ環境にも対応）
+・KMS の場合は社内 KMS サーバーへの到達性
+
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+install / auth の両方とも Confirm-ModuleExecution を経由します。
+
+
+■ Post-Apply Verification
+[office_license_install.ps1]
+  プロダクトキー登録の検証は実装していません。New-BatchResult に
+  -Verified は渡していないため、実行履歴の Verified 列は空欄になります。
+  登録結果は cscript の ExitCode のみで判定します。
+
+[office_license_auth.ps1]
+  適用後に cscript OSPP.vbs /dstatus を再実行し、全製品の
+  LICENSE STATUS を再解析して LICENSED 状態を検証します。
+  現時点では Status / Message で結果を返しており、New-ModuleResult に
+  -Verified は渡していません（/dstatus 解析による事実上の検証は
+  スクリプト内で完結しています）。
+
+
+■ 使用環境変数
+  ProgramFiles        : C2R 64bit / MSI 64bit の OSPP.vbs 検索に使用
+  ProgramFiles(x86)   : C2R 32bit / MSI 32bit の OSPP.vbs 検索に使用
+
+
 ■ 冪等性チェック（office_license_auth.ps1）
 /dstatus 出力から全製品の LICENSE STATUS を解析し、
 LICENSED 以外のステータス（OOB_GRACE, UNLICENSED, NOTIFICATION,

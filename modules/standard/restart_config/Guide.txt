@@ -1,11 +1,33 @@
 ■ 概要
 Fabriq を RunOnce に登録し、PCを再起動します。
 再起動後に自動的に Fabriq が起動します。
+本モジュールの主機能は RunOnce 登録（HKLM RunOnce キー）であり、
+再起動はその後の付随アクションです。
+
+■ 前提条件
+・管理者権限で実行すること（HKLM RunOnce の書き込みに必要）
+・fabriq ルートに Fabriq.exe が存在すること
+  （restart_config から 3 階層上を $fabriqRoot として解決）
 
 ■ 設定ファイル
 設定CSVはありません。
 
 ■ 動作の流れ
-1. 実行確認（Y/N）
-2. レジストリ RunOnce に Fabriq.bat を登録
-3. カウントダウン後にPCを再起動
+1. Fabriq.exe の存在確認
+2. 登録予定の RunOnce 内容を表示
+3. 実行確認（Y/N）
+4. レジストリ HKLM\...\RunOnce に FabriqAutoStart = "Fabriq.exe" を登録
+5. 10 秒カウントダウン後にPCを再起動
+
+■ AutoPilot 非対応
+本モジュールは AutoPilot モードに対応していません。
+再起動は不可逆でクリティカルな操作のため、必ず Y/N 確認が入ります。
+Confirm-ModuleExecution は AutoPilot 時でも確認プロンプトを要求する
+設計として扱ってください（安全策）。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+RunOnce 登録後に即時 OS 再起動するため、モジュール内で読み返し検証を
+行っても Success を返す前に OS が終了します。New-ModuleResult に
+-Verified を渡していないため、実行履歴の Verified 列は空欄になります。
+再起動後 Fabriq が自動起動したかどうかで登録成否を判定してください。

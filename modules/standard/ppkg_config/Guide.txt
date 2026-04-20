@@ -40,3 +40,40 @@ Install 時のみ参照されます（Uninstall は PackageName で照合する�
 ・適用後、設定の反映にはリブートまたは再ログオンが必要な場合があります
 ・PackageName は PPKG ビルド時に指定した名前と一致させてください
   確認方法: Get-ProvisioningPackage | Select-Object PackageName, PackageId
+
+
+■ 前提条件
+・管理者権限が必要です
+・Install-ProvisioningPackage / Get-ProvisioningPackage /
+  Remove-ProvisioningPackage cmdlet が利用可能であること
+  （Windows 10/11 標準）
+・Install 時は file/ ディレクトリに対応する .ppkg が存在すること
+
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+install / uninstall の両方とも Confirm-ModuleExecution を経由します。
+
+
+■ 冪等性
+install:
+  Get-ProvisioningPackage で PackageName を照合し、
+  [INSTALL] / [REINSTALL] / [NOT FOUND] を表示で区別します。
+  -ForceInstall を付けているため、インストール済みでも再適用されます。
+uninstall:
+  Get-ProvisioningPackage -AllInstalledPackages で PackageName を
+  照合し、未インストールなら [NOT FOUND] として Skip します（冪等）。
+
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+install/uninstall 後に Get-ProvisioningPackage で再確認する処理は
+なく、Install-ProvisioningPackage / Remove-ProvisioningPackage の
+例外有無のみで判定します。
+New-BatchResult に -Verified は渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。
+PPKG ファイルのパスは $PSScriptRoot\file 配下で解決します。

@@ -45,3 +45,51 @@ Segment     : セグメント名（任意。空欄=全セグメント共通）
 - エクスポートは現在ログインしているユーザーの関連付け設定を取得します。
 - インポートは新規ユーザープロファイル作成時に適用されます（既存ユーザーには即時反映されません）。
 - エクスポート時、既存の XML ファイルは上書きされます。
+
+
+■ スクリプト構成
+本モジュールには以下の 2 スクリプトがあります。
+
+[export_app_associations.ps1]（マスター準備用）
+  Dism /Online /Export-DefaultAppAssociations で既定関連付けを
+  XML に書き出します。
+
+[default_app_config.ps1]（本番キッティング用）
+  Dism /Online /Import-DefaultAppAssociations で XML を適用します。
+
+
+■ 前提条件
+・管理者権限が必要です（DISM /Online は管理者限定）
+・Dism.exe が利用可能であること
+・import 時は xml/ ディレクトリと対象 XML ファイルが存在すること
+・export 時は xml/ ディレクトリが存在するか作成可能であること
+
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+export / import の両スクリプトとも Confirm-ModuleExecution を経由します。
+
+
+■ 冪等性（export と import の非対称性）
+export_app_associations.ps1:
+  既存 XML ファイルの有無に関わらず毎回 Dism を実行し、
+  ファイルを上書き出力します（「最新状態のスナップショット」用途）。
+  冪等性は提供しません。
+
+default_app_config.ps1:
+  XML ファイルが存在しない場合は Skip、存在する場合は毎回 Dism を
+  実行します。OS 側の現在の関連付けが XML と一致しているか等の
+  差分チェックは行いません。
+
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+Dism /Import-DefaultAppAssociations の ExitCode による成否判定のみで、
+新規ユーザープロファイル作成時に反映される関連付けの検証は困難なため、
+New-BatchResult に -Verified は渡していません。
+実行履歴の Verified 列は空欄になります。
+
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。
+XML ファイルのパスは $PSScriptRoot\xml 配下で解決します。

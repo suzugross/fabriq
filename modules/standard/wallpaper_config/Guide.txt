@@ -10,6 +10,7 @@ Windows APIで即時反映されるため、再起動は不要です。
   Style       : 表示スタイル（Fill / Fit / Stretch / Tile / Center / Span）
   Color       : RGB値（スペース区切り。例: 0 99 177）（Type=SolidColor 時）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
 
 [記載例 - 画像壁紙]
   1,Image,company_logo.jpg,Fill,,会社ロゴ壁紙
@@ -31,6 +32,21 @@ Style を空欄にした場合は Fill がデフォルトで適用されます�
 ・Type=SolidColor の場合、FileName と Style は不要（空欄可）
 ・Color にRGB値をスペース区切りで指定（例: 0 99 177）
 ・壁紙パスがクリアされ、指定色の単色背景が即時適用されます
+
+■ 前提条件
+・管理者権限が必要です（Resolve-HkcuRoot により SYSTEM 起動時などは
+  ログオン中ユーザーの HKCU ハイブへリダイレクト書き込みを行うため）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+壁紙適用は Win32 API（SystemParametersInfo）の戻り値で成否を判定しますが、
+適用後にレジストリ（Control Panel\Desktop\WallPaper 等）を読み返して
+期待値と一致するかを検証する専用ステップはありません。
+New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
 
 ■ 動作の流れ
 1. wallpaper_list.csv を読み込み

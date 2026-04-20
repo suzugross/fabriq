@@ -23,7 +23,10 @@ trigger batch is cleaned up so it does not run again.
   Order    - Execution order (ascending numeric sort)
   Description - Display label for the command
   Command  - Command string to execute (via cmd.exe /c)
-  Segment  - Optional segment filter (empty=all)
+  Segment  - Optional segment filter (empty=all).
+             kernel/common.ps1 Import-ModuleCsv automatically filters
+             rows by Segment as a common mechanism; no per-module
+             implementation is required.
 
 [Examples]
   Enabled,Order,Description,Command,Segment
@@ -42,3 +45,25 @@ trigger batch is cleaned up so it does not run again.
 
 [Prerequisite]
 - Administrator privileges required (writes to Default User profile)
+- C:\ProgramData\fabriq\ is used as the deployment directory and must
+  be writable
+- Default User Startup folder (C:\Users\Default\AppData\Roaming\Microsoft\
+  Windows\Start Menu\Programs\Startup) must be writable
+
+[Idempotency]
+By design, this module is idempotent by re-generation: every run
+overwrites apply_startup_commands.ps1, fabriq_user_setup.ps1, and
+FabriqUserSetup.cmd with the latest CSV content. Re-running the
+module immediately applies CSV changes to future first-logons.
+It does not attempt diff-based skip logic.
+
+[AutoPilot]
+AutoPilot mode skips the confirmation prompt and automatically
+applies the CSV configuration.
+
+[Post-Apply Verification]
+This module does NOT implement Post-Apply Verification.
+The deployed trigger only fires at a future new-user logon, so
+read-back at kitting time would not reflect actual effectiveness.
+New-ModuleResult / New-BatchResult is called without -Verified,
+so the Verified column in execution_history.csv stays empty.

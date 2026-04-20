@@ -1,53 +1,68 @@
-﻿■ 概要
-Sysprep の応答ファイル（unattend.xml）と初回起動スクリプト（SetupComplete.cmd）を
-CSV 定義から動的に生成・配置し、Sysprep を実行します。
-二段階の確認（ファイル生成 → Sysprep 実行）で安全に操作できます。
+■ 概要
+Sysprep の応答ファイル（unattend.xml）と初回起動スクリプト
+（SetupComplete.cmd）を 3 つの CSV 定義から動的に生成・配置し、
+sysprep.exe を実行するモジュールです。
 
-■ 設定ファイル
+二段階の確認を挟みます:
+  第 1 確認: unattend.xml + SetupComplete.cmd の生成・配置
+  第 2 確認: sysprep.exe の実行
+第 2 確認で N を選択した場合、ファイルは配置済み・Sysprep は未実行の
+状態で Status=Success を返し終了します（後で手動実行する運用に対応）。
 
-[sysprep_list.csv]（Sysprep 実行設定 / 単一行）
+■ 収録スクリプト（module.csv）
+
+[Sysprep Config]   sysprep_config.ps1
+  3 種の CSV から unattend.xml / SetupComplete.cmd を生成・配置し、
+  sysprep.exe を起動する。
+
+■ 設定ファイル（3 枚）
+
+[sysprep_list.csv]（Sysprep 実行設定 / 有効な 1 行のみ使用）
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
-  SysprepExe  : sysprep.exe のパス
+  SysprepExe  : sysprep.exe のフルパス
   Mode        : 動作モード（oobe / audit）
   Shutdown    : 終了動作（shutdown / reboot / quit）
   Description : 説明（表示用）
-  Segment     : セグメント（空欄 = 全対象）
+  Segment     : Segment フィルタ（省略可）
 
   [記載例]
-  1,C:\Windows\System32\Sysprep\sysprep.exe,oobe,shutdown,Sysprep実行設定,
+  Enabled,SysprepExe,Mode,Shutdown,Description,Segment
+  1,C:\Windows\System32\Sysprep\sysprep.exe,oobe,shutdown,Sysprep 実行設定,
 
-  ※ quit を指定した場合、Sysprep 完了後にシャットダウンせず終了コードを返します。
-    テスト時に便利です。
+  ※ quit を指定した場合は Sysprep 完了後もスクリプトに戻ってきます
+    （終了コードベースで Success / Error 判定）。テスト用途向き。
 
 [unattend_list.csv]（応答ファイル設定 / キー・バリュー形式）
   Enabled     : 有効フラグ（1=有効, 0=無効）
   SettingName : 設定名（下記一覧参照）
   Value       : 設定値
   Description : 説明（表示用）
-  Segment     : セグメント（空欄 = 全対象）
+  Segment     : Segment フィルタ（省略可）
 
-  [対応する設定名]
+  [対応 SettingName]
+
   --- specialize パス ---
-  ComputerName        : コンピュータ名（* = 自動生成）
-  CopyProfile         : プロファイルコピー（true / false）
+    ComputerName             コンピュータ名（* = 自動生成）
+    CopyProfile              プロファイルコピー（true / false）
 
-  --- oobeSystem パス（OOBE スキップ設定） ---
-  HideEULAPage              : EULA 画面のスキップ（true / false）
-  ProtectYourPC              : プライバシー設定（1=推奨 / 3=送信しない）
-  HideWirelessSetupInOOBE   : Wi-Fi 設定画面のスキップ（true / false）
-  HideOnlineAccountScreens  : オンラインアカウント画面のスキップ（true / false）
-  HideOEMRegistrationScreen : OEM 登録画面のスキップ（true / false）
+  --- oobeSystem パス（OOBE 画面制御） ---
+    HideEULAPage             EULA 画面スキップ（true / false）
+    ProtectYourPC            プライバシー設定（1=推奨 / 3=送信しない）
+    HideWirelessSetupInOOBE  Wi-Fi 設定画面スキップ（true / false）
+    HideOnlineAccountScreens オンラインアカウント画面スキップ（true / false）
+    HideOEMRegistrationScreen OEM 登録画面スキップ（true / false）
 
   --- oobeSystem パス（アカウント設定） ---
-  TestUserName        : テストユーザー名（OOBE で自動作成される LocalAccount）
-  EnableAdministrator : Administrator アカウントの有効化（true / false）
-  AdminPassword       : Administrator パスワード（空 = パスワードなし）
+    TestUserName             テストユーザー名（LocalAccount として自動作成）
+    EnableAdministrator      Administrator 有効化（true / false）
+    AdminPassword            Administrator パスワード（空 = パスワードなし）
 
   [記載例]
-  1,ComputerName,*,コンピュータ名（* = 自動生成）,
+  Enabled,SettingName,Value,Description,Segment
+  1,ComputerName,*,コンピュータ名（*=自動生成）,
   1,CopyProfile,true,プロファイルコピー,
   1,TestUserName,Test-User,テストユーザー名,
-  0,EnableAdministrator,true,Administrator アカウントの有効化,
+  0,EnableAdministrator,true,Administrator 有効化,
   0,AdminPassword,,Administrator パスワード,
 
 [setupcomplete_list.csv]（SetupComplete.cmd アクション定義）
@@ -57,87 +72,152 @@ CSV 定義から動的に生成・配置し、Sysprep を実行します。
   Target      : 対象（ユーザー名 / ファイル名 / コマンド文字列）
   Destination : コピー先パス（CopyFile 時のみ使用）
   Description : 説明（表示用）
-  Segment     : セグメント（空欄 = 全対象）
+  Segment     : Segment フィルタ（省略可）
 
   [ActionType 詳細]
   DeleteUser : net user "Target" /delete を実行
-  CopyFile   : source/ 内の Target を Destination へ xcopy
+  CopyFile   : source ステージング内の Target を Destination へ xcopy
   Command    : Target の文字列をそのままコマンドとして実行
 
   [記載例]
-  0,5,Command,net user Administrator /active:yes,,Administrator有効化,
+  Enabled,Order,ActionType,Target,Destination,Description,Segment
+  0,5,Command,net user Administrator /active:yes,,Administrator 有効化,
   1,10,DeleteUser,Test-User,,テストユーザー削除,
   1,20,CopyFile,LayoutModification.xml,C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\,タスクバー配置,
   1,30,Command,Dism /online /Import-DefaultAppAssociations:...,,既定アプリ設定,
 
 ■ source/ ディレクトリ
-CopyFile アクションで使用するファイルやフォルダを配置してください。
-SetupComplete.cmd 実行時に C:\Windows\Setup\Scripts\source\ へステージングされ、
-そこから各宛先へ xcopy されます。
+
+CopyFile アクションで使用するファイル・フォルダを配置します。
+実行時は `C:\Windows\Setup\Scripts\source\` にステージングコピーされ、
+SetupComplete.cmd からそこを参照して xcopy で各宛先に展開されます。
 
   配置例:
   source/
     LayoutModification.xml     （タスクバー設定）
     AppAssoc.xml               （既定アプリ関連付け）
-    Microsoft.WindowsNotepad_8wekyb3d8bbwe/  （メモ帳設定フォルダ）
+    Microsoft.WindowsNotepad_8wekyb3d8bbwe/  （アプリ設定フォルダ）
 
-■ CSV ファイルのエンコーディング
+■ CSV のエンコーディング
+
 すべての CSV ファイルは UTF-8 BOM（BOM 付き UTF-8）で保存してください。
-BOM がない場合、日本語 Windows ではシステム既定の Shift-JIS として読み込まれ、
-日本語の Description が文字化けします。
+BOM がないと、日本語 Windows 環境では Shift-JIS として読み込まれ、
+Description 等の日本語が文字化けします。
 
   確認方法（PowerShell）:
-  $bytes = [System.IO.File]::ReadAllBytes("ファイル.csv")
-  $bytes[0..2]  # → 239, 187, 191 (= EF BB BF) であれば BOM 付き
+    $bytes = [System.IO.File]::ReadAllBytes("ファイル.csv")
+    $bytes[0..2]  # → 239, 187, 191 (= EF BB BF) であれば BOM 付き
 
   再エンコード方法:
-  $content = [System.IO.File]::ReadAllText("ファイル.csv", [System.Text.UTF8Encoding]::new($true))
-  [System.IO.File]::WriteAllText("ファイル.csv", $content, [System.Text.UTF8Encoding]::new($true))
+    $content = [System.IO.File]::ReadAllText("ファイル.csv", [System.Text.UTF8Encoding]::new($true))
+    [System.IO.File]::WriteAllText("ファイル.csv", $content, [System.Text.UTF8Encoding]::new($true))
 
-■ OOBE スキップ設定に関する注意
-unattend_list.csv で TestUserName を指定すると、unattend.xml に <LocalAccount> ブロックが
-生成されます。Windows の仕様上、<LocalAccount> が存在する場合、アカウント関連の OOBE 画面は
-個別のスキップ設定に関わらず自動的にスキップされます。
+■ OOBE 画面制御と TestUserName の相互作用
+
+unattend_list.csv で `TestUserName` を指定すると、unattend.xml に
+<LocalAccount> ブロックが生成されます。Windows の仕様により、
+<LocalAccount> が存在する unattend ではアカウント関連の OOBE 画面は
+個別設定に関わらず自動でスキップされます。
 
   影響を受ける設定:
-  - HideOnlineAccountScreens
-  - HideOEMRegistrationScreen
+    ・HideOnlineAccountScreens
+    ・HideOEMRegistrationScreen
+  これらを false にしても TestUserName が有効なら画面は表示されません。
 
-  これらの設定を false にしても、TestUserName が有効であれば画面は表示されません。
-  OOBE 画面を表示したい場合は、TestUserName を無効（Enabled=0）にしてください。
+OOBE 画面を表示して手動セットアップをさせたい場合は、TestUserName 行の
+Enabled を 0 にしてください。
 
-■ Administrator アカウントの有効化
+■ Administrator アカウント有効化
+
 unattend.xml の <AdministratorPassword> はパスワード設定のみで、
-アカウントの有効化（アクティベーション）は行いません。
+Administrator アカウントの有効化（アクティベーション）は行いません。
 
-Administrator を有効化するには、setupcomplete_list.csv で以下の行を有効にしてください:
+Administrator を有効化するには setupcomplete_list.csv で以下の行を
+有効化してください:
 
-  0,5,Command,net user Administrator /active:yes,,Administrator有効化,
-  ↑ Enabled を 1 に変更
+  0,5,Command,net user Administrator /active:yes,,Administrator 有効化,
+    ↑ Enabled を 1 に変更
 
-パスワードを設定する場合は、unattend_list.csv の EnableAdministrator と AdminPassword を
-それぞれ有効にしてください。
-
-■ 動作の流れ
-1. sysprep_list.csv / unattend_list.csv / setupcomplete_list.csv を読み込み
-2. 前提条件チェック（sysprep.exe 存在、source/ 存在、デプロイ先作成）
-3. 設定内容の一覧表示（Sysprep 設定 / Unattend 設定 / SetupComplete アクション）
-4. 第 1 確認: ファイル生成・配置の実行確認（Y/N）
-5. unattend.xml と SetupComplete.cmd を動的生成し、デプロイ
-   - source/ 内のファイルを C:\Windows\Setup\Scripts\source\ へステージング
-   - unattend.xml → C:\Windows\System32\Sysprep\unattend.xml
-   - SetupComplete.cmd → C:\Windows\Setup\Scripts\SetupComplete.cmd
-6. 第 2 確認: Sysprep 実行の最終確認（Y/N）
-   ※ ここで N を選択した場合、ファイル配置済みで Success を返します
-7. sysprep.exe を実行（/generalize /oobe /shutdown /unattend:...）
+パスワードを設定する場合は unattend_list.csv の EnableAdministrator と
+AdminPassword を有効化します。
 
 ■ 前提条件
-- 管理者権限が必要です
-- Sysprep 実行後は PC がシャットダウンまたは再起動されます（不可逆）
-- 既存の unattend.xml / SetupComplete.cmd は上書きされます
+・管理者権限が必要です
+・sysprep_list.csv の SysprepExe で指定したファイルが存在すること
+・source/ ディレクトリが存在すること
+・C:\Windows\Setup\Scripts\source\ への書込権限があること（自動作成可能）
+・Sysprep 実行後は PC がシャットダウン / 再起動される（Shutdown=quit 時を除き不可逆）
+・既存の unattend.xml / SetupComplete.cmd は上書きされます
+
+■ 動作の流れ
+
+1. 3 つの CSV を読み込み（Enabled=1 のみ対象）
+   ・sysprep_list.csv : 有効行が 0 件なら Error、複数行あっても最初の 1 行のみ使用
+   ・unattend_list.csv : キー単位で適用
+   ・setupcomplete_list.csv : 1 件以上のアクション定義
+2. 前提条件チェック
+   ・sysprep.exe 存在確認
+   ・source/ 存在確認
+   ・デプロイ先（C:\Windows\Setup\Scripts\ 等）自動作成
+3. 設定内容の一覧表示
+   ・Sysprep 設定（Mode / Shutdown / Command）
+   ・Unattend 設定（SettingName / Value 一覧）
+   ・SetupComplete.cmd アクション（Order 順）
+   ・既存ファイル有無で [NEW] / [OVERWRITE] 色分け
+4. 第 1 確認: 「ファイル生成・配置の実行確認」（Y/N）
+5. ファイル生成・配置
+   5-1. source/ → C:\Windows\Setup\Scripts\source\ へステージング
+   5-2. unattend.xml を動的生成
+        → C:\Windows\System32\Sysprep\unattend.xml へ配置
+   5-3. SetupComplete.cmd を動的生成
+        → C:\Windows\Setup\Scripts\SetupComplete.cmd へ配置
+        （先頭で実行ログを C:\Windows\Setup\Scripts\SetupComplete.log に追記）
+6. 第 2 確認: 「Sysprep 実行の最終確認」（Y/N）
+   ※ N 選択時はファイル配置済みで Status=Success を返して終了
+7. sysprep.exe 実行
+   ・Shutdown=shutdown/reboot の場合、PC 停止のため Step 7 後は到達しない
+   ・Shutdown=quit の場合のみ ExitCode で Success/Error 判定
+
+■ AutoPilot
+第 1 確認・第 2 確認ともに Confirm-ModuleExecution 経由なので AutoPilot
+モードでは自動 Y になります。Profile から AutoPilot で実行する場合、
+sysprep がそのまま PC の shutdown / reboot を実行する点に注意してください
+（後続モジュールが Profile に残っていても実行されません）。
+
+テスト目的で AutoPilot と併用する場合は、sysprep_list.csv の
+Shutdown を `quit` に設定することで、Sysprep 完了後に Profile が
+継続されます。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません（意図的）。
+
+  理由:
+    Sysprep は /shutdown・/reboot モードでは sysprep.exe 実行完了 = PC 停止
+    であり、スクリプト側で検証ステップを走らせる余地がありません。
+    /quit モードでは検証可能ですが、通常運用ではほぼ使わないため
+    統一的には未実装としています。
+    （ユーザー記憶: `project_verification_exclusions` の方針と整合）
+
+  New-ModuleResult には -Verified を渡していないため、実行履歴の
+  Verified 列は常に空欄になります。
+
+  完了検証が必要な場合は以下を手動確認してください:
+    ・Sysprep ログ          C:\Windows\System32\Sysprep\Panther\setuperr.log
+    ・SetupComplete ログ    C:\Windows\Setup\Scripts\SetupComplete.log
+    ・生成済み unattend.xml C:\Windows\System32\Sysprep\unattend.xml
+    ・生成済み CMD          C:\Windows\Setup\Scripts\SetupComplete.cmd
+
+■ 冪等性
+本モジュールは冪等ではありません。実行ごとに:
+  ・C:\Windows\System32\Sysprep\unattend.xml を上書き生成
+  ・C:\Windows\Setup\Scripts\SetupComplete.cmd を上書き生成
+  ・source/ の内容を C:\Windows\Setup\Scripts\source\ にステージング
+  ・sysprep.exe を /generalize で実行
+Sysprep 自体が同一イメージに対して連続実行できる回数に制限がある
+（既定 3 回）ため、繰返し実行は想定していません。
 
 ■ トラブルシューティング
-- Sysprep ログ: C:\Windows\System32\Sysprep\Panther\setuperr.log
-- SetupComplete ログ: C:\Windows\Setup\Scripts\SetupComplete.log
-- 生成された XML の確認: C:\Windows\System32\Sysprep\unattend.xml
-- 生成された CMD の確認: C:\Windows\Setup\Scripts\SetupComplete.cmd
+・Sysprep ログ          : C:\Windows\System32\Sysprep\Panther\setuperr.log
+・SetupComplete ログ    : C:\Windows\Setup\Scripts\SetupComplete.log
+・生成済み unattend.xml : C:\Windows\System32\Sysprep\unattend.xml
+・生成済み CMD          : C:\Windows\Setup\Scripts\SetupComplete.cmd

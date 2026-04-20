@@ -40,12 +40,22 @@ Windowsの電源プランと各種電源設定（ディスプレイOFF、スリ�
   Processor_MinState_AC / Processor_MinState_Battery : 最小プロセッサ状態
   Processor_MaxState_AC / Processor_MaxState_Battery : 最大プロセッサ状態
 
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が Segment 列を
+                自動フィルタします。本モジュール側では個別処理していません。
+
 [記載例]
   1,バランス,標準設定,BALANCED,,10,5,15,10,30,20,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,SLEEP,20,10,5,5,100,100
   0,高性能,パフォーマンス優先,HIGH_PERFORMANCE,BEST_PERFORMANCE,30,10,0,15,0,30,...
 
 ■ 前提条件
 ・管理者権限が必要です
+・powrprof.dll の Win32 API（P/Invoke）が利用可能であること
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+CSV に Enabled=1 の行があれば自動でそのプロファイルを選択します。
+該当行が無い場合のみ、対話メニューで選択します。
 
 ■ 動作の流れ
 1. power_list.csv を読み込み、設定内容を表示
@@ -65,3 +75,19 @@ powercfg.exe が機能しない一部のOEM PC（HP等）でも正しく動作�
   これはHP固有のサービスによる表示上の問題であり、
   実際の動作およびレジストリ値（powercfg /query で確認可能）は
   正しく設定されています。
+
+■ 冪等性チェック（SKIP 判定）
+各設定値の適用前に Win32 API の PowerReadACValueIndex /
+PowerReadDCValueIndex で現在値を読み返し、CSV の目標値と一致する
+場合は [SKIP] として ChangeCount を増やさずスキップします。
+powercfg /QUERY のテキスト解析ではなく API 経由の GET を使用するため、
+OS 言語に依存せず（locale-independent）正しく判定できます。
+
+■ Post-Apply Verification
+適用後に PowerReadACValueIndex / PowerReadDCValueIndex 等で
+全設定値を読み返し、CSV の期待値と一致するか検証します。
+タイムアウト系は Windows 内部調整のため ±1 分の誤差を許容します。
+結果は -Verified で New-ModuleResult に返却されます。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。

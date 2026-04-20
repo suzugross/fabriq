@@ -39,7 +39,11 @@ PC に詳しくない担当者でも hostlist.csv の編集だけで展開完了
                 ※ 大文字小文字は区別しない
   PrinterName : プリンター名（完全一致）
   Description : 説明（表示用）
-  Segment     : プロファイル Segment フィルタ（既存機能、省略可）
+  Segment     : Segment フィルタ（省略可）
+                ※ 本スクリプトは Segment 列を明示的に参照しませんが、
+                  kernel/common.ps1 の Import-ModuleCsv が自動フィルタ
+                  する共通機構のため、Profile 実行時に SELECTED_SEGMENT
+                  と一致する行＋空欄行のみが採用されます。
 
 [記載例]
   Enabled,TargetHost,PrinterName,Description,Segment
@@ -70,19 +74,39 @@ KeepList mode は「PrinterHostAddress を持つ TCP/IP ポートに紐づく
   (Manual)          : いずれのソースも該当しない（pre-check なし）
 
 ■ AutoPilot 対応
-AutoPilot モードで実行された場合、GUI は表示されず削除候補が
+$global:AutoPilotMode が $true の場合、GUI は表示されず削除候補が
 自動削除されます。削除候補が 0 件の場合は Skipped で終了します。
 
   ・KeepList が空で候補 0 件 → Skipped（全削除事故を構造的に防止）
   ・Explicit のみで候補あり → その分だけ自動削除
   ・仮想プリンタは依然として保護対象
+  ・$global:AutoPilotMode は kernel 側（Fabriq ランナー）で設定されます
 
 ■ Post-Apply Verification
 削除実行後、対象プリンタを Get-Printer で読み返して null 確認し、
 New-ModuleResult に -Verified を返却します。
 
+■ 他モジュール CSV のクロス参照（重要）
+Keep List ソース (b) として、以下のパスを直接参照します。
+  ..\printer_driver_config\printer_list.csv
+つまり printer_driver_config モジュール配下の printer_list.csv を
+「このホストで維持したいプリンタ宣言」として共有利用しています。
+二重管理を避けるため、Register Printers で登録するプリンタは
+自動的に Keep List にも反映される設計です。
+
+ファイルが存在しない場合は (b) ソースをスキップし、(a) hostlist 環境変数のみで
+Keep List を構成します。
+
+■ 使用環境変数
+- $env:SELECTED_NEW_PCNAME    : TargetHost マッチングに使用（Keep/Explicit 両方）
+- $env:SELECTED_PRINTER_1_NAME .. _10_NAME : hostlist からの Keep List ソース (a)
+- $env:SELECTED_SEGMENT       : Segment フィルタ（Import-ModuleCsv が暗黙参照）
+- $global:AutoPilotMode       : AutoPilot 判定（kernel 側で設定）
+
 ■ 動作の流れ
-1. Keep List 収集（hostlist 環境変数 + printer_list.csv TargetHost マッチ）
+1. Keep List 収集
+   (a) hostlist 環境変数 SELECTED_PRINTER_1..10_NAME
+   (b) ..\printer_driver_config\printer_list.csv の TargetHost マッチ行
 2. Explicit 削除リスト収集（printer_delete.csv TargetHost マッチ）
 3. インストール済みプリンタ列挙 + TCP/IP ポート判定
 4. 削除候補計算（Reason 判定付き）

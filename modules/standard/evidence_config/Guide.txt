@@ -30,7 +30,47 @@ evidence\pc_information\日付_UID_PC名\
   ・セクションごとの個別ファイル（1-7: テキスト）
   ・CSV出力（8-11: セクションごとのCSVファイル）
 
+■ 前提条件
+・管理者権限が必要です
+  （BitLocker ステータス、ファイアウォールルール一覧、
+   Windows Defender 状態、一部のプリンター情報など、
+   管理者権限でないと取得できない情報が含まれるため）
+
+■ 使用環境変数 / グローバル変数
+本モジュールは以下の変数を参照します（kernel/common.ps1 および
+main.ps1 の初期化フローでセットされる想定）。
+
+  $env:SELECTED_NEW_PCNAME
+    新しい PC 名が確定済みの場合に使用される PC 名。
+    空の場合は $env:COMPUTERNAME（現在のホスト名）をフォールバックとして使用。
+    エビデンスの出力フォルダ名・統合ログ名のサフィックスに使用されます。
+
+  $global:FabriqUniqueId
+    PC を一意に識別する ID。通常は main.ps1 で Get-HardwareUniqueId により
+    事前に算出されている値。未セットの場合はこのモジュール内で
+    Get-HardwareUniqueId を直接呼び出してフォールバック取得します。
+    出力フォルダ名（日付_UID_PC名）のミドル部分に使用されます。
+
+  $global:FabriqEvidenceBasePath
+    セットされていれば、出力先を「統一パス」モードで解決します。
+      出力先 = $global:FabriqEvidenceBasePath\pc_information
+    （日付・UID・PC名のサブフォルダを作らずフラットに書き出します）
+    未セット時はレガシーパス
+      <スクリプト>\..\..\..\evidence\pc_information\{日付}_{UID}_{PC名}\
+    を使用します。
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップしてエビデンス収集を自動実行します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+エビデンス収集はシステム状態の読み出しのみを行い、設定変更を伴わないため
+「適用後の読み返し検証」の概念が適用されません。
+New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
+
 ■ 動作の流れ
-1. 実行確認（Y/N）
-2. 各セクションの情報を順に収集
-3. 統合ファイルと個別ファイルに出力
+1. 出力先パスを決定（$global:FabriqEvidenceBasePath の有無で分岐）
+2. 実行確認（Y/N）
+3. 各セクションの情報を順に収集
+4. 統合ファイルと個別ファイルに出力

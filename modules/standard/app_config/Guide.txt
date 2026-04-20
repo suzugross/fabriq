@@ -4,17 +4,19 @@ file/ ディレクトリに配置したインストーラーを、CSVの定義�
 
 ■ 設定ファイル
 [app_list.csv]
-  Enabled    : 有効フラグ（1=実行, 0=スキップ）
-  AppName    : アプリケーション名（識別用）
-  FileName   : file/ 内のインストーラーファイル名
-  Type       : インストーラー種別（exe / msi / bat）
-  SilentArgs : サイレントインストール引数
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  AppName     : アプリケーション名（識別用）
+  FileName    : file/ 内のインストーラーファイル名
+  Type        : インストーラー種別（exe / msi / bat）
+  SilentArgs  : サイレントインストール引数
   Description : 説明（表示用。指定時はAppNameの代わりに表示）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が自動フィルタします。
 
 [記載例]
-  1,Google Chrome,ChromeSetup.exe,exe,/silent /install,
-  1,7-Zip,7z2409-x64.msi,msi,/quiet /norestart,
-  1,Custom Tool,setup.bat,bat,,カスタムツール
+  1,Google Chrome,ChromeSetup.exe,exe,/silent /install,,
+  1,7-Zip,7z2409-x64.msi,msi,/quiet /norestart,,
+  1,Custom Tool,setup.bat,bat,,カスタムツール,
 
 ■ インストーラーの配置
 file/ ディレクトリにインストーラーを配置してください。
@@ -24,7 +26,31 @@ file/ ディレクトリにインストーラーを配置してください。
 ・msi : msiexec /i で実行（SilentArgs が追加引数）
 ・bat : cmd /c で実行
 
+■ 前提条件
+・インストーラーによっては管理者権限が必要な場合があります
+・file/ ディレクトリに対応するインストーラー本体が配置されていること
+・MSI の場合は msiexec.exe、BAT の場合は cmd.exe が利用可能であること
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
 ■ 動作の流れ
 1. app_list.csv を読み込み、file/ 内のファイル存在を確認
 2. インストール対象の一覧を表示し、実行確認（Y/N）
 3. 各インストーラーを順に実行し、ExitCode で成否判定
+   （0 = 成功 / 3010 = 成功・再起動保留 / それ以外 = 失敗）
+
+■ 冪等性
+本モジュールは「既インストール判定」を実装していません。
+CSV の Enabled=1 の行は毎回インストーラーを起動します。
+既インストール時のスキップ動作は各インストーラー側の挙動に依存します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+ExitCode による成否判定のみを行い、New-BatchResult に -Verified は
+渡していないため、実行履歴の Verified 列は空欄になります。
+アプリのインストール先や存在確認は本モジュールでは検証しません。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。
+インストーラーパスは $PSScriptRoot\file 配下で解決します。

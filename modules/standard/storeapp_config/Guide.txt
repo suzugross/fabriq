@@ -8,17 +8,39 @@
   AppName     : アプリのパッケージ名（例: Microsoft.BingNews）
   Enabled     : 有効フラグ（1=削除対象, 0=スキップ）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が自動フィルタします。
 
 [記載例]
-  10,Microsoft.549981C3F5F10,1,Cortana
-  20,Microsoft.BingNews,1,Bing News
-  30,Microsoft.BingWeather,0,Bing Weather（残す）
+  10,Microsoft.549981C3F5F10,1,Cortana,
+  20,Microsoft.BingNews,1,Bing News,
+  30,Microsoft.BingWeather,0,Bing Weather（残す）,
 
 ■ AppName の調べ方
 PowerShellで「Get-AppxPackage | Select Name」を実行すると
 インストール済みアプリのパッケージ名を確認できます。
 
+■ 前提条件
+・管理者権限が必要です（ProvisionedPackage の削除に必要）
+・Appx 関連 cmdlet（Get-AppxPackage / Remove-AppxPackage /
+  Get-AppxProvisionedPackage / Remove-AppxProvisionedPackage）が
+  利用可能であること
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
 ■ 動作の流れ
 1. storeapp_list.csv を読み込み、削除対象を一覧表示
 2. 実行確認（Y/N）
 3. 各アプリについて AppxPackage と ProvisionedPackage を削除
+4. 削除後、AppxPackage / ProvisionedPackage を再確認して検証
+
+■ Post-Apply Verification
+適用後に Get-AppxPackage / Get-AppxProvisionedPackage で
+対象アプリが残存していないかを再確認して検証します。
+両方とも残っていなければ [VERIFIED]、いずれかが残っていれば
+[VERIFY FAILED] としてカウントします。
+結果は -Verified で New-BatchResult に返却されます。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。

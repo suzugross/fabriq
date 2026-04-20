@@ -75,6 +75,8 @@ SPI Configuration (SystemParametersInfo) - Guide
   Value      : 設定値（bool の場合 0=OFF, 1=ON）
   Description: 表示用の説明文
   Segment    : プロファイル用フィルタ（空=全対象）
+               kernel/common.ps1 の Import-ModuleCsv が共通機構として
+               自動フィルタするため、モジュール側に追加実装は不要。
 
 ■ ValueMode の種類
 
@@ -93,6 +95,28 @@ SPI Configuration (SystemParametersInfo) - Guide
 ■ 冪等性
   各設定の GET 値を取得し（GET action = SET action - 1）、
   目標値と一致する場合はスキップする。
+
+■ AutoPilot
+  AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification（非対応）
+  本モジュールは New-BatchResult の -Verified を使用した Post-Apply
+  Verification には対応していません（意図的）。理由は以下の通り:
+
+    1. SPI 設定はカレントセッションへ即時反映され、スクリプト内で
+       SET 前に GET 値を取得して目標値と比較するため、冪等性チェック
+       自体が事実上の事前検証を兼ねている。
+    2. SET 直後にもう一度 GET で比較した場合、API 呼び出し順序や
+       Active Setup / Startup Batch による後続適用との競合により、
+       false PASS/FAIL を返すリスクが高い。
+    3. 新規ユーザーへの反映は Active Setup および Startup Batch に
+       委ねる設計であり、カレントセッションの読み返しだけでは
+       モジュール全体の効果を保証できない。
+
+  したがって、現在の SPI GET 比較をもって冪等性と整合性を保証する
+  設計であり、不一致が発生した場合は SET 処理自体をエラー報告します。
+  実行履歴の Verified 列は空欄となります。
+  （ユーザー記憶 project_verification_exclusions の方針と整合）
 
 ========================================
 SPI 定数 対応表

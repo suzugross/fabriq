@@ -19,6 +19,15 @@ model   : ドライバフォルダ名の明示指定。
           空欄の場合、PCのシステムモデル名を自動取得して使用します。
           （例: Get-CimInstance Win32_ComputerSystem の Model 値）
 Segment : セグメント名（任意。空欄=全セグメント共通）
+          kernel/common.ps1 の Import-ModuleCsv が共通機構として
+          自動フィルタするため、モジュール側に追加実装は不要。
+
+■ スクリプト構成（module.csv）
+  driver_export_config.ps1 : 現在の OS からドライバを driver/ 配下に
+                             エクスポート
+  driver_import_config.ps1 : driver/{model}/ のドライバを pnputil で
+                             OS にインポート
+  いずれも driver.csv を共有します。
 
 ■ モデル名の自動取得
 model 列が空欄の場合、以下のコマンドでモデル名を動的取得します:
@@ -38,3 +47,25 @@ model 列が空欄の場合、以下のコマンドでモデル名を動的取�
 - エクスポートはサードパーティドライバのみが対象です（OS標準ドライバは含まれません）。
 - エクスポート時、既存のドライバフォルダは中身がクリアされてから再エクスポートされます。
 - インポート後に再起動が必要な場合があります（pnputil 終了コード 3010）。
+
+■ 前提条件
+- 管理者権限で実行すること（Export-WindowsDriver / pnputil はいずれも
+  管理者権限必須）
+- driver/ フォルダ配下にインポート対象モデルのサブフォルダが存在する
+  こと（インポート時）
+- 十分なディスク空き容量（エクスポート時、元 PC のドライバ容量分）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは厳密な Post-Apply Verification を実装しておらず、
+検証は限定的です。
+- エクスポート: Export-WindowsDriver 完了後、出力先フォルダの
+  *.inf ファイル数をカウントして表示します（0 件ならエラー扱い）。
+- インポート: pnputil 実行前後で対象フォルダの *.inf 数を参照し、
+  pnputil の終了コード（0/3010 成功）を判定しますが、OS 側に実際に
+  組み込まれたドライバのバージョン比較等は行いません。
+New-BatchResult に -Verified を渡していないため、実行履歴の Verified
+列は空欄になります。必要なら `pnputil /enum-drivers` で手動確認
+してください。

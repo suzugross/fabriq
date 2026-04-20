@@ -1,0 +1,43 @@
+■ 概要
+意図的にエラーで終了するテスト用モジュールです。
+AutoPilot の ErrorMode（skip / retry / 未指定時の Retry/Skip ダイアログ）の
+動作検証に使用します。
+
+実行すると必ず Status=Error の ModuleResult を返却します。
+副作用（ファイル・レジストリ・サービスの変更）は一切ありません。
+
+■ 設定ファイル
+設定 CSV はありません。module.csv のみで動作します。
+
+■ 動作の流れ
+1. モジュール表示（Test Error Module）
+2. 実行確認（Y/N、AutoPilot モードは自動 Y）
+3. Show-Error で模擬エラーを表示
+4. New-ModuleResult -Status "Error" を返却
+
+■ 前提条件
+・管理者権限は不要です
+・副作用がないため任意の環境で安全に実行可能です
+
+■ 使い方（検証例）
+
+  [AutoPilot ErrorMode=skip の検証]
+  Profile CSV に以下のように記載:
+    10,__AUTOPILOT__,1,WaitSec=3,,
+    20,standard\test_error_module\test_error.ps1,1,意図的失敗,,skip
+    30,standard\hostname_config\hostname_config.ps1,1,ホスト名設定,,
+  → モジュール 20 で発生したエラーは自動で skip され、30 が実行されます。
+
+  [AutoPilot ErrorMode=retry の検証]
+  Profile CSV に以下のように記載:
+    20,standard\test_error_module\test_error.ps1,1,意図的失敗,,retry
+  → モジュール 20 は最大 5 回まで自動リトライされます（毎回失敗するため
+     最終的に Error として記録されます）。
+
+  [ErrorMode 未指定時のダイアログ検証]
+  Profile CSV で ErrorMode 列を空欄にすると、
+  AutoPilot 実行中にエラー時の Retry/Skip ダイアログが表示されます。
+
+■ 注意事項
+・本番 Profile には組み込まないでください。
+・Post-Apply Verification は該当しません（常に Error を返す性質上）。

@@ -12,15 +12,20 @@ This hybrid approach solves two problems:
 2. Saving every subdirectory individually is accurate but extremely slow for large trees
 
 [Prerequisites]
-- Administrator privileges required
+- Administrator privileges required (enforced by Test-AdminPrivilege)
 - icacls.exe must be available (standard Windows tool)
+- HKLM / file system ACL write access (admin token required for icacls /save and /restore)
 
 [CSV Columns: acl_list.csv]
 - Enabled    : 1 = process, 0 = skip
 - Id         : Unique identifier (used in backup folder naming)
 - TargetPath : Root directory path to backup/restore (supports %ENV% variables)
+  ※ Expand-UserEnvironmentVariables により %USERPROFILE%, %SystemDrive%, %ProgramData%,
+    %SELECTED_NEW_PCNAME% 等の環境変数を展開してからパスとして利用します。
 - Description: Display label
-- Segment    : Optional segment filter for Profile execution
+- Segment    : Segment フィルタ（省略可）
+  ※ Segment は kernel/common.ps1 の Import-ModuleCsv が自動フィルタする共通機構。
+    Profile 実行時に SELECTED_SEGMENT 環境変数と一致する行 + 空欄行のみが採用されます。
 
 [Backup Output Structure]
   backup/{Id}_{SafeName}/
@@ -44,3 +49,30 @@ This hybrid approach solves two problems:
 - If no non-inherited subdirectories are found, only full backup is created
 - Restore requires a prior backup (run ACL Backup first)
 - _manifest.csv maps relative paths to hash-based backup filenames
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして、
+CSV の設定に従って自動的にバックアップ／リストアを実行します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-ModuleResult / New-BatchResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
+
+[Verification を実装しない理由]
+・icacls /save で書き出した ACL テキストと現在の ACL の厳密比較は、
+  継承フラグ・SID 解決・順序・差分検出のすべてを考慮する必要があり、
+  誤 PASS（false positive）のリスクが非常に高いためです。
+・安易な Test-Path 等では「ACL が期待どおり復元されたか」を正確に
+  検証できず、「PASS と表示されたが実際は不一致」という最悪のケースを
+  誘発する恐れがあります。
+・安全性を優先し、内容ハッシュ比較や厳密な SDDL 比較等の確実な検証を
+  実装しない限り Verification は意図的に非実装としています。
+・検証は icacls /save の出力テキストを目視比較するか、外部ツールで
+  実施してください。
+
+■ 使用環境変数
+- %USERPROFILE% / %SystemDrive% / %ProgramData% 等の標準環境変数
+- $env:SELECTED_NEW_PCNAME, $env:SELECTED_SEGMENT 等の Fabriq 環境変数
+  （TargetPath 列で %SELECTED_*% 形式で参照可能）
+- $env:SELECTED_SEGMENT（Segment フィルタで暗黙的に参照）

@@ -30,8 +30,13 @@ winget を使用してアプリケーションを一括管理します。
   0,Git.Git,--override "/VERYSILENT",Git for Windows,
 
 ■ 前提条件
-・インターネット接続が必要です（自動でネットワーク確認を行います）
-・winget がインストール済みであること
+・インターネット接続が必要です（Wait-NetworkReady で自動確認）
+・winget (Microsoft.AppInstaller) がインストール済みであること
+・winget source が利用可能であること（install/upgrade 前に自動リセット）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+全 3 スクリプト（winget_update / winget_install / winget_upgrade）共通です。
 
 ■ AppID の調べ方
 コマンドプロンプトで「winget search アプリ名」を実行すると
@@ -76,3 +81,25 @@ winget を使用してアプリケーションを一括管理します。
   -1978335212 : NO_APPLICATIONS_FOUND   → 既に最新として Skipped
   -1978335189 : UPDATE_NOT_APPLICABLE   → 既に最新として Skipped
   その他      : 失敗
+
+■ 冪等性
+winget_install:
+  winget list --id <AppID> --exact の出力に AppID が現れるか判定し、
+  既インストールの場合は Skip します。
+winget_upgrade:
+  同じ winget list による判定で、未インストールの場合は Skip
+  （install 側の責務）。既に最新の場合は ExitCode で Skipped 判定します。
+winget_update:
+  Microsoft.AppInstaller 自体の upgrade。最新なら ExitCode
+  -1978335212 を Skipped として返します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+install/upgrade 後に winget list での再確認は行わず、ExitCode の
+判定結果のみで Success/Failed/Skipped を決定します。
+New-BatchResult / New-ModuleResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります。
+手動での再確認は `winget list --id <AppID>` で行えます。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。

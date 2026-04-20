@@ -23,7 +23,11 @@ DisplayName / MatchPattern をキーにレジストリから動的にアンイ�
 ・例: McAfee* → McAfee LiveSafe, McAfee WebAdvisor 等が全てマッチ
 
 ■ 前提条件
-・管理者権限が必要です
+・管理者権限が必要です（Test-AdminPrivilege で自動チェック）
+・HKLM Uninstall レジストリ（64bit / 32bit 両ハイブ）への読み書き権限
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
 
 ■ 注意事項
 ・NoRemove=1 または SystemComponent=1 のアプリはレジストリの値から自動判定し、スキップされます
@@ -35,3 +39,12 @@ DisplayName / MatchPattern をキーにレジストリから動的にアンイ�
 3. 実行確認（Y/N）
 4. QuietUninstallString → MSI → UninstallString の優先順で実行
 5. アンインストール後、レジストリを再検索して検証（Post-Apply Verification）
+
+■ Post-Apply Verification
+適用後に Find-RegistryUninstallEntry で HKLM Uninstall ハイブを
+再検索し、NoRemove/SystemComponent を除く残存エントリが無いか
+検証します。残存があれば [VERIFY FAILED] としてカウントします。
+結果は -Verified で New-BatchResult に返却されます。
+
+■ 使用環境変数
+本モジュールでは環境変数を参照していません。

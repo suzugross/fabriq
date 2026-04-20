@@ -32,3 +32,23 @@ looper_list.csv に以下のように登録すると、Azure AD Join が完了�
 ■ 返却ステータス
   Success : AzureAdJoined = YES（Join 完了）
   Error   : AzureAdJoined = NO または判定不可（未完了）
+
+■ AutoPilot
+本モジュールは Confirm-ModuleExecution を呼び出しません。
+状態確認のみで設定変更を伴わないため、常に自動で実行されます
+（AutoPilot モードでも通常メニュー実行でも挙動は同一）。
+
+■ Post-Apply Verification
+本モジュールは状態確認のみを行うため、適用ステップが存在しません。
+したがって Post-Apply Verification は、実質的には
+「dsregcmd /status の出力内容による状態判定」そのものがそれに相当します。
+具体的には:
+- dsregcmd /status の出力から "AzureAdJoined : YES" を検出
+- 検出成功 → Success を返却（Join 完了と判定）
+- 検出失敗 → Error を返却（未完了と判定し、Script Looper の再試行対象）
+
+なお、本実装では New-ModuleResult に -Verified は渡していないため、
+実行履歴の Verified 列は空欄になります（Status 自体が検証結果を兼ねる）。
+
+■ 使用環境変数
+本モジュールは環境変数を参照しません（CSV・Fabriq 環境変数ともに不使用）。

@@ -1,12 +1,19 @@
 ■ 概要
 指定したファイルやフォルダを一括削除します。
 
+■ 前提条件
+・管理者権限で実行すること（Program Files 等のシステム領域を操作する場合）
+・削除対象パスに環境変数を使う場合、展開可能な環境変数であること
+
 ■ 設定ファイル
 [delete_list.csv]
   Enabled     : 有効フラグ（1=実行, 0=スキップ）
   Description : 説明（表示用）
   TargetPath  : 削除対象のパス（%USERPROFILE% 等の環境変数使用可）
   IfNotFound  : 対象が存在しない場合の動作（Skip=スキップ / Error=エラー）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
 
 [記載例]
   1,一時ファイル,%TEMP%\example_temp_file.txt,Skip
@@ -21,3 +28,13 @@
 1. delete_list.csv を読み込み、各パスの存在状況を表示
 2. 実行確認（Y/N）
 3. 各対象を順に削除（フォルダの場合は再帰削除）
+4. 削除後の Post-Apply Verification（存在チェックで全件 PASS を確認）
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装しています。
+削除処理後に Test-Path で対象パスの非存在を検証し、全件 PASS のとき
+-Verified $true を、1 件でも残存していれば $false を New-BatchResult に
+渡して返却します。実行履歴の Verified 列に結果が記録されます。

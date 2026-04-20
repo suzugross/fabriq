@@ -9,12 +9,15 @@
   MemberName : 追加するメンバー名（CurrentUser の場合は空欄）
   Domain     : ドメイン名（LocalUser / CurrentUser の場合は空欄）
   Description : 説明（表示用）
+  Segment    : Segment フィルタ（省略可）
+               ※ Segment は kernel/common.ps1 の Import-ModuleCsv が
+                 自動フィルタする共通機構。
 
 [記載例]
-  1,Administrators,DomainGroup,Client Administrators,city.osaka.example.jp,ドメイン管理者グループ
-  1,Remote Desktop Users,DomainGroup,RDP Users,city.osaka.example.jp,RDPユーザー
-  1,Users,LocalUser,testuser,,ローカルユーザー追加
-  1,Power Users,CurrentUser,,,現在のログインユーザーを追加
+  1,Administrators,DomainGroup,Client Administrators,city.osaka.example.jp,ドメイン管理者グループ,
+  1,Remote Desktop Users,DomainGroup,RDP Users,city.osaka.example.jp,RDPユーザー,
+  1,Users,LocalUser,testuser,,ローカルユーザー追加,
+  1,Power Users,CurrentUser,,,現在のログインユーザーを追加,
 
 ■ MemberType について
   DomainGroup  : ドメイングループを追加（Domain\GroupName 形式）
@@ -26,10 +29,60 @@
                  MemberName / Domain は空欄にしてください。
 
 ■ 前提条件
-・管理者権限が必要です
+・管理者権限が必要です（Test-AdminPrivilege でスクリプト先頭にて明示チェック）
+  - Add-LocalGroupMember / Get-LocalGroup / Get-LocalGroupMember に必須
 ・ドメインメンバーの追加にはドメインへの接続が必要です
+・Get-CimInstance Win32_ComputerSystem が利用可能な Windows 環境であること
+  （CurrentUser 解決のために使用）
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして
+CSV の設定を自動適用します。
+
+■ CurrentUser 解決の詳細
+MemberType=CurrentUser の場合、Resolve-CurrentUser 関数が
+以下の順序で実際のログオンユーザーを解決します。
+
+  1. Get-CimInstance Win32_ComputerSystem の UserName プロパティ
+     → "DOMAIN\username" 形式で対話セッションユーザーを取得
+       （UAC 昇格時も昇格前のユーザーを正しく返します）
+  2. 失敗または空の場合、フォールバックとして環境変数を参照:
+     - $env:USERDOMAIN ≠ $env:COMPUTERNAME
+       → "$env:USERDOMAIN\$env:USERNAME"（ドメインユーザー扱い）
+     - それ以外
+       → $env:USERNAME（ローカルユーザー扱い）
+
+■ 冪等性（Test-LocalGroupMemberExists）
+追加前に Get-LocalGroupMember でグループ内メンバーを列挙し、
+以下のロジックで既存判定を行います。
+  - MemberType=LocalUser: "$env:COMPUTERNAME\<MemberName>" または
+    "<MemberName>" と完全一致するメンバーがあれば存在と判定
+  - それ以外（DomainGroup / DomainUser / CurrentUser）:
+    "*\<MemberName>" パターンで末尾一致するメンバーがあれば存在と判定
+
+既存の場合は Show-Skip "Already a member" で $skipCount を増やし、
+Add-LocalGroupMember は呼び出しません。
+
+■ Post-Apply Verification
+本モジュールは Post-Apply Verification を実装していません。
+New-BatchResult に -Verified は渡していないため、実行履歴の
+Verified 列は空欄になります。
+
+[実装推奨メモ]
+追加後に Test-LocalGroupMemberExists を再度呼び出し、期待メンバーが
+すべて実在することを確認する Step 5.5 を追加すれば Verification を
+実装可能です。冪等性チェック関数をそのまま再利用できる構造になっています。
+
+■ 使用環境変数
+- $env:USERDOMAIN    : CurrentUser 解決のフォールバック（ドメイン名）
+- $env:USERNAME      : CurrentUser 解決のフォールバック（ユーザー名）
+- $env:COMPUTERNAME  : LocalUser 判定 / ドメイン・ワークグループ判別
+- $env:SELECTED_SEGMENT : Segment フィルタ（Import-ModuleCsv が暗黙参照）
 
 ■ 動作の流れ
-1. group_list.csv を読み込み、追加対象を一覧表示
-2. 実行確認（Y/N）
-3. 各メンバーをローカルグループに追加（既に存在する場合はスキップ）
+1. 管理者権限チェック（Test-AdminPrivilege）
+2. group_list.csv を読み込み、追加対象を一覧表示
+   （各行について Test-LocalGroupExists + Test-LocalGroupMemberExists で
+    [Current]/[Change]/[ERROR] マーカーを表示）
+3. 実行確認（Y/N）
+4. 各メンバーをローカルグループに追加（既に存在する場合はスキップ）

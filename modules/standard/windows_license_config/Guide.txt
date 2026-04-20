@@ -9,12 +9,15 @@
 
 ■ 設定ファイル
 [license_key.csv]（Install Product Key で使用）
-  Enabled    : 有効フラグ（1=実行, 0=スキップ）
-  ProductKey : プロダクトキー（XXXXX-XXXXX-XXXXX-XXXXX-XXXXX 形式）
+  Enabled     : 有効フラグ（1=実行, 0=スキップ）
+  ProductKey  : プロダクトキー（XXXXX-XXXXX-XXXXX-XXXXX-XXXXX 形式）
   Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+                kernel/common.ps1 の Import-ModuleCsv が共通機構として
+                自動フィルタするため、モジュール側に追加実装は不要。
 
 [記載例]
-  1,XXXXX-XXXXX-XXXXX-XXXXX-XXXXX,Windows 11 Pro VL
+  1,XXXXX-XXXXX-XXXXX-XXXXX-XXXXX,Windows 11 Pro VL,
 
 ■ プロダクトキーの入力
 ・CSVにキーが定義されている場合はそちらを使用します
@@ -31,4 +34,21 @@
 
 ■ 動作の流れ（Activate Windows License）
 1. 現在のライセンス状態を表示
-2. 実行確認（Y/N）後、オンライン認証を実行
+2. LicenseStatus=1（Licensed）なら冪等性チェックで Skip
+3. 実行確認（Y/N）後、SoftwareLicensingService.RefreshLicenseStatus を起動
+4. 3 秒待機後、SoftwareLicensingProduct を再取得して最終状態を表示
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+[Install Product Key]
+  Post-Apply Verification を実装していません。プロダクトキーの
+  インストール成否は OS 側のエラーコードで判定します。
+
+[Activate Windows License]
+  Post-Apply Verification 相当の処理を Step 5 に実装済みです。
+  RefreshLicenseStatus 呼び出し後、SoftwareLicensingProduct を再取得
+  して LicenseStatus を確認し、LicenseStatus=1 なら Success、それ以外
+  なら Error を返します。ただし New-ModuleResult の -Verified パラメータ
+  は現状使用していないため、実行履歴の Verified 列は空欄になります。

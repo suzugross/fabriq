@@ -46,8 +46,61 @@ PFXファイルにはパスワードが必要です。
 ・.cer/.crt ファイルはパスワード不要（空欄）
 
 ■ 前提条件
-・管理者権限が必要です（LocalMachineストアへの書き込み）
+・管理者権限が必要です（LocalMachine ストアへの書き込みには必須）
+　- 本スクリプトは Test-AdminPrivilege の明示チェックは持ちませんが、
+　  LocalMachine ストアへの書き込み時に PowerShell 側で ACCESS_DENIED
+　  となり失敗します。管理者権限で起動された Fabriq から呼び出してください。
+・CertificateAuthority（CA 判定）を評価するため .NET の X509 API を使用します
 ・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+
+■ AutoPilot
+AutoPilot モードでは確認（Confirm-ModuleExecution）をスキップして
+CSV の設定を自動適用します。AutoRoute=1 の行も確認なしで振り分けインポートされます。
+
+■ AutoRoute モードと PC 名連携（詳細）
+FileName 列で環境変数展開 + ワイルドカードを併用できます。
+Fabriq 起動時に選択したホストの PC 名（SELECTED_NEW_PCNAME）を使って
+「その PC 用のクライアント証明書」だけを自動適用する運用が可能です。
+
+  [例]
+    FileName: %SELECTED_NEW_PCNAME%_*.p12
+    AutoRoute: 1
+    Password: ENC:xxxx==
+
+  [動作]
+    1. %SELECTED_NEW_PCNAME% → "NEW-PC-01" 等に展開
+    2. certs/ 内を "NEW-PC-01_*.p12" でワイルドカード検索
+    3. 最初にマッチしたファイルを採用（見つからなければ [NOT FOUND]）
+    4. PFX 内の全証明書を Basic Constraints の CA フラグで判定
+       ・CA 証明書   → LocalMachine\Root
+       ・クライアント → LocalMachine\My（FriendlyName も設定）
+
+これにより hostlist ベースで「PC ごとに異なるクライアント証明書」を
+展開する運用が可能になります（証明書ファイルは事前に certs/ へ配置）。
+
+■ Password 列と暗号化（ENC: プレフィックス）
+Password 列は以下の 3 形式に対応します。
+・平文             : そのまま記述（例: MyPass123）
+・ENC: プレフィックス : Fabriq Studio で暗号化した文字列を記述
+                    （例: ENC:AAECAwQFBgc...==）
+・空欄             : .cer / .crt ファイル用（パスワード不要）
+
+ENC: 形式は Import-ModuleCsv 側で自動復号されます。
+Fabriq Studio の "Encrypt Password" 機能で生成した文字列をそのまま
+貼り付けてください。平文パスワードを CSV に保存したくない場合に使用します。
+
+■ Post-Apply Verification
+インポート後にストア内を読み返して、サムプリントが存在するか検証します。
+- 検証手段: Test-CertificateInStore（X509Store.Certificates をサムプリントで検索）
+- 対象: 実際にインポート／既存維持した全証明書
+- 全件が検証成功した場合 $verified=$true、1 件でも失敗すれば $false
+- AutoRoute モードでは PFX 内の各証明書を個別に検証
+- 結果は New-BatchResult の -Verified パラメータで返却されます
+
+■ 使用環境変数
+- $env:SELECTED_NEW_PCNAME : FileName のワイルドカード展開で使用（PC 名連携）
+- $env:SELECTED_SEGMENT    : Segment フィルタ（Import-ModuleCsv が暗黙参照）
+- その他 %ENV% 形式の任意環境変数も FileName 列で展開可能
 
 ■ 動作の流れ
 1. cert_list.csv を読み込み、有効な行を抽出

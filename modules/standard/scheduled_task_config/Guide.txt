@@ -9,7 +9,10 @@ Both scripts are idempotent — re-running does not cause errors.
   TaskPath    : Task Scheduler folder path (starts and ends with \)
   TaskName    : Task name (exact match)
   Description : Display description
-  Segment     : Segment filter (empty = all targets)
+  Segment     : Segment filter (empty = all targets).
+                kernel/common.ps1 Import-ModuleCsv automatically filters
+                rows by Segment as a common mechanism; no per-module
+                implementation is required.
 
   [Example]
   1,\Microsoft\Windows\UpdateOrchestrator\,Schedule Scan,Windows Update scan schedule,
@@ -58,3 +61,23 @@ is determined by which script is executed.
 ■ Prerequisites
 - Administrator privileges are required
 - Target tasks must exist on the system
+
+■ AutoPilot
+AutoPilot mode skips the confirmation prompt and automatically applies
+the CSV configuration by routing through Confirm-ModuleExecution.
+
+■ Post-Apply Verification
+The idempotency pre-check in Step 4 (Get-ScheduledTask State compare)
+functions as an inline verification: a second invocation of either
+script will report all target tasks as "Already enabled" / "Already
+disabled" via Skip, which is the canonical fabriq pattern for confirming
+that the applied state matches the intent. The scripts currently do
+NOT pass -Verified to New-BatchResult, so the Verified column of
+execution_history.csv remains empty; the effective verification must
+be confirmed by re-running the same script and observing all-Skipped
+results.
+
+■ Scripts (module.csv registration)
+- scheduled_task_enable_config.ps1  : enable listed tasks
+- scheduled_task_disable_config.ps1 : disable listed tasks
+Both scripts share task_list.csv; see [Shared CSV Design] above.

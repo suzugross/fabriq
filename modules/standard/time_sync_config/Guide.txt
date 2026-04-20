@@ -1,0 +1,76 @@
+■ 概要
+Windows Time サービス（W32Time）に NTP サーバを設定し、
+時刻同期をトリガーするモジュールです。
+
+w32tm コマンドを使用して manualpeerlist を構成し、
+/resync /force による同期実行 + 同期ソース確認（最大 5 回リトライ）で
+ローカルクロック以外のソースに切り替わったことを検証します。
+
+■ 設定ファイル
+
+[time_sync_list.csv]
+  Enabled     : 有効フラグ（1=NTP サーバとして使用, 0=リスト表示のみ）
+  NtpServer   : NTP サーバアドレス（例: time.windows.com, ntp.nict.jp）
+  Description : 説明（表示用）
+  Segment     : Segment フィルタ（省略可）
+
+  [記載例]
+  Enabled,NtpServer,Description,Segment
+  1,time.windows.com,Microsoft NTP Server,
+  0,time.google.com,Google NTP Server,
+  0,ntp.nict.jp,NICT Japan NTP Server,
+
+■ 動作モード
+
+  [標準モード（1 件以上 Enabled=1）]
+  Enabled=1 の行を NTP サーバリストとして w32tm /config に渡し、
+  /manualpeerlist + /syncfromflags:manual + /reliable:yes + /update で構成後、
+  /resync /force で同期を実行します。
+
+  [同期のみモード（Enabled=1 の行が 0 件）]
+  NTP サーバ設定は行わず、既存の設定のまま /resync /force のみ実行します。
+  既に社内 NTP などが登録済みで、同期だけ再実行したい場合に使用します。
+
+■ 前提条件
+・管理者権限が必要です（W32Time サービス操作）
+・W32Time サービスがシステムに存在すること（Windows 標準）
+・NTP サーバへの接続経路（UDP/123）が通っていること
+  ※ ICMP での事前疎通確認は行いますが、ICMP ブロック環境でも処理は継続します
+
+■ 動作の流れ
+1. time_sync_list.csv を読み込み（Enabled フィルタなし＝全行読み込み）
+2. W32Time サービスの存在確認
+3. ドライラン表示
+   ・現在の W32Time サービス状態（Status / StartType）
+   ・各 NTP サーバへの ICMP 疎通確認（[REACHABLE] / [UNREACHABLE]）
+4. 実行確認（Y/N、AutoPilot モードは自動 Y）
+5. 設定適用
+   5-1. W32Time サービスを Start + StartupType=Automatic に設定
+   5-2. ICMP による到達確認（表示のみ、処理継続）
+   5-3. Enabled=1 の行があれば w32tm /config /manualpeerlist で設定
+        （各サーバに ,0x9 フラグを付与 = SpecialPollInterval + Client）
+        設定後 3 秒待機
+   5-4. 同期実行（最大 5 回リトライ、3 秒間隔）
+        w32tm /resync /force → w32tm /query /status でソース確認
+        ソースが「Local CMOS Clock」「LOCL」「Free-running System Clock」
+        以外になれば成功として抜ける
+   5-5. 最終同期状態を表示
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+
+■ Post-Apply Verification
+同期トリガー後に w32tm /query /status を再実行し、同期ソースが
+ローカルクロック以外に切り替わっていることを検証します。
+
+・切替成功 → Status=Success
+・5 回リトライしても切替されず → Status=Partial
+  （NTP 経路未疎通や起動直後の一時的な遅延で発生しうるが、
+   設定自体は正しく適用されているため致命的失敗扱いにはしません）
+
+■ 注意事項
+・「標準モード」で実行すると、既存の NTP サーバ設定は上書きされます。
+・仮想マシン（Hyper-V Time Synchronization 有効）では、w32tm の設定
+  よりもホスト側からの同期が優先される場合があります。
+・ドメイン参加 PC では通常ドメインコントローラが NTP ソースになります。
+  意図的に外部 NTP を使う場合のみ本モジュールを利用してください。
