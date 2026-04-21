@@ -1,0 +1,5 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Browser,Chrome,Google Chrome
+Browser,Edge,Microsoft Edge

@@ -1,0 +1,15 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+StoreScope,LocalMachine,ローカルマシン (LocalMachine)
+StoreScope,CurrentUser,現在のユーザ (CurrentUser)
+StoreName,Root,信頼されたルート (Root)
+StoreName,My,個人 (My)
+StoreName,CA,中間証明機関 (CA)
+StoreName,TrustedPublisher,信頼された発行元 (TrustedPublisher)
+StoreName,AuthRoot,サードパーティ ルート (AuthRoot)
+StoreName,TrustedPeople,信頼されたユーザ (TrustedPeople)
+AutoRoute,1,自動ルーティング有効
+AutoRoute,0,無効
+Overwrite,1,上書きする
+Overwrite,0,上書きしない

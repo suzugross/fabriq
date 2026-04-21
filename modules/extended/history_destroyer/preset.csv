@@ -1,0 +1,9 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+ActionType,DeletePath,パス削除
+ActionType,ClearRegistry,レジストリクリア
+ActionType,Command,コマンド実行
+ActionType,Special,特殊処理
+IfNotFound,Skip,スキップ
+IfNotFound,Error,エラー扱い

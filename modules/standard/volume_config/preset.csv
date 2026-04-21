@@ -1,0 +1,10 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Volume,100,100% (最大)
+Volume,75,75%
+Volume,50,50%
+Volume,25,25%
+Volume,0,0% (消音)
+Mute,off,ミュート解除
+Mute,on,ミュート

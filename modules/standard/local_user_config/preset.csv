@@ -1,0 +1,13 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+PasswordNeverExpires,1,無期限
+PasswordNeverExpires,0,期限あり (既定)
+UserMayNotChangePassword,1,変更不可
+UserMayNotChangePassword,0,変更可能 (既定)
+Group,Administrators,Administrators (管理者)
+Group,Users,Users (標準ユーザ)
+Group,Power Users,Power Users
+Group,Remote Desktop Users,Remote Desktop Users (RDP)
+Group,Backup Operators,Backup Operators
+Group,Hyper-V Administrators,Hyper-V Administrators

@@ -1,0 +1,9 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Type,REG_DWORD,32 ビット整数 (DWORD)
+Type,REG_SZ,文字列 (SZ)
+Type,REG_EXPAND_SZ,展開可能文字列 (EXPAND_SZ)
+Type,REG_MULTI_SZ,複数文字列 (MULTI_SZ)
+Type,REG_BINARY,バイナリ (BINARY)
+Type,REG_QWORD,64 ビット整数 (QWORD)

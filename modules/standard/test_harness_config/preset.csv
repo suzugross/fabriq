@@ -1,0 +1,9 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Behavior,success,成功
+Behavior,fail,失敗
+Behavior,skip,スキップ
+Behavior,cancel,キャンセル
+Verified,true,検証成功
+Verified,false,検証失敗

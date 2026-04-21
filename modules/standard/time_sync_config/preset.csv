@@ -1,0 +1,7 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+NtpServer,time.windows.com,Microsoft NTP
+NtpServer,time.google.com,Google NTP
+NtpServer,ntp.nict.jp,NICT (日本標準時)
+NtpServer,pool.ntp.org,NTP Pool Project

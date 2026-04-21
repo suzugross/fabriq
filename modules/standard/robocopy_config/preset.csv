@@ -1,0 +1,11 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Recursive,1,サブフォルダも含む (/E)
+Recursive,0,カレントのみ
+Mirror,1,ミラー (削除同期)
+Mirror,0,コピーのみ
+CopyACL,1,ACL をコピー
+CopyACL,0,ACL をコピーしない
+SkipOlder,1,古いファイルをスキップ (/XO)
+SkipOlder,0,常にコピー

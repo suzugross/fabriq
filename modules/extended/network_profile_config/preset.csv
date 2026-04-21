@@ -1,0 +1,9 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+MatchMode,All,全プロファイル
+MatchMode,Exact,完全一致
+MatchMode,Wildcard,ワイルドカード
+Category,1,プライベート (1)
+Category,0,パブリック (0)
+Category,2,ドメイン (2)

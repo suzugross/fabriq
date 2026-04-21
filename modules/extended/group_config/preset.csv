@@ -1,0 +1,13 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+MemberType,DomainGroup,ドメイン グループ
+MemberType,DomainUser,ドメイン ユーザ
+MemberType,LocalUser,ローカル ユーザ
+MemberType,CurrentUser,現在のユーザ
+LocalGroup,Administrators,Administrators (管理者)
+LocalGroup,Users,Users (標準ユーザ)
+LocalGroup,Power Users,Power Users
+LocalGroup,Remote Desktop Users,Remote Desktop Users (RDP)
+LocalGroup,Backup Operators,Backup Operators
+LocalGroup,Hyper-V Administrators,Hyper-V Administrators

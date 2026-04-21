@@ -1,0 +1,12 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+MonitorIndex,0,プライマリ (0)
+MonitorIndex,1,セカンダリ (1)
+MonitorIndex,2,3 台目 (2)
+MonitorIndex,3,4 台目 (3)
+ScalePercent,100,100% (推奨)
+ScalePercent,125,125%
+ScalePercent,150,150%
+ScalePercent,175,175%
+ScalePercent,200,200%

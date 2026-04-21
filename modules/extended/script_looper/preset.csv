@@ -1,0 +1,5 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Condition,OnError,エラー時のみ
+Condition,Always,常に (Always)

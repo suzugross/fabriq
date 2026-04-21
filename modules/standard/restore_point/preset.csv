@@ -1,0 +1,7 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+SettingName,enable_protection,システム保護の有効化
+SettingName,create_restore_point,復元ポイント作成
+SettingName,set_storage_size,シャドウコピー容量設定
+SettingName,remove_24h_limit,24 時間制限解除

@@ -1,0 +1,11 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Mode,oobe,OOBE モード
+Mode,audit,監査モード
+Shutdown,shutdown,シャットダウン
+Shutdown,reboot,再起動
+Shutdown,quit,終了 (シャットダウンなし)
+ActionType,Command,コマンド実行
+ActionType,DeleteUser,ユーザ削除
+ActionType,CopyFile,ファイルコピー
