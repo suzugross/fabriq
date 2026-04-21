@@ -1,0 +1,11 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Type,Image,画像
+Type,SolidColor,単色
+Style,Fill,塗りつぶし (Fill)
+Style,Fit,合わせる (Fit)
+Style,Stretch,伸縮 (Stretch)
+Style,Tile,並べて表示 (Tile)
+Style,Center,中央 (Center)
+Style,Span,スパン (Span)

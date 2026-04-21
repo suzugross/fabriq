@@ -1,0 +1,13 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+EncryptionMethod,XtsAes128,XTS-AES 128bit (既定)
+EncryptionMethod,XtsAes256,XTS-AES 256bit
+EncryptionMethod,Aes128,AES-CBC 128bit (互換)
+EncryptionMethod,Aes256,AES-CBC 256bit (互換)
+UsedSpaceOnly,TRUE,使用済み領域のみ暗号化
+UsedSpaceOnly,FALSE,ドライブ全体を暗号化
+SkipHardwareTest,TRUE,ハードウェアテストをスキップ
+SkipHardwareTest,FALSE,ハードウェアテストを実施
+AutoUnlock,TRUE,自動ロック解除を有効化
+AutoUnlock,FALSE,自動ロック解除を無効化

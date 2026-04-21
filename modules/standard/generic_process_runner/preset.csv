@@ -1,0 +1,5 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+NoNewWindow,1,同一コンソールで実行
+NoNewWindow,0,新規ウィンドウで実行

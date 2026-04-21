@@ -1,0 +1,8 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Profile,Domain,ドメイン
+Profile,Private,プライベート
+Profile,Public,パブリック
+Status,on,有効化
+Status,off,無効化

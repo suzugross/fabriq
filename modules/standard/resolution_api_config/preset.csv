@@ -1,0 +1,18 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Width,3840,4K UHD
+Width,2560,WQHD
+Width,1920,Full HD
+Width,1680,WSXGA+
+Width,1600,UXGA
+Width,1366,HD (16:9)
+Width,1280,WXGA
+Height,2160,4K UHD
+Height,1440,WQHD
+Height,1080,Full HD
+Height,1050,WSXGA+
+Height,1024,SXGA
+Height,900,HD+
+Height,768,XGA
+Height,720,HD

@@ -1,0 +1,8 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Brightness,100,100% (最大)
+Brightness,80,80%
+Brightness,50,50% (中間)
+Brightness,20,20%
+Brightness,0,0% (最小)

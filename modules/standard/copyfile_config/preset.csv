@@ -1,0 +1,5 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Overwrite,1,上書きする
+Overwrite,0,上書きしない

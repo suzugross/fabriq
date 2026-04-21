@@ -1,0 +1,10 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+DiskNumber,0,ディスク 0
+DiskNumber,1,ディスク 1
+DiskNumber,2,ディスク 2
+FileSystem,NTFS,NTFS
+FileSystem,ReFS,ReFS
+FileSystem,FAT32,FAT32
+FileSystem,exFAT,exFAT

@@ -1,0 +1,12 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Authentication,WPA2PSK,WPA2 パーソナル
+Authentication,WPA3SAE,WPA3 パーソナル
+Authentication,open,認証なし (オープン)
+Encryption,AES,AES
+Encryption,none,暗号化なし
+AutoConnect,1,自動接続
+AutoConnect,0,手動接続
+NonBroadcast,1,非ブロードキャスト (ステルス)
+NonBroadcast,0,ブロードキャスト
