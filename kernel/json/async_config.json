@@ -1,0 +1,6 @@
+﻿{
+    "Enabled": true,
+    "DefaultTimeoutSec": 0,
+    "PollIntervalMs": 500,
+    "SkipFlagPath": ".\\kernel\\json\\skip_request.flag"
+}

@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver2.0 - Manifeste du Surkitinisme -
+# Fabriq ver2.1 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -431,9 +431,17 @@ function Invoke-BatchExecution {
                 $env:FABRIQ_SEGMENT = $module._Segment
             }
 
-            $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
-                & $module.Script
-            } -ContinueOnError
+            # Dispatch: async (runspace + skip/timeout monitoring) or sync
+            if ($module._IsAsync -and (Get-FabriqAsyncConfig).Enabled) {
+                Write-Host "[ASYNC] Running in monitored runspace (Skip available via Status Monitor)" -ForegroundColor DarkCyan
+                $result = Invoke-SafeCommandAsync -OperationName $module.MenuName `
+                    -ScriptPath $module.Script -ContinueOnError
+            }
+            else {
+                $result = Invoke-SafeCommand -OperationName $module.MenuName -ScriptBlock {
+                    & $module.Script
+                } -ContinueOnError
+            }
 
             # Clean up AutoLogon environment variable
             if ($module._AutoLogonUser) {
@@ -866,7 +874,7 @@ Start-Transcript -Path $logFile -Append | Out-Null
 
 Write-Host ""
 Show-Separator
-Write-Host "Fabriq ver2.0 - Manifeste du Surkitinisme - " -ForegroundColor Green
+Write-Host "Fabriq ver2.1 - Manifeste du Surkitinisme - " -ForegroundColor Green
 Show-Separator
 Write-Host ""
 Show-Info "Log file: $logFile"
