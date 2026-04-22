@@ -132,7 +132,48 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
 - 新規モジュールは `dev/template/` の `VERSION`（初版 `0.1.0`）をコピーして始める
 - `VERSION` ファイルは 1 行 `X.Y.Z` のみ（末尾改行 1 個）
 
-### G. リリース手順（ユーザー明示指示時のみ）
+### G. ルール I: モジュール touched 時の API 依存スキャン（必須）
+
+モジュール（`modules/**`）を touched する場合、**ルール E の実装前宣言に以下のスキャン結果を追加**する。このスキャン情報が将来の中央コンパチマトリクス（ルール K）の基礎データになる。
+
+```
+【モジュール API 依存スキャン】
+- 使用公開関数（KERNEL_API.md §1）: <列挙>
+- 使用公開グローバル（§2）: <列挙>
+- 使用公開環境変数（§3）: <列挙>
+- Profile CSV / 特殊マーカー依存（§4）: <列挙、なければ「なし」>
+- ModuleResult 契約使用（§5）: yes / no
+- Min Kernel API 版: X.Y.Z（KERNEL_API.md §8「API Version History」で判定）
+```
+
+判定方法:
+- 使用されている公開 API を `KERNEL_API.md §8` で逆引きし、それぞれの導入バージョンの最大値を Min Kernel API とする
+- 例: `Show-Info`（2.0.0）, `Import-ModuleCsv`（2.0.0）, 新規 API（2.2.0）を使うモジュールは Min Kernel API = 2.2.0
+
+ルール F の実装サマリにも `Min Kernel API 版` を明記する。
+
+### H. ルール J: `REQUIRES_KERNEL` ファイル運用（lazy seed for Layer 2）
+
+- 各モジュールに `modules/<type>/<name>/REQUIRES_KERNEL` を任意で配置できる（欠損許容）
+- 1 行 `X.Y.Z` のみ、末尾改行 1 個（`VERSION` と同じ形式）
+- Claude が初 touched 時、`VERSION`（`1.0.0`）と同時に `REQUIRES_KERNEL` を打刻する（スキャン結果に基づく）
+- 以降の touched で新しい公開 API 依存が増えた場合のみ bump
+- 新規モジュールは `dev/template/` 配下に `REQUIRES_KERNEL`（現行カーネル版）を同梱して始める
+
+### I. 中央コンパチマトリクス（Layer 3、将来実装）
+
+`VERSION` + `REQUIRES_KERNEL` + `KERNEL_API.md` を全モジュール走査することで、以下を自動生成する想定:
+
+```
+kernel/MODULE_COMPAT.md
+  | Module | Version | Min Kernel API | Last Touch | Notes |
+```
+
+現時点では未実装。Layer 2 データ（`REQUIRES_KERNEL` ファイル）が十分に貯まった段階で `dev/build_compat_matrix.ps1` を実装し、以降はコミット時 or 定期実行で `MODULE_COMPAT.md` を再生成する運用に移行する。
+
+**現時点でやっておくべきこと**: ルール I のスキャン結果とルール J の `REQUIRES_KERNEL` 打刻を漏らさず実施。これが将来 Layer 3 の元データになる。
+
+### J. リリース手順（ユーザー明示指示時のみ）
 
 ユーザーが「リリース」「カーネル版を上げる」等の指示を出した場合のみ:
 
@@ -147,7 +188,7 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
 
 **ユーザーからの明示指示なしに `KERNEL_VERSION` / 版表記を勝手に昇格しないこと。** `[Unreleased]` への追記とモジュール `VERSION` の個別昇格は日常作業として進めてよい。
 
-### H. 整合性チェック
+### K. 整合性チェック
 
 - `pwsh ./dev/check_version.ps1` で `KERNEL_VERSION` と各ファイル版表記の整合を検証
 - 非 0 終了した場合は **必ず** 版表記を揃えてからコミット
