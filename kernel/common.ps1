@@ -2323,7 +2323,7 @@ function Reset-FabriqState {
         "SELECTED_ETH_IP", "SELECTED_ETH_SUBNET", "SELECTED_ETH_GATEWAY",
         "SELECTED_WIFI_IP", "SELECTED_WIFI_SUBNET", "SELECTED_WIFI_GATEWAY",
         "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4",
-        "FABRIQ_AUTOLOGON_NO"
+        "FABRIQ_AUTOLOGON_USER"
     )
     foreach ($key in $envKeys) {
         [Environment]::SetEnvironmentVariable($key, $null, "Process")
@@ -2608,15 +2608,15 @@ function Resolve-ProfileModules {
             continue
         }
 
-        # __AUTO_to_(No)__ pattern: resolve to autologon_config module with parameter
+        # __AUTO_to_<User>__ pattern: resolve to autologon_config module with User parameter
         if ($path -match '^__AUTO_to_(.+)__$') {
-            $autoLogonNo = $Matches[1]
+            $autoLogonUser = $Matches[1]
             $autoLogonModule = $AllModules | Where-Object { $_.ModuleDir -eq 'autologon_config' } | Select-Object -First 1
             if ($autoLogonModule) {
                 $moduleWithOrder = $autoLogonModule.PSObject.Copy()
                 $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
-                $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonNo" -NotePropertyValue $autoLogonNo
-                $moduleWithOrder.MenuName = "[AUTO:$autoLogonNo] $($autoLogonModule.MenuName)"
+                $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonUser" -NotePropertyValue $autoLogonUser
+                $moduleWithOrder.MenuName = "[AUTO:$autoLogonUser] $($autoLogonModule.MenuName)"
                 $validModules += $moduleWithOrder
             }
             else {
@@ -2655,7 +2655,7 @@ function Resolve-ProfileModules {
             $moduleWithOrder = $found.PSObject.Copy()
             $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
 
-            # Segment parameter passing (same pattern as _AutoLogonNo)
+            # Segment parameter passing (same pattern as _AutoLogonUser)
             $segmentValue = if ($entry.PSObject.Properties.Name -contains 'Segment') { $entry.Segment } else { "" }
             $moduleWithOrder | Add-Member -NotePropertyName "_Segment" -NotePropertyValue $segmentValue
             if (-not [string]::IsNullOrWhiteSpace($segmentValue)) {
