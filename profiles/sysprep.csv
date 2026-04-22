@@ -1,0 +1,10 @@
+﻿Order,ScriptPath,Enabled,Description,Segment,Note,ErrorMode
+10,standard/app_config/app_config.ps1,0,App Installation,,,
+20,standard/reg_hklm_config/reg_hklm_delete.ps1,1,Registry Delete (HKLM),,,
+30,standard/storeapp_config/storeapp_config.ps1,1,Remove Store Apps,,,
+40,standard/taskbar_config/taskbar_config.ps1,1,Taskbar Config,,,
+50,standard/default_app_config/default_app_config.ps1,1,Default App Config,,,
+60,standard/generic_process_runner/process_runner.ps1,1,Process Runner,,,
+70,__RESTART__,0,Restart,,,
+80,extended/history_destroyer/history_destroyer.ps1,1,History Destroyer,,,
+90,standard/sysprep_config/sysprep_config.ps1,1,Sysprep Config,,,
