@@ -159,3 +159,33 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 | ドキュメント・コメントのみ | 変更なし | 不要 | なし |
 
 詳細運用は `CLAUDE.md` の「バージョン管理ルール」セクションを参照。
+
+---
+
+## 8. API Version History
+
+モジュールの `REQUIRES_KERNEL` 判定（CLAUDE.md ルール I）用の導入バージョン追跡表。各公開 API がどの `KERNEL_VERSION` で利用可能になったかを記録します。
+
+### 2.0.0（baseline）
+
+formal SemVer の出発点。以下すべて利用可能:
+
+- **§1 公開関数**: `Show-Info`, `Show-Success`, `Show-Warning`, `Show-Error`, `Show-Skip`, `Show-Separator`, `Show-CategorySeparator`, `Import-ModuleCsv`, `New-ModuleResult`, `New-BatchResult`, `Confirm-ModuleExecution`, `Confirm-Execution`, `Wait-KeyPress`, `Wait-NetworkReady`, `Test-AdminPrivilege`, `Unprotect-FabriqValue`
+- **§2 公開グローバル**: `$global:FabriqMasterPassphrase`, `$global:AutoPilotMode`, `$global:AutoPilotWaitSec`, `$global:FabriqEvidenceBasePath`
+- **§3 公開環境変数**: `SELECTED_*` 全般, `SELECTED_PRINTER_<N>_*`, `FABRIQ_SEGMENT`, `FABRIQ_AUTOLOGON_USER`, `FABRIQ_WORKER_NAME`, `FABRIQ_EVIDENCE_BASE`
+- **§4 Profile CSV スキーマ**: 列（`Order`, `ScriptPath`, `Enabled`, `Description`, `Segment`, `ErrorMode`）、特殊マーカー（`__AUTOPILOT__`, `__RESTART__`, `__SHUTDOWN__`, `__PAUSE__`, `__REEXPLORER__`, `__STOPLOG__`, `__STARTLOG__`, `__AUTO_to_<User>__`）
+- **§5 ModuleResult 契約**: 全フィールド（`Status`, `Message`, `Details`, `Verified`, `Timestamp`, `_IsModuleResult`）
+
+### 2.1.0
+
+- **§4 特殊マーカーに `__ASYNC__` 追加**（プロファイル内で利用するのみ。モジュールスクリプト側から呼び出す API ではないため、`__ASYNC__` を使うプロファイル作者のみこの版を要求する）
+
+### 判定ルール
+
+モジュールの `Min Kernel API` は、そのモジュールが使用している公開 API の「導入バージョンの最大値」。
+
+例:
+- `Show-Info` + `Import-ModuleCsv` + `New-ModuleResult` のみ使用 → Min Kernel API = **2.0.0**
+- 上記に加えて 2.2.0 で追加される新 API を使用 → Min Kernel API = **2.2.0**
+
+プロファイル側（特殊マーカー）の依存はモジュールの `REQUIRES_KERNEL` には含めない（マーカーは kernel が解釈するため、モジュールスクリプト単体の動作には影響しない）。
