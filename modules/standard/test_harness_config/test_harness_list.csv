@@ -11,3 +11,5 @@
 1,retry_success,t1,success,true,2,0,Fail first 2 attempts then succeed
 1,retry_exhaust,t1,fail,,0,0,Always fail to exhaust 5 retries
 1,delay_demo,t1,success,true,0,3,Sleep 3 seconds then success (UI demo)
+1,hang_sim,t1,success,true,0,120,Sleep 120s to simulate hang (use with __ASYNC__ + Skip button test)
+1,async_ok,t1,success,true,0,2,Short delay async sanity check (should complete normally)

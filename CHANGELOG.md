@@ -15,6 +15,24 @@
 
 ## [Unreleased]
 
+### Added
+- async execution: `__ASYNC__` マーカー以降のモジュールを子 Runspace で実行
+  し、ハング時に Status Monitor の **Skip** ボタンで強制中断可能に
+  - `kernel/common.ps1`: `Invoke-SafeCommandAsync`, `Get-FabriqAsyncConfig`
+    を追加（既存 `Invoke-SafeCommand` は無変更）
+  - `kernel/common.ps1`: `Resolve-ProfileModules` に `__ASYNC__` マーカー
+    認識と `_IsAsync` フラグ付与を追加
+  - `kernel/main.ps1`: `Invoke-BatchExecution` に async/sync 分岐を追加
+  - `kernel/ps1/status_monitor.ps1`: Skip ボタン追加（`skip_request.flag`
+    を書き出して async ポーリングループに通知）
+  - `kernel/json/async_config.json` 新規（`Enabled` / `DefaultTimeoutSec`
+    / `PollIntervalMs` / `SkipFlagPath`）
+  - `profiles/_test_harness_async.csv` 新規（Phase 1 動作検証用）
+  - `modules/standard/test_harness_config/test_harness_list.csv`:
+    `hang_sim` / `async_ok` セグメント追加
+  - `kernel/KERNEL_API.md`: 特殊マーカー表に `__ASYNC__` を追加
+  - `README.md`: 特殊マーカー表に `__ASYNC__` を追加
+
 ### Changed
 - バージョン管理をカーネル API とモジュール独立の 2 軸に再設計
   - 新規: `kernel/KERNEL_VERSION`（カーネル API 真のソース、初期値 `2.0.0`）
@@ -27,6 +45,10 @@
   - `dev/check_version.ps1`: `KERNEL_VERSION` 基準に切り替え
   - `README.md` L1 / `kernel/common.ps1` L2 / `kernel/main.ps1` L3 /
     `main.ps1` 起動表示 / HTML チェックリストフッター を `2.0` に同期
+- `kernel/KERNEL_VERSION`: `2.0.0` → `2.1.0`（MINOR、`__ASYNC__` マーカー
+  追加による公開 API の後方互換な拡張）
+- ヘッダ版表記を `2.0` → `2.1` に同期（README L1 / common.ps1 L2 /
+  main.ps1 L3 / main.ps1 起動表示 / HTML チェックリストフッター）
 
 ### Notes
 - `KERNEL_VERSION=2.0.0` は現行カーネルの状態を遡及的に formal SemVer
@@ -35,6 +57,14 @@
 - ランタイムでのモジュール互換性チェックは導入しない（誤判定で現場が
   止まるリスクを避けるため）。代わりに Claude が実装前後で
   `KERNEL_API.md` を参照して手動で整合性を担保する
+- async 実装は既存の同期実行経路を無変更に保つ opt-in 方式。`__ASYNC__`
+  マーカーを含まないプロファイルの挙動は完全に従来通り。モジュール
+  全 73 件は untouched で互換性は保持される
+- `async_config.json` の `Enabled: false` で Kill switch として機能し、
+  `__ASYNC__` マーカーは silent ignore され全モジュールが同期実行される
+- Skip / Timeout による強制中断は `$ps.Stop()` を使うため、モジュールの
+  `try/finally` の実行は保証されない（レジストリ/ファイル書き込み途中の
+  中断はシステム状態不整合の可能性あり）。実行履歴には警告文言が残る
 
 ## [2.2.0] - 2026-04-22
 
