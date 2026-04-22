@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v2.0.0
+# Easy Kitting Batch - Common Function Library v2.1.0
 # ========================================
 
 # ========================================
@@ -935,6 +935,263 @@ function Invoke-SafeCommand {
     }
     finally {
         $result.Duration = (Get-Date) - $startTime
+    }
+
+    return $result
+}
+
+# ========================================
+# Async Execution (Parallel Path, opt-in via __ASYNC__ marker)
+# ========================================
+# Invoke-SafeCommandAsync runs a module script in a separate PowerShell
+# runspace so that the main thread can monitor for a user-triggered Skip
+# flag or a timeout, and forcibly stop the runspace when needed. The
+# existing Invoke-SafeCommand remains the default (synchronous) path.
+# Config lives in kernel/json/async_config.json. If Enabled=false, callers
+# should fall back to Invoke-SafeCommand.
+# ========================================
+
+function Get-FabriqAsyncConfig {
+    $configPath = ".\kernel\json\async_config.json"
+    $default = [PSCustomObject]@{
+        Enabled           = $true
+        DefaultTimeoutSec = 0
+        PollIntervalMs    = 500
+        SkipFlagPath      = ".\kernel\json\skip_request.flag"
+    }
+    if (-not (Test-Path $configPath)) { return $default }
+    try {
+        $json = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        return [PSCustomObject]@{
+            Enabled           = if ($null -ne $json.Enabled) { [bool]$json.Enabled } else { $default.Enabled }
+            DefaultTimeoutSec = if ($null -ne $json.DefaultTimeoutSec) { [int]$json.DefaultTimeoutSec } else { $default.DefaultTimeoutSec }
+            PollIntervalMs    = if ($null -ne $json.PollIntervalMs) { [int]$json.PollIntervalMs } else { $default.PollIntervalMs }
+            SkipFlagPath      = if (-not [string]::IsNullOrWhiteSpace($json.SkipFlagPath)) { $json.SkipFlagPath } else { $default.SkipFlagPath }
+        }
+    }
+    catch {
+        Show-Warning "Failed to parse async_config.json, using defaults: $_"
+        return $default
+    }
+}
+
+function Invoke-SafeCommandAsync {
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath,
+        [Parameter(Mandatory)][string]$OperationName,
+        [int]$TimeoutSec = 0,
+        [switch]$ContinueOnError
+    )
+
+    $startTime = Get-Date
+    $result = [PSCustomObject]@{
+        Operation = $OperationName
+        Success   = $false
+        Status    = "Error"
+        Message   = ""
+        Duration  = [TimeSpan]::Zero
+        Error     = $null
+        Verified  = $null
+    }
+
+    # Resolve config
+    $cfg = Get-FabriqAsyncConfig
+    $skipFlagPath = $cfg.SkipFlagPath
+    $pollMs = [math]::Max(50, $cfg.PollIntervalMs)
+    if ($TimeoutSec -le 0) { $TimeoutSec = $cfg.DefaultTimeoutSec }
+
+    # Normalize skip flag path to absolute so directory changes during a
+    # long polling loop cannot make it miss a Skip request from the
+    # separate Status Monitor process (which writes an absolute path).
+    if (-not [System.IO.Path]::IsPathRooted($skipFlagPath)) {
+        $skipFlagPath = Join-Path (Get-Location).Path $skipFlagPath
+    }
+    $skipFlagPath = [System.IO.Path]::GetFullPath($skipFlagPath)
+
+    # Clear any stale skip flag before starting
+    if (Test-Path $skipFlagPath) {
+        Remove-Item $skipFlagPath -Force -ErrorAction SilentlyContinue
+    }
+
+    # Resolve absolute paths (runspace may not share PWD reliably)
+    $commonPath = (Resolve-Path ".\kernel\common.ps1").Path
+    $fabriqRoot = (Resolve-Path ".").Path
+    $absScript  = (Resolve-Path $ScriptPath -ErrorAction SilentlyContinue)
+    if ($null -eq $absScript) {
+        $result.Status  = "Error"
+        $result.Message = "Script not found: $ScriptPath"
+        $result.Duration = (Get-Date) - $startTime
+        return $result
+    }
+    $absScriptPath = $absScript.Path
+
+    # Globals that modules depend on. env: vars are Process-scoped so they
+    # are automatically visible in the child runspace; only $global:* needs
+    # to be injected explicitly.
+    $inject = @{
+        FabriqMasterPassphrase = $global:FabriqMasterPassphrase
+        AutoPilotMode          = $global:AutoPilotMode
+        AutoPilotWaitSec       = $global:AutoPilotWaitSec
+        FabriqTranscriptPath   = $global:FabriqTranscriptPath
+        FabriqUniqueId         = $global:FabriqUniqueId
+        FabriqSessionTimestamp = $global:FabriqSessionTimestamp
+        FabriqEvidenceBasePath = $global:FabriqEvidenceBasePath
+        FabriqEvidenceRootPath = $global:FabriqEvidenceRootPath
+    }
+
+    $runspace = $null
+    $ps = $null
+    $asyncHandle = $null
+    $interrupted = $false
+    $interruptReason = $null
+
+    try {
+        $runspace = [runspacefactory]::CreateRunspace($Host)
+        $runspace.ApartmentState = "STA"
+        $runspace.ThreadOptions = "ReuseThread"
+        $runspace.Open()
+
+        # Align working directory so relative paths inside the module behave
+        # the same as when called synchronously from main.ps1.
+        try {
+            $runspace.SessionStateProxy.Path.SetLocation($fabriqRoot) | Out-Null
+        } catch { }
+
+        $ps = [PowerShell]::Create()
+        $ps.Runspace = $runspace
+
+        [void]$ps.AddScript({
+            param($CommonPath, $ModuleScript, $Inject, $FabriqRoot)
+
+            Set-Location -Path $FabriqRoot
+
+            # Reload common.ps1 into this runspace so Show-Info /
+            # Import-ModuleCsv / New-ModuleResult etc. are available.
+            . $CommonPath
+
+            # Overwrite globals initialized by common.ps1 with values from
+            # the parent session (passphrase, AutoPilot flags, evidence path).
+            foreach ($key in $Inject.Keys) {
+                Set-Variable -Name $key -Value $Inject[$key] -Scope Global -Force
+            }
+
+            # Fallback buffer for modules that return ModuleResult via
+            # $global:_LastModuleResult instead of pipeline.
+            $global:_LastModuleResult = $null
+
+            $output = & $ModuleScript
+
+            [PSCustomObject]@{
+                _AsyncWrapper = $true
+                Output        = $output
+                LastResult    = $global:_LastModuleResult
+            }
+        })
+        [void]$ps.AddArgument($commonPath)
+        [void]$ps.AddArgument($absScriptPath)
+        [void]$ps.AddArgument($inject)
+        [void]$ps.AddArgument($fabriqRoot)
+
+        $asyncHandle = $ps.BeginInvoke()
+
+        # Monitor loop: wait for completion, Skip flag, or timeout
+        while (-not $asyncHandle.IsCompleted) {
+            Start-Sleep -Milliseconds $pollMs
+
+            if (Test-Path $skipFlagPath) {
+                Remove-Item $skipFlagPath -Force -ErrorAction SilentlyContinue
+                $interrupted = $true
+                $interruptReason = "Skip"
+                try { $ps.Stop() } catch { }
+                break
+            }
+
+            if ($TimeoutSec -gt 0) {
+                $elapsed = ((Get-Date) - $startTime).TotalSeconds
+                if ($elapsed -ge $TimeoutSec) {
+                    $interrupted = $true
+                    $interruptReason = "Timeout"
+                    try { $ps.Stop() } catch { }
+                    break
+                }
+            }
+        }
+
+        if (-not $interrupted) {
+            $wrappedOutput = $null
+            try {
+                $wrappedOutput = $ps.EndInvoke($asyncHandle)
+            }
+            catch {
+                $result.Status  = "Error"
+                $result.Message = "Async runspace error: $($_.Exception.Message)"
+                $result.Error   = $_
+                return $result
+            }
+
+            $wrapper = $null
+            foreach ($item in @($wrappedOutput)) {
+                if ($item -is [PSCustomObject] -and $item._AsyncWrapper -eq $true) {
+                    $wrapper = $item
+                    break
+                }
+            }
+
+            $moduleResult = $null
+            if ($wrapper) {
+                if ($null -ne $wrapper.Output) {
+                    foreach ($out in @($wrapper.Output)) {
+                        if ($out -is [PSCustomObject] -and $out._IsModuleResult -eq $true) {
+                            $moduleResult = $out
+                        }
+                    }
+                }
+                if (-not $moduleResult -and $null -ne $wrapper.LastResult) {
+                    $moduleResult = $wrapper.LastResult
+                }
+            }
+
+            if ($moduleResult) {
+                $result.Status   = $moduleResult.Status
+                $result.Message  = $moduleResult.Message
+                $result.Success  = ($moduleResult.Status -eq "Success")
+                $result.Verified = $moduleResult.Verified
+            }
+            else {
+                # Legacy path mirrors Invoke-SafeCommand: no ModuleResult returned
+                $result.Status  = "Success"
+                $result.Success = $true
+                $result.Message = "(async legacy - unverified)"
+            }
+        }
+        else {
+            if ($interruptReason -eq "Skip") {
+                $result.Status  = "Error"
+                $result.Message = "Module skipped by operator (async runspace stopped; system state may be incomplete)"
+            }
+            elseif ($interruptReason -eq "Timeout") {
+                $result.Status  = "Error"
+                $result.Message = "Module exceeded timeout of ${TimeoutSec}s (async runspace stopped; system state may be incomplete)"
+            }
+        }
+    }
+    catch {
+        $result.Status  = "Error"
+        $result.Message = "Async execution error: $($_.Exception.Message)"
+        $result.Error   = $_
+        if (-not $ContinueOnError) {
+            Show-Error "$OperationName : $($_.Exception.Message)"
+        }
+    }
+    finally {
+        $result.Duration = (Get-Date) - $startTime
+        if ($null -ne $ps) {
+            try { $ps.Dispose() } catch { }
+        }
+        if ($null -ne $runspace) {
+            try { $runspace.Close() } catch { }
+            try { $runspace.Dispose() } catch { }
+        }
     }
 
     return $result
@@ -1942,7 +2199,7 @@ $rowsHtml      </tbody>
     </div>
   </div>
 
-  <div class="footer">Generated by Fabriq ver2.0 &mdash; $generatedAt</div>
+  <div class="footer">Generated by Fabriq ver2.1 &mdash; $generatedAt</div>
 </div>
 </body>
 </html>
@@ -2578,6 +2835,11 @@ function Resolve-ProfileModules {
     $invalidPaths = @()
     $autoPilot = $false
     $autoPilotWaitSec = 3
+    $asyncMode = $false
+
+    # Kill switch: if async is disabled in config, __ASYNC__ markers are
+    # silently ignored and all modules fall back to the synchronous path.
+    $asyncEnabledGlobally = (Get-FabriqAsyncConfig).Enabled
 
     try {
         $entries = @(Import-Csv $ProfileCsvPath -Encoding Default)
@@ -2608,6 +2870,19 @@ function Resolve-ProfileModules {
             continue
         }
 
+        # Async mode: subsequent modules run in a child runspace so they
+        # can be skipped via flag file or cut off on timeout. The marker
+        # itself is not added to the module list.
+        if ($path -eq '__ASYNC__') {
+            if ($asyncEnabledGlobally) {
+                $asyncMode = $true
+            }
+            else {
+                Show-Info "__ASYNC__ marker ignored (async disabled in async_config.json)"
+            }
+            continue
+        }
+
         # __AUTO_to_<User>__ pattern: resolve to autologon_config module with User parameter
         if ($path -match '^__AUTO_to_(.+)__$') {
             $autoLogonUser = $Matches[1]
@@ -2616,6 +2891,7 @@ function Resolve-ProfileModules {
                 $moduleWithOrder = $autoLogonModule.PSObject.Copy()
                 $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
                 $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonUser" -NotePropertyValue $autoLogonUser
+                $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
                 $moduleWithOrder.MenuName = "[AUTO:$autoLogonUser] $($autoLogonModule.MenuName)"
                 $validModules += $moduleWithOrder
             }
@@ -2665,6 +2941,9 @@ function Resolve-ProfileModules {
             # ErrorMode (AutoPilot per-module error handling): "" / Ask / Skip / Retry
             $errorModeValue = if ($entry.PSObject.Properties.Name -contains 'ErrorMode') { "$($entry.ErrorMode)".Trim() } else { "" }
             $moduleWithOrder | Add-Member -NotePropertyName "_ErrorMode" -NotePropertyValue $errorModeValue
+
+            # Async dispatch flag (sticky after __ASYNC__ marker until end of profile)
+            $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
 
             $validModules += $moduleWithOrder
         }

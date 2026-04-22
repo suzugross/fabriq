@@ -1,0 +1,9 @@
+Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+10,__AUTOPILOT__,1,WaitSec=1,,
+15,__ASYNC__,1,Enable async execution for subsequent modules,,
+20,standard/test_harness_config/test_harness_config.ps1,1,Async sanity - quick success,async_ok,
+30,standard/test_harness_config/test_harness_config.ps1,1,Async Verified PASS,success_verified,
+40,standard/test_harness_config/test_harness_config.ps1,1,Async Error -> ErrorMode=skip,error_basic,skip
+50,standard/test_harness_config/test_harness_config.ps1,1,Async Retry exhaust (5 tries),retry_exhaust,retry
+60,standard/test_harness_config/test_harness_config.ps1,1,HANG SIM - click Skip in Status Monitor,hang_sim,skip
+70,standard/test_harness_config/test_harness_config.ps1,1,Final async sanity after skip,async_ok,
