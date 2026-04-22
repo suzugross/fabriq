@@ -38,9 +38,9 @@ if ($enabledEntries.Count -eq 0) {
 # ========================================
 $targetEntry = $null
 
-if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_AUTOLOGON_NO)) {
+if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_AUTOLOGON_USER)) {
     # Profile mode: __AUTO_to_xxx__ specified
-    $targetUser = $env:FABRIQ_AUTOLOGON_NO
+    $targetUser = $env:FABRIQ_AUTOLOGON_USER
     $targetEntry = $enabledEntries | Where-Object { $_.User -eq $targetUser } | Select-Object -First 1
 
     if ($null -eq $targetEntry) {

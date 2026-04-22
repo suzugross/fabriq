@@ -421,9 +421,9 @@ function Invoke-BatchExecution {
                 $retryModule = $false
             }
 
-            # __AUTO_to_xxx__ parameter passing via environment variable
-            if ($module._AutoLogonNo) {
-                $env:FABRIQ_AUTOLOGON_NO = $module._AutoLogonNo
+            # __AUTO_to_<User>__ parameter passing via environment variable
+            if ($module._AutoLogonUser) {
+                $env:FABRIQ_AUTOLOGON_USER = $module._AutoLogonUser
             }
 
             # Segment parameter passing via environment variable
@@ -436,8 +436,8 @@ function Invoke-BatchExecution {
             } -ContinueOnError
 
             # Clean up AutoLogon environment variable
-            if ($module._AutoLogonNo) {
-                $env:FABRIQ_AUTOLOGON_NO = $null
+            if ($module._AutoLogonUser) {
+                $env:FABRIQ_AUTOLOGON_USER = $null
             }
 
             # Clean up Segment environment variable
