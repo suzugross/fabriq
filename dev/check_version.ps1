@@ -1,13 +1,13 @@
 # ========================================
 # Version Consistency Checker
 # ========================================
-# Verifies that version strings across the project match VERSION file.
+# Verifies that version strings across the project match kernel/KERNEL_VERSION.
 #
 # Targets:
-#   - VERSION (source of truth, X.Y.Z)
-#   - README.md L1        "# Fabriq ver{X.Y}"
-#   - kernel/common.ps1   "Common Function Library v{X.Y}"  (in header comment)
-#   - kernel/main.ps1     "Fabriq ver{X.Y}"                  (in header comment)
+#   - kernel/KERNEL_VERSION (source of truth, X.Y.Z)
+#   - README.md L1          "# Fabriq ver{X.Y}"
+#   - kernel/common.ps1 L2  "Common Function Library v{X.Y.Z}"   (full)
+#   - kernel/main.ps1   L3  "Fabriq ver{X.Y}"                    (major.minor)
 #
 # Usage:
 #   pwsh ./dev/check_version.ps1
@@ -20,16 +20,16 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $projectRoot) { $projectRoot = (Resolve-Path "$PSScriptRoot\..").Path }
 
-$versionFile = Join-Path $projectRoot "VERSION"
+$versionFile = Join-Path $projectRoot "kernel\KERNEL_VERSION"
 if (-not (Test-Path $versionFile)) {
-    Write-Host "[ERROR] VERSION file not found: $versionFile" -ForegroundColor Red
+    Write-Host "[ERROR] kernel/KERNEL_VERSION file not found: $versionFile" -ForegroundColor Red
     exit 1
 }
 
-# Parse VERSION file
+# Parse KERNEL_VERSION file
 $rawVersion = (Get-Content $versionFile -Raw).Trim()
 if ($rawVersion -notmatch '^\d+\.\d+\.\d+$') {
-    Write-Host "[ERROR] VERSION must be SemVer X.Y.Z, got: '$rawVersion'" -ForegroundColor Red
+    Write-Host "[ERROR] KERNEL_VERSION must be SemVer X.Y.Z, got: '$rawVersion'" -ForegroundColor Red
     exit 1
 }
 
@@ -38,10 +38,10 @@ $majorMinor  = "$($parts[0]).$($parts[1])"
 $fullVersion = $rawVersion
 
 Write-Host "========================================"
-Write-Host " Fabriq Version Consistency Check"
+Write-Host " Fabriq Kernel Version Consistency Check"
 Write-Host "========================================"
 Write-Host ""
-Write-Host "VERSION file   : $fullVersion"
+Write-Host "KERNEL_VERSION : $fullVersion"
 Write-Host "Expected X.Y   : $majorMinor"
 Write-Host ""
 
@@ -90,13 +90,13 @@ Test-VersionLine `
     -Pattern '(?i)Fabriq\s+ver(\d+\.\d+)' `
     -Expected $majorMinor
 
-# kernel/common.ps1 L2 : "Common Function Library v{X.Y}"
+# kernel/common.ps1 L2 : "Common Function Library v{X.Y.Z}"  (full version)
 Test-VersionLine `
     -Label "kernel/common.ps1 L2" `
     -FilePath (Join-Path $projectRoot "kernel\common.ps1") `
     -LineNumber 2 `
-    -Pattern 'Common Function Library\s+v(\d+\.\d+)' `
-    -Expected $majorMinor
+    -Pattern 'Common Function Library\s+v(\d+\.\d+\.\d+)' `
+    -Expected $fullVersion
 
 # kernel/main.ps1 L3 : "Fabriq ver{X.Y}"
 Test-VersionLine `
@@ -108,12 +108,12 @@ Test-VersionLine `
 
 Write-Host ""
 if ($mismatches.Count -eq 0) {
-    Write-Host "All version strings are consistent (X.Y = $majorMinor)." -ForegroundColor Green
+    Write-Host "All version strings are consistent (X.Y = $majorMinor, full = $fullVersion)." -ForegroundColor Green
     exit 0
 } else {
     Write-Host "Mismatches found in:" -ForegroundColor Red
     foreach ($m in $mismatches) { Write-Host "  - $m" -ForegroundColor Red }
     Write-Host ""
-    Write-Host "Fix the files above to match VERSION ($fullVersion), or update VERSION." -ForegroundColor Yellow
+    Write-Host "Fix the files above to match KERNEL_VERSION ($fullVersion), or update KERNEL_VERSION." -ForegroundColor Yellow
     exit 1
 }
