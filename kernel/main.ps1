@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver2.2 - Manifeste du Surkitinisme -
+# Fabriq ver2.0 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -866,7 +866,7 @@ Start-Transcript -Path $logFile -Append | Out-Null
 
 Write-Host ""
 Show-Separator
-Write-Host "Fabriq ver2.1 - Manifeste du Surkitinisme - " -ForegroundColor Green
+Write-Host "Fabriq ver2.0 - Manifeste du Surkitinisme - " -ForegroundColor Green
 Show-Separator
 Write-Host ""
 Show-Info "Log file: $logFile"

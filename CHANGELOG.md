@@ -15,6 +15,27 @@
 
 ## [Unreleased]
 
+### Changed
+- バージョン管理をカーネル API とモジュール独立の 2 軸に再設計
+  - 新規: `kernel/KERNEL_VERSION`（カーネル API 真のソース、初期値 `2.0.0`）
+  - 新規: `kernel/KERNEL_API.md`（公開 API サーフェスの明文化）
+  - 新規: `dev/template/VERSION`（新規モジュール用、初期値 `0.1.0`）
+  - 廃止: ルート直下の `VERSION` ファイル（「全体版」概念の廃止）
+  - `CLAUDE.md`: バージョン管理ルールを全面改訂（実装前宣言ルール E、
+    実装サマリ報告ルール F、`KERNEL_API.md` 同期ルール G、モジュール
+    `VERSION` 運用ルール H を追加）
+  - `dev/check_version.ps1`: `KERNEL_VERSION` 基準に切り替え
+  - `README.md` L1 / `kernel/common.ps1` L2 / `kernel/main.ps1` L3 /
+    `main.ps1` 起動表示 / HTML チェックリストフッター を `2.0` に同期
+
+### Notes
+- `KERNEL_VERSION=2.0.0` は現行カーネルの状態を遡及的に formal SemVer
+  の出発点として定義した値。過去の `VERSION=2.2.0` は「全体ディストリ版」
+  という別概念だったため単純な規格合わせではなく、意味論的に新しい系列
+- ランタイムでのモジュール互換性チェックは導入しない（誤判定で現場が
+  止まるリスクを避けるため）。代わりに Claude が実装前後で
+  `KERNEL_API.md` を参照して手動で整合性を担保する
+
 ## [2.2.0] - 2026-04-22
 
 ### Added
