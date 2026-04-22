@@ -15,6 +15,24 @@
 
 ## [Unreleased]
 
+### Added
+- compat tracking (Layer 1): モジュール touched 時の API 依存スキャン運用を
+  開始。将来の中央コンパチマトリクス（Layer 3）の元データを段階的に蓄積
+  - `kernel/KERNEL_API.md`: §8「API Version History」を追加（各公開 API
+    の導入バージョン追跡、Min Kernel API 判定用）
+  - `CLAUDE.md`: ルール I（モジュール touched 時の API 依存スキャン必須）、
+    ルール J（`REQUIRES_KERNEL` ファイル lazy seed 運用）、Layer 3 の将来
+    実装計画を追加
+  - `dev/template/REQUIRES_KERNEL` 新規（初期値 `2.0.0`、新規モジュール用）
+
+### Notes
+- 既存 73 モジュールには `REQUIRES_KERNEL` を一斉配布しない。Claude が
+  touched した時点から lazy に打刻していく（既存環境への影響ゼロを維持）
+- Layer 3（`kernel/MODULE_COMPAT.md` の自動生成）は現時点では未実装。
+  Layer 2 データ（`REQUIRES_KERNEL`）が貯まってから `dev/build_compat_matrix.ps1`
+  として実装する想定
+- 本変更は公開 API には影響しないため `KERNEL_VERSION` は据え置き
+
 ## [2.1.0] - 2026-04-23
 
 ### Added
