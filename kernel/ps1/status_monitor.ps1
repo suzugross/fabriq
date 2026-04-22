@@ -322,6 +322,14 @@ $btnScreenshot.ForeColor = $accentCyan
 $btnScreenshot.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
 $btnScreenshot.Margin = New-Object System.Windows.Forms.Padding(4, 2, 8, 0)
 $statusBar.Items.Add($btnScreenshot) | Out-Null
+# Skip button (only effective when the running module is in __ASYNC__ block)
+$btnSkipAsync = New-Object System.Windows.Forms.ToolStripButton
+$btnSkipAsync.Text = "Skip"
+$btnSkipAsync.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+$btnSkipAsync.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+$btnSkipAsync.Margin = New-Object System.Windows.Forms.Padding(0, 2, 8, 0)
+$btnSkipAsync.ToolTipText = "Request async module skip. Only effective for modules running after __ASYNC__ marker."
+$statusBar.Items.Add($btnSkipAsync) | Out-Null
 # Separator between button and status text
 $statusSep = New-Object System.Windows.Forms.ToolStripSeparator
 $statusBar.Items.Add($statusSep) | Out-Null
@@ -1208,6 +1216,26 @@ $btnScreenshot.Add_Click({
     else {
         $statusLabel.ForeColor = $errorRed
         $statusLabel.Text = "Screenshot failed (Save-Screenshot returned null)"
+    }
+})
+
+# --- Skip button click: write skip_request.flag for async monitor loop ---
+# The flag is consumed by Invoke-SafeCommandAsync in the kernel process. If
+# the currently running module was dispatched synchronously (no __ASYNC__
+# marker in the profile), the flag is left in place as a stale file and
+# will be cleared on the next async module start — it does not affect sync
+# execution.
+$btnSkipAsync.Add_Click({
+    $flagPath = Join-Path $script:fabriqRoot "kernel\json\skip_request.flag"
+    try {
+        $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        "requested at $ts" | Out-File -FilePath $flagPath -Encoding UTF8 -Force
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+        $statusLabel.Text = "Skip requested (takes effect only for async modules)"
+    }
+    catch {
+        $statusLabel.ForeColor = $errorRed
+        $statusLabel.Text = "Skip request failed: $($_.Exception.Message)"
     }
 })
 

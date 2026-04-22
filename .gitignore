@@ -51,3 +51,7 @@
 # 一時ファイルやキャッシュ
 *.tmp
 *.log
+
+# ランタイム生成物（Fabriq 実行中に書き出される状態ファイル）
+/kernel/json/art_pulse.txt
+/kernel/json/skip_request.flag

@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `2.0.0`（`kernel/KERNEL_VERSION` を真のソースとする）
+**Current Kernel Version**: `2.1.0`（`kernel/KERNEL_VERSION` を真のソースとする）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -97,6 +97,7 @@
 | マーカー | 動作 |
 |---|---|
 | `__AUTOPILOT__` | 以降を AutoPilot 化（`Description` に `WaitSec=N`） |
+| `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行（Skip ボタン / timeout で強制中断可能、since kernel 2.1.0） |
 | `__RESTART__` | Windows 再起動 + RunOnce 経由で再開 |
 | `__SHUTDOWN__` | Windows シャットダウン |
 | `__PAUSE__` | ユーザー入力待ち |
