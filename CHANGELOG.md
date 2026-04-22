@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-23
+
 ### Added
 - async execution: `__ASYNC__` マーカー以降のモジュールを子 Runspace で実行
   し、ハング時に Status Monitor の **Skip** ボタンで強制中断可能に
