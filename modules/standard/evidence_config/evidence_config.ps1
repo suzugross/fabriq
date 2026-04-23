@@ -65,6 +65,59 @@ function Start-Section {
 }
 
 # ========================================
+# Helper: Capture cscript output (locale-safe)
+# ========================================
+# cscript WScript.Echo output does NOT honor `chcp 65001` in parent cmd.
+# On JP locales, the text is emitted as bytes in the OEM console codepage
+# (CP932), so the cmd/chcp wrapper used for Win32 EXEs (e.g. netsh in
+# Section 16) produces mojibake when captured as UTF-8 for a VBS host.
+#
+# The `cscript //U` flag is documented to emit UTF-16LE on redirected
+# stdout but is unreliable in practice on modern Windows (often emits
+# zero bytes). So instead:
+#   1. Run cscript normally (no //U), letting it write OEM bytes
+#   2. Tell .NET Process to decode stdout with the culture's OEM codepage
+#      (so the bytes become correct Unicode in the .NET string)
+#   3. Out-Log -> Out-File -Encoding UTF8 then writes valid UTF-8
+# ----------------------------------------
+function Invoke-CScriptCapture {
+    param(
+        [Parameter(Mandatory=$true)][string]$ScriptPath,
+        [string[]]$ScriptArgs = @()
+    )
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'cscript.exe'
+    $argList = @('//Nologo', $ScriptPath) + $ScriptArgs
+    $psi.Arguments = ($argList | ForEach-Object {
+        if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
+    }) -join ' '
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+
+    # Decode child stdout with the OEM codepage of the current culture
+    # (932 on JP, 437/850 on EN, etc.). Falls back to [Encoding]::Default
+    # (ANSI codepage) if GetEncoding throws for any reason.
+    $oemCp = [System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage
+    $enc = try { [System.Text.Encoding]::GetEncoding($oemCp) } catch { [System.Text.Encoding]::Default }
+    $psi.StandardOutputEncoding = $enc
+    $psi.StandardErrorEncoding  = $enc
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $outText = $p.StandardOutput.ReadToEnd()
+    $errText = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+
+    $combined = $outText
+    if (-not [string]::IsNullOrWhiteSpace($errText)) {
+        $combined += "`n[stderr]`n$errText"
+    }
+    return $combined
+}
+
+# ========================================
 # Display Settings
 # ========================================
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -874,19 +927,14 @@ try {
     }
 
     # 21c. slmgr /dlv raw (canonical diagnostic, matches what admins expect to see)
-    # Use cmd /c chcp 65001 wrapper (same pattern as Section 16) to avoid PS5.1
-    # CP932 capture issues on JP-locale systems.
+    # cscript WScript.Echo output ignores `chcp`, so use Invoke-CScriptCapture
+    # helper (//U flag + UTF-16LE redirected stdout) for locale-safe capture.
     Out-Log "---- slmgr /dlv (raw) ----"
     try {
-        $prevEncoding = [Console]::OutputEncoding
-        try {
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-            $slmgrOutput = cmd /c "chcp 65001 >nul && cscript //Nologo C:\Windows\System32\slmgr.vbs /dlv" 2>&1
-        }
-        finally {
-            [Console]::OutputEncoding = $prevEncoding
-        }
-        foreach ($line in $slmgrOutput) {
+        $slmgrOutput = Invoke-CScriptCapture `
+            -ScriptPath 'C:\Windows\System32\slmgr.vbs' `
+            -ScriptArgs @('/dlv')
+        foreach ($line in ($slmgrOutput -split "\r?\n")) {
             Out-Log "  $line"
         }
     }
@@ -960,15 +1008,10 @@ try {
         Out-Log ""
         Out-Log "---- cscript OSPP.vbs /dstatus (raw) ----"
         try {
-            $prevEncoding = [Console]::OutputEncoding
-            try {
-                [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-                $osppOutput = cmd /c "chcp 65001 >nul && cscript //Nologo `"$osppPath`" /dstatus" 2>&1
-            }
-            finally {
-                [Console]::OutputEncoding = $prevEncoding
-            }
-            foreach ($line in $osppOutput) {
+            $osppOutput = Invoke-CScriptCapture `
+                -ScriptPath $osppPath `
+                -ScriptArgs @('/dstatus')
+            foreach ($line in ($osppOutput -split "\r?\n")) {
                 Out-Log "  $line"
             }
         }
