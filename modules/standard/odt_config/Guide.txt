@@ -114,9 +114,14 @@ CSV で `AssetsFolder=assets\M365` を指定した場合、以下のように解
         編集結果を %TEMP% に一時 XML として保存
    5-d. setup.exe /configure "<temp_xml>" を同期実行（-Wait）
    5-e. 終了コード 0 → Success、それ以外 → Error
-   5-f. finally 句で一時 XML 削除 + ODT ログ（SetupExe(*.log)）を
-        エビデンスディレクトリ（$global:FabriqEvidenceBasePath\odt_logs\
-        または .\evidence\odt_logs\）にコピー
+   5-f. finally 句で一時 XML 削除 + ODT ログを共通エビデンスバケット
+        （.\evidence\odt_log\）にコピー
+        ・収集対象: C:\Windows\Temp\{COMPUTERNAME}-*.log のうち
+          当該エントリ実行開始以降に更新されたもの（複数件）
+        ・保存ファイル名: {session_ts}_{PCName}_{Serial}_{原ファイル名}
+          セッションコンテキスト不在時のフォールバック:
+          {yyyy_MM_dd_HHmmss}_{COMPUTERNAME}_{原ファイル名}
+        ・セッション粒度ではなく全端末・全セッション横断の共通フォルダ
 6. 集計結果を Status で返却
    ・Success 0 + Fail>0       → Error
    ・Success>0 + Fail>0       → Partial
