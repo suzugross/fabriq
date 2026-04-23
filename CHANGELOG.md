@@ -16,6 +16,24 @@
 ## [Unreleased]
 
 ### Added
+- dev/build_framework_patch.ps1: 現行 fabriq ツリーから設定用 CSV と
+  ランタイム成果物を除外した「フレームワーク全面アップデート用パッチ」
+  を任意のディレクトリに生成する再利用可能スクリプト
+  - パラメータ: `-OutDir`（デフォルト: Desktop）, `-PatchName`（省略時:
+    `fabriq_patch_{日付}_kernel-v{KERNEL_VERSION}`）, `-Purpose`
+    （PATCH_README.md への追記用自由文、省略可）
+  - 除外ルール: 既存 `make_fabriq_patch.ps1`（Desktop 上の kernel-v2.1.0
+    リリース用の一回限りスクリプト）の方針をそのまま踏襲
+      - `modules/` 配下の全 CSV から `module.csv` / `preset.csv` のみ保持
+      - `kernel/csv/hostlist.csv` / `workers.csv` / `log_destinations.csv`
+      - ランタイム成果物（`kernel/json/*.json`, `art_pulse.txt`,
+        `skip_request.flag`, `passphrase_verify.txt`, `silence.flag`）
+      - `profiles/Custom Plan.csv`
+      - `.git/`, `.claude/`, `evidence/`, `logs/`
+  - PATCH_README.md を自動生成（`$kernelVersion` / `$PatchName` /
+    `$Purpose` を埋め込み）
+  - 用途: `powershell.exe -File .\dev\build_framework_patch.ps1` 単体で
+    実行可能。Claude がリクエストを受けてそのまま実行する運用を想定
 - modules/standard/evidence_config: Section 21「Windows License / Activation
   Status」および Section 22「Office License / Activation Status」を追加。
   ライセンス認証状況のエビデンス取得を強化
