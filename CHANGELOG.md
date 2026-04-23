@@ -15,6 +15,27 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_operator/lib/session_form.ps1: Target Host Grid に検索
+  フィルタ + 列ソートを追加（大規模案件でのターゲット選択を改善）
+  - 検索対象列: `AdminID` と `NewPCName` のみ（大文字小文字無視の
+    部分一致）。`OldPCName` / `EthernetIP` / `Pin` は意図的に対象外
+    （Pin は機密性、他は操作者が覚えている可能性が低いため）
+  - ヒット件数表示（`{visible} / {total}`）を右側ラベルに表示
+  - Host Grid / Worker Grid ともに全列で `SortMode = Automatic` を明示
+    （列ヘッダクリックで昇順/降順切替）
+  - 検索欄 UX:
+      - Esc で検索欄クリア
+      - Enter で passphrase 欄へフォーカス移動
+      - 文字入力中にエラーメッセージも自動クリア
+  - 実装方針: DataGridView.Rows.Clear() + 再ポピュレート時に選択ホスト
+    参照が壊れないよう、各行の `.Tag` プロパティにソースの PSCustomObject
+    を格納。Start Session ハンドラは `$HostList[$index]` ではなく
+    `$hostGrid.SelectedRows[0].Tag` から解決（sort + filter 状態に非依存）
+  - 自動検出ヒント（`* Auto-detected: ...`）の挙動は従来通り維持。
+    検索を空に戻した際は自動検出ホストを再選択
+  - フォーム高 600 → 630 px に拡張（検索行の +30px 分）
+
 ### Added
 - dev/build_framework_patch.ps1: 現行 fabriq ツリーから設定用 CSV と
   ランタイム成果物を除外した「フレームワーク全面アップデート用パッチ」
