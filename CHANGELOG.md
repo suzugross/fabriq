@@ -15,6 +15,44 @@
 
 ## [Unreleased]
 
+### Added
+- dev/framework_overlay_rules.json: **NEW** フレームワーク更新ルールの
+  マニフェスト（schemaVersion 1）。`dev/build_framework_patch.ps1` と
+  外部更新ツール（fabriq_studio 等）が共通で consume する単一真実源
+  - `excludeDirsTopLevel` / `excludeDirsRecursive` / `excludeFilesKernelLevel`
+    / `moduleCsvWhitelist` を列挙
+  - `bundles.kernel` / `bundles.module` で version 単位を定義
+    - kernel bundle は `kernel/`, `apps/`, `commands/`, `dev/`, および
+      トップレベル framework ファイルを包含（`VERSION` ファイルを持たない
+      apps/commands/dev は kernel バンドルに束ねる判断）
+    - module bundle は各モジュール独立に `modules/<type>/<name>/VERSION`
+      で管理
+  - `profiles/` 配下は `excludeDirsRecursive` に含まれ、**更新時に丸ごと
+    保護**（`Master_*.csv` / `_test_harness*.csv` / `sysprep.csv` /
+    `easy_template/` も対象）。プロファイル書式のアップデートが発生
+    しても既存を絶対優先の方針
+- kernel/KERNEL_API.md: **§ 9「更新・オーバーレイ契約（外部ツール向け
+  公開契約）」を新設**。外部更新ツールが依存できる公開契約を明文化
+  - 9.1 マニフェスト JSON の位置付け、9.2 bundle 定義、9.3 site-specific
+    絶対保護、9.4 SemVer 比較セマンティクス（4 状態）、9.5
+    REQUIRES_KERNEL 事前チェック、9.6 新/欠損モジュールの扱い、9.7
+    更新前の安全チェック、9.8 schemaVersion 後方互換
+  - 本セクション追加は **公開 API サーフェスへの追加**のため、
+    次回リリース時に KERNEL_VERSION の MINOR 昇格（2.1.0 → 2.2.0）
+    が必要（現時点では [Unreleased] 扱いで `KERNEL_VERSION` は据え置き）
+
+### Changed
+- dev/build_framework_patch.ps1: マニフェスト消費型にリファクタ。
+  除外ルールのハードコードを廃し、`dev/framework_overlay_rules.json`
+  を読み込む方式に変更（外部ツールとルール同期を保証）
+  - 挙動変更: `profiles/` 全体を recursive 除外（従来は
+    `Custom Plan.csv` 1 ファイルのみ除外）。`Master_*.csv` /
+    `_test_harness*.csv` / `sysprep.csv` / `easy_template/` は
+    framework patch に含まれなくなる（上記 9.3 の方針と整合）
+  - 手順を 4 ステップから 5 ステップに再編（Step 2 = 再帰ディレクトリ
+    除外、Step 3 = kernel 個別ファイル除外）
+  - PATCH_README.md の「Excluded」セクションに profiles 保護方針を追記
+
 ### Changed
 - apps/fabriq_operator/lib/session_form.ps1: Target Host Grid に検索
   フィルタ + 列ソートを追加（大規模案件でのターゲット選択を改善）

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "description": "Framework overlay rules for fabriq. Consumed by dev/build_framework_patch.ps1 (patch builder) and by external update tools (fabriq_studio) to decide which files are 'framework' (overlayable) and which are 'site-specific' (must be preserved on the target).",
+
+  "excludeDirsTopLevel": [
+    ".git",
+    ".claude",
+    "evidence",
+    "logs"
+  ],
+
+  "excludeDirsRecursive": [
+    "profiles"
+  ],
+
+  "excludeFilesKernelLevel": [
+    ".gitignore",
+    "kernel/csv/hostlist.csv",
+    "kernel/csv/workers.csv",
+    "kernel/csv/log_destinations.csv",
+    "kernel/json/art_pulse.txt",
+    "kernel/json/resume_state.json",
+    "kernel/json/session.json",
+    "kernel/json/skip_request.flag",
+    "kernel/json/status.json",
+    "kernel/txt/passphrase_verify.txt",
+    "kernel/txt/silence.flag"
+  ],
+
+  "moduleCsvWhitelist": [
+    "module.csv",
+    "preset.csv"
+  ],
+
+  "bundles": {
+    "kernel": {
+      "description": "Top-level framework bundle. Versioned by kernel/KERNEL_VERSION. Includes the kernel library, apps, commands, dev tooling, and top-level framework files (README.md, CHANGELOG.md, CLAUDE.md, LICENSE, Fabriq.exe, Deploy.bat). When an update tool detects a kernel version mismatch, every file under these paths (minus the site-specific exclusions above) is overlaid as one unit.",
+      "versionFile": "kernel/KERNEL_VERSION",
+      "includePaths": [
+        "kernel/",
+        "apps/",
+        "commands/",
+        "dev/",
+        "Fabriq.exe",
+        "Deploy.bat",
+        "README.md",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "LICENSE"
+      ]
+    },
+
+    "module": {
+      "description": "Per-module bundle. Each module at modules/<type>/<name>/ is its own versioning unit. Versioned by modules/<type>/<name>/VERSION. An update tool compares VERSION between template and target per module; if template > target, that entire module directory is overlaid EXCEPT any CSV not in moduleCsvWhitelist (which represents the site-specific _list.csv family and must be preserved).",
+      "pathPattern": "modules/{type}/{name}/",
+      "versionFilePattern": "modules/{type}/{name}/VERSION",
+      "requiresKernelFilePattern": "modules/{type}/{name}/REQUIRES_KERNEL",
+      "typeValues": ["standard", "extended"]
+    }
+  },
+
+  "notes": {
+    "profilesPreservation": "All files under profiles/ are ALWAYS preserved on the target, even if the template ships newer versions. This is a deliberate policy: profile CSVs may have been customized per site, and format changes (if any) are handled via manual migration, never automatic overwrite.",
+    "missingVersionFile": "A module may lack a VERSION file (pre-VERSION legacy modules). Treat it as 'unknown version' - an update tool should consider the template side as newer if the template has a VERSION file and the target does not.",
+    "requiresKernelCheck": "Before overlaying a module bundle, compare the template module's REQUIRES_KERNEL against the target's kernel/KERNEL_VERSION. If REQUIRES_KERNEL > target kernel version, the kernel bundle must be overlaid first (or the module update blocked).",
+    "newModulesFromTemplate": "If the template has a module directory that the target does not, overlay copies module.csv / preset.csv / all scripts / Guide.txt / VERSION / REQUIRES_KERNEL. Site-specific CSVs (e.g. _list.csv) are NOT copied - the operator must create them via Fabriq Studio based on the module's Guide.txt.",
+    "existingModulesAbsentFromTemplate": "If the target has a module the template does not, it is treated as a site-custom module and preserved untouched."
+  }
+}

@@ -189,3 +189,89 @@ formal SemVer の出発点。以下すべて利用可能:
 - 上記に加えて 2.2.0 で追加される新 API を使用 → Min Kernel API = **2.2.0**
 
 プロファイル側（特殊マーカー）の依存はモジュールの `REQUIRES_KERNEL` には含めない（マーカーは kernel が解釈するため、モジュールスクリプト単体の動作には影響しない）。
+
+---
+
+## 9. 更新・オーバーレイ契約（外部ツール向け公開契約）
+
+fabriq 本体の再配布・in-place 更新（site-specific データを保持したままフレームワーク側だけ差し替える）を行う **外部ツール**（代表: fabriq_studio、および `dev/build_framework_patch.ps1`）が依存する契約を本節で明文化します。
+
+### 9.1 真実の源: `dev/framework_overlay_rules.json`
+
+更新ルールは本 JSON に集約されます。schemaVersion 付き。外部ツールは必ずこのファイルを読んでルールを解釈してください。フィールド仕様は JSON 内 `description` および以下。
+
+| キー | 型 | 意味 |
+|---|---|---|
+| `schemaVersion` | int | マニフェストのスキーマ版。現行 `1`。破壊的変更時に 2 へ |
+| `excludeDirsTopLevel` | string[] | robocopy レベルで除外するトップレベルディレクトリ（`.git`, `.claude`, `evidence`, `logs`） |
+| `excludeDirsRecursive` | string[] | 再帰的に丸ごと除外するディレクトリ（`profiles` が該当）。**overlay 対象から常時外す** |
+| `excludeFilesKernelLevel` | string[] | カーネル配下の個別除外ファイル（`hostlist.csv` / `workers.csv` / `log_destinations.csv` / runtime artifact 全般 / `passphrase_verify.txt` 等） |
+| `moduleCsvWhitelist` | string[] | `modules/` 配下の CSV のうち framework 扱いとするホワイトリスト（`module.csv`, `preset.csv` のみ） |
+| `bundles.kernel` | object | カーネル bundle の定義（version source + include paths） |
+| `bundles.module` | object | モジュール bundle の定義（パターン） |
+
+### 9.2 Bundle 定義
+
+| Bundle | Version ファイル | 対象パス |
+|---|---|---|
+| **kernel** | `kernel/KERNEL_VERSION` | `kernel/`, `apps/`, `commands/`, `dev/`, `Fabriq.exe`, `Deploy.bat`, `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `LICENSE` |
+| **module:\<name\>** | `modules/{std,ext}/<name>/VERSION` | `modules/{std,ext}/<name>/`（ただし `moduleCsvWhitelist` 以外の CSV は除く） |
+
+`apps/` / `commands/` / `dev/` は個別 `VERSION` を持たず、kernel bundle と同期して動きます。
+
+### 9.3 site-specific の絶対保護
+
+以下は **更新時に絶対に上書きしない**：
+
+- `profiles/` 配下全ファイル（`Master_*.csv`, `Custom Plan.csv`, `sysprep.csv`, `_test_harness*.csv`, `easy_template/` 等すべて。プロファイル書式のアップデートが入っても既存を優先）
+- `excludeFilesKernelLevel` に列挙された kernel 配下ファイル
+- `modules/**/*.csv` のうち `moduleCsvWhitelist` 以外のもの（`_list.csv` ファミリ、`office_key.csv`, `license_key.csv`, `domain.csv` 等）
+- ランタイム成果物（`kernel/json/*.json`, `art_pulse.txt`, `skip_request.flag`, `passphrase_verify.txt`, `silence.flag` 等）
+
+### 9.4 SemVer 比較セマンティクス
+
+bundle 単位でバージョンを比較：
+
+| template VERSION | target VERSION | 期待動作 |
+|---|---|---|
+| `1.2.0` | `1.1.0` | **UPDATE**（overlay 実行） |
+| `1.2.0` | `1.2.0` | SKIP（同版） |
+| `1.2.0` | `1.3.0` | SKIP（target 側が新しい。ツールによっては警告表示推奨） |
+| `1.2.0` | VERSION ファイル欠損 | UPDATE（target を lazy seed） |
+| なし | `1.0.0` | SKIP（template 側に VERSION 未打刻） |
+| なし | なし | SKIP |
+
+バージョン文字列は `^(\d+)\.(\d+)\.(\d+)$` 形式。pre-release / build metadata は現行不使用。
+
+### 9.5 `REQUIRES_KERNEL` 事前チェック
+
+モジュール bundle を overlay する前に、template 側のそのモジュールの `REQUIRES_KERNEL` と target 側の現行 `kernel/KERNEL_VERSION` を比較：
+
+- `REQUIRES_KERNEL > 現行 kernel` の場合、**先に kernel bundle を overlay する** か、当該モジュール更新を block してユーザに kernel 更新を促す
+- この順序を守らないと、新モジュールが古いカーネルの未提供 API を呼んで実行時エラーになる
+
+### 9.6 新モジュール / 欠損モジュールの扱い
+
+- **template にあり target にないモジュール**: overlay で追加（`_list.csv` は copied されない。operator が Fabriq Studio で設定 CSV を新規作成）
+- **target にあり template にないモジュール**: site-custom モジュールと見なし **保持**（touched しない）
+
+### 9.7 更新前の安全チェック（推奨）
+
+外部更新ツールが overlay 実行前に必ず確認すべき状態：
+
+| チェック | 目的 |
+|---|---|
+| `Fabriq.exe` プロセスが実行中でないこと | ファイルロック回避 |
+| `kernel/json/resume_state.json` 不在 | キッティング中断中の更新を避ける |
+| target の `kernel/KERNEL_VERSION` と全 module の `REQUIRES_KERNEL` の整合 | 更新後のランタイム互換性保証 |
+| target フォルダのバックアップ取得 | ロールバック経路確保 |
+
+### 9.8 schemaVersion の後方互換
+
+`dev/framework_overlay_rules.json` の `schemaVersion` フィールドが将来 `2` 等に上がった場合、外部ツールは未対応バージョンを検知したら**処理を拒否して明示エラー**を返す責任があります（黙って部分動作しない）。現行 `1` のスキーマは下位互換を維持する形で進化させる方針。
+
+---
+
+## 10. 変更履歴
+
+`§ 9` の追加は次回リリース時に kernel MINOR 昇格（2.1.0 → 2.2.0 予定）を伴います。それまでは `[Unreleased]` 扱い。
