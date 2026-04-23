@@ -65,6 +65,23 @@
     と `REQUIRES_KERNEL`（`2.0.0`）を打刻（ルール H/J）
 
 ### Fixed
+- modules/standard/evidence_config: Section 21「Windows License」および
+  Section 22「Office License」の raw 出力で日本語が文字化けする不具合
+  を修正（`modules/standard/evidence_config/VERSION` を `1.1.0` →
+  `1.1.1` に昇格、PATCH）
+  - 原因: cscript は WScript.Echo 出力時に親 cmd の `chcp 65001` を
+    尊重せず、JP ロケールでは OEM コードページ（CP932）のバイト列を
+    吐く。これを UTF-8 として取り込んだ結果、U+FFFD 置換文字に化けて
+    いた（Section 16 の netsh は chcp を尊重するため問題なし）
+  - 修正方針: cscript 安全呼び出しヘルパー `Invoke-CScriptCapture` を
+    追加し、`System.Diagnostics.Process` で stdout をリダイレクト、
+    `StandardOutputEncoding` にカルチャの OEM コードページを指定して
+    .NET 側に正しくデコードさせる。内部的には UTF-16 の .NET 文字列と
+    なるため、後続の `Out-File -Encoding UTF8` で正しい UTF-8 が書かれる
+  - `cscript //U` で UTF-16LE redirected stdout にする案も検討したが、
+    現行 Windows 実機検証で //U が 0 バイト出力となるケースがあり採用
+    せず。OEM コードページデコード方式はロケール透過で堅牢
+  - slmgr /dlv と OSPP /dstatus の両方に適用
 - kernel/common.ps1: `Export-HtmlChecklist` の HTML レポートで「Target PC
   (New)」「Hardware ID」メタカードと `<title>` タグ内の PC 名が空で出力
   される不具合を修正
