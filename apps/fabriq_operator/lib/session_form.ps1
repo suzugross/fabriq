@@ -2,7 +2,8 @@
 # Fabriq Operator - Session Setup Form
 # ========================================
 # Displays a GUI form for worker selection,
-# host selection, and master passphrase input.
+# host selection (with live search + sort),
+# and master passphrase input.
 # Returns a hashtable with session data or $null if cancelled.
 # ========================================
 
@@ -23,7 +24,7 @@ function Show-SessionSetupForm {
     }
 
     $form = New-Object System.Windows.Forms.Form
-    Set-FormStyle -Form $form -Title "fabriq operator - Session Setup" -Width 620 -Height 600
+    Set-FormStyle -Form $form -Title "fabriq operator - Session Setup" -Width 620 -Height 630
 
     $yPos = 15
 
@@ -46,17 +47,19 @@ function Show-SessionSetupForm {
     $workerGrid.Size = New-Object System.Drawing.Size(560, 100)
     Set-GridStyle -Grid $workerGrid
 
-    # Add columns
+    # Add columns (SortMode = Automatic so header click sorts)
     $colWID = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colWID.Name = "ID"
     $colWID.HeaderText = "ID"
     $colWID.Width = 80
+    $colWID.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $workerGrid.Columns.Add($colWID) | Out-Null
 
     $colWName = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colWName.Name = "Name"
     $colWName.HeaderText = "Name"
     $colWName.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
+    $colWName.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $workerGrid.Columns.Add($colWName) | Out-Null
 
     # Populate workers
@@ -64,7 +67,6 @@ function Show-SessionSetupForm {
         foreach ($w in $Workers) {
             $workerGrid.Rows.Add($w.ID, $w.Name) | Out-Null
         }
-        # Select first row by default
         if ($workerGrid.Rows.Count -gt 0) {
             $workerGrid.Rows[0].Selected = $true
         }
@@ -73,7 +75,7 @@ function Show-SessionSetupForm {
     $form.Controls.Add($workerGrid)
     $yPos += 106
 
-    # Manual worker input
+    # Manual worker input (exclusive with grid selection)
     $manualWorkerLabel = New-StyledLabel -Text "or enter manually:" -X 20 -Y $yPos -Width 130 -Height 22 -FgColor $script:fgDim
     $form.Controls.Add($manualWorkerLabel)
 
@@ -91,67 +93,143 @@ function Show-SessionSetupForm {
     $form.Controls.Add($hostLabel)
     $yPos += 24
 
+    # ----------------------------------------
+    # Search / filter row
+    # Scope: AdminID + NewPCName only (case-insensitive substring).
+    # Other columns (OldPCName / EthernetIP / Pin) are intentionally not
+    # searched: OldPCName is often factory-default and not what the
+    # operator remembers, IP ranges vary per site, and Pin may contain
+    # sensitive tokens.
+    # ----------------------------------------
+    $searchLabel = New-StyledLabel -Text "Search:" -X 20 -Y $yPos -Width 60 -Height 22 -FgColor $script:fgDim
+    $form.Controls.Add($searchLabel)
+
+    $searchBox = New-Object System.Windows.Forms.TextBox
+    $searchBox.Location = New-Object System.Drawing.Point(85, $yPos)
+    $searchBox.Size = New-Object System.Drawing.Size(380, 22)
+    Set-TextBoxStyle -TextBox $searchBox
+    $form.Controls.Add($searchBox)
+
+    $totalHosts = if ($HostList) { $HostList.Count } else { 0 }
+    $countLabel = New-StyledLabel -Text "$totalHosts / $totalHosts" -X 470 -Y $yPos -Width 110 -Height 22 -FgColor $script:fgDim
+    $countLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $form.Controls.Add($countLabel)
+    $yPos += 30
+
+    # ----------------------------------------
+    # Host Grid
+    # ----------------------------------------
     $hostGrid = New-Object System.Windows.Forms.DataGridView
     $hostGrid.Location = New-Object System.Drawing.Point(20, $yPos)
     $hostGrid.Size = New-Object System.Drawing.Size(560, 140)
     Set-GridStyle -Grid $hostGrid
 
-    # Add columns
     $colHID = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colHID.Name = "AdminID"
     $colHID.HeaderText = "ID"
     $colHID.Width = 50
+    $colHID.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $hostGrid.Columns.Add($colHID) | Out-Null
 
     $colOld = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colOld.Name = "OldPCName"
     $colOld.HeaderText = "OldPC"
     $colOld.Width = 140
+    $colOld.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $hostGrid.Columns.Add($colOld) | Out-Null
 
     $colNew = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colNew.Name = "NewPCName"
     $colNew.HeaderText = "NewPC"
     $colNew.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
+    $colNew.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $hostGrid.Columns.Add($colNew) | Out-Null
 
     $colIP = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colIP.Name = "EthernetIP"
     $colIP.HeaderText = "IP"
     $colIP.Width = 130
+    $colIP.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $hostGrid.Columns.Add($colIP) | Out-Null
 
     $colPin = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colPin.Name = "Pin"
     $colPin.HeaderText = "Pin"
     $colPin.Width = 80
+    $colPin.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     $hostGrid.Columns.Add($colPin) | Out-Null
 
-    # Populate hosts and auto-select
-    $autoSelectedIdx = -1
+    # Track the auto-detected host by OBJECT REFERENCE so it survives the
+    # filter redraws (DataGridView row indices shift when Rows.Clear()+rebuild).
+    $autoSelectedHost = $null
     if ($HostList -and $HostList.Count -gt 0) {
-        for ($i = 0; $i -lt $HostList.Count; $i++) {
-            $h = $HostList[$i]
-            $hostGrid.Rows.Add($h.AdminID, $h.OldPCName, $h.NewPCName, $h.EthernetIP, $h.Pin) | Out-Null
+        foreach ($h in $HostList) {
             if ($h.NewPCName -eq $CurrentPCName) {
-                $autoSelectedIdx = $i
+                $autoSelectedHost = $h
+                break
             }
         }
-        if ($autoSelectedIdx -ge 0) {
-            $hostGrid.ClearSelection()
-            $hostGrid.Rows[$autoSelectedIdx].Selected = $true
-            $hostGrid.FirstDisplayedScrollingRowIndex = $autoSelectedIdx
-        }
-        elseif ($hostGrid.Rows.Count -gt 0) {
-            $hostGrid.Rows[0].Selected = $true
-        }
     }
+
+    # ----------------------------------------
+    # Filter scriptblock: rebuilds the Host Grid with rows that match the
+    # search text. Stores the source host object in Row.Tag so the Start
+    # handler can resolve selection back to the source host regardless of
+    # sort order or filter state.
+    # ----------------------------------------
+    $refreshHostGrid = {
+        param([string]$searchText)
+
+        $hostGrid.Rows.Clear()
+        $needle = ''
+        if ($searchText) { $needle = $searchText.Trim().ToLowerInvariant() }
+        $matched = 0
+
+        if ($HostList) {
+            foreach ($h in $HostList) {
+                $visible = $true
+                if ($needle) {
+                    $adminId = "$($h.AdminID)".ToLowerInvariant()
+                    $newPc   = "$($h.NewPCName)".ToLowerInvariant()
+                    $visible = ($adminId.Contains($needle)) -or ($newPc.Contains($needle))
+                }
+                if ($visible) {
+                    $rowIdx = $hostGrid.Rows.Add($h.AdminID, $h.OldPCName, $h.NewPCName, $h.EthernetIP, $h.Pin)
+                    $hostGrid.Rows[$rowIdx].Tag = $h
+                    $matched++
+                }
+            }
+        }
+
+        $countLabel.Text = "$matched / $totalHosts"
+
+        if ($hostGrid.Rows.Count -eq 0) { return }
+        $hostGrid.ClearSelection()
+
+        # Empty search + prior auto-detected host => reselect that host.
+        if (-not $needle -and $null -ne $autoSelectedHost) {
+            foreach ($r in $hostGrid.Rows) {
+                if ([object]::ReferenceEquals($r.Tag, $autoSelectedHost)) {
+                    $r.Selected = $true
+                    try { $hostGrid.FirstDisplayedScrollingRowIndex = $r.Index } catch { }
+                    return
+                }
+            }
+        }
+
+        # Otherwise (1 match or many), select the first visible row.
+        $hostGrid.Rows[0].Selected = $true
+        try { $hostGrid.FirstDisplayedScrollingRowIndex = 0 } catch { }
+    }
+
+    # Initial populate
+    & $refreshHostGrid ''
 
     $form.Controls.Add($hostGrid)
     $yPos += 146
 
-    # Auto-detection hint
-    if ($autoSelectedIdx -ge 0) {
+    # Auto-detection hint (shown only when a match was found)
+    if ($null -ne $autoSelectedHost) {
         $autoLabel = New-StyledLabel -Text "* Auto-detected: $CurrentPCName (matches current PC)" -X 20 -Y $yPos -Width 560 -Height 18 -FgColor ([System.Drawing.Color]::FromArgb(46, 125, 50))
         $form.Controls.Add($autoLabel)
     }
@@ -191,28 +269,47 @@ function Show-SessionSetupForm {
     # Event Handlers
     # ========================================
 
-    # When manual worker text is entered, deselect grid
+    # Manual vs grid-selected worker: exclusive inputs
     $manualWorkerBox.Add_TextChanged({
         if ($manualWorkerBox.Text.Length -gt 0) {
             $workerGrid.ClearSelection()
         }
     })
 
-    # When worker grid is clicked, clear manual input
     $workerGrid.Add_CellClick({
         $manualWorkerBox.Text = ""
     })
 
-    # Enter key triggers Start
+    # Live host filter on every keystroke in the search box
+    $searchBox.Add_TextChanged({
+        $msgLabel.Text = ""
+        & $refreshHostGrid $searchBox.Text
+    })
+
+    # Escape clears the search; Enter advances focus to passphrase
+    $searchBox.Add_KeyDown({
+        if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Escape) {
+            $searchBox.Text = ""
+            $_.Handled = $true
+            $_.SuppressKeyPress = $true
+        }
+        elseif ($_.KeyCode -eq [System.Windows.Forms.Keys]::Return) {
+            $ppBox.Focus()
+            $_.Handled = $true
+            $_.SuppressKeyPress = $true
+        }
+    })
+
+    # Enter in passphrase box = Start Session
     $ppBox.Add_KeyDown({
-        if ($_.KeyCode -eq "Return") {
+        if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Return) {
             $startButton.PerformClick()
         }
     })
 
     # Start Session button
     $startButton.Add_Click({
-        # Determine worker
+        # Resolve worker
         if ($manualWorkerBox.Text.Length -gt 0) {
             $result.WorkerID = "MANUAL"
             $result.WorkerName = $manualWorkerBox.Text.Trim()
@@ -232,19 +329,17 @@ function Show-SessionSetupForm {
             return
         }
 
-        # Determine host
+        # Resolve host via Row.Tag (stable across sort and filter states)
         if ($hostGrid.SelectedRows.Count -eq 0) {
             $msgLabel.Text = "Please select a target host."
             return
         }
-        $hostIdx = $hostGrid.SelectedRows[0].Index
-        if ($hostIdx -ge 0 -and $hostIdx -lt $HostList.Count) {
-            $result.SelectedHost = $HostList[$hostIdx]
-        }
-        else {
+        $selectedHostObj = $hostGrid.SelectedRows[0].Tag
+        if ($null -eq $selectedHostObj) {
             $msgLabel.Text = "Invalid host selection."
             return
         }
+        $result.SelectedHost = $selectedHostObj
 
         # Validate passphrase
         $pp = $ppBox.Text
