@@ -246,6 +246,9 @@ foreach ($entry in $enabledEntries) {
         continue
     }
 
+    # Mark entry start time for ODT log collection window (see finally block).
+    $entryStartTime = Get-Date
+
     try {
         # (a) Load XML and adjust <Add SourcePath> based on Mode
         $entryMode = Get-EntryMode -Entry $entry
@@ -309,21 +312,36 @@ foreach ($entry in $enabledEntries) {
             Remove-Item -Path $TempXmlPath -Force -ErrorAction SilentlyContinue
         }
 
-        # Collect ODT log to evidence path
-        $odtLog = Get-ChildItem "C:\Windows\Temp" -Filter "SetupExe(*.log)" -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($odtLog) {
-            $logDest = if ($global:FabriqEvidenceBasePath) {
-                Join-Path $global:FabriqEvidenceBasePath "odt_logs"
-            } else {
-                Join-Path ".\evidence" "odt_logs"
-            }
+        # Collect ODT logs to shared evidence bucket (.\evidence\odt_log\).
+        # Filter: hostname-prefixed *.log files modified since this entry started.
+        # ODT writes {COMPUTERNAME}-{yyyyMMdd}-{HHmm}[a-z].log; one entry can
+        # produce multiple files (main log + correlation), so collect all fresh
+        # matches instead of only the most recent one.
+        $odtLogs = @(Get-ChildItem "C:\Windows\Temp" -Filter "$env:COMPUTERNAME-*.log" -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $entryStartTime })
+        if ($odtLogs.Count -gt 0) {
+            $logDest = Join-Path ".\evidence" "odt_log"
             if (-not (Test-Path $logDest)) {
                 New-Item -Path $logDest -ItemType Directory -Force | Out-Null
             }
-            $destFile = Join-Path $logDest $odtLog.Name
-            Copy-Item $odtLog.FullName $destFile -Force -ErrorAction SilentlyContinue
-            Show-Info "ODT log collected: $destFile"
+
+            # Prefix ensures uniqueness across sessions and PCs. Factory-default
+            # or cloned images can share hostnames, which would collide on the
+            # ODT-native filename alone. Session tag is derived from the evidence
+            # base path's grandparent leaf (format: {ts}_{PCName}_{Serial}).
+            $prefix = if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
+                $evidenceRoot = Split-Path $global:FabriqEvidenceBasePath -Parent
+                $leaf = Split-Path $evidenceRoot -Leaf
+                ($leaf -replace '_evidence$', '')
+            } else {
+                "$(Get-Date -Format 'yyyy_MM_dd_HHmmss')_${env:COMPUTERNAME}"
+            }
+
+            foreach ($log in $odtLogs) {
+                $destFile = Join-Path $logDest "${prefix}_$($log.Name)"
+                Copy-Item $log.FullName $destFile -Force -ErrorAction SilentlyContinue
+                Show-Info "ODT log collected: $destFile"
+            }
         }
     }
 

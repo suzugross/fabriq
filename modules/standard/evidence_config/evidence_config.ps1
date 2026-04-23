@@ -95,6 +95,7 @@ Write-Host "    [16] WiFi Profiles" -ForegroundColor White
 Write-Host "    [17] Restore Points (CSV)" -ForegroundColor White
 Write-Host "    [18] Windows Defender Status" -ForegroundColor White
 Write-Host "    [19] Windows Update History (CSV)" -ForegroundColor White
+Write-Host "    [20] System TEMP Text-Log Backup (safety net)" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -748,6 +749,55 @@ try {
 }
 catch {
     Out-Log "[ERROR] Failed to get Windows update history: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 20. System TEMP Text-Log Backup (safety net)
+# ----------------------------------------
+# Top-level .log and .txt files from C:\Windows\Temp.
+# Preserves raw forensic data (installer logs, ODT logs, driver logs)
+# for post-incident investigation. Non-recursive, no size cap.
+# Locked files are skipped silently since TEMP often holds files
+# opened by active processes.
+# ----------------------------------------
+Start-Section -Title "System TEMP Text-Log Backup" -FileName "20_TempBackup.txt"
+
+try {
+    $tempSrc = "C:\Windows\Temp"
+
+    if (-not (Test-Path $tempSrc)) {
+        Out-Log "System TEMP not found: $tempSrc" -Color Yellow
+        $sectionCount++
+    }
+    else {
+        $backupDir = Join-Path $targetDir "20_TempBackup"
+        $null = New-Item -ItemType Directory -Path $backupDir -Force -ErrorAction SilentlyContinue
+
+        $files = @(Get-ChildItem -Path $tempSrc -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.log', '.txt' })
+
+        $copied = 0
+        foreach ($f in $files) {
+            try {
+                Copy-Item $f.FullName (Join-Path $backupDir $f.Name) -Force -ErrorAction Stop
+                $copied++
+            }
+            catch {
+                # Locked / access-denied file: skip silently. Common in TEMP
+                # where installers and services may hold files open.
+            }
+        }
+
+        Out-Log "Source:  $tempSrc"
+        Out-Log "Matches: $($files.Count) .log/.txt file(s) at top level"
+        Out-Log "Copied:  $copied file(s) -> 20_TempBackup\"
+
+        $sectionCount++
+    }
+}
+catch {
+    Out-Log "[ERROR] Failed to backup System TEMP text-logs: $_" -Color Red
     $failCount++
 }
 

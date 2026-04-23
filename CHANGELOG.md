@@ -16,6 +16,31 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/evidence_config: Section 20「System TEMP Text-Log Backup」
+  を追加。C:\Windows\Temp 直下の `.log` / `.txt` ファイルを `20_TempBackup\`
+  に非再帰でバックアップするセーフティネット
+  - 目的: ODT / ドライバ / インストーラ系の原本ログを非常時調査用に保持
+  - ロック中ファイルは静的スキップ、サイズ上限なし、サブディレクトリ非対象
+  - touched 初回のため `modules/standard/evidence_config/VERSION`（`1.0.0`）
+    と `REQUIRES_KERNEL`（`2.0.0`）を打刻（ルール H/J）
+
+### Fixed
+- modules/standard/odt_config: ODT セットアップログの収集パターンが現行
+  setup.exe の出力形式と一致しておらず、エビデンスが常に 0 件だった
+  - 収集フィルタを `SetupExe(*.log)` から `$env:COMPUTERNAME-*.log` +
+    エントリ開始時刻以降の LastWriteTime に変更。ODT が実際に書き出す
+    `{COMPUTERNAME}-{yyyyMMdd}-{HHmm}[a-z].log` 命名を捕捉
+  - 1 エントリで複数ログが生成されるケースに対応（`-First 1` を廃止し
+    該当全件をコピー）
+  - 保存先を共通バケット `.\evidence\odt_log\` に統一（セッション毎の
+    `FabriqEvidenceBasePath` 配下への分散配置を廃止）
+  - ファイル名衝突対策としてセッションタグ（`{ts}_{PCName}_{Serial}`）
+    をプレフィクスに付与。工場出荷ホスト名・クローン環境での上書き損失
+    を防止
+  - touched 初回のため `modules/standard/odt_config/VERSION`（`1.0.0`）と
+    `REQUIRES_KERNEL`（`2.0.0`）を打刻（ルール H/J）
+
+### Added
 - compat tracking (Layer 1): モジュール touched 時の API 依存スキャン運用を
   開始。将来の中央コンパチマトリクス（Layer 3）の元データを段階的に蓄積
   - `kernel/KERNEL_API.md`: §8「API Version History」を追加（各公開 API

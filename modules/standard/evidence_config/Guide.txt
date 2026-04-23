@@ -23,12 +23,17 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
 11. サーバーの役割と機能一覧（CSV）※Windows Serverのみ
    - 11_ServerRolesFeatures.csv
    - Client OSでは自動スキップ
+20. System TEMP テキストログバックアップ（セーフティネット）
+   - C:\Windows\Temp 直下の .log / .txt を 20_TempBackup\ に退避
+   - 非再帰、サイズ上限なし、ロック中ファイルは静かにスキップ
+   - 目的: ODT / ドライバ / インストーラ系の原本ログを非常時用に保持
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
   ・全セクション統合ファイル（_ALL_PC名_Log.txt）
   ・セクションごとの個別ファイル（1-7: テキスト）
   ・CSV出力（8-11: セクションごとのCSVファイル）
+  ・20_TempBackup\: System TEMP 直下の .log / .txt 原本
 
 ■ 前提条件
 ・管理者権限が必要です
