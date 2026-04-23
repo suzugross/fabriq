@@ -1740,12 +1740,15 @@ function Export-HtmlChecklist {
     }
 
     $dateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
+    # $uid / $pcName are also rendered into the HTML body (Meta grid, <title>),
+    # so they must be resolved in both branches — not only in the fallback filename path.
+    $uid    = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
+    $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
+
     if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
         $outPath = Join-Path $outputDir "checklist_${dateStr}.html"
     }
     else {
-        $uid     = if ($global:FabriqUniqueId) { $global:FabriqUniqueId } else { Get-HardwareUniqueId }
-        $pcName  = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) { $env:SELECTED_NEW_PCNAME } else { $env:COMPUTERNAME }
         $outPath = Join-Path $outputDir "checklist_${dateStr}_${uid}_${pcName}.html"
     }
 

@@ -16,6 +16,28 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/evidence_config: Section 21「Windows License / Activation
+  Status」および Section 22「Office License / Activation Status」を追加。
+  ライセンス認証状況のエビデンス取得を強化
+  - Section 21（`21_WindowsLicense.txt`）:
+      a. `SoftwareLicensingProduct`（CIM）: 製品別 LicenseStatus /
+         PartialProductKey / ProductKeyChannel / KMS Machine
+      b. `SoftwareLicensingService`（CIM）: ClientMachineID、マシン全体の
+         KMS 設定
+      c. `slmgr /dlv` の raw 出力（Installation ID 含む診断情報）
+  - Section 22（`22_OfficeLicense.txt`）:
+      a. Click-to-Run レジストリ（`HKLM\SOFTWARE\Microsoft\Office\ClickToRun\
+         Configuration` の ProductReleaseIds / VersionToReport /
+         UpdateChannel / Platform など）
+      b. OSPP.vbs 自動検出（`office_license_auth.ps1` と同一候補パスを
+         流用）+ `cscript OSPP.vbs /dstatus` の raw 出力
+      - OSPP.vbs 不在時は C2R レジストリのみ記録
+  - PS 5.1 の CP932 キャプチャ問題回避のため、cscript 呼び出しは
+    Section 16（WiFi Profiles）と同じ `cmd /c "chcp 65001 && ..."` パターン
+    を採用
+  - `modules/standard/evidence_config/VERSION` を `1.0.0` → `1.1.0` に昇格
+    （MINOR / エビデンス収集項目の後方互換な追加）。`REQUIRES_KERNEL` は
+    `2.0.0` のまま（新規公開 API 依存なし）
 - modules/standard/evidence_config: Section 20「System TEMP Text-Log Backup」
   を追加。C:\Windows\Temp 直下の `.log` / `.txt` ファイルを `20_TempBackup\`
   に非再帰でバックアップするセーフティネット
@@ -25,6 +47,15 @@
     と `REQUIRES_KERNEL`（`2.0.0`）を打刻（ルール H/J）
 
 ### Fixed
+- kernel/common.ps1: `Export-HtmlChecklist` の HTML レポートで「Target PC
+  (New)」「Hardware ID」メタカードと `<title>` タグ内の PC 名が空で出力
+  される不具合を修正
+  - 原因: `$pcName` / `$uid` の解決が `$global:FabriqEvidenceBasePath`
+    未設定時の fallback ファイル名分岐内でしか行われておらず、通常運用
+    （セッション初期化後は FabriqEvidenceBasePath が必ずセットされる）
+    では両変数が未定義のまま HTML テンプレートに埋め込まれていた
+  - 修正: `$pcName` / `$uid` の解決を if/else 分岐の外側に移動し、どちら
+    の分岐でも HTML 本文で参照できるようにした
 - modules/standard/odt_config: ODT セットアップログの収集パターンが現行
   setup.exe の出力形式と一致しておらず、エビデンスが常に 0 件だった
   - 収集フィルタを `SetupExe(*.log)` から `$env:COMPUTERNAME-*.log` +

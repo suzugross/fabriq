@@ -96,6 +96,8 @@ Write-Host "    [17] Restore Points (CSV)" -ForegroundColor White
 Write-Host "    [18] Windows Defender Status" -ForegroundColor White
 Write-Host "    [19] Windows Update History (CSV)" -ForegroundColor White
 Write-Host "    [20] System TEMP Text-Log Backup (safety net)" -ForegroundColor White
+Write-Host "    [21] Windows License / Activation Status" -ForegroundColor White
+Write-Host "    [22] Office License / Activation Status" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -798,6 +800,187 @@ try {
 }
 catch {
     Out-Log "[ERROR] Failed to backup System TEMP text-logs: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 21. Windows License / Activation Status
+# ----------------------------------------
+# Captures three perspectives on Windows activation:
+#   21a. SoftwareLicensingProduct (CIM) - per-SKU licensing state
+#   21b. SoftwareLicensingService (CIM) - machine-wide KMS configuration
+#   21c. slmgr /dlv raw output - canonical human-readable diagnostic
+# slmgr /dlv can take 5-30s because it queries SLS; this is acceptable for
+# evidence collection (non-interactive snapshot).
+# ----------------------------------------
+Start-Section -Title "Windows License / Activation Status" -FileName "21_WindowsLicense.txt"
+
+try {
+    $licStatusMap = @{
+        0 = "Unlicensed"
+        1 = "Licensed"
+        2 = "OOB Grace Period"
+        3 = "Out of Tolerance Grace"
+        4 = "Non-Genuine Grace"
+        5 = "Notification Mode"
+        6 = "Extended Grace Period"
+    }
+
+    # 21a. Per-product state (filter by PartialProductKey so only installed SKUs surface)
+    Out-Log "---- SoftwareLicensingProduct (per-product) ----"
+    $osProducts = @(Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue |
+                    Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" })
+
+    if ($osProducts.Count -eq 0) {
+        Out-Log "(No installed Windows product key found)"
+    }
+    else {
+        foreach ($p in $osProducts) {
+            $statusCode = [int]$p.LicenseStatus
+            $statusText = if ($licStatusMap.ContainsKey($statusCode)) { $licStatusMap[$statusCode] } else { "Unknown" }
+            Out-Log "Name:                  $($p.Name)"
+            Out-Log "  Description:         $($p.Description)"
+            Out-Log "  LicenseStatus:       $statusText ($statusCode)"
+            Out-Log "  PartialProductKey:   $($p.PartialProductKey)"
+            Out-Log "  LicenseFamily:       $($p.LicenseFamily)"
+            Out-Log "  ProductKeyChannel:   $($p.ProductKeyChannel)"
+            if ($p.GracePeriodRemaining -gt 0) {
+                Out-Log "  GracePeriodRemaining: $($p.GracePeriodRemaining) minutes"
+            }
+            if (-not [string]::IsNullOrEmpty($p.KeyManagementServiceMachine)) {
+                Out-Log "  KMS (configured):    $($p.KeyManagementServiceMachine)"
+            }
+            if (-not [string]::IsNullOrEmpty($p.DiscoveredKeyManagementServiceMachineName)) {
+                Out-Log "  KMS (discovered):    $($p.DiscoveredKeyManagementServiceMachineName):$($p.DiscoveredKeyManagementServiceMachinePort)"
+            }
+            Out-Log ""
+        }
+    }
+
+    # 21b. Machine-wide licensing service (KMS client config, ClientMachineID)
+    Out-Log "---- SoftwareLicensingService (machine-wide) ----"
+    try {
+        $sls = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction Stop
+        Out-Log "ClientMachineID:             $($sls.ClientMachineID)"
+        Out-Log "KeyManagementServiceMachine: $($sls.KeyManagementServiceMachine)"
+        Out-Log "KeyManagementServicePort:    $($sls.KeyManagementServicePort)"
+        Out-Log "OA3xOriginalProductKey:      $($sls.OA3xOriginalProductKey)"
+        Out-Log "OA3xOriginalProductKeyDescription: $($sls.OA3xOriginalProductKeyDescription)"
+        Out-Log "PolicyCacheRefreshRequired:  $($sls.PolicyCacheRefreshRequired)"
+        Out-Log ""
+    }
+    catch {
+        Out-Log "  [WARN] Could not query SoftwareLicensingService: $_" -Color Yellow
+    }
+
+    # 21c. slmgr /dlv raw (canonical diagnostic, matches what admins expect to see)
+    # Use cmd /c chcp 65001 wrapper (same pattern as Section 16) to avoid PS5.1
+    # CP932 capture issues on JP-locale systems.
+    Out-Log "---- slmgr /dlv (raw) ----"
+    try {
+        $prevEncoding = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            $slmgrOutput = cmd /c "chcp 65001 >nul && cscript //Nologo C:\Windows\System32\slmgr.vbs /dlv" 2>&1
+        }
+        finally {
+            [Console]::OutputEncoding = $prevEncoding
+        }
+        foreach ($line in $slmgrOutput) {
+            Out-Log "  $line"
+        }
+    }
+    catch {
+        Out-Log "  [WARN] slmgr /dlv failed: $_" -Color Yellow
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to collect Windows license status: $_" -Color Red
+    $failCount++
+}
+
+# ----------------------------------------
+# 22. Office License / Activation Status
+# ----------------------------------------
+# Captures two perspectives on Office:
+#   22a. Click-to-Run registry (ProductReleaseIds, channel, version)
+#        - works even when OSPP.vbs is absent (Store Office / M365 Apps only)
+#   22b. ospp.vbs /dstatus raw - per-product LICENSE NAME / STATUS / KMS info
+# OSPP.vbs path detection mirrors office_license_config\office_license_auth.ps1
+# so both modules stay in sync on Office install layout assumptions.
+# ----------------------------------------
+Start-Section -Title "Office License / Activation Status" -FileName "22_OfficeLicense.txt"
+
+try {
+    # 22a. Click-to-Run configuration registry
+    Out-Log "---- Office Click-to-Run Configuration (registry) ----"
+    $c2rKey = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+    if (Test-Path $c2rKey) {
+        try {
+            $c2r = Get-ItemProperty -Path $c2rKey -ErrorAction Stop
+            Out-Log "ProductReleaseIds: $($c2r.ProductReleaseIds)"
+            Out-Log "VersionToReport:   $($c2r.VersionToReport)"
+            Out-Log "Platform:          $($c2r.Platform)"
+            Out-Log "CDNBaseUrl:        $($c2r.CDNBaseUrl)"
+            Out-Log "UpdateChannel:     $($c2r.UpdateChannel)"
+            Out-Log "AudienceData:      $($c2r.AudienceData)"
+            Out-Log "ClientCulture:     $($c2r.ClientCulture)"
+            Out-Log ""
+        }
+        catch {
+            Out-Log "  [WARN] Could not read C2R config: $_" -Color Yellow
+        }
+    }
+    else {
+        Out-Log "(No Click-to-Run configuration - MSI-based Office or Office not installed)"
+        Out-Log ""
+    }
+
+    # 22b. OSPP.vbs path detection (same candidates as office_license_auth.ps1)
+    $osppCandidates = @(
+        "$env:ProgramFiles\Microsoft Office\root\Office16\OSPP.vbs"
+        "${env:ProgramFiles(x86)}\Microsoft Office\root\Office16\OSPP.vbs"
+        "$env:ProgramFiles\Microsoft Office\Office16\OSPP.vbs"
+        "${env:ProgramFiles(x86)}\Microsoft Office\Office16\OSPP.vbs"
+    )
+    $osppPath = $null
+    foreach ($cand in $osppCandidates) {
+        if (Test-Path $cand) { $osppPath = $cand; break }
+    }
+
+    if ($null -eq $osppPath) {
+        Out-Log "---- OSPP.vbs ----"
+        Out-Log "(OSPP.vbs not found - Office not installed, or uses Microsoft 365 per-user licensing only)"
+    }
+    else {
+        Out-Log "---- OSPP.vbs path ----"
+        Out-Log "$osppPath"
+        Out-Log ""
+        Out-Log "---- cscript OSPP.vbs /dstatus (raw) ----"
+        try {
+            $prevEncoding = [Console]::OutputEncoding
+            try {
+                [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                $osppOutput = cmd /c "chcp 65001 >nul && cscript //Nologo `"$osppPath`" /dstatus" 2>&1
+            }
+            finally {
+                [Console]::OutputEncoding = $prevEncoding
+            }
+            foreach ($line in $osppOutput) {
+                Out-Log "  $line"
+            }
+        }
+        catch {
+            Out-Log "  [WARN] ospp /dstatus failed: $_" -Color Yellow
+        }
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to collect Office license status: $_" -Color Red
     $failCount++
 }
 

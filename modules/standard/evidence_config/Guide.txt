@@ -27,6 +27,16 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
    - C:\Windows\Temp 直下の .log / .txt を 20_TempBackup\ に退避
    - 非再帰、サイズ上限なし、ロック中ファイルは静かにスキップ
    - 目的: ODT / ドライバ / インストーラ系の原本ログを非常時用に保持
+21. Windows ライセンス認証状況（21_WindowsLicense.txt）
+   - SoftwareLicensingProduct（CIM）: 製品別 LicenseStatus / PartialProductKey /
+     ProductKeyChannel / KMS Machine
+   - SoftwareLicensingService（CIM）: ClientMachineID / マシン全体の KMS 設定
+   - slmgr /dlv の raw 出力（Installation ID 等を含む診断情報）
+22. Office ライセンス認証状況（22_OfficeLicense.txt）
+   - Click-to-Run レジストリ（ProductReleaseIds / VersionToReport /
+     UpdateChannel / Platform）
+   - OSPP.vbs 自動検出 + cscript OSPP.vbs /dstatus の raw 出力
+   - OSPP.vbs 不在時（Microsoft 365 per-user 運用等）は C2R レジストリのみ記録
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
