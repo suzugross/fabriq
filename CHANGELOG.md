@@ -16,6 +16,23 @@
 ## [Unreleased]
 
 ### Added
+- dev/seed_module_versions.ps1: 全モジュールへの VERSION/REQUIRES_KERNEL
+  baseline 一斉 seed スクリプト（idempotent）
+- **全 71 モジュールに `VERSION=1.0.0` と `REQUIRES_KERNEL=2.0.0` を
+  baseline として配備**（142 ファイル新規作成）。既存の
+  `evidence_config/VERSION=1.1.1` と `odt_config/VERSION=1.0.0` は
+  履歴保持のため書き換えず
+  - 動機: fabriq_studio の「update from template」機能の実機検証中に、
+    両側 VERSION 欠損モジュールが SKIP 扱いとなり、現実には差分がある
+    のに studio が overlay を取りこぼす問題が発見された
+  - 解決: 一斉 seed で全モジュールに VERSION を行き渡らせ、`KERNEL_API.md
+    § 9.4` の「template あり/target 欠損 = UPDATE（lazy seed）」パターン
+    を全モジュールで機能させる
+  - `CLAUDE.md` ルール H / J を baseline seed 済み前提に更新。lazy seed
+    方針を「個別 touched 時の打刻」から「baseline + 以降の SemVer bump」
+    に切り替え（歴史的経緯セクションで lazy seed 方針からの移行を記録）
+
+### Added
 - dev/framework_overlay_rules.json: **NEW** フレームワーク更新ルールの
   マニフェスト（schemaVersion 1）。`dev/build_framework_patch.ps1` と
   外部更新ツール（fabriq_studio 等）が共通で consume する単一真実源
