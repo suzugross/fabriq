@@ -11,7 +11,18 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
 4. プリンター/ポート一覧
 5. BitLockerステータス
 6. MACアドレス一覧
-7. PCシリアル番号
+7. PCシリアル番号（多重ソース収集＋優先順位選定）
+   - 全ソースを独立に取得し、canonical SN を優先順位で選定
+   - 優先順位: Win32_BIOS.SerialNumber
+              → Win32_ComputerSystemProduct.IdentifyingNumber
+              → Win32_SystemEnclosure.SerialNumber
+              → Registry SystemSerialNumber
+   - Win32_BaseBoard.SerialNumber は記録のみ（母板 SN、canonical 候補外）
+   - Win32_ComputerSystemProduct.UUID を参考 ID として併記
+   - 全ソースの取得値・VALID/INVALID/QUERY FAILED タグを
+     10_SerialNumber.txt に記録（OEM 差異の事後監査用）
+   - 無効値として "Default string" / "To be filled by O.E.M." /
+     "System Serial Number" / "Not Applicable" / 全桁ゼロ等を拒否
 8. インストール済みソフトウェア一覧（CSV）
    - デスクトップアプリ（08_DesktopApps.csv）
    - ストア/UWPアプリ（08_StoreApps.csv）

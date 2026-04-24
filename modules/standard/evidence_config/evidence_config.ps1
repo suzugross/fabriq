@@ -531,17 +531,190 @@ catch {
 }
 
 # ----------------------------------------
-# 10. PC Serial Number
+# 10. PC Serial Number (multi-source collection)
+# ----------------------------------------
+# Query every reasonable SMBIOS / registry source for the PC serial
+# number independently, then pick a canonical value by priority.
+# Every source is recorded (even rejected) so that post-facto audit
+# can answer "which SMBIOS field held the SN on device X?".
+#
+# Why multi-source: OEMs populate SMBIOS Type 0 (BIOS) and Type 1
+# (System) inconsistently. A 2400-unit rollout observed ~2 units
+# where Win32_BIOS.SerialNumber was blank while
+# Win32_ComputerSystemProduct.IdentifyingNumber held the real SN
+# (and occasional inverse cases). Whitebox / VDI / un-burned units
+# also frequently ship with the placeholder "Default string", which
+# this section explicitly rejects.
 # ----------------------------------------
 Start-Section -Title "PC Serial Number" -FileName "10_SerialNumber.txt"
 
+function Test-SerialValid {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return @{ Valid = $false; Reason = 'empty' } }
+    $trimmed = $Value.Trim()
+
+    $invalidExact = @(
+        'None','N/A','INVALID',
+        'To be filled by O.E.M.',
+        'Default string',
+        'System Serial Number','Chassis Serial Number',
+        'Not Applicable','Not Specified','OEM'
+    )
+    foreach ($bad in $invalidExact) {
+        if ($trimmed -ieq $bad) { return @{ Valid = $false; Reason = "`"$bad`"" } }
+    }
+    if ($trimmed -match '^0+$')        { return @{ Valid = $false; Reason = 'all-zero' } }
+    if ($trimmed -match '^[\.\-\s]+$') { return @{ Valid = $false; Reason = 'dummy-chars-only' } }
+    return @{ Valid = $true; Reason = $null }
+}
+
+function New-SerialSourceRow {
+    param(
+        [string]$Label,
+        [bool]$IsCanonicalCandidate,
+        [scriptblock]$Getter
+    )
+    $row = [PSCustomObject]@{
+        Label                = $Label
+        Value                = ''
+        Tag                  = ''
+        Valid                = $false
+        IsCanonicalCandidate = $IsCanonicalCandidate
+    }
+    try {
+        $raw  = & $Getter
+        $text = if ($null -eq $raw) { '' } else { [string]$raw }
+        $row.Value = $text
+        $check     = Test-SerialValid -Value $text
+        $row.Valid = $check.Valid
+        $row.Tag   = if ($check.Valid) { 'VALID' } else { "INVALID: $($check.Reason)" }
+    }
+    catch {
+        $reason = ($_.Exception.Message -replace '\s+', ' ').Trim()
+        if ($reason.Length -gt 80) { $reason = $reason.Substring(0, 80) + '...' }
+        $row.Tag = "QUERY FAILED: $reason"
+    }
+    return $row
+}
+
 try {
-    $bios = Get-CimInstance -ClassName Win32_BIOS
-    Out-Log $bios.SerialNumber
-    $sectionCount++
+    # ----- Phase 1: collect every source independently -----
+    $sources = @()
+
+    $sources += New-SerialSourceRow -Label 'Win32_BIOS.SerialNumber' -IsCanonicalCandidate $true -Getter {
+        (Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop).SerialNumber
+    }
+    $sources += New-SerialSourceRow -Label 'Win32_ComputerSystemProduct.IdentifyingNumber' -IsCanonicalCandidate $true -Getter {
+        (Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).IdentifyingNumber
+    }
+    $sources += New-SerialSourceRow -Label 'Win32_SystemEnclosure.SerialNumber' -IsCanonicalCandidate $true -Getter {
+        $enc = Get-CimInstance -ClassName Win32_SystemEnclosure -ErrorAction Stop
+        if ($enc -is [array]) {
+            ($enc | ForEach-Object { $_.SerialNumber } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                Select-Object -First 1)
+        } else {
+            $enc.SerialNumber
+        }
+    }
+    $sources += New-SerialSourceRow -Label 'Win32_BaseBoard.SerialNumber' -IsCanonicalCandidate $false -Getter {
+        (Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop).SerialNumber
+    }
+    $sources += New-SerialSourceRow -Label 'Registry SystemSerialNumber' -IsCanonicalCandidate $true -Getter {
+        $regPath = 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS'
+        (Get-ItemProperty -Path $regPath -Name SystemSerialNumber -ErrorAction Stop).SystemSerialNumber
+    }
+
+    # Reference ID (UUID) - not a serial, captured for Default-string machines.
+    $uuidRow = [PSCustomObject]@{
+        Label = 'Win32_ComputerSystemProduct.UUID'
+        Value = ''
+        Tag   = ''
+    }
+    try {
+        $uuidVal       = (Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+        $uuidRow.Value = if ($null -eq $uuidVal) { '' } else { [string]$uuidVal }
+        $uuidRow.Tag   = if ([string]::IsNullOrWhiteSpace($uuidRow.Value)) { 'EMPTY' } else { 'CAPTURED' }
+    }
+    catch {
+        $reason = ($_.Exception.Message -replace '\s+', ' ').Trim()
+        if ($reason.Length -gt 80) { $reason = $reason.Substring(0, 80) + '...' }
+        $uuidRow.Tag = "QUERY FAILED: $reason"
+    }
+
+    # ----- Phase 2: pick canonical by priority -----
+    $canonical       = $null
+    $canonicalSource = $null
+    foreach ($s in $sources) {
+        if ($s.IsCanonicalCandidate -and $s.Valid) {
+            $canonical       = $s.Value.Trim()
+            $canonicalSource = $s.Label
+            break
+        }
+    }
+
+    # ----- Phase 3: emit evidence -----
+    Out-Log "---- Canonical Serial Number ----"
+    if ($null -eq $canonical) {
+        Out-Log "(Unretrievable)" -Color Red
+        Out-Log "(Source: none - all canonical candidates were invalid or failed)"
+    } else {
+        Out-Log $canonical
+        Out-Log "(Source: $canonicalSource)"
+    }
+    Out-Log ""
+
+    # Column widths for aligned table (include UUID row label).
+    $allLabels  = @($sources | ForEach-Object { $_.Label }) + @($uuidRow.Label)
+    $labelWidth = ($allLabels | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+    $allValues  = @($sources | ForEach-Object { if ([string]::IsNullOrEmpty($_.Value)) { '(empty)' } else { $_.Value.Trim() } }) +
+                  @( if ([string]::IsNullOrEmpty($uuidRow.Value)) { '(empty)' } else { $uuidRow.Value.Trim() } )
+    $valueWidth = [Math]::Max(20, (($allValues | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum))
+
+    Out-Log "---- All Sources ----"
+    foreach ($s in $sources) {
+        $displayValue = if ([string]::IsNullOrEmpty($s.Value)) { '(empty)' } else { $s.Value.Trim() }
+
+        $tag = $s.Tag
+        if ($s.Valid) {
+            if ($null -ne $canonical -and $displayValue -eq $canonical) {
+                $tag = 'VALID, MATCH'
+            } elseif ($s.IsCanonicalCandidate) {
+                $tag = 'VALID, DIFFERENT'
+            } else {
+                $tag = 'VALID, DIFFERENT (record-only)'
+            }
+        }
+
+        $line = $s.Label.PadRight($labelWidth) + "  : " + $displayValue.PadRight($valueWidth) + "  [$tag]"
+        Out-Log $line
+    }
+    Out-Log ""
+
+    Out-Log "---- Reference ID ----"
+    $refDisplay = if ([string]::IsNullOrEmpty($uuidRow.Value)) { '(empty)' } else { $uuidRow.Value.Trim() }
+    $refLine    = $uuidRow.Label.PadRight($labelWidth) + "  : " + $refDisplay.PadRight($valueWidth) + "  [$($uuidRow.Tag)]"
+    Out-Log $refLine
+    Out-Log ""
+
+    Out-Log "---- Selection Policy ----"
+    Out-Log "Priority: Win32_BIOS.SerialNumber -> Win32_ComputerSystemProduct.IdentifyingNumber"
+    Out-Log "       -> Win32_SystemEnclosure.SerialNumber -> Registry SystemSerialNumber"
+    Out-Log "Win32_BaseBoard.SerialNumber is record-only (motherboard SN, not PC SN)."
+    Out-Log "Win32_ComputerSystemProduct.UUID is reference ID only (not a serial number)."
+    Out-Log 'Rejected values: empty / "Default string" / "To be filled by O.E.M." /'
+    Out-Log '                 "None" / "N/A" / "INVALID" / "System Serial Number" /'
+    Out-Log '                 "Chassis Serial Number" / "Not Applicable" / "Not Specified" /'
+    Out-Log '                 "OEM" / all-zero / dots-hyphens-whitespace-only'
+
+    if ($null -ne $canonical) {
+        $sectionCount++
+    } else {
+        $failCount++
+    }
 }
 catch {
-    Out-Log "[ERROR] Failed to get serial number: $_" -Color Red
+    Out-Log "[ERROR] Failed to collect serial number sources: $_" -Color Red
     $failCount++
 }
 

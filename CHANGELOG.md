@@ -16,6 +16,32 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/evidence_config: Section 10「PC Serial Number」を
+  多重ソース収集型に拡張（`1.1.1` → `1.2.0`、MINOR / 後方互換な機能追加）
+  - 動機: 2400 台規模の案件で `Win32_BIOS.SerialNumber` が空を返す機器が
+    ~2 台程度出現（SMBIOS Type 0 未投入 / Type 1 のみ投入の OEM ケース）。
+    また OEM 出荷前焼き込み漏れで `"Default string"` が返る機器も散見
+  - 実装: Phase 1 で全ソースを独立 try/catch で取得 → Phase 2 で canonical
+    を優先順位で選定 → Phase 3 で全ソースを txt に記録
+  - 収集ソース:
+      a. `Win32_BIOS.SerialNumber`（canonical 優先 1、従来唯一のソース）
+      b. `Win32_ComputerSystemProduct.IdentifyingNumber`（canonical 優先 2）
+      c. `Win32_SystemEnclosure.SerialNumber`（canonical 優先 3）
+      d. `Win32_BaseBoard.SerialNumber`（記録のみ、母板 SN は canonical 候補外）
+      e. `HKLM:\HARDWARE\DESCRIPTION\System\BIOS\SystemSerialNumber`
+         （canonical 優先 4、最終 fallback）
+      f. `Win32_ComputerSystemProduct.UUID`（参考 ID、SN ではない）
+  - 無効値拒否リスト拡張: 従来 `"Default string"` 等に加え `"Not Applicable"`
+    / `"Not Specified"` / `"OEM"` / `"Chassis Serial Number"` / 全桁ゼロ /
+    全桁ドット・ハイフン・空白を追加
+  - 出力仕様: 1 行目 = canonical SN（従来互換の grep 位置）、
+    その下に全ソースの値と `[VALID, MATCH]` / `[VALID, DIFFERENT]` /
+    `[INVALID: <reason>]` / `[QUERY FAILED: <reason>]` タグ、
+    末尾に選定ポリシー
+  - Section 成否: canonical が 1 件でも決定できれば success、全滅時のみ fail
+  - `Get-HardwareUniqueId`（kernel 側・出力フォルダ名に使う UID）は今回
+    未変更（既に MAC fallback があり欠番化しないため）。必要になったら
+    別コミットで拡張
 - dev/seed_module_versions.ps1: 全モジュールへの VERSION/REQUIRES_KERNEL
   baseline 一斉 seed スクリプト（idempotent）
 - **全 71 モジュールに `VERSION=1.0.0` と `REQUIRES_KERNEL=2.0.0` を
