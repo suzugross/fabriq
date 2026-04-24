@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-04-23
+
 ### Added
 - modules/standard/evidence_config: Section 10「PC Serial Number」を
   多重ソース収集型に拡張（`1.1.1` → `1.2.0`、MINOR / 後方互換な機能追加）

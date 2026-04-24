@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `2.1.0`（`kernel/KERNEL_VERSION` を真のソースとする）
+**Current Kernel Version**: `2.2.0`（`kernel/KERNEL_VERSION` を真のソースとする）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -179,6 +179,14 @@ formal SemVer の出発点。以下すべて利用可能:
 ### 2.1.0
 
 - **§4 特殊マーカーに `__ASYNC__` 追加**（プロファイル内で利用するのみ。モジュールスクリプト側から呼び出す API ではないため、`__ASYNC__` を使うプロファイル作者のみこの版を要求する）
+
+### 2.2.0
+
+- **§9「更新・オーバーレイ契約（外部ツール向け公開契約）」新設**
+  - `dev/framework_overlay_rules.json`（schemaVersion 1）を単一真実源として明文化
+  - bundle 定義（kernel / module）、除外ルール、SemVer 比較セマンティクス、`REQUIRES_KERNEL` 事前チェック、schemaVersion 後方互換を公開契約として固定
+  - 本契約は外部更新ツール（fabriq_studio 等）が consume する前提。モジュールスクリプト側の公開 API（§1〜§5）には影響なし。`__ASYNC__` と同様、この版を要求するのは本契約を使う外部ツール側のみ
+- **モジュール `VERSION` / `REQUIRES_KERNEL` の baseline 一斉 seed 済み**（本体モジュール 73 件すべてに配備）。ルール H/J が lazy seed から baseline seed 運用へ移行
 
 ### 判定ルール
 
