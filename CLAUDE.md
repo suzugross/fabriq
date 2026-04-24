@@ -126,11 +126,15 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
 
 ### F. ルール H: モジュール `VERSION` ファイル運用
 
-- 既存モジュールの `VERSION` ファイルは存在しないことを許容する（欠損＝未追跡扱い）
-- Claude が初めて修正を加えた時点で `1.0.0` を打刻する（欠損ファイルの新規作成）
-- 以降の修正ごとに SemVer 規則（B 節下段）で昇格
-- 新規モジュールは `dev/template/` の `VERSION`（初版 `0.1.0`）をコピーして始める
+- **2026-04-23 以降、全モジュールに `VERSION=1.0.0` と `REQUIRES_KERNEL=2.0.0` を baseline として一斉 seed 済み**（`dev/seed_module_versions.ps1` による）。以後、モジュール配下に `VERSION` が欠損していることは想定外
+- 修正ごとに SemVer 規則（B 節下段）で昇格
+- 新規モジュールは `dev/template/` の `VERSION`（初版 `0.1.0`）をコピーして始める。`dev/template/` 配下の `0.1.0` は「開発中・未リリース」の目印として既存モジュールの `1.0.0` baseline と区別される
 - `VERSION` ファイルは 1 行 `X.Y.Z` のみ（末尾改行 1 個）
+- もし新規モジュール追加時に seed 漏れが疑われる場合、`powershell.exe -File .\dev\seed_module_versions.ps1 -DryRun` で確認可能（idempotent、既存は保持）
+
+#### 歴史的経緯（参考）
+
+当初は「Claude が初めて touched した時点で `1.0.0` を打刻する（lazy seed）」方針だったが、fabriq_studio の update 機能を実装する過程で「両側 VERSION 欠損 = SKIP」が現実的に問題（古い target と現行 template で実際には差分があるのに検出不可）となり、一斉 seed に切り替えた。`evidence_config` / `odt_config` など既に独自に進んでいた VERSION は保持されている。
 
 ### G. ルール I: モジュール touched 時の API 依存スキャン（必須）
 
@@ -152,13 +156,12 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
 
 ルール F の実装サマリにも `Min Kernel API 版` を明記する。
 
-### H. ルール J: `REQUIRES_KERNEL` ファイル運用（lazy seed for Layer 2）
+### H. ルール J: `REQUIRES_KERNEL` ファイル運用
 
-- 各モジュールに `modules/<type>/<name>/REQUIRES_KERNEL` を任意で配置できる（欠損許容）
+- **2026-04-23 以降、全モジュールに `REQUIRES_KERNEL=2.0.0` が baseline として一斉 seed 済み**（ルール H 参照）
 - 1 行 `X.Y.Z` のみ、末尾改行 1 個（`VERSION` と同じ形式）
-- Claude が初 touched 時、`VERSION`（`1.0.0`）と同時に `REQUIRES_KERNEL` を打刻する（スキャン結果に基づく）
-- 以降の touched で新しい公開 API 依存が増えた場合のみ bump
-- 新規モジュールは `dev/template/` 配下に `REQUIRES_KERNEL`（現行カーネル版）を同梱して始める
+- モジュール touched 時に新しい公開 API（`KERNEL_API.md §1`〜`§5`）への依存が増えた場合のみ bump（ルール I のスキャン結果に基づく）
+- 新規モジュールは `dev/template/` 配下の `REQUIRES_KERNEL`（現行カーネル版）をコピーして始める
 
 ### I. 中央コンパチマトリクス（Layer 3、将来実装）
 
