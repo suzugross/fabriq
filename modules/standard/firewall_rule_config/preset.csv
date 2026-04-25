@@ -1,0 +1,7 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Mode,Export,エクスポート（バックアップ）
+Mode,Import,インポート（破壊的・全置換）
+IAcknowledgeReplace,0,未承認（Import 拒否）
+IAcknowledgeReplace,1,承認済み（Import 実行を許可）

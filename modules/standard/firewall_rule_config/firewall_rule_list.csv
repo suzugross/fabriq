@@ -1,0 +1,4 @@
+Enabled,Mode,SourcePath,DestinationPath,IAcknowledgeReplace,Description,Segment
+1,Export,,,0,Snapshot current firewall policy,
+0,Import,YYYYMMDD_HHMMSS/policy.wfw,,0,Restore from local backup (edit timestamp dir name),
+0,Import,\\fileserver\share\firewall_baseline.wfw,,0,Restore baseline from file server,
