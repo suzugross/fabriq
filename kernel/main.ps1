@@ -231,8 +231,12 @@ function Invoke-BatchExecution {
         # Full profile module list for checklist (covers pre-restart modules in resume)
         # If omitted, $SelectedModules is used as-is
         [array]$FullProfileModules = $null,
-        # Accumulated elapsed seconds from prior restart cycles
-        [double]$PriorElapsedSeconds = 0
+        # Absolute start timestamp of the profile run. On a fresh invocation
+        # this defaults to "now"; on resume after __RESTART__ the caller
+        # passes the original start timestamp restored from resume_state.json
+        # so the displayed elapsed time spans the entire wall-clock duration
+        # (including reboot/login/startup gaps).
+        [datetime]$ProfileStartTime = (Get-Date)
     )
 
     # AutoPilot: set global flag (Profile scope, reset in finally)
@@ -250,7 +254,6 @@ function Invoke-BatchExecution {
     }
 
     Clear-ExecutionResults
-    $batchStartTime = Get-Date
     $total = $SelectedModules.Count
     $current = 0
     $completedResults = @()
@@ -275,13 +278,14 @@ function Invoke-BatchExecution {
             Write-Host "  Remaining: $($total - $current) modules after restart" -ForegroundColor White
             Write-Host ""
 
-            # Save resume state (including accumulated elapsed time)
-            $elapsedSoFar = ((Get-Date) - $batchStartTime).TotalSeconds + $PriorElapsedSeconds
+            # Save resume state. ProfileStartTime is the absolute origin
+            # (not elapsed) so the post-resume display covers the full
+            # wall clock including reboot/login/startup gaps.
             Save-ResumeState -ProfilePath $ProfilePath `
                              -ProfileName $ProfileName `
                              -ResumeAfterOrder $module.Order `
                              -CompletedModules $completedResults `
-                             -ElapsedSeconds $elapsedSoFar
+                             -ProfileStartTime $ProfileStartTime
 
             # Register RunOnce
             if (-not (Register-FabriqRunOnce)) {
@@ -507,8 +511,10 @@ function Invoke-BatchExecution {
     # All modules completed (no restart, or all restarts done)
     Remove-ResumeState
 
-    # Calculate elapsed time (including prior restart cycles)
-    $batchElapsed = (Get-Date) - $batchStartTime + [System.TimeSpan]::FromSeconds($PriorElapsedSeconds)
+    # Calculate elapsed time as a single subtraction from the absolute
+    # profile start timestamp. Naturally includes reboot/login/startup
+    # gaps for profiles with __RESTART__ markers.
+    $batchElapsed = (Get-Date) - $ProfileStartTime
 
     Show-ExecutionSummary -ElapsedTime $batchElapsed
 
@@ -1174,7 +1180,24 @@ if ($isResuming) {
         }
         Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
 
-        $priorSeconds = if ($resumeState.ElapsedSeconds) { [double]$resumeState.ElapsedSeconds } else { 0 }
+        # Restore the absolute profile start timestamp so the post-resume
+        # elapsed display covers the full wall-clock duration of the
+        # profile (pre-restart + reboot + post-restart). Falls back to
+        # "now" if the resume_state.json is from a legacy version that
+        # only persisted the obsolete ElapsedSeconds field.
+        $resumedProfileStart = $null
+        if ($resumeState.ProfileStartTime) {
+            try {
+                $resumedProfileStart = [datetime]::Parse($resumeState.ProfileStartTime)
+            }
+            catch {
+                Show-Warning "Failed to parse resume_state.json ProfileStartTime ('$($resumeState.ProfileStartTime)'): $_"
+            }
+        }
+        if ($null -eq $resumedProfileStart) {
+            Show-Warning "Legacy resume_state.json without ProfileStartTime — elapsed time will be measured from now (pre-restart duration not included)."
+            $resumedProfileStart = Get-Date
+        }
 
         Invoke-BatchExecution -SelectedModules $remainingModules `
             -AutoPilot:$resumeAutoPilot `
@@ -1182,7 +1205,7 @@ if ($isResuming) {
             -ProfilePath $resumeState.ProfilePath `
             -ProfileName $resumeState.ProfileName `
             -FullProfileModules $validation.ValidModules `
-            -PriorElapsedSeconds $priorSeconds
+            -ProfileStartTime $resumedProfileStart
 
         Remove-ResumeState
 

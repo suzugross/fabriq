@@ -15,6 +15,35 @@
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-04-25
+
+### Changed
+- kernel/main.ps1 + kernel/common.ps1: Profile 経過時間トラッキングを
+  `ElapsedSeconds` 累積方式から **`ProfileStartTime` 絶対時刻方式** に
+  簡素化。**`__RESTART__` を含む profile 実行で表示される elapsed time
+  が実 wall clock と一致するように修正**
+  - 旧方式: 各 cycle で `(now - batchStart) + PriorElapsedSeconds` を
+    再帰的に累積し resume_state.json に running sum として保存。
+    結果として `Invoke-CountdownRestart` カウントダウン + Windows reboot
+    + autologin + fabriq 起動再初期化（合計 1 restart あたり 1〜5 分）
+    が **計測対象から漏れる** → 表示 elapsed が実時間より短い
+  - 新方式: 最初の `Invoke-BatchExecution` 開始時刻を `ProfileStartTime`
+    として保存し、終端で `(Get-Date) - $ProfileStartTime` の単純減算で
+    elapsed を求める。reboot 中の経過時間が自然に含まれる。多段 restart
+    でも累積誤差なし（純粋な timestamp 算術）
+  - 後方互換: `Save-ResumeState` の param `-ElapsedSeconds` を
+    `-ProfileStartTime` に置換。resume_state.json schema は
+    `ElapsedSeconds: <double>` から `ProfileStartTime: <ISO 8601 string>`
+    に変更。旧フォーマット（`ElapsedSeconds` のみ）の resume_state.json
+    を読んだ場合は warning を出して resume 後の経過のみ計測（kitting
+    flow 自体は完走）。fabriq update / rollback の in-flight 遷移を
+    防御
+  - 影響範囲: 内部実装変更のみ、公開 API（KERNEL_API.md §1〜§5）不変。
+    `Save-ResumeState` は §6 内部実装。`resume_state.json` も §6 内部
+    artifact で外部 consumer 契約なし。モジュール側への波及ゼロ
+  - 修正規模: 削除 ~10 行、追加 ~20 行（fallback warning 含む）。
+    純粋に簡素化方向
+
 ### Added
 - modules/standard/temp_ipaddress_config: **NEW** モジュール。
   顧客現場で本番 IP がまだ旧 PC で使用中の状況に、CSV プールから未使用
