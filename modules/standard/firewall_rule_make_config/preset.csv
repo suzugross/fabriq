@@ -1,0 +1,26 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Direction,Inbound,受信（Inbound）
+Direction,Outbound,送信（Outbound）
+Action,Allow,許可
+Action,Block,ブロック
+RuleEnabled,True,有効状態で作成
+RuleEnabled,False,無効状態で作成
+Profile,Domain,ドメイン
+Profile,Private,プライベート
+Profile,Public,パブリック
+Profile,Any,すべて
+Protocol,TCP,TCP
+Protocol,UDP,UDP
+Protocol,ICMPv4,ICMPv4
+Protocol,ICMPv6,ICMPv6
+Protocol,Any,すべて
+EdgeTraversalPolicy,Block,Block（既定）
+EdgeTraversalPolicy,Allow,Allow（Edge Traversal 許可）
+EdgeTraversalPolicy,DeferToUser,DeferToUser（ユーザー判断）
+EdgeTraversalPolicy,DeferToApp,DeferToApp（アプリ判断）
+InterfaceType,Any,すべて
+InterfaceType,Wired,有線のみ
+InterfaceType,Wireless,無線のみ
+InterfaceType,RemoteAccess,リモートアクセスのみ

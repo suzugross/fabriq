@@ -16,6 +16,38 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/firewall_rule_make_config: **NEW** モジュール。
+  CSV 定義から個別の Windows ファイアウォール rule を `New-NetFirewallRule`
+  で作成。VERSION=`0.1.0`、REQUIRES_KERNEL=`2.0.0`（Min Kernel API = 2.0.0、
+  KERNEL_API §1〜§5 baseline のみ使用）
+  - Order=43、Security カテゴリ
+  - 24 列 CSV: 必須 4（Enabled/DisplayName/Direction/Action）+ ID 1
+    （Name、optional）+ 推奨 5（RuleEnabled/Profile/Protocol/LocalPort/
+    RemoteAddress）+ ネットワーク詳細 6（Description/Group/RemotePort/
+    LocalAddress/IcmpType/EdgeTraversalPolicy）+ 対象 4（Program/Service/
+    InterfaceType/InterfaceAlias）+ セキュリティ 3 SDDL（LocalUser/
+    RemoteUser/RemoteMachine）+ fabriq 標準の Segment
+  - multi-value セパレータは `;`（CSV 標準 `,` との衝突回避）。
+    例: `Profile=Domain;Private`、`LocalPort=80;443`
+  - 冪等性: Name 指定時は Name で、未指定なら DisplayName で既存チェック
+    → ある場合 SKIP（更新せず、操作者が手動削除して再実行する運用）
+  - 行レベル validation: Direction / Action / Profile / Protocol / Port 形式 /
+    RuleEnabled / EdgeTraversalPolicy / InterfaceType を pre-apply で
+    チェック。不正行は Fail カウントに加算し他の行は継続（部分成功を許容）。
+    Program パス不在は warn のみ
+  - splat hash パターンで `New-NetFirewallRule` を呼出（空セルは parameter
+    自体を渡さず cmdlet 既定値を採用）
+  - Post-Apply Verification: 作成 rule を `Get-NetFirewallRule -Name`
+    （GUID 一致）で読み戻し、Name（指定時）/ Direction / Action / Enabled /
+    Profile / EdgeTraversalPolicy（指定時）を比較（Profile は集合として
+    順序非依存）。InterfaceType / InterfaceAlias / *User / RemoteMachine は
+    別 Filter cmdlet 経由のため v1 では verification 対象外
+  - 三層責務分離: `firewall_config`（profile on/off） /
+    `firewall_rule_config`（全体 backup/restore） /
+    `firewall_rule_make_config`（個別 rule 作成）。Profile での順序
+    （Import → Maker → firewall_config）を Guide.txt に明記
+
+### Added
 - modules/standard/firewall_rule_config: **NEW** モジュール。Windows
   ファイアウォール全体（rule + profile 状態 + logging 設定 + IPsec）を
   `.wfw` 形式で丸ごとバックアップ／復元する 2 スクリプト構成。

@@ -1,0 +1,7 @@
+Enabled,DisplayName,Name,Description,Group,Direction,Action,RuleEnabled,Profile,Protocol,LocalPort,RemotePort,LocalAddress,RemoteAddress,IcmpType,EdgeTraversalPolicy,Program,Service,InterfaceType,InterfaceAlias,LocalUser,RemoteUser,RemoteMachine,Segment
+0,Allow HTTPS Inbound,,Web server HTTPS access,Web Server Rules,Inbound,Allow,True,Domain;Private,TCP,443,,,,,,,,,,,,,
+0,Allow HTTP Inbound,,Web server HTTP access,Web Server Rules,Inbound,Allow,True,Domain;Private,TCP,80,,,,,,,,,,,,,
+0,Allow ICMPv4 Echo Request,,Ping inbound from local subnet,Network Tools,Inbound,Allow,True,Domain;Private,ICMPv4,,,,LocalSubnet,8,,,,,,,,,
+0,Block Telnet Outbound,,Block legacy plaintext protocol,Security Hardening,Outbound,Block,True,Any,TCP,,23,,,,,,,,,,,,
+0,Allow Custom App Outbound,,Example program-based rule,Custom Apps,Outbound,Allow,True,Any,TCP,,443;8443,,Internet,,,C:\Program Files\MyApp\app.exe,,,,,,,
+0,Allow Wired-Only RDP,,RDP restricted to wired NIC,Remote Access,Inbound,Allow,True,Domain,TCP,3389,,,,,,,,Wired,,,,,

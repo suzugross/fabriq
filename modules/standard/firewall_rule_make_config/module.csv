@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Firewall Rule Maker,Security,firewall_rule_make_config.ps1,43,1
