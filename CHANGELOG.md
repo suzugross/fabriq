@@ -16,6 +16,42 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/temp_ipaddress_config: **NEW** モジュール。
+  顧客現場で本番 IP がまだ旧 PC で使用中の状況に、CSV プールから未使用
+  IP を自動検出して NIC に付与する一時 IP 割当モジュール。
+  VERSION=`0.1.0`、REQUIRES_KERNEL=`2.0.0`（Min Kernel API = 2.0.0、
+  KERNEL_API §1〜§5 baseline のみ使用）
+  - Order=11、Network カテゴリ
+  - 11 列 CSV: Enabled / IPAddress / SubnetPrefix / Gateway / DNS1 / DNS2 /
+    DNS3 / AdapterPattern（`ipv6_config` 同方式の wildcard）/ Description /
+    Segment
+  - GUI ベース作業者選択（probe ベースの自動選択は採用せず）:
+    - **理由**: probe（ICMP/ARP）は送信元 IP が必要で、真新しい kitting
+      PC（IP 未取得）では一切機能しない。また切断中 PC が後で再接続する
+      collision は probe では原理的に検出不能。これらの制約を honest に
+      受け入れ、作業者の状況把握 + 口頭調整 + Windows DAD を組み合わせる
+      設計とした
+    - **WinForms ダイアログ**: AutoPilot mode に関わらず必ず modal 表示。
+      pool 一覧（IP / Prefix / Gateway / Description / Status）を表示、
+      [CURRENT] / [DUPLICATE] マーカーで状況提示。作業者が選択して [Assign]
+    - **Sticky**: 現 NIC IP が pool 内なら GUI で初期選択（Enter で keep
+      可能、別 IP 選択で reassignment）
+    - **DAD 検証**: assignment 後 500ms 待機して `Get-NetIPAddress` の
+      AddressState を確認。Duplicate なら roll back + GUI を再表示して
+      当該 IP を gray-out した [DUPLICATE] マーカーで除外、作業者が別 IP
+      を選び直し（無限ループ可能、cancel で中止）
+  - NIC 解決: 全行で同じ AdapterPattern を要求（v1）。`-like` で 1 NIC に
+    一意解決できなければ Error
+  - subnet 整合性チェック: NIC が pool と異なる subnet の場合、警告を
+    GUI ヘッダにも表示（probe しないので致命ではないが、作業者への情報）
+  - Post-Apply Verification: PrefixLength / AddressState=Preferred /
+    DefaultGateway route / DNS server list / Gateway L3 ping
+  - 既知の制約（Guide.txt に明記）: 切断中 PC との collision は本モジュール
+    では検出不能。出荷前検査（Status Monitor 監視）で最終チェックする運用
+  - 既存 `ipaddress_config`（本番 IP、SELECTED_ETH_IP env var 経由）とは
+    排他。Profile で切替（一時運用フェーズ → 本番切替フェーズ）
+
+### Added
 - modules/standard/firewall_rule_make_config: **NEW** モジュール。
   CSV 定義から個別の Windows ファイアウォール rule を `New-NetFirewallRule`
   で作成。VERSION=`0.1.0`、REQUIRES_KERNEL=`2.0.0`（Min Kernel API = 2.0.0、

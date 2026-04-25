@@ -1,0 +1,101 @@
+﻿■ 概要
+顧客要件等で「本番 IP がまだ旧 PC で使用中」のため、新 PC を一時的な
+作業用 IP で立ち上げる必要がある場合に使用するモジュール。
+
+CSV に列挙された候補 IP プールを GUI ダイアログで作業者に提示し、
+選択された IP を NIC に付与します。Windows DAD（Duplicate Address
+Detection）が assignment 時に同 LAN 上の衝突を検出します。
+
+本番 IP への切替は別モジュール（ipaddress_config）で行います。両者は
+排他で、Profile で切替えてください。
+
+■ なぜ probe（事前 ICMP/ARP 確認）ではなく GUI 選択なのか
+作業用 IP の付与シナリオでは事前 probe が原理的に機能しないことが多い:
+  - 真新しい kitting PC は IPv4 が未取得 → ICMP も ARP も送れない
+  - 169.254.x.x APIPA も pool subnet には届かない
+  - 切断中の PC（持ち去り中・電源 OFF 等）は probe しても応答しない
+    → FREE 誤判定 → 後で再接続時に衝突
+そのため honest な設計として:
+  - probe は行わない（信頼できないから）
+  - 作業者が状況を理解した上で GUI から IP を選ぶ
+  - チーム内の口頭調整で重複回避（作業 IP の取り合いを管理する運用）
+  - assignment 時に Windows DAD が同 LAN 上の active な衝突を検出
+  - DAD 検出時はダイアログを再表示して別 IP を選び直し
+が現実的な落とし所。
+
+■ 設定ファイル
+[temp_ipaddress_list.csv]
+  Enabled         : 0=スキップ / 1=プールに含める
+  IPAddress       : 候補 IP（IPv4 のみ、strict 4-octet 形式）
+  SubnetPrefix    : CIDR prefix（1〜32、例: 24）
+  Gateway         : デフォルト GW（空欄なら設定しない）
+  DNS1, DNS2, DNS3: DNS サーバ（空欄なら DNS 設定を変更しない）
+  AdapterPattern  : 対象 NIC 名のワイルドカードパターン
+                    （例: Ethernet*、イーサネット*、Ethernet 2）
+                    Get-NetAdapter の Name に -like で照合
+                    全行で同じパターンを推奨（混在は v1 では不許可）
+  Description     : 表示用（GUI に表示される）
+  Segment         : セグメントフィルタ（任意）
+
+  pool には作業者が想定するチームでの並行作業数を十分上回る IP を
+  用意してください。
+
+■ GUI 選択ダイアログの動作
+  - AutoPilot mode かどうかに関わらず必ず modal で表示される
+    （temp IP 選択は kitting 中 1 回限りの戦略的判断のため）
+  - 表示内容:
+      * Target NIC 名と現在の Preferred IP（あれば）
+      * subnet 整合性 warning（NIC が pool と異なる subnet にいる場合）
+      * pool 一覧: IP / Prefix / Gateway / Description / Status
+      * Status 列: [CURRENT]（現 IP と一致） / [DUPLICATE]（DAD で除外済み） / 空欄
+  - 初期選択: [CURRENT] が pool 内なら sticky で pre-select、
+              なければ最初の選択可能行
+  - [DUPLICATE] とマークされた行は gray-out + 選択不可
+  - [Assign] で確定、[Cancel] で全体中止
+
+■ 動作の流れ
+  1. Test-AdminPrivilege（必須）
+  2. CSV 読込（Enabled=1 行）
+  3. 各行 validate（IP / Prefix / Gateway / DNS 形式チェック）
+  4. 全行の AdapterPattern が一致することを確認、NIC を解決
+  5. NIC subnet 整合性チェック（情報表示のみ、機能継続）
+  6. GUI ダイアログ表示 → 作業者が選択
+  7. 選択 IP が現 IP と一致なら sticky SKIP（reassignment なし）
+  8. assignment（既存 IP/Route 削除 → New-NetIPAddress + DNS 設定）
+  9. DAD 検証（500ms 待機 → AddressState チェック）
+     - Preferred → 成功確定
+     - Duplicate → roll back + GUI に戻り当該 IP を [DUPLICATE] でマーク
+     - Error → 中断
+  10. Post-Apply Verification（IP/Prefix/Gateway/DNS 読み戻し + Gateway ping）
+  11. New-ModuleResult
+
+■ Post-Apply Verification
+  - Get-NetIPAddress / Get-NetRoute / Get-DnsClientServerAddress で読み戻し
+    → CSV 値と一致確認
+  - AddressState=Preferred 確認
+  - Gateway へ Test-Connection 1 発（reachable なら -Verified $true）
+
+■ 制約と運用ガード
+  - 作業者間で「自分が取った IP」を口頭やチャットで共有して衝突を避ける
+    （pool dynamic 選択ではなく人間の協調が一次防御）
+  - DAD は同 LAN 上で active なホストとの衝突しか検出できない
+    （切断中の PC が後で再接続した場合の衝突は検出不能）
+  - 出荷前検査として Status Monitor で IP 状態を必ず確認
+  - 完全コールドスタート PC（IP 未割当）でも本モジュールは動作する
+    （probe しないため）。ただし subnet warning が表示される
+
+■ ipaddress_config との関係
+  ipaddress_config       : 本番 IP 設定（SELECTED_ETH_IP env var 経由）
+  temp_ipaddress_config  : 一時 pool から作業者選択（このモジュール）
+
+  両者は排他。Profile で切替えてください:
+    一時運用フェーズ: temp_ipaddress_config を実行
+    本番切替フェーズ: ipaddress_config を実行（pool IP を上書き）
+
+■ 注意
+  - 管理者権限必須
+  - NIC 上の既存 IP/Route は削除します（DHCP 解除含む）
+  - probe しないので、作業者が「使用中の IP」を間違えて選んだ場合、
+    DAD で検出できれば自動で再選択を促しますが、対象 PC が offline の
+    場合は検出できず、後の再接続で collision が発覚することがあります
+    （根本的に解決不能な制約 — 運用 + 出荷前検査でカバー）
