@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `2.2.1`（`kernel/KERNEL_VERSION` を真のソースとする）
+**Current Kernel Version**: `2.2.2`（`kernel/KERNEL_VERSION` を真のソースとする）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -188,6 +188,14 @@ formal SemVer の出発点。以下すべて利用可能:
   - 本契約は外部更新ツール（fabriq_studio 等）が consume する前提。モジュールスクリプト側の公開 API（§1〜§5）には影響なし。`__ASYNC__` と同様、この版を要求するのは本契約を使う外部ツール側のみ
 - **モジュール `VERSION` / `REQUIRES_KERNEL` の baseline 一斉 seed 済み**（本体モジュール 73 件すべてに配備）。ルール H/J が lazy seed から baseline seed 運用へ移行
 
+### 2.2.2
+
+- **§10「Evidence Manifest 契約（外部 evidence consumer 向け公開契約）」新設**
+  - `kernel/EVIDENCE_MANIFEST.md`（schemaVersion 1）を単一真実源として明文化
+  - `evidence_config` モジュール v1.3.0 以降が `pc_information/<dir>/manifest.json` を出力
+  - manifest schema（schemaVersion / sections / status enum / summary 等）、status セマンティクス、前方互換ルールを公開契約として固定
+  - 本契約は外部 evidence consumer ツール（fabriq_evidence_manager 等）が consume する前提。モジュールスクリプト側の公開 API（§1〜§5）には影響なし。この版を要求するのは本契約を使うツール側のみ
+
 ### 判定ルール
 
 モジュールの `Min Kernel API` は、そのモジュールが使用している公開 API の「導入バージョンの最大値」。
@@ -280,6 +288,56 @@ bundle 単位でバージョンを比較：
 
 ---
 
-## 10. 変更履歴
+## 10. Evidence Manifest 契約（外部 evidence consumer 向け公開契約）
 
-`§ 9` の追加は次回リリース時に kernel MINOR 昇格（2.1.0 → 2.2.0 予定）を伴います。それまでは `[Unreleased]` 扱い。
+`evidence_config` モジュールが収集後に出力する `manifest.json` を、外部 evidence consumer ツール（代表: `fabriq_evidence_manager`）が前方互換に消費するための契約を本節で明文化します。
+
+### 10.1 真実の源: `kernel/EVIDENCE_MANIFEST.md`
+
+manifest スキーマ・status セマンティクス・前方互換ルールはすべて `kernel/EVIDENCE_MANIFEST.md` に集約されます。schemaVersion 付き。外部ツールは必ず本ドキュメントを参照して manifest を解釈してください。
+
+### 10.2 配置
+
+```
+{evidenceBaseDir}/pc_information/{collectionDir}/manifest.json
+```
+
+1 evidence_config 実行 = 1 manifest.json。再実行時は `manifest.json.bak` に rotate（1 世代保持）。
+
+### 10.3 schemaVersion=1 の必須フィールド
+
+| フィールド | 型 | 用途 |
+|---|---|---|
+| `schemaVersion` | int | 現行 `1`、破壊的変更時に `2` |
+| `manifestType` | string | 固定 `"fabriq-evidence-manifest"` |
+| `evidenceConfigVersion` | string | manifest を書いた evidence_config モジュールの SemVer |
+| `fabriqKernelVersion` | string | manifest 書き込み時点の `kernel/KERNEL_VERSION` |
+| `collectedAt` | string (ISO 8601) | 収集開始日時 |
+| `computerName` / `hardwareUniqueId` / `selectedNewPcName` | string | PC 識別 3 点組 |
+| `sections[]` | array | `{ id, title, files, status, reason, elapsedMs }` |
+| `summary` | object | `{ sectionCount, successCount, skippedCount, failedCount, partialCount }` |
+
+### 10.4 status enum
+
+`Success` / `Skipped` / `Failed` / `Partial` の 4 値。詳細は `EVIDENCE_MANIFEST.md` §3.3。
+
+### 10.5 schemaVersion 後方互換
+
+- 未知 major 版を検知した外部ツールは **legacy mode（manifest 無視 + ファイル列挙）にフォールバック** すること。silent な部分動作は禁止
+- 未知 section ID は **raw 表示**してクラッシュさせない
+- 未知 status 値は **Failed 扱い** で安全側に倒す
+- フィールド追加（後方互換）は schemaVersion=1 内で許容、削除・改名・型変更は schemaVersion 昇格を伴う
+
+### 10.6 manifest 不在の旧 evidence
+
+manifest.json 不在の旧形式 evidence（kernel 2.2.1 以前 / evidence_config 1.2.0 以前で収集されたもの）も外部ツールはサポートし続けることが期待されます。manifest が無ければファイル列挙ベースで動作する従来挙動を維持してください。
+
+### 10.7 詳細仕様
+
+完全なスキーマ、サンプル、ディレクトリ表現（`files[]` の `/` 末尾規則）、Partial の使い方等は `kernel/EVIDENCE_MANIFEST.md` を参照。
+
+---
+
+## 11. 変更履歴
+
+公開 API の追加・変更は同一コミット内で本ドキュメントに反映され、`KERNEL_VERSION` の昇格と同期します（CLAUDE.md ルール G）。詳細は `CHANGELOG.md` を参照。

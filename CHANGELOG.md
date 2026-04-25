@@ -15,6 +15,37 @@
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-04-25
+
+### Added
+- kernel: **§10 Evidence Manifest 公開契約**を新設
+  ([kernel/EVIDENCE_MANIFEST.md](kernel/EVIDENCE_MANIFEST.md), schemaVersion=1)
+  - `evidence_config` v1.3.0 以降が `pc_information/<dir>/manifest.json` を
+    出力。各セクションの `{ id, title, files, status, reason, elapsedMs }` +
+    `summary` を機械可読形式で記録
+  - 外部 evidence consumer ツール（fabriq_evidence_manager 等）が
+    前方互換にパースするための正式契約
+  - status enum: Success / Skipped / Failed / Partial の 4 値
+  - manifest 不在の旧 evidence は外部ツール側でファイル列挙ベースに
+    フォールバックする責任を明記（後方互換）
+  - 公開 API §10 として KERNEL_API.md に追加（schemaVersion 1 を真実源とし、
+    破壊的変更時は schemaVersion 昇格、後方互換な追加は schemaVersion=1 内で許容）
+- modules/standard/evidence_config: VERSION 1.2.0 → **1.3.0**
+  - 各セクションに Id を付与し、Section オブジェクト
+    `{ id, title, files, status, reason, elapsedMs }` を逐次 `$script:ManifestSections`
+    に蓄積
+  - 完了時に `Write-EvidenceManifest` で manifest.json を atomic 書き出し
+    （既存 manifest は manifest.json.bak に 1 世代 rotate）
+  - 新ヘルパー関数: `Add-SectionFile`（ファイル登録）/
+    `Close-Section`（セクション完了 + manifest 追加）/ `Write-EvidenceManifest`
+  - `Start-Section` に `-Id` 引数追加、Stopwatch + ファイル列追跡を内部実装
+  - §7 Printers が「プリンタ未インストール」のとき Skipped として記録
+  - §14 Server 機能が Client OS で実行されたとき Skipped として記録
+  - §18 Defender が利用不可（3rd-party AV 等）のとき Skipped として記録
+  - §10 Serial が canonical 不可のとき Failed として記録
+  - 既存の console ログ・CSV・テキスト出力・`New-BatchResult` 集計には影響なし
+- kernel: KERNEL_VERSION 2.2.1 → **2.2.2**（§10 公開 API 追加に伴う MINOR 昇格）
+
 ## [2.2.1] - 2026-04-25
 
 ### Changed

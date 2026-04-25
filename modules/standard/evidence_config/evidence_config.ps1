@@ -52,16 +52,152 @@ function Out-Log {
 # ========================================
 # Helper: Start Section
 # ========================================
+# Initializes per-section manifest tracking state (id, title, file list,
+# stopwatch). The -Id parameter records the section number for the
+# manifest.json output (kernel/EVIDENCE_MANIFEST.md schemaVersion=1).
 function Start-Section {
     param(
+        [string]$Id,
         [string]$Title,
         [string]$FileName
     )
+    $script:CurrentSectionId = $Id
+    $script:CurrentSectionTitle = $Title
+    $script:CurrentSectionFiles = @()
+    if (-not [string]::IsNullOrEmpty($FileName)) {
+        $script:CurrentSectionFiles += $FileName
+    }
+    $script:CurrentSectionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $script:currentSplitFile = $FileName
     Out-Log ""
     Out-Log "========================================" -Color Cyan
     Out-Log "$Title" -Color Cyan
     Out-Log "========================================" -Color Cyan
+}
+
+# ========================================
+# Helper: Register additional file written by a section
+# ========================================
+# Sections that write files via Export-Csv (or other dynamic writes) call
+# Add-SectionFile after each successful write so the manifest accurately
+# records all output files.
+function Add-SectionFile {
+    param([string]$FileName)
+    if ([string]::IsNullOrEmpty($FileName)) { return }
+    if ($null -eq $script:CurrentSectionFiles) {
+        $script:CurrentSectionFiles = @($FileName)
+        return
+    }
+    if ($script:CurrentSectionFiles -notcontains $FileName) {
+        $script:CurrentSectionFiles += $FileName
+    }
+}
+
+# ========================================
+# Helper: Close current section and append manifest entry
+# ========================================
+# Stops the section stopwatch and appends a Section object to
+# $script:ManifestSections. Failed sections always emit empty files[]
+# (potentially partial / corrupt files are not advertised to consumers).
+function Close-Section {
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Success','Skipped','Failed','Partial')]
+        [string]$Status,
+        [string]$Reason = $null
+    )
+    if ($null -ne $script:CurrentSectionStopwatch) {
+        $script:CurrentSectionStopwatch.Stop()
+        $elapsed = [int]$script:CurrentSectionStopwatch.ElapsedMilliseconds
+    } else {
+        $elapsed = 0
+    }
+    $files = if ($Status -eq 'Failed') { @() } else { @($script:CurrentSectionFiles) }
+    $script:ManifestSections += [PSCustomObject]@{
+        id        = $script:CurrentSectionId
+        title     = $script:CurrentSectionTitle
+        files     = @($files)
+        status    = $Status
+        reason    = $Reason
+        elapsedMs = $elapsed
+    }
+    $script:CurrentSectionId = $null
+    $script:CurrentSectionTitle = $null
+    $script:CurrentSectionFiles = @()
+    $script:CurrentSectionStopwatch = $null
+}
+
+# ========================================
+# Helper: Write evidence manifest.json
+# ========================================
+# Public contract documented in kernel/EVIDENCE_MANIFEST.md (schemaVersion=1).
+# Called once at the end of collection. Rotates any existing manifest.json
+# to manifest.json.bak (1-generation only) before writing the new one.
+function Write-EvidenceManifest {
+    param(
+        [Parameter(Mandatory=$true)][string]$TargetDir,
+        [Parameter(Mandatory=$true)][string]$EvidenceConfigVersion,
+        [Parameter(Mandatory=$true)][string]$ComputerName,
+        [Parameter(Mandatory=$true)][string]$HardwareUniqueId,
+        [Parameter(Mandatory=$true)][string]$SelectedNewPcName,
+        [Parameter(Mandatory=$true)][datetime]$CollectedAt
+    )
+
+    # Resolve kernel version (best-effort — manifest is informational)
+    $kernelVersionFile = Join-Path $PSScriptRoot "..\..\..\kernel\KERNEL_VERSION"
+    $kernelVersion = if (Test-Path $kernelVersionFile) {
+        (Get-Content $kernelVersionFile -Raw).Trim()
+    } else {
+        "unknown"
+    }
+
+    $workerName = if ([string]::IsNullOrWhiteSpace($env:FABRIQ_WORKER_NAME)) {
+        $null
+    } else {
+        $env:FABRIQ_WORKER_NAME
+    }
+
+    $sections = @($script:ManifestSections)
+    $successCount = @($sections | Where-Object { $_.status -eq 'Success' }).Count
+    $skippedCount = @($sections | Where-Object { $_.status -eq 'Skipped' }).Count
+    $failedCount  = @($sections | Where-Object { $_.status -eq 'Failed'  }).Count
+    $partialCount = @($sections | Where-Object { $_.status -eq 'Partial' }).Count
+
+    $manifest = [ordered]@{
+        schemaVersion         = 1
+        manifestType          = "fabriq-evidence-manifest"
+        evidenceConfigVersion = $EvidenceConfigVersion
+        fabriqKernelVersion   = $kernelVersion
+        collectedAt           = $CollectedAt.ToString("yyyy-MM-ddTHH:mm:sszzz")
+        computerName          = $ComputerName
+        hardwareUniqueId      = $HardwareUniqueId
+        selectedNewPcName     = $SelectedNewPcName
+        workerName            = $workerName
+        sections              = $sections
+        summary               = [ordered]@{
+            sectionCount = $sections.Count
+            successCount = $successCount
+            skippedCount = $skippedCount
+            failedCount  = $failedCount
+            partialCount = $partialCount
+        }
+    }
+
+    $manifestPath = Join-Path $TargetDir "manifest.json"
+    $bakPath      = Join-Path $TargetDir "manifest.json.bak"
+
+    # Rotate previous manifest (1-generation; .bak.bak is not preserved)
+    if (Test-Path $manifestPath) {
+        if (Test-Path $bakPath) {
+            Remove-Item $bakPath -Force -ErrorAction SilentlyContinue
+        }
+        Move-Item $manifestPath $bakPath -Force -ErrorAction SilentlyContinue
+    }
+
+    $json = $manifest | ConvertTo-Json -Depth 6
+    $json | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
+
+    return $manifestPath
 }
 
 # ========================================
@@ -169,6 +305,10 @@ Write-Host ""
 $sectionCount = 0
 $failCount = 0
 
+# Manifest state (kernel/EVIDENCE_MANIFEST.md schemaVersion=1)
+$script:ManifestSections = @()
+$script:CollectedAt = Get-Date
+
 $now = Get-Date -Format "yyyy/MM/dd HH:mm:ss.ff"
 $currentSplitFile = $null
 Out-Log "==== Evidence Log ====" -Color Cyan
@@ -179,7 +319,9 @@ Out-Log "Save Location: $targetDir"
 # ----------------------------------------
 # 1. Basic Info (Hostname / OS / Specs)
 # ----------------------------------------
-Start-Section -Title "System Basic Info" -FileName "01_SystemInfo.txt"
+Start-Section -Id "01" -Title "System Basic Info" -FileName "01_SystemInfo.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     Out-Log "Hostname:       $env:COMPUTERNAME"
@@ -206,12 +348,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get basic info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 2. Local Users (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Local Users (CSV)" -FileName $null
+Start-Section -Id "02" -Title "Local Users (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $localUsers = Get-LocalUser | Select-Object `
@@ -222,6 +369,7 @@ try {
 
     $outLocalUsers = Join-Path $targetDir "02_LocalUsers.csv"
     $localUsers | Export-Csv -Path $outLocalUsers -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "02_LocalUsers.csv"
 
     Out-Log "Local users: $($localUsers.Count) accounts -> 02_LocalUsers.csv"
     $sectionCount++
@@ -229,12 +377,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get local users: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 3. Local Groups (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Local Groups (CSV)" -FileName $null
+Start-Section -Id "03" -Title "Local Groups (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $localGroups = Get-LocalGroup | Select-Object Name, Description, SID |
@@ -242,6 +395,7 @@ try {
 
     $outLocalGroups = Join-Path $targetDir "03_LocalGroups.csv"
     $localGroups | Export-Csv -Path $outLocalGroups -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "03_LocalGroups.csv"
 
     Out-Log "Local groups: $($localGroups.Count) groups -> 03_LocalGroups.csv"
     $sectionCount++
@@ -249,12 +403,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get local groups: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 4. Local Group Members (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Local Group Members (CSV)" -FileName $null
+Start-Section -Id "04" -Title "Local Group Members (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $allMembers = @()
@@ -301,6 +460,7 @@ try {
 
     $outGroupMembers = Join-Path $targetDir "04_LocalGroupMembers.csv"
     $allMembers | Export-Csv -Path $outGroupMembers -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "04_LocalGroupMembers.csv"
 
     Out-Log "Group memberships: $($allMembers.Count) entries -> 04_LocalGroupMembers.csv"
     $sectionCount++
@@ -308,12 +468,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get group members: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 5. Domain / Azure AD Status
 # ----------------------------------------
-Start-Section -Title "Domain / Azure AD Status" -FileName "05_DomainStatus.txt"
+Start-Section -Id "05" -Title "Domain / Azure AD Status" -FileName "05_DomainStatus.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # 5a. Domain join status
@@ -358,10 +523,13 @@ try {
 
         $outProfiles = Join-Path $targetDir "05_UserProfiles.csv"
         $profiles | Export-Csv -Path $outProfiles -NoTypeInformation -Encoding UTF8
+        Add-SectionFile "05_UserProfiles.csv"
         Out-Log "User profiles: $($profiles.Count) profiles -> 05_UserProfiles.csv"
     }
     catch {
         Out-Log "  [WARN] Could not retrieve user profiles: $_" -Color Yellow
+        $sectionStatus = 'Partial'
+        $sectionReason = "User profile sub-collection failed: $($_.Exception.Message)"
     }
 
     $sectionCount++
@@ -369,12 +537,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get domain/Azure AD status: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 6. IP / DNS Settings (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Network Settings (CSV)" -FileName $null
+Start-Section -Id "06" -Title "Network Settings (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $netConfigs = Get-NetIPConfiguration | Where-Object { $_.IPv4Address -ne $null }
@@ -414,6 +587,7 @@ try {
 
     $outNetwork = Join-Path $targetDir "06_NetworkConfig.csv"
     $networkRows | Export-Csv -Path $outNetwork -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "06_NetworkConfig.csv"
 
     Out-Log "Network interfaces: $($networkRows.Count) entries -> 06_NetworkConfig.csv"
     $sectionCount++
@@ -421,12 +595,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get IP settings: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 7. Printers / Ports List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Printers / Ports List (CSV)" -FileName $null
+Start-Section -Id "07" -Title "Printers / Ports List (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $printers = Get-Printer -ErrorAction SilentlyContinue
@@ -436,22 +615,30 @@ try {
 
         $outPrinters = Join-Path $targetDir "07_Printers.csv"
         $printerRows | Export-Csv -Path $outPrinters -NoTypeInformation -Encoding UTF8
+        Add-SectionFile "07_Printers.csv"
 
         Out-Log "Printers: $($printerRows.Count) entries -> 07_Printers.csv"
     } else {
         Out-Log "(No printers installed)"
+        $sectionStatus = 'Skipped'
+        $sectionReason = 'No printers installed'
     }
     $sectionCount++
 }
 catch {
     Out-Log "[ERROR] Failed to get printer info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 8. BitLocker Status
 # ----------------------------------------
-Start-Section -Title "BitLocker Status" -FileName "08_BitLocker.txt"
+Start-Section -Id "08" -Title "BitLocker Status" -FileName "08_BitLocker.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $volumes = Get-BitLockerVolume
@@ -475,12 +662,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get BitLocker info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 8b. Disk & Partition Info (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Disk & Partition Info (CSV)" -FileName $null
+Start-Section -Id "8b" -Title "Disk & Partition Info (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # Physical disks
@@ -491,6 +683,7 @@ try {
 
     $outDisks = Join-Path $targetDir "08b_Disks.csv"
     $disks | Export-Csv -Path $outDisks -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "08b_Disks.csv"
     Out-Log "Physical disks: $($disks.Count) disk(s) -> 08b_Disks.csv"
 
     # Partitions
@@ -501,6 +694,7 @@ try {
 
     $outPartitions = Join-Path $targetDir "08b_Partitions.csv"
     $partitions | Export-Csv -Path $outPartitions -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "08b_Partitions.csv"
     Out-Log "Partitions: $($partitions.Count) partition(s) -> 08b_Partitions.csv"
 
     $sectionCount++
@@ -508,12 +702,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get disk/partition info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 9. MAC Address List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "MAC Address List (CSV)" -FileName $null
+Start-Section -Id "09" -Title "MAC Address List (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $adapters = Get-NetAdapter | Select-Object Name, InterfaceDescription, MacAddress, Status |
@@ -521,6 +720,7 @@ try {
 
     $outMac = Join-Path $targetDir "09_MacAddress.csv"
     $adapters | Export-Csv -Path $outMac -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "09_MacAddress.csv"
 
     Out-Log "Network adapters: $($adapters.Count) entries -> 09_MacAddress.csv"
     $sectionCount++
@@ -528,7 +728,10 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get network adapter info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 10. PC Serial Number (multi-source collection)
@@ -546,7 +749,9 @@ catch {
 # also frequently ship with the placeholder "Default string", which
 # this section explicitly rejects.
 # ----------------------------------------
-Start-Section -Title "PC Serial Number" -FileName "10_SerialNumber.txt"
+Start-Section -Id "10" -Title "PC Serial Number" -FileName "10_SerialNumber.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 function Test-SerialValid {
     param([string]$Value)
@@ -711,17 +916,24 @@ try {
         $sectionCount++
     } else {
         $failCount++
+        $sectionStatus = 'Failed'
+        $sectionReason = 'No valid serial number source found (all canonical candidates rejected)'
     }
 }
 catch {
     Out-Log "[ERROR] Failed to collect serial number sources: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 11. Installed Software List (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Installed Software List (CSV)" -FileName $null
+Start-Section -Id "11" -Title "Installed Software List (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # 11a. Desktop Apps (Registry)
@@ -741,6 +953,7 @@ try {
 
     $outDesktop = Join-Path $targetDir "11_DesktopApps.csv"
     $desktop | Export-Csv -Path $outDesktop -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "11_DesktopApps.csv"
 
     Out-Log "Desktop apps: $($desktop.Count) items -> 11_DesktopApps.csv"
 
@@ -753,6 +966,7 @@ try {
 
     $outStore = Join-Path $targetDir "11_StoreApps.csv"
     $store | Export-Csv -Path $outStore -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "11_StoreApps.csv"
 
     Out-Log "Store apps: $($store.Count) items -> 11_StoreApps.csv"
 
@@ -761,7 +975,10 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get software list: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # OS type detection for server-only sections
 $osProductType = (Get-CimInstance Win32_OperatingSystem).ProductType
@@ -770,7 +987,9 @@ $isServer = ($osProductType -ne 1)
 # ----------------------------------------
 # 12. Firewall Status (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Firewall Status (CSV)" -FileName $null
+Start-Section -Id "12" -Title "Firewall Status (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # 12a. Firewall Profiles
@@ -779,6 +998,7 @@ try {
 
     $outFwProfiles = Join-Path $targetDir "12_FirewallProfiles.csv"
     $fwProfiles | Export-Csv -Path $outFwProfiles -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "12_FirewallProfiles.csv"
 
     Out-Log "Firewall profiles: $($fwProfiles.Count) profiles -> 12_FirewallProfiles.csv"
 
@@ -789,6 +1009,7 @@ try {
 
     $outFwRules = Join-Path $targetDir "12_FirewallRules.csv"
     $fwRules | Export-Csv -Path $outFwRules -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "12_FirewallRules.csv"
 
     Out-Log "Firewall rules: $($fwRules.Count) rules -> 12_FirewallRules.csv"
 
@@ -797,12 +1018,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get firewall info: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 13. Windows Optional Features (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Windows Optional Features (CSV)" -FileName $null
+Start-Section -Id "13" -Title "Windows Optional Features (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $optFeatures = Get-WindowsOptionalFeature -Online -ErrorAction Stop |
@@ -811,6 +1037,7 @@ try {
 
     $outOptFeatures = Join-Path $targetDir "13_OptionalFeatures.csv"
     $optFeatures | Export-Csv -Path $outOptFeatures -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "13_OptionalFeatures.csv"
 
     Out-Log "Optional features: $($optFeatures.Count) features -> 13_OptionalFeatures.csv"
 
@@ -819,12 +1046,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get optional features: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 14. Server Roles & Features (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Server Roles & Features (CSV)" -FileName $null
+Start-Section -Id "14" -Title "Server Roles & Features (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 if ($isServer) {
     try {
@@ -834,6 +1066,7 @@ if ($isServer) {
 
         $outServerFeatures = Join-Path $targetDir "14_ServerRolesFeatures.csv"
         $serverFeatures | Export-Csv -Path $outServerFeatures -NoTypeInformation -Encoding UTF8
+        Add-SectionFile "14_ServerRolesFeatures.csv"
 
         Out-Log "Server roles & features: $($serverFeatures.Count) items -> 14_ServerRolesFeatures.csv"
 
@@ -842,17 +1075,24 @@ if ($isServer) {
     catch {
         Out-Log "[ERROR] Failed to get server features: $_" -Color Red
         $failCount++
+        $sectionStatus = 'Failed'
+        $sectionReason = "$($_.Exception.Message)"
     }
 }
 else {
     Out-Log "Skipped: Client OS detected (Server-only section)"
     $sectionCount++
+    $sectionStatus = 'Skipped'
+    $sectionReason = 'Client OS detected (Server-only section)'
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 15. Power Settings
 # ----------------------------------------
-Start-Section -Title "Power Settings" -FileName "15_PowerSettings.txt"
+Start-Section -Id "15" -Title "Power Settings" -FileName "15_PowerSettings.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # 15a. Power plans (CIM - structured)
@@ -876,12 +1116,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get power settings: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 16. WiFi Profiles
 # ----------------------------------------
-Start-Section -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
+Start-Section -Id "16" -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # Use cmd /c with chcp 65001 to get UTF-8 output from netsh
@@ -902,12 +1147,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get WiFi profiles: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 17. Restore Points (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Restore Points (CSV)" -FileName $null
+Start-Section -Id "17" -Title "Restore Points (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $restorePoints = Get-ComputerRestorePoint -ErrorAction Stop |
@@ -917,6 +1167,7 @@ try {
 
     $outRestorePoints = Join-Path $targetDir "17_RestorePoints.csv"
     $restorePoints | Export-Csv -Path $outRestorePoints -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "17_RestorePoints.csv"
     Out-Log "Restore points: $($restorePoints.Count) point(s) -> 17_RestorePoints.csv"
 
     $sectionCount++
@@ -924,12 +1175,17 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get restore points: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 18. Windows Defender / Antivirus Status
 # ----------------------------------------
-Start-Section -Title "Windows Defender Status" -FileName "18_DefenderStatus.txt"
+Start-Section -Id "18" -Title "Windows Defender Status" -FileName "18_DefenderStatus.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $mpStatus = Get-MpComputerStatus -ErrorAction Stop
@@ -956,12 +1212,17 @@ try {
 catch {
     Out-Log "[WARN] Could not get Defender status (may be replaced by 3rd-party AV): $_" -Color Yellow
     $sectionCount++
+    $sectionStatus = 'Skipped'
+    $sectionReason = "Defender unavailable (may be replaced by 3rd-party AV): $($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 19. Windows Update History (CSV Export)
 # ----------------------------------------
-Start-Section -Title "Windows Update History (CSV)" -FileName $null
+Start-Section -Id "19" -Title "Windows Update History (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $hotfixes = Get-HotFix -ErrorAction Stop |
@@ -971,6 +1232,7 @@ try {
 
     $outHotfixes = Join-Path $targetDir "19_WindowsUpdates.csv"
     $hotfixes | Export-Csv -Path $outHotfixes -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "19_WindowsUpdates.csv"
     Out-Log "Windows updates: $($hotfixes.Count) update(s) -> 19_WindowsUpdates.csv"
 
     $sectionCount++
@@ -978,7 +1240,10 @@ try {
 catch {
     Out-Log "[ERROR] Failed to get Windows update history: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 20. System TEMP Text-Log Backup (safety net)
@@ -989,7 +1254,9 @@ catch {
 # Locked files are skipped silently since TEMP often holds files
 # opened by active processes.
 # ----------------------------------------
-Start-Section -Title "System TEMP Text-Log Backup" -FileName "20_TempBackup.txt"
+Start-Section -Id "20" -Title "System TEMP Text-Log Backup" -FileName "20_TempBackup.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $tempSrc = "C:\Windows\Temp"
@@ -997,6 +1264,8 @@ try {
     if (-not (Test-Path $tempSrc)) {
         Out-Log "System TEMP not found: $tempSrc" -Color Yellow
         $sectionCount++
+        $sectionStatus = 'Skipped'
+        $sectionReason = "System TEMP directory not found: $tempSrc"
     }
     else {
         $backupDir = Join-Path $targetDir "20_TempBackup"
@@ -1021,13 +1290,22 @@ try {
         Out-Log "Matches: $($files.Count) .log/.txt file(s) at top level"
         Out-Log "Copied:  $copied file(s) -> 20_TempBackup\"
 
+        # Register the dump directory (trailing slash = directory per
+        # EVIDENCE_MANIFEST.md §6)
+        if ($copied -gt 0) {
+            Add-SectionFile "20_TempBackup/"
+        }
+
         $sectionCount++
     }
 }
 catch {
     Out-Log "[ERROR] Failed to backup System TEMP text-logs: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 21. Windows License / Activation Status
@@ -1039,7 +1317,9 @@ catch {
 # slmgr /dlv can take 5-30s because it queries SLS; this is acceptable for
 # evidence collection (non-interactive snapshot).
 # ----------------------------------------
-Start-Section -Title "Windows License / Activation Status" -FileName "21_WindowsLicense.txt"
+Start-Section -Id "21" -Title "Windows License / Activation Status" -FileName "21_WindowsLicense.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     $licStatusMap = @{
@@ -1120,7 +1400,10 @@ try {
 catch {
     Out-Log "[ERROR] Failed to collect Windows license status: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # 22. Office License / Activation Status
@@ -1132,7 +1415,9 @@ catch {
 # OSPP.vbs path detection mirrors office_license_config\office_license_auth.ps1
 # so both modules stay in sync on Office install layout assumptions.
 # ----------------------------------------
-Start-Section -Title "Office License / Activation Status" -FileName "22_OfficeLicense.txt"
+Start-Section -Id "22" -Title "Office License / Activation Status" -FileName "22_OfficeLicense.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
 
 try {
     # 22a. Click-to-Run configuration registry
@@ -1198,12 +1483,39 @@ try {
 catch {
     Out-Log "[ERROR] Failed to collect Office license status: $_" -Color Red
     $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
 }
+Close-Section -Status $sectionStatus -Reason $sectionReason
 
 # ----------------------------------------
 # Completion
 # ----------------------------------------
 $currentSplitFile = $null
+
+# Write evidence manifest (kernel/EVIDENCE_MANIFEST.md schemaVersion=1)
+$evidenceConfigVersionFile = Join-Path $PSScriptRoot "VERSION"
+$evidenceConfigVersion = if (Test-Path $evidenceConfigVersionFile) {
+    (Get-Content $evidenceConfigVersionFile -Raw).Trim()
+} else {
+    "unknown"
+}
+
+try {
+    $manifestPath = Write-EvidenceManifest `
+        -TargetDir             $targetDir `
+        -EvidenceConfigVersion $evidenceConfigVersion `
+        -ComputerName          $env:COMPUTERNAME `
+        -HardwareUniqueId      $uid `
+        -SelectedNewPcName     $pcName `
+        -CollectedAt           $script:CollectedAt
+    Out-Log ""
+    Out-Log "Manifest written: $manifestPath" -Color Cyan
+}
+catch {
+    Out-Log "[WARN] Failed to write manifest.json: $_" -Color Yellow
+}
+
 Out-Log ""
 Out-Log "==== Evidence Collection Completed ====" -Color Cyan
 

@@ -52,9 +52,21 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
   ・全セクション統合ファイル（_ALL_PC名_Log.txt）
-  ・セクションごとの個別ファイル（1-7: テキスト）
-  ・CSV出力（8-11: セクションごとのCSVファイル）
+  ・セクションごとの個別ファイル（テキスト形式）
+  ・CSV出力（セクションごとのCSVファイル）
   ・20_TempBackup\: System TEMP 直下の .log / .txt 原本
+  ・manifest.json: 本収集の機械可読サマリ（後述）
+
+■ manifest.json（v1.3.0 以降）
+収集完了時に出力先ディレクトリ直下へ manifest.json を生成します。
+スキーマと配置・前方互換ルールは kernel/EVIDENCE_MANIFEST.md（公式契約、
+schemaVersion=1）を参照。外部 evidence consumer ツール（fabriq_evidence_manager
+等）はこの manifest を起点にエビデンスをパースします。
+
+  - 各セクションの id / title / files / status / reason / elapsedMs を記録
+  - status: Success / Skipped / Failed / Partial の 4 値
+  - 再実行時は manifest.json.bak に rotate（1 世代のみ保持）
+  - manifest 不在の旧 evidence もパーサ側がフォールバックでサポート可能
 
 ■ 前提条件
 ・管理者権限が必要です
