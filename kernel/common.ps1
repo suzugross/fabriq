@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v2.2.0
+# Easy Kitting Batch - Common Function Library v2.2.1
 # ========================================
 
 # ========================================
@@ -2440,7 +2440,7 @@ function Save-ResumeState {
         [string]$ProfileName,
         [int]$ResumeAfterOrder,
         [array]$CompletedModules,
-        [double]$ElapsedSeconds = 0
+        [datetime]$ProfileStartTime = (Get-Date)
     )
 
     # Snapshot all host environment variables
@@ -2474,7 +2474,11 @@ function Save-ResumeState {
         })
         HostEnvironment  = $hostEnv
         EvidenceBasePath = $global:FabriqEvidenceBasePath
-        ElapsedSeconds   = $ElapsedSeconds
+        # Absolute start timestamp of the profile (in ISO 8601 / round-trip
+        # format). Final elapsed time is computed at completion as a simple
+        # subtraction (Get-Date) - ProfileStartTime, naturally including
+        # reboot/login/startup gaps across __RESTART__ cycles.
+        ProfileStartTime = $ProfileStartTime.ToString("o")
     }
 
     # Persist master passphrase (DPAPI LocalMachine encrypted) for post-reboot resume
