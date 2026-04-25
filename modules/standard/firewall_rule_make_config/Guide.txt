@@ -1,0 +1,140 @@
+﻿■ 概要
+CSV に記述された定義から個別の Windows ファイアウォール rule を
+New-NetFirewallRule で作成するモジュール。
+冪等性: 同じ DisplayName の rule が既に存在する場合は SKIP。
+
+■ 設定ファイル
+[firewall_rule_make_list.csv]
+
+  必須列（4 つ）:
+    Enabled       : 0=スキップ / 1=実行
+    DisplayName   : Windows UI に表示される rule 名（一意推奨）
+    Direction     : Inbound / Outbound
+    Action        : Allow / Block
+
+  ID 列（1 つ、optional）:
+    Name          : rule の内部 GUID 名（一意厳密）。空欄なら自動生成
+                    指定するとあとで -Name で確実に取得・削除できる
+                    冪等性チェックは Name 指定時は Name で、未指定なら
+                    DisplayName で行う
+
+  推奨列（5 つ）:
+    RuleEnabled   : True / False（既定 True）
+                    作成 rule を即有効化するか。CSV 行の Enabled とは別物
+                    （Enabled=1 で作成し、RuleEnabled=False なら "無効状態で
+                     作成された rule" になる）
+    Profile       : Domain / Private / Public / Any、複数可（;区切り）
+                    例: Domain;Private
+                    省略時は Any
+    Protocol      : TCP / UDP / ICMPv4 / ICMPv6 / Any / 0-255 数値
+                    省略時は Any
+    LocalPort     : 数値 / 範囲 / Any、複数可（;区切り）
+                    例: 443  または  80;443  または  8000-8100
+    RemoteAddress : IP / CIDR / 特殊トークン、複数可（;区切り）
+                    特殊トークン: LocalSubnet / DNS / DHCP / WINS /
+                                  DefaultGateway / Internet / Intranet 等
+
+  ネットワーク詳細列（5 つ、optional）:
+    Description         : 説明文（Windows UI に表示）
+    Group               : グループ名（Windows UI でグループ化表示）
+    RemotePort          : リモートポート（LocalPort と同じ書式）
+    LocalAddress        : ローカルアドレス制限（RemoteAddress と同じ書式）
+    IcmpType            : ICMP タイプ（ICMPv4/ICMPv6 のとき指定）
+                          例: 8（Echo Request）/  8:0  /  3;11 など
+    EdgeTraversalPolicy : Edge Traversal の扱い（Inbound rule のみ意味あり）
+                          Block（既定）/ Allow / DeferToUser / DeferToApp
+
+  対象列（4 つ、optional）:
+    Program        : 対象実行ファイルのフルパス
+    Service        : 対象 Windows サービス名
+    InterfaceType  : Any / Wired / Wireless / RemoteAccess、複数可（;区切り）
+                     例: Wired のみ → "Wired"
+    InterfaceAlias : 特定 NIC の Alias 名、複数可（;区切り）
+                     例: "Ethernet 2"  または  "Wi-Fi;Ethernet"
+
+  セキュリティ列（3 つ、optional、SDDL 文字列）:
+    LocalUser      : SDDL でローカル側ユーザフィルタ
+                     例: "D:(A;;CC;;;S-1-5-21-...)"
+    RemoteUser     : SDDL でリモート側ユーザフィルタ
+    RemoteMachine  : SDDL でリモート側マシン認証フィルタ
+                     SDDL 書式は New-NetFirewallRule のドキュメント参照
+
+  fabriq 標準列:
+    Segment       : セグメントフィルタ（任意）
+
+  ※ 全 24 列。すべての optional 列は空欄なら cmdlet 既定値が使われる
+
+■ 複数値の区切り文字
+  CSV 標準の `,` と衝突しないよう、セル内の複数値は **`;`** で区切る。
+    例: Profile=Domain;Private  /  LocalPort=80;443  /
+        RemoteAddress=192.168.1.0/24;10.0.0.0/8
+
+■ 冪等性
+  実行前に Get-NetFirewallRule -DisplayName <name> を呼び、既存があれば
+  SKIP（更新せず）。更新が必要なら手動で削除してから再実行してください。
+  同 DisplayName で複数 rule が存在する場合も SKIP（重複は安全側で touched
+  しない）。
+
+■ 行レベル validation
+  以下に該当する行は実行前に reject（Fail カウントに加算、他の行は継続）:
+    - DisplayName が空
+    - Direction が Inbound/Outbound 以外
+    - Action が Allow/Block 以外
+    - Profile に Domain/Private/Public/Any 以外の値
+    - Protocol が TCP/UDP/ICMPv4/ICMPv6/Any/0-255 以外
+    - LocalPort/RemotePort が数値・範囲・Any として解釈不能
+    - RuleEnabled が True/False 以外
+
+  Program パスが存在しない場合は警告のみ（rule 作成は継続。Windows は
+  存在しないパスでも rule 作成を許可するため）。
+
+■ 動作の流れ
+  1. CSV 読込（Enabled=1 行のみ）
+  2. 各行を validation + 既存 rule 重複チェック
+  3. plan を [CREATE] / [SKIP - exists] / [INVALID] で分類してプレビュー
+  4. Y/N 確認
+  5. [CREATE] のみ New-NetFirewallRule を splat で呼出
+  6. Post-Apply Verification（DisplayName で取得 + 主要属性比較）
+  7. New-BatchResult で集計返却
+
+■ Post-Apply Verification
+  作成した rule ごとに以下を比較:
+    - 存在（Get-NetFirewallRule -Name <created.Name>）
+    - Name（CSV で指定した場合、created.Name と一致）
+    - Direction（CSV 値と一致）
+    - Action（CSV 値と一致）
+    - Enabled（CSV の RuleEnabled と一致、未指定時は True 想定）
+    - Profile（CSV の Profile を集合として比較、順序非依存）
+    - EdgeTraversalPolicy（CSV で指定した場合）
+  全部 PASS なら -Verified $true を返却。
+
+  ※ InterfaceType / InterfaceAlias / LocalUser / RemoteUser / RemoteMachine
+    は別 cmdlet（Get-NetFirewall*Filter）経由で読まないと取れないため
+    v1 verification の対象外。cmdlet が正しく適用したことを信頼する設計。
+    必要なら手動で `Get-NetFirewallInterfaceTypeFilter -AssociatedNetFirewallRule
+    <rule>` 等で確認可能。
+
+■ AutoPilot
+  AutoPilot 中も自動実行されます。validation ガードが効くため、不正な
+  CSV 行があっても破壊的な動作にはなりません。
+
+■ firewall_config / firewall_rule_config との関係
+  firewall_config           : profile レベル on/off
+  firewall_rule_config      : rule + profile 全体 backup/restore
+  firewall_rule_make_config : 個別 rule 作成（このモジュール）
+
+  Profile で 3 つを併用する場合の推奨順序:
+    1. firewall_rule_config (Import)   -- baseline restore（必要なら）
+    2. firewall_rule_make_config        -- site-specific rule の追加
+    3. firewall_config                  -- profile on/off の最終調整
+
+  逆順だと:
+    - Import が後に来ると先に作った個別 rule が上書き消失
+    - firewall_config が前に来ると Import が profile 状態を上書き
+
+■ 注意
+  - New-NetFirewallRule は管理者権限が必要
+  - 同 DisplayName の rule を「複数バリエーション作りたい」場合は
+    DisplayName を変えるか、本モジュールではなく直接 PowerShell で行う
+  - `Service` 列を使う場合、Direction との組み合わせ制約あり（cmdlet が
+    例外を返す場合がある。試行錯誤推奨）
