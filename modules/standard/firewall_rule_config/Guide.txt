@@ -1,0 +1,129 @@
+﻿■ 概要
+Windows ファイアウォール全体（rule + profile 状態 + logging 設定 + IPsec）を
+丸ごとバックアップ／復元するモジュール。
+netsh advfirewall export/import の .wfw 形式を真実源として使用し、
+透明性のため人間可読なサイドカー（rules.json / rules_show.txt /
+profiles.json / manifest.txt）を併産します。
+
+■ 動作モード
+このモジュールは 2 つのスクリプトに分かれています。
+firewall_rule_list.csv の Mode 列で動作を区別します。
+
+  [Export] firewall_rule_export.ps1
+    現在のファイアウォールポリシーをスナップショット保存（非破壊）。
+    保存先: <module>\backup\<yyyyMMdd_HHmmss>\
+    （CSV の DestinationPath を指定すれば任意のパスに保存可能）
+
+  [Import] firewall_rule_import.ps1
+    .wfw ファイルからファイアウォールポリシーを復元（破壊的）。
+    既存のルール・プロファイル状態をすべて置換します。
+    IAcknowledgeReplace=1 の行のみ実行されます（暴発防止ゲート）。
+
+■ 設定ファイル
+[firewall_rule_list.csv]
+  Enabled              : 有効フラグ（1=実行, 0=スキップ）
+  Mode                 : Export / Import
+  SourcePath           : Import 時の .wfw ソースパス（UNC 可）
+                         Export 時は空欄
+  DestinationPath      : Export 時の保存先（空欄なら module\backup\<ts>\
+                         を自動生成）
+                         Import 時は空欄
+  IAcknowledgeReplace  : Import 時の承認フラグ
+                         0=拒否（既定）, 1=実行許可
+                         全置換となる破壊操作のため、明示的な 1 が必須
+                         Export 行は値を問わない（無視される）
+  Description          : 説明（表示用）
+  Segment              : セグメントフィルタ（任意）
+
+[記載例]
+  Enabled,Mode,SourcePath,DestinationPath,IAcknowledgeReplace,Description,Segment
+  1,Export,,,0,Daily snapshot,
+  1,Import,20260425_120000/policy.wfw,,1,Restore from local backup,
+  1,Import,\\fileserver\share\baseline.wfw,,1,Restore baseline from file server,
+
+■ Import の SourcePath 解決規則
+  1. 絶対パス（C:\... や \\server\share\... など）はそのまま使用
+  2. 相対パスは <module>\backup\ 配下を基準に解決
+       例: SourcePath=20260425_120000/policy.wfw
+           → <module>\backup\20260425_120000\policy.wfw
+  3. 解決後がディレクトリの場合、policy.wfw を自動付与
+       例: SourcePath=20260425_120000
+           → <module>\backup\20260425_120000\policy.wfw
+
+  注意: 相対パスの先頭に "backup/" を付けないこと。重複して
+        <module>\backup\backup\... となり not found になります。
+
+  プレビュー表示では Source 行に CSV 記述値を、(resolved) 行に
+  実際に netsh import に渡される絶対パスを表示します。
+
+■ Export の成果物
+  policy.wfw          : netsh advfirewall export の出力（restore の真実源）
+  rules_show.txt      : netsh ... show rule name=all verbose の出力（監査用）
+  rules.json          : Get-NetFirewallRule の主要プロパティ JSON dump（監査用）
+  profiles.json       : Get-NetFirewallProfile の JSON dump（監査用）
+  rule_names.txt      : Name-set 検証用、1 行 1 個の rule Name（GUID 様）
+  manifest.txt        : Hostname / OS Caption / OS Version / Rule Count /
+                        Profile States / wfw SHA256 / wfw Size / Timestamp
+
+■ Post-Apply Verification
+  [Export]
+    - policy.wfw 存在 + サイズ > 1KB
+    - manifest.txt 存在
+    - rule_names.txt 存在 + 行数 == manifest 記録 rule 数
+    （Windows の background 動的変動を意識し、現在の Get-NetFirewallRule
+     count との比較は行わない。export 直後の数本ズレは正常）
+
+  [Import] Name-set 包含検証（rule_names.txt があれば優先）
+    - rule_names.txt の各 Name が Import 後に Get-NetFirewallRule に
+      含まれているかチェック
+    - manifest 記録の rule が **すべて** 存在すれば PASS
+    - 後から mpssvc / AppX / GPO が dynamic rule を追加しても影響なし
+      （after が expected の superset であれば OK）
+    - 1 つでも欠損していれば FAIL（欠損 Name を最大 5 個まで報告）
+
+  [Import] count-only fallback（rule_names.txt 不在の旧 backup）
+    - manifest 記録 rule 数と Import 後の rule 数の厳密一致
+    - 注意: Windows の動的変動で誤 fail を出しうる弱い検証
+    - 旧 backup から import する場合のみこの経路に入る
+
+■ Import エントリの自動追加
+  Export が成功するたび、firewall_rule_list.csv の末尾に対応する
+  Import 行が自動追加されます。
+
+  追加される行:
+    Enabled=0  （明示的に 1 に変えるまで暴発しない）
+    Mode=Import
+    SourcePath=<timestamp>/policy.wfw （backup/ 相対）
+                または絶対パス（DestinationPath を指定した場合）
+    DestinationPath=空
+    IAcknowledgeReplace=0  （これも明示的に 1 に変える必要あり）
+    Description=Auto-registered from Export at YYYY-MM-DD HH:MM:SS
+    Segment=元の Export 行の Segment を継承
+
+  操作者の利便性のための機能で、追加された行を後で restore に使うか
+  どうかは自由。不要なら手動削除してください。
+
+  CSV のエンコーディング（UTF-8 BOM / ANSI）は既存ファイルから
+  検出して同じ形式で書き戻します。Excel で CSV を開いた状態で Export
+  を実行するとファイルロックで追記失敗しますが、その場合は警告のみ
+  表示し Export 自体は成功扱いになります。
+
+■ AutoPilot
+  Export モジュールは AutoPilot 中も自動実行されます（非破壊）。
+  Import モジュールは IAcknowledgeReplace=1 がない限り暴発しません
+  （AutoPilot でも CSV 値の検証は実行される）。
+
+■ firewall_config との関係
+  firewall_config       : profile レベル（Domain/Private/Public）の on/off
+  firewall_rule_config  : rule + profile + logging + IPsec を丸ごと restore
+
+  両者を同じ Profile で併用する場合、Import → firewall_config の順で
+  配置してください。netsh import は profile 状態も置換するため、
+  逆順だと firewall_config が設定した profile 状態が import で上書き
+  されます。
+
+■ 注意
+- netsh advfirewall import は **全ポリシーを置換**します（追加ではない）。
+- 取り込み元 .wfw の OS 版が現在の OS 版と異なると部分失敗の可能性があり
+  ます。Import 実行時に manifest を読み、相違時は警告を表示します。
+- Export / Import 両方とも管理者権限が必要です。

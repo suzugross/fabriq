@@ -15,6 +15,70 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/firewall_rule_config: **NEW** モジュール。Windows
+  ファイアウォール全体（rule + profile 状態 + logging 設定 + IPsec）を
+  `.wfw` 形式で丸ごとバックアップ／復元する 2 スクリプト構成。
+  `VERSION=0.1.0`、`REQUIRES_KERNEL=2.0.0`（Min Kernel API = 2.0.0、
+  KERNEL_API §1〜§5 baseline のみ使用）
+  - `firewall_rule_export.ps1`（Order=41）: `netsh advfirewall export` で
+    `policy.wfw` を採取。透明性のため監査用サイドカー
+    （`rules_show.txt` / `rules.json` / `profiles.json` / `manifest.txt`）
+    を併産。保存先は module-local `backup/<yyyyMMdd_HHmmss>/`、CSV の
+    `DestinationPath` を指定すれば任意のパスに変更可能
+  - `firewall_rule_import.ps1`（Order=42）: `netsh advfirewall import` で
+    全ポリシー復元（破壊的）。CSV の `IAcknowledgeReplace=1` 必須の
+    暴発防止ゲート。`manifest.txt` 同梱時は OS 版・期待 rule 数を読んで
+    現在環境と比較し、相違時に警告
+  - `firewall_rule_export` が成功するたび、`firewall_rule_list.csv` の
+    末尾に対応する Import 行を自動追加（`Enabled=0` /
+    `IAcknowledgeReplace=0` 固定で暴発防止）。`SourcePath` は backup/
+    配下なら相対形式（`<ts>/policy.wfw`）、外部 destination 指定時は
+    絶対パス。`Segment` は元 Export 行から継承。CSV エンコーディング
+    （UTF-8 BOM / ANSI）と末尾改行状態を既存ファイルから検出して
+    保持。Excel ファイルロック等で追記失敗時は warn のみで Export
+    自体は success のまま継続
+  - 両スクリプトで netsh.exe の stdout 取り込み時に
+    `Invoke-NetshCapture` ヘルパーを使用。.NET `ProcessStartInfo` で
+    `StandardOutputEncoding=UTF-8` を設定して netsh の redirected
+    stdout を直接デコード（経験的検証: Win10/11 上で netsh は redirected
+    stdout に UTF-8 で書き出す。raw byte で `E8 A6 8F E5 89 87 E5 90 8D`
+    = "規則名" を確認）。PS 5.1 `& exe 2>&1` 取り込みが
+    `[Console]::OutputEncoding=932` で UTF-8 バイト列を CP932 として
+    誤デコードし mojibake（`規則名:` → `隕丞援蜷・`）になる問題を、
+    `[Console]` 状態を変更しない side-effect-free な方法で回避。
+    （`evidence_config.ps1` の `Invoke-CScriptCapture` は cscript 用の
+    OEM デコードで、netsh とは異なる stdout encoding を持つため別実装）
+  - `firewall_rule_import` の SourcePath 解決規則:
+    (1) 絶対パス（drive letter / UNC）はそのまま使用、
+    (2) 相対パスは `<module>\backup\` 配下を基準に解決、
+    (3) 解決後がディレクトリの場合 `policy.wfw` を自動付与。
+    プレビューに CSV 記述値と (resolved) 絶対パスの両方を表示
+  - Post-Apply Verification（Name-set 包含方式）:
+    - Export: `policy.wfw` 存在 + サイズ > 1KB + `rule_names.txt` 存在 +
+      行数 == 記録 rule 数。**現在の `Get-NetFirewallRule` count との
+      比較は意図的に外している**（Windows の background 動的変動 -
+      mpssvc / AppX / GPO による rule の add/remove - で誤 fail を出す
+      ため）
+    - Export 成果物に `rule_names.txt` を追加（1 行 1 個の rule Name、
+      Name-set 検証用 sidecar）
+    - Import: `rule_names.txt` がある場合、記録 Name 集合が import 後の
+      `Get-NetFirewallRule` 集合に **包含** されているかで判定（after が
+      expected の superset であれば PASS）。dynamic rule が追加されても
+      影響を受けず、特定 rule の欠損を直接検出。欠損があれば最大 5 個まで
+      Name を表示
+    - Import: `rule_names.txt` 不在の旧 backup では従来の count 一致
+      検証に fallback（後方互換）。verify ログに方式 `[name-set ...]` /
+      `[count-only ...]` / `[weak ...]` を表示
+  - 既存 `firewall_config`（profile レベル on/off）とは責務分離。Profile
+    で併用する場合の順序ルール（Import → firewall_config）を Guide.txt
+    に明記
+  - 動機: 大規模案件で複雑な firewall ルールを base image から複製する
+    必要が生じた際、`*-NetFirewallRule` cmdlet で per-rule に再構築する
+    アプローチは Filter オブジェクト群の往復で取りこぼしを起こすため、
+    netsh の `.wfw` 形式（rule + profile + logging + IPsec を一括復元）
+    を真実源として採用
+
 ## [2.2.0] - 2026-04-23
 
 ### Added
