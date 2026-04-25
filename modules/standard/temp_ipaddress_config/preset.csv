@@ -1,0 +1,8 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+SubnetPrefix,24,/24（255.255.255.0）
+SubnetPrefix,16,/16（255.255.0.0）
+SubnetPrefix,8,/8（255.0.0.0）
+SubnetPrefix,23,/23（255.255.254.0）
+SubnetPrefix,25,/25（255.255.255.128）
