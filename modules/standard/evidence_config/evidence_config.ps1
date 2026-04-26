@@ -287,6 +287,10 @@ Write-Host "    [19] Windows Update History (CSV)" -ForegroundColor White
 Write-Host "    [20] System TEMP Text-Log Backup (safety net)" -ForegroundColor White
 Write-Host "    [21] Windows License / Activation Status" -ForegroundColor White
 Write-Host "    [22] Office License / Activation Status" -ForegroundColor White
+Write-Host "    [23] Security Baseline (TPM / Secure Boot / VBS / LSA / BIOS)" -ForegroundColor White
+Write-Host "    [24] Group Policy Report (gpresult /h HTML)" -ForegroundColor White
+Write-Host "    [25] Certificates (4 stores in single CSV)" -ForegroundColor White
+Write-Host "    [26] Battery Report (laptop only)" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -1482,6 +1486,363 @@ try {
 }
 catch {
     Out-Log "[ERROR] Failed to collect Office license status: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 23. Security Baseline (TPM / Secure Boot / VBS / LSA / BIOS)
+# ----------------------------------------
+# Each probe is wrapped in its own try/catch so a single missing capability
+# (legacy BIOS without Secure Boot, no TPM hardware, DeviceGuard CIM absent
+# on Home SKUs, etc.) does not invalidate the whole section. The outer
+# section status stays Success as long as the dispatcher itself does not
+# throw — partial probe data is still useful evidence.
+# ----------------------------------------
+Start-Section -Id "23" -Title "Security Baseline" -FileName "23_SecurityBaseline.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    # 23a. TPM
+    Out-Log "---- TPM ----"
+    try {
+        $tpm = Get-Tpm -ErrorAction Stop
+        Out-Log "TpmPresent:           $($tpm.TpmPresent)"
+        Out-Log "TpmReady:             $($tpm.TpmReady)"
+        Out-Log "TpmEnabled:           $($tpm.TpmEnabled)"
+        Out-Log "TpmActivated:         $($tpm.TpmActivated)"
+        Out-Log "TpmOwned:             $($tpm.TpmOwned)"
+        Out-Log "ManufacturerId:       $($tpm.ManufacturerId)"
+        Out-Log "ManufacturerVersion:  $($tpm.ManufacturerVersion)"
+        Out-Log "ManagedAuthLevel:     $($tpm.ManagedAuthLevel)"
+        Out-Log "OwnerAuth:            $(if ($tpm.OwnerAuth) { '(present)' } else { '(absent)' })"
+        Out-Log "LockedOut:            $($tpm.LockedOut)"
+        Out-Log "LockoutCount:         $($tpm.LockoutCount)"
+        Out-Log "LockoutMax:           $($tpm.LockoutMax)"
+    }
+    catch {
+        Out-Log "(Get-Tpm not available: $_)" -Color Yellow
+    }
+    Out-Log ""
+
+    # 23b. Secure Boot
+    Out-Log "---- Secure Boot ----"
+    try {
+        $sb = Confirm-SecureBootUEFI -ErrorAction Stop
+        Out-Log "SecureBootEnabled:    $sb"
+    }
+    catch {
+        Out-Log "(Secure Boot status unavailable - legacy BIOS / unsupported: $_)" -Color Yellow
+    }
+    Out-Log ""
+
+    # 23c. Virtualization-Based Security / HVCI / Credential Guard
+    Out-Log "---- Virtualization-Based Security (Win32_DeviceGuard) ----"
+    try {
+        $dg = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' -ClassName Win32_DeviceGuard -ErrorAction Stop
+        # VirtualizationBasedSecurityStatus: 0=Not running, 1=Configured but not running, 2=Running
+        $vbsMap = @{ 0 = 'Not running'; 1 = 'Configured but not running'; 2 = 'Running' }
+        $vbsCode = [int]$dg.VirtualizationBasedSecurityStatus
+        $vbsText = if ($vbsMap.ContainsKey($vbsCode)) { $vbsMap[$vbsCode] } else { 'Unknown' }
+        Out-Log "VirtualizationBasedSecurityStatus:            $vbsText ($vbsCode)"
+
+        # SecurityServicesRunning / Configured: 0=None, 1=Credential Guard, 2=HVCI,
+        # 3=System Guard Secure Launch, 4=SMM Firmware Measurement
+        $sscMap = @{ 0='None'; 1='Credential Guard'; 2='HVCI'; 3='System Guard Secure Launch'; 4='SMM Firmware Measurement' }
+        $running = @($dg.SecurityServicesRunning | ForEach-Object {
+            $code = [int]$_
+            if ($sscMap.ContainsKey($code)) { $sscMap[$code] } else { "Unknown($code)" }
+        })
+        $configured = @($dg.SecurityServicesConfigured | ForEach-Object {
+            $code = [int]$_
+            if ($sscMap.ContainsKey($code)) { $sscMap[$code] } else { "Unknown($code)" }
+        })
+        Out-Log "SecurityServicesRunning:                      $($running -join ', ')"
+        Out-Log "SecurityServicesConfigured:                   $($configured -join ', ')"
+
+        # CodeIntegrityPolicyEnforcementStatus: 0=Off, 1=Audit, 2=Enforced
+        $ciMap = @{ 0='Off'; 1='Audit'; 2='Enforced' }
+        $ciCode = [int]$dg.CodeIntegrityPolicyEnforcementStatus
+        $ciText = if ($ciMap.ContainsKey($ciCode)) { $ciMap[$ciCode] } else { 'Unknown' }
+        Out-Log "CodeIntegrityPolicyEnforcementStatus:         $ciText ($ciCode)"
+        $umciCode = [int]$dg.UsermodeCodeIntegrityPolicyEnforcementStatus
+        $umciText = if ($ciMap.ContainsKey($umciCode)) { $ciMap[$umciCode] } else { 'Unknown' }
+        Out-Log "UsermodeCodeIntegrityPolicyEnforcementStatus: $umciText ($umciCode)"
+
+        Out-Log "AvailableSecurityProperties:                  $($dg.AvailableSecurityProperties -join ', ')"
+        Out-Log "RequiredSecurityProperties:                   $($dg.RequiredSecurityProperties -join ', ')"
+    }
+    catch {
+        Out-Log "(Win32_DeviceGuard query failed: $_)" -Color Yellow
+    }
+    Out-Log ""
+
+    # 23d. LSA Protection (RunAsPPL)
+    Out-Log "---- LSA Protection (RunAsPPL) ----"
+    try {
+        $lsaPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+        $runAsPPL = (Get-ItemProperty -Path $lsaPath -Name RunAsPPL -ErrorAction SilentlyContinue).RunAsPPL
+        $runAsPPLBoot = (Get-ItemProperty -Path $lsaPath -Name RunAsPPLBoot -ErrorAction SilentlyContinue).RunAsPPLBoot
+        # 0 / absent = off, 1 = PPL on, 2 = PPL with UEFI lock
+        $pplMap = @{ 0 = 'Off'; 1 = 'On (PPL)'; 2 = 'On + UEFI Lock (PPL)' }
+        $pplText = if ($null -eq $runAsPPL) {
+            'Off (registry value absent)'
+        }
+        elseif ($pplMap.ContainsKey([int]$runAsPPL)) {
+            $pplMap[[int]$runAsPPL]
+        }
+        else {
+            "Unknown ($runAsPPL)"
+        }
+        Out-Log "RunAsPPL:             $pplText"
+        if ($null -ne $runAsPPLBoot) {
+            Out-Log "RunAsPPLBoot:         $runAsPPLBoot"
+        }
+    }
+    catch {
+        Out-Log "(LSA Protection registry query failed: $_)" -Color Yellow
+    }
+    Out-Log ""
+
+    # 23e. BIOS / Firmware Info (SerialNumber is collected separately in §10)
+    Out-Log "---- BIOS / Firmware ----"
+    try {
+        $bios = Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop
+        Out-Log "Manufacturer:         $($bios.Manufacturer)"
+        Out-Log "SMBIOSBIOSVersion:    $($bios.SMBIOSBIOSVersion)"
+        Out-Log "ReleaseDate:          $($bios.ReleaseDate)"
+        Out-Log "BIOSVersion:          $(($bios.BIOSVersion -join ' / '))"
+        Out-Log "SystemBIOSMajor:      $($bios.SystemBiosMajorVersion)"
+        Out-Log "SystemBIOSMinor:      $($bios.SystemBiosMinorVersion)"
+        Out-Log "SMBIOSMajor:          $($bios.SMBIOSMajorVersion)"
+        Out-Log "SMBIOSMinor:          $($bios.SMBIOSMinorVersion)"
+    }
+    catch {
+        Out-Log "(Win32_BIOS query failed: $_)" -Color Yellow
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to collect security baseline: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 24. Group Policy Report (gpresult /h)
+# ----------------------------------------
+# Captures Resultant Set of Policy as HTML. The /h output includes both
+# computer-side and user-side RSoP. Note: user-side reflects the user
+# running this command (typically the kitting profile user, e.g. admin01),
+# NOT the eventual end-user. Computer-side reflects the actual machine
+# GPO state which is the audit-relevant portion. This caveat is documented
+# in Guide.txt.
+# ----------------------------------------
+Start-Section -Id "24" -Title "Group Policy Report" -FileName "24_GroupPolicySummary.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $gpHtml = Join-Path $targetDir "24_GroupPolicy.html"
+
+    # gpresult /h has a hard 127-char limit on the path argument
+    # (cmdline option-value length restriction inherited from cmd.exe).
+    # Long evidence dir names (timestamp + PC name + UUID) easily exceed
+    # this. Workaround: emit to a short temp path, then move to the
+    # actual evidence dir.
+    $rand = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $tempHtml = Join-Path $env:TEMP ("fabriq_gp_${rand}.html")
+    if ($tempHtml.Length -gt 127) {
+        # Fallback: $env:TEMP itself is unusually long. Use system-wide temp.
+        $tempHtml = Join-Path 'C:\Windows\Temp' ("fabriq_gp_${rand}.html")
+    }
+
+    Out-Log "Running gpresult /h ..."
+    Out-Log "Temp HTML:            $tempHtml"
+    Out-Log "Target HTML:          24_GroupPolicy.html"
+    Out-Log ""
+
+    try {
+        # /h <path> /f forces overwrite. stderr captured into stream for diagnostic logging.
+        $gpStdout = & gpresult /h $tempHtml /f 2>&1
+        $gpExit = $LASTEXITCODE
+
+        foreach ($line in $gpStdout) {
+            Out-Log "  $line"
+        }
+        Out-Log ""
+
+        Out-Log "gpresult exit code:   $gpExit"
+
+        if ($gpExit -ne 0 -or -not (Test-Path $tempHtml)) {
+            throw "gpresult failed (exit=$gpExit, temp html present=$(Test-Path $tempHtml))"
+        }
+
+        # Move to final evidence location
+        Move-Item -Path $tempHtml -Destination $gpHtml -Force -ErrorAction Stop
+    }
+    finally {
+        # Cleanup temp file on any failure path
+        if (Test-Path $tempHtml) {
+            Remove-Item $tempHtml -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (-not (Test-Path $gpHtml)) {
+        throw "Move to target evidence dir failed: $gpHtml"
+    }
+
+    $htmlSize = (Get-Item $gpHtml).Length
+    Out-Log "HTML file size:       $htmlSize bytes"
+
+    # Quick sanity context to summarize alongside the HTML
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        Out-Log "PartOfDomain:         $($cs.PartOfDomain)"
+        Out-Log "Domain:               $($cs.Domain)"
+    }
+    catch {
+        Out-Log "(Could not query domain status: $_)" -Color Yellow
+    }
+    Out-Log "ExecutingUser:        $env:USERNAME"
+    Out-Log "(NOTE: user-side RSoP reflects the executing user, not the end-user.)"
+
+    Add-SectionFile "24_GroupPolicy.html"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to generate Group Policy report: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 25. Certificates (LocalMachine\My + \Root + \CA + CurrentUser\My)
+# ----------------------------------------
+# Single CSV with a Store column for unified parsing. Private keys are
+# never exported — only the HasPrivateKey boolean flag and standard
+# metadata (Subject / Issuer / Thumbprint / NotBefore / NotAfter /
+# EnhancedKeyUsageList / FriendlyName / SerialNumber).
+# Per-store enumeration failures are logged as warnings and do not fail
+# the section as long as Export-Csv itself succeeds.
+# ----------------------------------------
+Start-Section -Id "25" -Title "Certificates (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $stores = @(
+        'Cert:\LocalMachine\My',
+        'Cert:\LocalMachine\Root',
+        'Cert:\LocalMachine\CA',
+        'Cert:\CurrentUser\My'
+    )
+
+    $rows = @()
+    foreach ($s in $stores) {
+        $storeLabel = $s -replace '^Cert:\\', ''
+        try {
+            $certs = @(Get-ChildItem -Path $s -ErrorAction Stop)
+            foreach ($c in $certs) {
+                $eku = ''
+                try {
+                    if ($c.EnhancedKeyUsageList) {
+                        $eku = ($c.EnhancedKeyUsageList | ForEach-Object {
+                            if ($_.FriendlyName) { $_.FriendlyName } else { $_.ObjectId }
+                        }) -join '; '
+                    }
+                }
+                catch {
+                    $eku = ''
+                }
+                $rows += [PSCustomObject]@{
+                    Store                = $storeLabel
+                    Subject              = $c.Subject
+                    Issuer               = $c.Issuer
+                    Thumbprint           = $c.Thumbprint
+                    NotBefore            = $c.NotBefore
+                    NotAfter             = $c.NotAfter
+                    HasPrivateKey        = $c.HasPrivateKey
+                    EnhancedKeyUsageList = $eku
+                    FriendlyName         = $c.FriendlyName
+                    SerialNumber         = $c.SerialNumber
+                }
+            }
+            Out-Log ("  $storeLabel : " + $certs.Count + " certificate(s)")
+        }
+        catch {
+            Out-Log "  [WARN] Could not enumerate $s : $_" -Color Yellow
+        }
+    }
+
+    $outCerts = Join-Path $targetDir "25_Certificates.csv"
+    $rows | Export-Csv -Path $outCerts -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "25_Certificates.csv"
+
+    Out-Log ("Total certificates: " + $rows.Count + " -> 25_Certificates.csv")
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate certificates: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 26. Battery Report (laptop only)
+# ----------------------------------------
+# powercfg /batteryreport produces an HTML showing design vs full charge
+# capacity, recent usage, and lifetime estimates. Critical for laptop
+# acceptance inspection (e.g. contract clause "battery initial capacity
+# >= 95% of design"). Skipped when no battery is present (desktop PC).
+# ----------------------------------------
+Start-Section -Id "26" -Title "Battery Report" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $batteries = @(Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
+    if ($batteries.Count -eq 0) {
+        Out-Log "No battery detected (Win32_Battery returned 0 instances). Skipping."
+        $sectionCount++
+        $sectionStatus = 'Skipped'
+        $sectionReason = 'No battery present (desktop PC or battery removed)'
+    }
+    else {
+        Out-Log "Battery detected ($($batteries.Count) instance(s)). Generating report..."
+        $reportHtml = Join-Path $targetDir "26_BatteryReport.html"
+
+        $pcOut = & powercfg /batteryreport /output $reportHtml 2>&1
+        $pcExit = $LASTEXITCODE
+
+        foreach ($line in $pcOut) {
+            Out-Log "  $line"
+        }
+
+        if ($pcExit -eq 0 -and (Test-Path $reportHtml)) {
+            $reportSize = (Get-Item $reportHtml).Length
+            Out-Log "Report generated:     26_BatteryReport.html ($reportSize bytes)"
+            Add-SectionFile "26_BatteryReport.html"
+            $sectionCount++
+        }
+        else {
+            throw "powercfg /batteryreport failed (exit=$pcExit, html present=$(Test-Path $reportHtml))"
+        }
+    }
+}
+catch {
+    Out-Log "[ERROR] Failed to generate battery report: $_" -Color Red
     $failCount++
     $sectionStatus = 'Failed'
     $sectionReason = "$($_.Exception.Message)"

@@ -48,6 +48,49 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
      UpdateChannel / Platform）
    - OSPP.vbs 自動検出 + cscript OSPP.vbs /dstatus の raw 出力
    - OSPP.vbs 不在時（Microsoft 365 per-user 運用等）は C2R レジストリのみ記録
+23. Security Baseline（23_SecurityBaseline.txt） ※v1.4.0 で追加
+   - TPM: Get-Tpm（Present / Ready / Enabled / Activated / Owned /
+     ManagedAuthLevel / OwnerAuth 有無 / LockedOut / 製造元 ID）
+   - Secure Boot: Confirm-SecureBootUEFI（レガシー BIOS では取得不可
+     として記録）
+   - VBS / HVCI / Credential Guard: Win32_DeviceGuard（VBS Status /
+     SecurityServicesRunning / Configured / CodeIntegrity Enforcement
+     Status / AvailableSecurityProperties）
+   - LSA Protection: HKLM\SYSTEM\CCS\Control\Lsa\RunAsPPL / RunAsPPLBoot
+     （0=Off / 1=On / 2=On + UEFI Lock の意味付き）
+   - BIOS / Firmware: Win32_BIOS（Manufacturer / SMBIOSBIOSVersion /
+     ReleaseDate / SMBIOS Major.Minor 等。SerialNumber は §10 に統一）
+   - 各 probe は inner try/catch で個別退避。1 つが失敗してもセクション
+     は Success（取れたものだけ記録）
+24. Group Policy Report（24_GroupPolicy.html + 24_GroupPolicySummary.txt）
+   ※v1.4.0 で追加
+   - gpresult /h を実行して RSoP の HTML を吐く
+   - HTML はコンピュータ側 + ユーザー側 RSoP の両方を含む
+   - ユーザー側は **本コマンドを実行したユーザー（kitting プロファイル
+     の admin01 等）の RSoP** で、最終エンドユーザー視点ではない点に
+     注意（コンピュータ側は実 PC 状態なので AD 適用 GPO の証跡として
+     有効）
+   - サマリ TXT には HTML サイズ・ドメイン参加状態・実行ユーザー名を
+     記録（Excel 集計向け）
+   - gpresult が exit code 非ゼロまたは HTML 不在なら Failed
+   - 実行時間は 5〜30 秒（環境依存。AD 配下で大きい）
+25. Certificates（25_Certificates.csv） ※v1.4.0 で追加
+   - 4 ストア統合の単一 CSV、Store 列で識別
+     LocalMachine\My / LocalMachine\Root / LocalMachine\CA /
+     CurrentUser\My
+   - 列: Store / Subject / Issuer / Thumbprint / NotBefore / NotAfter /
+     HasPrivateKey / EnhancedKeyUsageList / FriendlyName / SerialNumber
+   - 秘密鍵そのものは決して出力せず、HasPrivateKey フラグのみ記録
+   - 各ストアの列挙が個別失敗しても警告のみで継続
+26. Battery Report（26_BatteryReport.html） ※v1.4.0 で追加
+   - powercfg /batteryreport /output で HTML を生成
+   - DesignCapacity / FullChargeCapacity / 直近の使用履歴 / 推定寿命
+     を含む
+   - 受入検査で「初期容量 ≧ DesignCapacity の N%」契約条件のエビデンス
+     に直結
+   - バッテリ非搭載（Win32_Battery 0 件）の場合は Skipped で完結
+     （reason="No battery present (desktop PC or battery removed)"）
+   - 実行時間は 5〜15 秒
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
