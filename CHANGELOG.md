@@ -15,6 +15,44 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/evidence_config: VERSION 1.3.0 → **1.4.0**
+  - **§23 Security Baseline** 新規追加（`23_SecurityBaseline.txt`）
+    - TPM (`Get-Tpm`)、Secure Boot (`Confirm-SecureBootUEFI`)、
+      VBS / HVCI / Credential Guard (`Win32_DeviceGuard`)、
+      LSA Protection (`RunAsPPL` / `RunAsPPLBoot`)、
+      BIOS / Firmware (`Win32_BIOS`) を統合
+    - 各 probe は inner try/catch で個別退避し、1 つの失敗が
+      section 全体を落とさない設計（取得できたものだけ記録）
+  - **§24 Group Policy Report** 新規追加（`24_GroupPolicy.html` +
+    `24_GroupPolicySummary.txt`）
+    - `gpresult /h` の HTML 生成（コンピュータ側 + ユーザー側 RSoP）
+    - サマリ TXT に HTML サイズ・ドメイン参加状態・実行ユーザーを記録
+    - 実行ユーザー側 RSoP は kitting プロファイルユーザー視点である
+      ことを Guide.txt に明記
+    - **`gpresult /h` の 127 文字パス制限** を回避するため、`$env:TEMP`
+      に短いランダム名で出力した後 Move-Item で本来の evidence パスへ
+      移動する 2 段階処理を採用（evidence ディレクトリ名 = timestamp +
+      PC名 + UUID で容易に 127 文字を超えるため）
+  - **§25 Certificates** 新規追加（`25_Certificates.csv`）
+    - LocalMachine\My / LocalMachine\Root / LocalMachine\CA /
+      CurrentUser\My の 4 ストアを Store 列で統合した単一 CSV
+    - 列: Store / Subject / Issuer / Thumbprint / NotBefore / NotAfter /
+      HasPrivateKey / EnhancedKeyUsageList / FriendlyName / SerialNumber
+    - 秘密鍵そのものは決して出力せず、HasPrivateKey フラグのみ記録
+  - **§26 Battery Report** 新規追加（`26_BatteryReport.html`）
+    - `powercfg /batteryreport` の HTML 生成
+    - 受入検査の初期バッテリ容量証跡用
+    - バッテリ非搭載（`Win32_Battery` 0 件）時は **Skipped**
+      （reason="No battery present"）
+  - manifest.json の sectionCount: 23 → **27** に増加
+  - kernel/EVIDENCE_MANIFEST.md schemaVersion=1 内での後方互換な
+    section 追加。kernel 不変、KERNEL_API §10 不変、REQUIRES_KERNEL
+    不変（2.0.0 baseline のまま）
+  - Min Kernel API: 2.0.0（baseline）。新規依存は Windows / PowerShell
+    標準 cmdlet のみ（Get-Tpm / Confirm-SecureBootUEFI / gpresult /
+    powercfg / Get-ChildItem Cert:）
+
 ## [2.2.2] - 2026-04-25
 
 ### Added
