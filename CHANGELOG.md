@@ -15,6 +15,43 @@
 
 ## [Unreleased]
 
+### Changed
+- modules/standard/evidence_config: VERSION 1.4.0 → **1.5.0**
+  - **§22 Office License を 4 段構成に拡張**（22a C2R / 22b OSPP /
+    22c vNext per-user / 22d 自動解釈）。M365 subscription 環境で
+    OSPP が誤って "NOTIFICATIONS / 0xC004F009 Grace expired" を
+    返す既知挙動に対し、vNext per-user license file を権威ある情報源
+    として併走させ、納品物に正しい LICENSED 判定を出せるようにした
+  - **新規ファイル: `22_OfficeVnextLicenses.csv`**（manifest files[] に
+    追加）
+    - `C:\Users\*\AppData\Local\Microsoft\Office\Licenses\<Category>\
+      <NumericFilename>` 全プロファイル横断走査
+    - UTF-16LE → 外側 JSON → Base64 内側 JSON のデコード経路を実装
+      （`Read-VnextLicenseFile` ヘルパ関数）
+    - 列: UserProfile / Category / LicenseFile / LicenseType /
+           ProductReleaseId / Status / IsTrial / Beneficiary /
+           LicenseId / Acid / TenantId / UserId / HardwareIdBound /
+           NotBefore / NotAfter / ParseStatus
+    - 秘密鍵 / Signature 生 / RenewalToken 生は **出力しない**
+      （HardwareIdBound は (present) フラグのみ）
+  - **subscription SKU 自動検出**（`Test-OfficeSubscriptionSku`）:
+    `O365*Retail` / `M365*Retail` / `O365EduCloudRetail` /
+    `OneNoteFreeRetail` パターン
+  - **manifest §22 status の解釈ロジック更新**:
+    - subscription 検出 + Provisioned vNext あり → **Success**
+    - subscription 検出 + vNext 0 件 → **Partial**
+      （reason="M365 subscription installed but no Provisioned vNext
+      license found (end-user sign-in pending)"）
+    - VL/買い切り + OSPP Grace/Notifications → **Failed**
+      （reason に検出された ProductReleaseIds 含む）
+    - VL/買い切り + OSPP Licensed → **Success**
+    - Office 未インストール → **Success**（既存挙動、テキストのみ）
+  - 既存の 22a / 22b 出力は完全に保持。subscription 環境でも OSPP raw
+    出力を残すことで audit 監査人が両系統を確認できる
+  - kernel 不変、KERNEL_API §10 不変、REQUIRES_KERNEL 不変
+    （`[System.Text.Encoding]::Unicode` / `[Convert]::FromBase64String` /
+    `ConvertFrom-Json` は .NET / PowerShell 標準）
+
 ### Added
 - modules/standard/evidence_config: VERSION 1.3.0 → **1.4.0**
   - **§23 Security Baseline** 新規追加（`23_SecurityBaseline.txt`）
