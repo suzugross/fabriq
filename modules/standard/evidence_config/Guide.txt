@@ -43,11 +43,48 @@ PCのシステム情報を収集し、エビデンスとしてテキストファ
      ProductKeyChannel / KMS Machine
    - SoftwareLicensingService（CIM）: ClientMachineID / マシン全体の KMS 設定
    - slmgr /dlv の raw 出力（Installation ID 等を含む診断情報）
-22. Office ライセンス認証状況（22_OfficeLicense.txt）
-   - Click-to-Run レジストリ（ProductReleaseIds / VersionToReport /
-     UpdateChannel / Platform）
-   - OSPP.vbs 自動検出 + cscript OSPP.vbs /dstatus の raw 出力
-   - OSPP.vbs 不在時（Microsoft 365 per-user 運用等）は C2R レジストリのみ記録
+22. Office ライセンス認証状況（22_OfficeLicense.txt + 22_OfficeVnextLicenses.csv）
+   ※v1.5.0 で vNext per-user スキャン + 自動解釈追加
+   - Office には2系統のライセンス機構が併存:
+       OSPP (legacy): VL / 買い切り Retail キー（Software Protection Service）
+       vNext (現行): M365 サブスクリプション
+                     %LOCALAPPDATA%\Microsoft\Office\Licenses\
+                     <Category>\<NumericFilename>
+                     UTF-16LE JSON、内部 Base64 ライセンス、Microsoft Office
+                     Licensing CA で署名済み
+   - 22a. C2R レジストリ（ProductReleaseIds / VersionToReport /
+     UpdateChannel / Platform / DetectedAsSubscription bool）
+   - 22b. OSPP.vbs /dstatus raw（VL/買い切り判定用、引き続き必要）
+   - 22c. vNext per-user スキャン（NEW）
+       - C:\Users\* 全プロファイル横断走査
+       - 各ライセンスファイルを UTF-16LE → 外側 JSON → Base64 内側 JSON
+         までデコードし、22_OfficeVnextLicenses.csv に行追加
+       - 列: UserProfile / Category / LicenseFile / LicenseType /
+              ProductReleaseId / Status / IsTrial / Beneficiary /
+              LicenseId / Acid / TenantId / UserId / HardwareIdBound /
+              NotBefore / NotAfter / ParseStatus
+       - 秘密鍵・Signature 生値・RenewalToken 生値は出力せず、
+         HardwareIdBound は (present) フラグのみ
+       - TenantId / UserId は audit 上必要なので含める
+   - 22d. INTERPRETATION（自動解釈）
+       - C2R + OSPP + vNext を突き合わせて以下の verdict を出力:
+         * subscription 検出 + Provisioned vNext あり → LICENSED
+         * subscription 検出 + vNext 0 件 → "End-user not signed in yet"
+         * VL/買い切り + OSPP Grace → 真のアクティベーション失敗
+         * VL/買い切り + OSPP Licensed → LICENSED
+   - manifest §22 status:
+       * Success: subscription + Provisioned あり / VL Licensed /
+                  Office 未インストール
+       * Partial: subscription + vNext 0 件
+                  reason="M365 subscription installed but no Provisioned
+                  vNext license found (end-user sign-in pending)"
+       * Failed:  VL/買い切り + OSPP Grace
+                  reason="OSPP reports Grace/Notifications for non-
+                  subscription Office SKU"
+   - 既知の挙動: M365 subscription インストーラは OSPP に「飾りキー」
+     (例: 末尾 3RQ6B) を残し、サインイン後は更新しないため、OSPP は
+     必ず Grace 期限切れ表示になる。これは正常で、22d で「subscription
+     検出時の OSPP Grace は EXPECTED」と注記される
 23. Security Baseline（23_SecurityBaseline.txt） ※v1.4.0 で追加
    - TPM: Get-Tpm（Present / Ready / Enabled / Activated / Owned /
      ManagedAuthLevel / OwnerAuth 有無 / LockedOut / 製造元 ID）

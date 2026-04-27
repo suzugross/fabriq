@@ -286,7 +286,7 @@ Write-Host "    [18] Windows Defender Status" -ForegroundColor White
 Write-Host "    [19] Windows Update History (CSV)" -ForegroundColor White
 Write-Host "    [20] System TEMP Text-Log Backup (safety net)" -ForegroundColor White
 Write-Host "    [21] Windows License / Activation Status" -ForegroundColor White
-Write-Host "    [22] Office License / Activation Status" -ForegroundColor White
+Write-Host "    [22] Office License / Activation Status (C2R + OSPP + vNext)" -ForegroundColor White
 Write-Host "    [23] Security Baseline (TPM / Secure Boot / VBS / LSA / BIOS)" -ForegroundColor White
 Write-Host "    [24] Group Policy Report (gpresult /h HTML)" -ForegroundColor White
 Write-Host "    [25] Certificates (4 stores in single CSV)" -ForegroundColor White
@@ -1412,16 +1412,83 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # ----------------------------------------
 # 22. Office License / Activation Status
 # ----------------------------------------
-# Captures two perspectives on Office:
-#   22a. Click-to-Run registry (ProductReleaseIds, channel, version)
-#        - works even when OSPP.vbs is absent (Store Office / M365 Apps only)
-#   22b. ospp.vbs /dstatus raw - per-product LICENSE NAME / STATUS / KMS info
-# OSPP.vbs path detection mirrors office_license_config\office_license_auth.ps1
-# so both modules stay in sync on Office install layout assumptions.
+# Office has TWO parallel licensing mechanisms which fabriq must observe
+# both to produce an accurate audit verdict:
+#
+#   - OSPP (legacy)  : Volume License / buy-once Retail keys. Tracked by
+#                      Software Protection Service. Surface: OSPP.vbs.
+#   - vNext (current): Microsoft 365 subscriptions. Per-user license files
+#                      under %LOCALAPPDATA%\Microsoft\Office\Licenses\
+#                      <Category>\<NumericFilename>. UTF-16LE JSON wrapping
+#                      a Base64-encoded inner license JSON, signed by the
+#                      Office Licensing Service.
+#
+# For M365 subscriptions, the installer drops a decoy Retail key on OSPP
+# which goes to Grace state and never refreshes once the user signs in.
+# This produces a misleading "NOTIFICATIONS / 0xC004F009 (Grace expired)"
+# in OSPP /dstatus. The actual license is the vNext subscription token.
+#
+# Sub-sections:
+#   22a. Click-to-Run registry  (existing) - product / channel / version
+#   22b. OSPP.vbs /dstatus raw  (existing) - VL / buy-once authoritative
+#   22c. vNext per-user license scan       - subscription authoritative
+#   22d. Interpretation                    - cross-source verdict
+#
+# Section status logic:
+#   - subscription detected + Provisioned vNext present -> Success
+#   - subscription detected + no Provisioned vNext      -> Partial
+#     (typical at kitting time when end-user has not signed in)
+#   - VL/buy-once + OSPP Grace/Notifications            -> Failed
+#   - VL/buy-once + OSPP Licensed                       -> Success
+#   - Office not installed                              -> Success (text only)
 # ----------------------------------------
 Start-Section -Id "22" -Title "Office License / Activation Status" -FileName "22_OfficeLicense.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
+
+# Detect whether ProductReleaseIds matches a known M365 subscription SKU
+# pattern. O365*Retail / M365*Retail / O365EduCloudRetail / OneNoteFreeRetail
+# are subscription. Volume / one-time Retail (e.g. ProPlus2021Volume,
+# ProPlus2021Retail) return false here.
+function Test-OfficeSubscriptionSku {
+    param([string]$ProductReleaseIds)
+    if ([string]::IsNullOrWhiteSpace($ProductReleaseIds)) { return $false }
+    if ($ProductReleaseIds -match '(?i)(O365|M365).*Retail') { return $true }
+    if ($ProductReleaseIds -match '(?i)^(O365EduCloudRetail|OneNoteFreeRetail)$') { return $true }
+    return $false
+}
+
+# Decode a vNext license file. Files are UTF-16LE without BOM, containing
+# JSON { License, Certificate, Signature } where License is Base64 of an
+# inner JSON. Returns @{ ParseStatus; Inner }; ParseStatus 'OK' on success.
+function Read-VnextLicenseFile {
+    param([string]$Path)
+    try {
+        $bytes = [IO.File]::ReadAllBytes($Path)
+        if ($bytes.Length -lt 8) {
+            return @{ ParseStatus = 'TooSmall'; Inner = $null }
+        }
+        $text = [System.Text.Encoding]::Unicode.GetString($bytes)
+        $outer = $text | ConvertFrom-Json -ErrorAction Stop
+        if (-not $outer.License) {
+            return @{ ParseStatus = 'OuterMissingLicense'; Inner = $null }
+        }
+        $licenseBytes = [Convert]::FromBase64String($outer.License)
+        $licenseJson  = [System.Text.Encoding]::UTF8.GetString($licenseBytes)
+        $inner = $licenseJson | ConvertFrom-Json -ErrorAction Stop
+        return @{ ParseStatus = 'OK'; Inner = $inner }
+    }
+    catch {
+        $reason = ($_.Exception.Message -replace '\s+', ' ').Trim()
+        if ($reason.Length -gt 80) { $reason = $reason.Substring(0, 80) + '...' }
+        return @{ ParseStatus = "ParseFailed: $reason"; Inner = $null }
+    }
+}
+
+# Cross-section state tracked for the interpretation step
+$productReleaseIds = $null
+$isSubscription    = $false
+$osppShowsGrace    = $false
 
 try {
     # 22a. Click-to-Run configuration registry
@@ -1430,13 +1497,16 @@ try {
     if (Test-Path $c2rKey) {
         try {
             $c2r = Get-ItemProperty -Path $c2rKey -ErrorAction Stop
-            Out-Log "ProductReleaseIds: $($c2r.ProductReleaseIds)"
-            Out-Log "VersionToReport:   $($c2r.VersionToReport)"
-            Out-Log "Platform:          $($c2r.Platform)"
-            Out-Log "CDNBaseUrl:        $($c2r.CDNBaseUrl)"
-            Out-Log "UpdateChannel:     $($c2r.UpdateChannel)"
-            Out-Log "AudienceData:      $($c2r.AudienceData)"
-            Out-Log "ClientCulture:     $($c2r.ClientCulture)"
+            $productReleaseIds = $c2r.ProductReleaseIds
+            $isSubscription    = Test-OfficeSubscriptionSku -ProductReleaseIds $productReleaseIds
+            Out-Log "ProductReleaseIds:     $productReleaseIds"
+            Out-Log "VersionToReport:       $($c2r.VersionToReport)"
+            Out-Log "Platform:              $($c2r.Platform)"
+            Out-Log "CDNBaseUrl:            $($c2r.CDNBaseUrl)"
+            Out-Log "UpdateChannel:         $($c2r.UpdateChannel)"
+            Out-Log "AudienceData:          $($c2r.AudienceData)"
+            Out-Log "ClientCulture:         $($c2r.ClientCulture)"
+            Out-Log "DetectedAsSubscription:$isSubscription"
             Out-Log ""
         }
         catch {
@@ -1463,6 +1533,7 @@ try {
     if ($null -eq $osppPath) {
         Out-Log "---- OSPP.vbs ----"
         Out-Log "(OSPP.vbs not found - Office not installed, or uses Microsoft 365 per-user licensing only)"
+        Out-Log ""
     }
     else {
         Out-Log "---- OSPP.vbs path ----"
@@ -1476,10 +1547,152 @@ try {
             foreach ($line in ($osppOutput -split "\r?\n")) {
                 Out-Log "  $line"
             }
+            # Detect "NOTIFICATIONS" / "0xC004F009" pattern - Grace expired.
+            # This is EXPECTED for M365 subscriptions but indicates real
+            # activation failure for VL/buy-once.
+            if ($osppOutput -match '(?i)NOTIFICATIONS' -or $osppOutput -match '0xC004F009') {
+                $osppShowsGrace = $true
+            }
         }
         catch {
             Out-Log "  [WARN] ospp /dstatus failed: $_" -Color Yellow
         }
+        Out-Log ""
+    }
+
+    # 22c. vNext per-user license file scan
+    # Walks every C:\Users\<profile>\AppData\Local\Microsoft\Office\Licenses\
+    # subtree. License files are categorized by parent folder (e.g. "5" =
+    # commercial subscription). UserGUID is NOT a folder layer; ProductReleaseId
+    # / TenantId / UserId live inside the decoded license JSON.
+    Out-Log "---- vNext Per-User License Files ----"
+    Out-Log "Scanning all user profiles under C:\Users ..."
+    Out-Log ""
+
+    $userDirs = @(Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue)
+    $vnextRows = @()
+    $vnextFileCount = 0
+
+    foreach ($u in $userDirs) {
+        $licDir = Join-Path $u.FullName 'AppData\Local\Microsoft\Office\Licenses'
+        if (-not (Test-Path $licDir)) { continue }
+        $categoryDirs = @(Get-ChildItem $licDir -Directory -ErrorAction SilentlyContinue)
+        foreach ($cat in $categoryDirs) {
+            $licFiles = @(Get-ChildItem $cat.FullName -File -ErrorAction SilentlyContinue)
+            foreach ($f in $licFiles) {
+                $vnextFileCount++
+                $result = Read-VnextLicenseFile -Path $f.FullName
+                if ($result.ParseStatus -eq 'OK') {
+                    $inner = $result.Inner
+                    $tenantId   = ''
+                    $userId     = ''
+                    $hardwareId = ''
+                    $notBefore  = ''
+                    $notAfter   = ''
+                    if ($inner.Metadata) {
+                        try { $tenantId   = "$($inner.Metadata.TenantId)" }   catch { }
+                        try { $userId     = "$($inner.Metadata.UserId)" }     catch { }
+                        try { $hardwareId = if ($inner.Metadata.HardwareId) { '(present)' } else { '' } } catch { }
+                        try { $notBefore  = "$($inner.Metadata.NotBefore)" }  catch { }
+                        try { $notAfter   = "$($inner.Metadata.NotAfter)" }   catch { }
+                    }
+                    $vnextRows += [PSCustomObject]@{
+                        UserProfile      = $u.Name
+                        Category         = $cat.Name
+                        LicenseFile      = $f.Name
+                        LicenseType      = "$($inner.LicenseType)"
+                        ProductReleaseId = "$($inner.ProductReleaseId)"
+                        Status           = "$($inner.Status)"
+                        IsTrial          = "$($inner.IsTrial)"
+                        Beneficiary      = "$($inner.Beneficiary)"
+                        LicenseId        = "$($inner.LicenseId)"
+                        Acid             = "$($inner.Acid)"
+                        TenantId         = $tenantId
+                        UserId           = $userId
+                        HardwareIdBound  = $hardwareId
+                        NotBefore        = $notBefore
+                        NotAfter         = $notAfter
+                        ParseStatus      = 'OK'
+                    }
+                    Out-Log ("  [$($u.Name)] cat=$($cat.Name) Status=$($inner.Status) Type=$($inner.LicenseType) Product=$($inner.ProductReleaseId)")
+                }
+                else {
+                    $vnextRows += [PSCustomObject]@{
+                        UserProfile      = $u.Name
+                        Category         = $cat.Name
+                        LicenseFile      = $f.Name
+                        LicenseType      = ''
+                        ProductReleaseId = ''
+                        Status           = ''
+                        IsTrial          = ''
+                        Beneficiary      = ''
+                        LicenseId        = ''
+                        Acid             = ''
+                        TenantId         = ''
+                        UserId           = ''
+                        HardwareIdBound  = ''
+                        NotBefore        = ''
+                        NotAfter         = ''
+                        ParseStatus      = $result.ParseStatus
+                    }
+                    Out-Log ("  [$($u.Name)] cat=$($cat.Name) [$($result.ParseStatus)]") -Color Yellow
+                }
+            }
+        }
+    }
+
+    Out-Log ""
+    Out-Log "vNext files found: $vnextFileCount across $($userDirs.Count) user profile(s) scanned"
+
+    # Always emit CSV (even with 0 rows for parser consistency)
+    $outVnext = Join-Path $targetDir "22_OfficeVnextLicenses.csv"
+    $vnextRows | Export-Csv -Path $outVnext -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "22_OfficeVnextLicenses.csv"
+    Out-Log ("  -> 22_OfficeVnextLicenses.csv (" + $vnextRows.Count + " row(s))")
+    Out-Log ""
+
+    # 22d. Interpretation - cross-source verdict
+    Out-Log "---- INTERPRETATION ----"
+    Out-Log "ProductReleaseIds (C2R):     $(if ($productReleaseIds) { $productReleaseIds } else { '(not present)' })"
+    Out-Log "Detected as subscription:    $isSubscription"
+    Out-Log "OSPP shows Grace/Notify:     $osppShowsGrace"
+
+    $provisionedCount = @($vnextRows | Where-Object { $_.Status -eq 'Provisioned' }).Count
+    Out-Log "vNext licenses (any status): $($vnextRows.Count)"
+    Out-Log "vNext Provisioned:           $provisionedCount"
+    Out-Log ""
+
+    if ($isSubscription) {
+        if ($osppShowsGrace) {
+            Out-Log "  NOTE: OSPP NOTIFICATIONS / Grace expired is EXPECTED on M365 subscription."
+            Out-Log "        OSPP is the legacy path and is not authoritative for subscription editions."
+            Out-Log "        Authoritative source: per-user vNext license file."
+        }
+        if ($provisionedCount -gt 0) {
+            Out-Log "  CONCLUSION: LICENSED (M365 subscription, $provisionedCount Provisioned vNext license(s))."
+        }
+        else {
+            Out-Log "  CONCLUSION: M365 subscription installed but no Provisioned vNext license found."
+            Out-Log "              End-user may not have signed in yet (typical at kitting time)."
+            $sectionStatus = 'Partial'
+            $sectionReason = "M365 subscription installed but no Provisioned vNext license found (end-user sign-in pending)"
+        }
+    }
+    elseif ($null -ne $productReleaseIds) {
+        # VL or one-time Retail (non-subscription)
+        if ($osppShowsGrace) {
+            Out-Log "  WARNING: OSPP shows Grace/Notifications and this is NOT a subscription SKU."
+            Out-Log "           This indicates a real activation failure for VL/buy-once Office."
+            $sectionStatus = 'Failed'
+            $sectionReason = "OSPP reports Grace/Notifications for non-subscription Office SKU ($productReleaseIds)"
+        }
+        else {
+            Out-Log "  CONCLUSION: VL/buy-once Office, OSPP appears licensed."
+        }
+    }
+    else {
+        Out-Log "  CONCLUSION: No Office detected (no C2R registry)."
+        # Status stays Success - no Office is a valid state, file is still written
     }
 
     $sectionCount++
