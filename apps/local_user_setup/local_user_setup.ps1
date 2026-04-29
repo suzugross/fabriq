@@ -1,8 +1,8 @@
 ﻿# ========================================
 # Local User Setup GUI for Fabriq
 # ========================================
-# local_user_list.csv のプレースホルダー行に
-# ユーザー名とパスワードを順番に登録するウィザード型 GUI。
+# Wizard-style GUI that fills the placeholder rows in
+# local_user_list.csv with user names and passwords one at a time.
 # ========================================
 
 Add-Type -AssemblyName System.Windows.Forms
