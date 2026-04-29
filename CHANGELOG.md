@@ -56,6 +56,10 @@
   配置」と記述されていたが実態と乖離）。差し替え時の更新箇所
   （README-license.txt と THIRD_PARTY_NOTICES.md のバージョン・
   SHA-256）も明示
+- dev/template/_template_script.ps1: コメントを日本語から英語へ
+  全面置換（41 行）。新規モジュールの種ファイルなので最優先で
+  整理。dev/verify_comments_only.ps1 と sed-based code-strip diff
+  の二系統で「コードトークン不変・コメントのみ変更」を確認済み
 
 ## [3.0.0] - 2026-04-29
 
