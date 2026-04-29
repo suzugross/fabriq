@@ -15,7 +15,9 @@
 
 ## [Unreleased]
 
-### Removed (BREAKING — 次期 MAJOR 候補)
+## [3.0.0] - 2026-04-29
+
+### Removed (BREAKING)
 - kernel: 特殊マーカー 4 種を削除: `__SHUTDOWN__` / `__PAUSE__` /
   `__STOPLOG__` / `__STARTLOG__`
   - 公開 API surface の破壊的変更（KERNEL_API.md §4.2）。次期 MAJOR

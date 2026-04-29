@@ -171,7 +171,7 @@ formal SemVer の出発点。以下すべて利用可能:
 - **§2 公開グローバル**: `$global:FabriqMasterPassphrase`, `$global:AutoPilotMode`, `$global:AutoPilotWaitSec`, `$global:FabriqEvidenceBasePath`
 - **§3 公開環境変数**: `SELECTED_*` 全般, `SELECTED_PRINTER_<N>_*`, `FABRIQ_SEGMENT`, `FABRIQ_AUTOLOGON_USER`, `FABRIQ_WORKER_NAME`, `FABRIQ_EVIDENCE_BASE`
 - **§4 Profile CSV スキーマ**: 列（`Order`, `ScriptPath`, `Enabled`, `Description`, `Segment`, `ErrorMode`）、特殊マーカー（`__AUTOPILOT__`, `__RESTART__`, `__REEXPLORER__`, `__AUTO_to_<User>__`）。
-  ※ 2.0.0 baseline には `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` も含まれていたが、**[Unreleased]（次期 MAJOR）で削除予定**（下記参照）
+  ※ 2.0.0 baseline には `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` も含まれていたが、**3.0.0 で削除**（下記 3.0.0 参照）
 - **§5 ModuleResult 契約**: 全フィールド（`Status`, `Message`, `Details`, `Verified`, `Timestamp`, `_IsModuleResult`）
 
 ### 2.1.0
@@ -194,12 +194,13 @@ formal SemVer の出発点。以下すべて利用可能:
   - manifest schema（schemaVersion / sections / status enum / summary 等)、status セマンティクス、前方互換ルールを公開契約として固定
   - 本契約は外部 evidence consumer ツール（fabriq_evidence_manager 等）が consume する前提。モジュールスクリプト側の公開 API（§1〜§5）には影響なし。この版を要求するのは本契約を使うツール側のみ
 
-### [Unreleased]（次期 MAJOR 候補）
+### 3.0.0
 
-- **§4.2 特殊マーカー 4 種を削除（破壊的変更）**: `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__`
+- **§4.2 特殊マーカー 4 種を削除（破壊的変更 / MAJOR）**: `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__`
   - 削除理由: 実運用での参照ゼロ（`__PAUSE__` / `__STOPLOG__` / `__STARTLOG__`）または唯一の使用箇所も廃止済み（`__SHUTDOWN__`）。fabriq_studio のマーカーパレットでも既に除外されており、UX 上は事実上 deprecated だった
   - 既存プロファイル互換: 削除後のマーカーを含む旧プロファイルは `Resolve-ProfileModules` の `$invalidPaths` 経由で「module not found」warning として降格、kernel はクラッシュせず他モジュールの実行を継続する（graceful degradation）
   - 残存特殊マーカー: `__AUTOPILOT__` / `__ASYNC__` / `__RESTART__` / `__REEXPLORER__` / `__AUTO_to_<User>__` の 5 種
+- §6 内部 API 一覧から `Invoke-CountdownShutdown` を削除（`__SHUTDOWN__` 削除に伴うデッドコード除去）
 
 ### 判定ルール
 
