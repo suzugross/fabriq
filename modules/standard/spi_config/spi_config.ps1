@@ -23,9 +23,9 @@ Write-Host ""
 # ========================================
 # C# Native Class Definition
 # ========================================
-# dpi_api_config の P/Invoke パターンを参考に実装。
-# 3つの ValueMode (bool, uiParam, pvParam) に対応。
-# GET は SET action - 1 の慣例に基づき自動算出。
+# Implementation modeled on the P/Invoke pattern from dpi_api_config.
+# Supports three ValueModes (bool, uiParam, pvParam).
+# GET action codes are derived as (SET action - 1) per Win32 convention.
 # ========================================
 $spiSource = @"
 using System;
@@ -84,7 +84,7 @@ catch {
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "spi_list.csv"
 
@@ -100,14 +100,14 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック
+# Step 2: Prerequisite check
 # ========================================
-# SPI は管理者権限不要（HKCU 操作のため）。
-# 特別な前提条件なし。
+# SPI does not require admin privileges (operates on HKCU).
+# No additional prerequisite check is needed.
 
 
 # ========================================
-# Step 3: 実行前の確認表示
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "SPI Settings" -ForegroundColor Yellow
@@ -167,7 +167,7 @@ if (-not $hasChanges) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Apply the above SPI settings?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -176,7 +176,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -194,7 +194,7 @@ foreach ($item in $enabledItems) {
     Write-Host "----------------------------------------" -ForegroundColor White
 
     # ----------------------------------------
-    # 冪等性チェック（Skip 判定）
+    # Idempotency check (Skip path)
     # ----------------------------------------
     $currentValue = $null
     try {
@@ -213,7 +213,7 @@ foreach ($item in $enabledItems) {
     }
 
     # ----------------------------------------
-    # メイン処理
+    # Main work
     # ----------------------------------------
     try {
         $result = switch ($valueMode) {
