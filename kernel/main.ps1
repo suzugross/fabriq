@@ -151,12 +151,12 @@ function Invoke-KittingScript {
     Write-Host ""
 
     try {
-        # グローバルフォールバック変数をクリア
+        # Clear the global fallback before invocation
         $global:_LastModuleResult = $null
 
         $output = & $ScriptPath
 
-        # ModuleResult を検出（パイプライン出力から）
+        # Find a ModuleResult in the pipeline output
         $moduleResult = $null
         if ($null -ne $output) {
             foreach ($item in @($output)) {
@@ -166,14 +166,14 @@ function Invoke-KittingScript {
             }
         }
 
-        # フォールバック: パイプラインキャプチャ失敗時にグローバル変数から取得
+        # Fallback: pipeline capture failed, recover from the global
         if (-not $moduleResult -and $null -ne $global:_LastModuleResult) {
             $moduleResult = $global:_LastModuleResult
         }
         $global:_LastModuleResult = $null
 
         if ($moduleResult) {
-            # モジュールが返却した結果を使用
+            # Use the result the module returned
             $status = $moduleResult.Status
             $message = $moduleResult.Message
 
@@ -197,7 +197,7 @@ function Invoke-KittingScript {
             return ($status -eq "Success")
         }
         else {
-            # レガシーパス: ModuleResult 未返却（全モジュール移行済み）
+            # Legacy path: module did not return a ModuleResult (all modules migrated)
             Write-Host ""
             Write-Verbose "ModuleResult not returned from: $ScriptPath"
             Show-Warning "Script execution completed (status unverified)"
@@ -317,7 +317,7 @@ function Invoke-BatchExecution {
                         $restarted = $true; break
                     }
                 }
-                # Windowsの自動再起動が間に合わなかった場合のみ明示的に起動
+                # Only force-start when Windows did not auto-revive Explorer in time
                 if (-not $restarted) { Start-Process explorer.exe }
                 Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted"
                 $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted"
