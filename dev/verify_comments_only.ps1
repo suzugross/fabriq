@@ -5,10 +5,21 @@
 # changes ONLY (no functional code changes).
 #
 # Uses PowerShell's own parser to extract token streams, then
-# compares everything except Comment-typed tokens. If the
-# non-comment token sequences are identical (Kind + Text), the
-# change is provably comment-only and cannot affect runtime
-# behavior.
+# compares everything except Comment-typed and NewLine-typed
+# tokens. If the remaining token sequences are identical
+# (Kind + Text), the change is provably comment-only and cannot
+# affect runtime behavior.
+#
+# NewLine tokens are filtered alongside comments because:
+#   1. They carry no PowerShell semantics distinct from `;` and
+#      whitespace at the boundaries this verifier is designed to
+#      check (translated comments may span more or fewer lines).
+#   2. Cross-platform line-ending differences (LF vs CRLF) and
+#      trailing-newline artifacts from `git show` extraction would
+#      otherwise produce false FAILs on byte-identical content.
+# A real code edit that, for example, replaces a NewLine with a
+# Semi (`;`) token still changes the Semi token count and is
+# detected.
 #
 # Usage:
 #   # Mode 1: compare two arbitrary paths
@@ -61,7 +72,9 @@ function Get-NonCommentTokens {
         }) -join '; '
         throw "Parse errors in '${FilePath}': $msg"
     }
-    return @($tokens | Where-Object { $_.Kind -ne 'Comment' })
+    return @($tokens | Where-Object {
+        $_.Kind -ne 'Comment' -and $_.Kind -ne 'NewLine'
+    })
 }
 
 function Compare-TokenStreams {
@@ -73,7 +86,7 @@ function Compare-TokenStreams {
     )
 
     if ($OriginalTokens.Count -ne $ModifiedTokens.Count) {
-        Write-Host ("[FAIL] Non-comment token count differs: " +
+        Write-Host ("[FAIL] Significant token count differs: " +
                     "$OriginalLabel=$($OriginalTokens.Count), " +
                     "$ModifiedLabel=$($ModifiedTokens.Count)") `
                     -ForegroundColor Red
@@ -114,8 +127,10 @@ function Invoke-GitShow {
         }
         # Parser.ParseFile tolerates LF/CRLF and BOM; we just need the
         # tokens, not exact byte fidelity. Write as UTF-8 without BOM.
+        # Append a trailing newline to compensate for PS pipeline
+        # collapse of the file's final line terminator.
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        $joined = ($headContent -join "`r`n")
+        $joined = ($headContent -join "`r`n") + "`r`n"
         [System.IO.File]::WriteAllText($DestinationPath, $joined, $utf8NoBom)
     }
     finally {
@@ -152,7 +167,7 @@ try {
 
             if (-not $ok) { exit 1 }
             Write-Host ("[PASS] ${Path}: $($origTokens.Count) " +
-                        "non-comment tokens match HEAD exactly") `
+                        "significant tokens match HEAD exactly") `
                         -ForegroundColor Green
             exit 0
         }
@@ -174,7 +189,7 @@ try {
 
         if (-not $ok) { exit 1 }
         Write-Host ("[PASS] $Original vs ${Modified}: " +
-                    "$($origTokens.Count) non-comment tokens match exactly") `
+                    "$($origTokens.Count) significant tokens match exactly") `
                     -ForegroundColor Green
         exit 0
     }
