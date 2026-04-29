@@ -305,7 +305,7 @@ function New-ModuleResult {
         Verified        = $Verified
         Timestamp       = Get-Date
     }
-    # グローバル変数にも保存（パイプライン出力キャプチャ失敗時のフォールバック）
+    # Also stash on a global as a fallback for pipeline capture failures
     $global:_LastModuleResult = $resultObj
     return $resultObj
 }
@@ -313,10 +313,10 @@ function New-ModuleResult {
 # ========================================
 # Pattern Layer Functions
 # ========================================
-# モジュール共通の定型パターンを関数化
-# New-BatchResult: 結果集計表示 + ModuleResult 返却
-# Confirm-ModuleExecution: 確認 + キャンセル処理
-# Import-ModuleCsv: CSV 読み込み + フィルタ + カラム検証
+# Reusable building blocks shared by every module
+# New-BatchResult       : aggregate counts -> Show result -> return ModuleResult
+# Confirm-ModuleExecution: prompt for confirmation, handle cancel
+# Import-ModuleCsv      : load CSV, filter Enabled, validate required columns
 
 function New-BatchResult {
     param(
@@ -386,8 +386,8 @@ function Confirm-ModuleExecution {
 function Protect-PassphraseForResume {
     <#
     .SYNOPSIS
-        パスフレーズを DPAPI (LocalMachine) で暗号化し Base64 文字列を返す。
-        レジューム用 resume_state.json への安全な保存に使用。
+        Encrypts a passphrase via DPAPI (LocalMachine) and returns
+        a Base64 string. Used for safe storage in resume_state.json.
     #>
     param([Parameter(Mandatory)][string]$Passphrase)
 
@@ -403,8 +403,8 @@ function Protect-PassphraseForResume {
 function Unprotect-PassphraseFromResume {
     <#
     .SYNOPSIS
-        Protect-PassphraseForResume で暗号化された Base64 文字列を
-        DPAPI (LocalMachine) で復号し、平文パスフレーズを返す。
+        Decrypts the Base64 string produced by Protect-PassphraseForResume
+        via DPAPI (LocalMachine) and returns the plaintext passphrase.
     #>
     param([Parameter(Mandatory)][string]$ProtectedBase64)
 
@@ -424,17 +424,17 @@ function Unprotect-PassphraseFromResume {
 function Unprotect-FabriqValue {
     <#
     .SYNOPSIS
-        ENC: プレフィクス付き暗号文字列を AES-256-CBC で復号する。
+        Decrypts an "ENC:"-prefixed AES-256-CBC ciphertext value.
     .DESCRIPTION
-        アルゴリズム仕様（C# CryptoPoC と厳密一致）:
-          鍵導出   : PBKDF2-HMAC-SHA256, 100,000 iterations, 固定ソルト
-          暗号化   : AES-256-CBC, PKCS7 padding
-          エンコード: UTF-8（平文）, Base64（暗号文）
+        Algorithm spec (must match the C# CryptoPoC exactly):
+          Key derivation : PBKDF2-HMAC-SHA256, 100,000 iterations, fixed salt
+          Cipher         : AES-256-CBC with PKCS7 padding
+          Encoding       : UTF-8 (plaintext), Base64 (ciphertext)
     .PARAMETER EncryptedValue
-        "ENC:Base64文字列" 形式の暗号化された値。
-        ENC: プレフィクスがない場合はそのまま返す。
+        Ciphertext value of the form "ENC:<Base64-string>".
+        Values without the ENC: prefix are returned unchanged.
     .PARAMETER Passphrase
-        PBKDF2 鍵導出に使用するマスターパスフレーズ。
+        Master passphrase used for PBKDF2 key derivation.
     #>
     param(
         [Parameter(Mandatory)]
@@ -443,19 +443,19 @@ function Unprotect-FabriqValue {
         [string]$Passphrase
     )
 
-    # ENC: プレフィクスがなければ平文とみなしそのまま返す
+    # No ENC: prefix => treat the value as plaintext and return as-is
     if (-not $EncryptedValue.StartsWith('ENC:')) {
         return $EncryptedValue
     }
     $base64 = $EncryptedValue.Substring(4)
 
-    # ── 共通パラメータ（C# CryptoPoC と完全一致させること）──
+    # -- Shared parameters (must match the C# CryptoPoC exactly) --
     $salt       = [System.Text.Encoding]::UTF8.GetBytes("fabriq-fixed-salt-2024")
     $iterations = 100000
     $keySize    = 32   # AES-256
     $ivSize     = 16   # AES block size
 
-    # PBKDF2-HMAC-SHA256 鍵導出
+    # PBKDF2-HMAC-SHA256 key derivation
     $kdf = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
         $Passphrase, $salt, $iterations,
         [System.Security.Cryptography.HashAlgorithmName]::SHA256
@@ -464,7 +464,7 @@ function Unprotect-FabriqValue {
     $iv  = $kdf.GetBytes($ivSize)
     $kdf.Dispose()
 
-    # AES-256-CBC 復号
+    # AES-256-CBC decryption
     $aes         = [System.Security.Cryptography.Aes]::Create()
     $aes.Mode    = [System.Security.Cryptography.CipherMode]::CBC
     $aes.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
@@ -887,12 +887,12 @@ function Invoke-SafeCommand {
     }
 
     try {
-        # グローバルフォールバック変数をクリア
+        # Clear the global fallback before invocation
         $global:_LastModuleResult = $null
 
         $output = & $ScriptBlock
 
-        # ModuleResult を出力から検出（パイプライン出力から）
+        # Find a ModuleResult in the pipeline output
         $moduleResult = $null
         if ($null -ne $output) {
             foreach ($item in @($output)) {
@@ -902,21 +902,21 @@ function Invoke-SafeCommand {
             }
         }
 
-        # フォールバック: パイプラインキャプチャ失敗時にグローバル変数から取得
+        # Fallback: pipeline capture failed, recover from the global
         if (-not $moduleResult -and $null -ne $global:_LastModuleResult) {
             $moduleResult = $global:_LastModuleResult
         }
         $global:_LastModuleResult = $null
 
         if ($moduleResult) {
-            # モジュールが自己申告したステータスを使用
+            # Trust the status the module reported about itself
             $result.Status = $moduleResult.Status
             $result.Message = $moduleResult.Message
             $result.Success = ($moduleResult.Status -eq "Success")
             $result.Verified = $moduleResult.Verified
         }
         else {
-            # レガシーパス: ModuleResult 未返却（全モジュール移行済み）
+            # Legacy path: module did not return a ModuleResult (all modules migrated)
             Write-Verbose "[$OperationName] ModuleResult not returned (legacy module)"
             $result.Success = $true
             $result.Status = "Success"
@@ -1213,12 +1213,12 @@ function Add-ExecutionResult {
         Verified  = $Verified
     }
 
-    # ステータスモニター更新
+    # Refresh the status monitor
     Write-StatusFile -Phase "executing"
 }
 
 function Clear-ExecutionResults {
-    # 復元エントリとセパレーターは保持
+    # Preserve restored entries and separators across the clear
     $restored = @($script:ExecutionResults | Where-Object {
         $_.IsRestored -eq $true -or $_.Status -eq "Separator"
     })
@@ -1230,7 +1230,7 @@ function Clear-ExecutionResults {
         $script:ExecutionResults = @()
     }
 
-    # ステータスモニター更新
+    # Refresh the status monitor
     Write-StatusFile -Phase "executing"
 }
 
@@ -1240,7 +1240,7 @@ function Show-ExecutionSummary {
         [System.TimeSpan]$ElapsedTime = [System.TimeSpan]::Zero
     )
 
-    # ステータスモニター更新（完了状態）
+    # Refresh the status monitor (final/complete state)
     Write-StatusFile -Phase "complete"
 
     if ($null -eq $Results) {
@@ -1506,7 +1506,7 @@ function Import-ExecutionHistory {
     }
 
     try {
-        # ロックフリー読み取り（リトライ付き）
+        # Lock-free read with retry
         $data = $null
         for ($retry = 0; $retry -lt 3; $retry++) {
             try {
@@ -1562,7 +1562,7 @@ function Restore-ExecutionHistory {
             return
         }
 
-        # Import-ExecutionHistory は降順 → 昇順に反転
+        # Import-ExecutionHistory returns descending; flip to ascending
         [array]::Reverse($history)
 
         $restoredResults = @()
@@ -1591,7 +1591,7 @@ function Restore-ExecutionHistory {
         }
 
         if ($restoredResults.Count -gt 0) {
-            # 復元データと現在セッションの境界セパレーター
+            # Boundary separator between restored history and the current session
             $restoredResults += [PSCustomObject]@{
                 Operation  = "--- Current Session ---"
                 Status     = "Separator"
@@ -1690,11 +1690,12 @@ function Export-ExecutionHistory {
 
     $evidenceDateStr = Get-Date -Format "yyyy_MM_dd_HHmmss"
     if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
-        # エビデンスディレクトリ名にUID+PC名が含まれているためファイル名はタイムスタンプのみ
+        # The evidence directory name already encodes UID+PCName,
+        # so the export filename only needs the timestamp.
         $evidenceExportPath = Join-Path $evidenceExportDir "history_export_${evidenceDateStr}.csv"
     }
     else {
-        # フォールバック時はファイル名で端末を特定する必要がある
+        # Fallback path: encode the host identity in the filename instead
         $pcName = if (-not [string]::IsNullOrEmpty($env:SELECTED_NEW_PCNAME)) {
             $env:SELECTED_NEW_PCNAME
         } else {
@@ -3372,7 +3373,7 @@ function Write-StatusFile {
     )
 
     try {
-        # PC情報を環境変数から収集
+        # Collect PC info from environment variables
         $pcInfo = @{
             AdminID         = $env:SELECTED_KANRI_NO
             OldPCName       = $env:SELECTED_OLD_PCNAME
@@ -3387,7 +3388,7 @@ function Write-StatusFile {
             Printers        = @()
         }
 
-        # プリンタ情報を収集 (1-10)
+        # Collect printer info (slots 1-10)
         for ($i = 1; $i -le 10; $i++) {
             $pName = [Environment]::GetEnvironmentVariable("SELECTED_PRINTER_$($i)_NAME")
             if (-not [string]::IsNullOrEmpty($pName)) {
@@ -3399,7 +3400,7 @@ function Write-StatusFile {
             }
         }
 
-        # 実行結果サマリーを集計
+        # Aggregate the execution result summary
         $results = @($script:ExecutionResults)
         $executionInfo = @{
             Phase          = $Phase
@@ -3434,15 +3435,15 @@ function Write-StatusFile {
             Execution     = $executionInfo
         }
 
-        # アトミック書き込み: tmpファイルに書いてからリネーム
+        # Atomic write: write to a tmp file first, then rename
         $tempPath = "$($script:StatusFilePath).tmp"
         $statusData | ConvertTo-Json -Depth 5 | Out-File -FilePath $tempPath -Encoding UTF8 -Force
         Move-Item -Path $tempPath -Destination $script:StatusFilePath -Force
     }
     catch {
-        # ステータスモニターは補助機能のため、エラーは無視
+        # Status monitor is best-effort; swallow errors silently
         try {
-            # Move-Itemが失敗した場合のフォールバック: 直接書き込み
+            # Fallback when Move-Item fails: write the file directly
             if ($statusData) {
                 $statusData | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:StatusFilePath -Encoding UTF8 -Force
             }
