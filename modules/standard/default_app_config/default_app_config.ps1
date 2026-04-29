@@ -1,12 +1,12 @@
 # ========================================
 # Default App Config Script
 # ========================================
-# エクスポート済みの XML を使用して既定のアプリ関連付けをインポートする。
+# Import default app associations from a previously-exported XML.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - DISM /Import-DefaultAppAssociations を使用
-# - インポートした関連付けは新規ユーザープロファイル作成時に適用される
+# - Requires administrator privileges
+# - Uses DISM /Import-DefaultAppAssociations
+# - Imported associations apply to newly-created user profiles
 # ========================================
 
 Write-Host ""
@@ -17,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "default_app_list.csv"
 
@@ -33,7 +33,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（Early Return）
+# Step 2: Prerequisite check (early return)
 # ========================================
 $xmlDir = Join-Path $PSScriptRoot "xml"
 if (-not (Test-Path $xmlDir)) {
@@ -45,7 +45,7 @@ if (-not (Test-Path $xmlDir)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Import Targets" -ForegroundColor Yellow
@@ -82,7 +82,7 @@ if (-not $hasValidTarget) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Import the above app associations?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -91,7 +91,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -105,7 +105,7 @@ foreach ($item in $enabledItems) {
     Write-Host "Importing: $displayName" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
-    # Skip 判定: XML ファイルが存在しない
+    # Skip when the XML file does not exist
     if (-not (Test-Path $xmlPath)) {
         Show-Skip "File not found: $xmlPath"
         Write-Host ""
@@ -141,7 +141,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Default App Config Results")
