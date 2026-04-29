@@ -1,12 +1,12 @@
 # ========================================
 # Browser Addon Configuration Script
 # ========================================
-# Chrome/Edge の拡張機能をグループポリシー（レジストリ）経由で
-# 強制インストールする。ExtensionInstallForcelist に登録。
+# Force-install Chrome/Edge extensions via Group Policy (registry)
+# by registering them in ExtensionInstallForcelist.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - ブラウザの再起動または gpupdate /force が必要な場合あり
+# - Requires administrator privileges
+# - Browser restart or `gpupdate /force` may be required to take effect
 # ========================================
 
 Write-Host ""
@@ -60,7 +60,7 @@ function Get-NextForcelistIndex {
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "browser_addon_list.csv"
 
@@ -76,7 +76,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前処理（ID解決・Browser検証）
+# Step 2: Preprocessing (resolve IDs, validate Browser)
 # ========================================
 $resolvedItems = @()
 
@@ -121,7 +121,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Target Extensions" -ForegroundColor Yellow
@@ -155,7 +155,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Apply the above browser extension policies?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -164,7 +164,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -249,7 +249,7 @@ Write-Host ""
 $verified = ($verifyFail -eq 0)
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Browser Addon Configuration Results" -Verified $verified)
