@@ -44,40 +44,79 @@ function Get-ModuleCompletionFromFilesystem {
 }
 
 function Find-ModulePath {
-    param([string]$Name)
+    # Resolves a module entry (string or object form) to an absolute
+    # script path. Honours per-entry overrides (Dir / Script) so multi-
+    # script modules like local_user_config (create + delete) and
+    # printer_driver_config (install + register + uninstall) work.
+    # When -CategoryId is omitted the entry is searched across all
+    # categories; when given the search is scoped (faster + safer).
+    param(
+        [string]$Name,
+        [string]$CategoryId
+    )
     if ([string]::IsNullOrWhiteSpace($Name)) { return $null }
     if ($Name -in $script:FabriqIosExcludedModules) { return $null }
+
+    # Resolve via JSON first.
+    $entry = $null
+    if ($CategoryId) {
+        $entry = Resolve-ModuleEntry -CategoryId $CategoryId -Name $Name
+    } else {
+        $entry = Find-ModuleEntryAcrossCategories -Name $Name
+    }
+
+    $dir        = if ($entry) { $entry.Dir }    else { $Name }
+    $scriptName = if ($entry) { $entry.Script } else { ('{0}.ps1' -f $Name) }
+
     foreach ($subdir in @('standard', 'extended')) {
-        $candidate = Join-Path $script:FabriqRoot ('modules\{0}\{1}\{1}.ps1' -f $subdir, $Name)
+        $candidate = Join-Path $script:FabriqRoot ('modules\{0}\{1}\{2}' -f $subdir, $dir, $scriptName)
         if (Test-Path $candidate) { return $candidate }
     }
     return $null
 }
 
 function Get-ModuleCsvSchema {
-    # Returns @{ Columns; Enums; CsvFileName; CsvPath } or $null.
-    # The list-CSV naming convention is "<module-name-minus-suffix>_list.csv"
-    # rather than always "<module-name>_list.csv" - e.g. reg_hklm_config
-    # uses reg_hklm_list.csv, app_config uses app_list.csv, bloatware_remove
-    # uses bloatware_list.csv. We discover by globbing *_list.csv inside
-    # the module directory rather than guessing the prefix.
-    # Reads the header and optionally preset.csv for enum hints.
-    # $null indicates the module has no *_list.csv - ephemeral
-    # configuration is not possible.
-    param([string]$Name)
+    # Returns @{ Columns; Enums; CsvFileName; CsvPath; ScriptPath } or $null.
+    # Phase 9b: when an explicit `csv` is declared in the JSON entry
+    # for (CategoryId, Name), that file is used; otherwise we glob
+    # *_list.csv in the module directory and pick the first match.
+    # The returned ScriptPath echoes the resolved entry's script so
+    # downstream callers (Invoke-ModuleEphemeralRun) do not have to
+    # call Find-ModulePath a second time.
+    param(
+        [string]$Name,
+        [string]$CategoryId
+    )
 
-    $modulePath = Find-ModulePath -Name $Name
+    $modulePath = Find-ModulePath -Name $Name -CategoryId $CategoryId
     if (-not $modulePath) { return $null }
 
     $moduleDir = Split-Path $modulePath -Parent
-    $csvFiles = @(Get-ChildItem -Path $moduleDir -Filter '*_list.csv' -File -ErrorAction SilentlyContinue)
-    if ($csvFiles.Count -eq 0) { return $null }
 
-    # Pick the first matching file. Most modules have exactly one
-    # *_list.csv. If a module has more than one (rare), the operator
-    # should configure via fabriq_studio.
-    $csvFile = $csvFiles[0]
-    $csvPath = $csvFile.FullName
+    # Resolve entry to look up the explicit csv override.
+    $entry = $null
+    if ($CategoryId) {
+        $entry = Resolve-ModuleEntry -CategoryId $CategoryId -Name $Name
+    } else {
+        $entry = Find-ModuleEntryAcrossCategories -Name $Name
+    }
+
+    $csvPath = $null
+    $csvFileName = $null
+    if ($entry -and $entry.Csv) {
+        $csvFileName = $entry.Csv
+        $csvPath = Join-Path $moduleDir $entry.Csv
+        if (-not (Test-Path $csvPath)) {
+            # Declared override is missing on disk - treat as schema
+            # unavailable rather than silently substituting.
+            return $null
+        }
+    } else {
+        $csvFiles = @(Get-ChildItem -Path $moduleDir -Filter '*_list.csv' -File -ErrorAction SilentlyContinue)
+        if ($csvFiles.Count -eq 0) { return $null }
+        $csvFileName = $csvFiles[0].Name
+        $csvPath     = $csvFiles[0].FullName
+    }
 
     $headerLine = ''
     try {
@@ -110,8 +149,9 @@ function Get-ModuleCsvSchema {
     return @{
         Columns     = $columns
         Enums       = $enums
-        CsvFileName = $csvFile.Name
+        CsvFileName = $csvFileName
         CsvPath     = $csvPath
+        ScriptPath  = $modulePath
     }
 }
 
@@ -161,15 +201,18 @@ function Enter-CategoryConfigMode {
         return
     }
 
-    $modulePath = Find-ModulePath -Name $Name
+    # Pass CategoryId so per-entry script / csv overrides are honoured
+    # for multi-script modules (local_user_config, printer_driver_config)
+    # and multi-CSV modules (sysprep_config, history_destroyer).
+    $modulePath = Find-ModulePath -Name $Name -CategoryId $cat.id
     if (-not $modulePath) {
-        Write-Host ("% Module not found or excluded: {0}" -f $Name) -ForegroundColor Red
+        Write-Host ("% Module entry '{0}' could not be resolved on disk (check JSON dir/script)." -f $Name) -ForegroundColor Red
         return
     }
 
-    $schema = Get-ModuleCsvSchema -Name $Name
+    $schema = Get-ModuleCsvSchema -Name $Name -CategoryId $cat.id
     if (-not $schema) {
-        Write-Host ("% Module '{0}' has no '*_list.csv'; ephemeral configuration is not available." -f $Name) -ForegroundColor Red
+        Write-Host ("% Module '{0}' has no resolvable list CSV; ephemeral configuration is not available." -f $Name) -ForegroundColor Red
         return
     }
 
@@ -270,18 +313,19 @@ function Invoke-ModuleEphemeralRun {
     }
     $ephemeralRow = [PSCustomObject]$orderedProps
 
-    $modulePath = Find-ModulePath -Name $name
-    if (-not $modulePath) {
-        Write-Host ("% Module not found: {0}" -f $name) -ForegroundColor Red
+    # Use the script path captured by Get-ModuleCsvSchema (avoids a
+    # second Find-ModulePath lookup and respects per-entry overrides).
+    $modulePath = $schema.ScriptPath
+    if (-not $modulePath -or -not (Test-Path $modulePath)) {
+        Write-Host ("% Module script not resolvable: {0}" -f $name) -ForegroundColor Red
         return
     }
 
     # Path-matched override of Import-ModuleCsv: only the module's
     # own *_list.csv read is intercepted; reads of other CSVs (e.g.
-    # hostlist.csv) pass through to the real implementation. The
-    # CSV filename is taken from the schema (auto-discovered via glob)
-    # because the naming convention drops the action suffix
-    # (reg_hklm_config -> reg_hklm_list.csv, etc.).
+    # hostlist.csv, or sister CSVs like sysprep_config's unattend_list)
+    # pass through to the real implementation. The CSV filename is
+    # taken from the schema (entry override OR auto-discovered glob).
     $expectedFile = $schema.CsvFileName
     $original = Get-Item Function:Import-ModuleCsv -ErrorAction SilentlyContinue
     if (-not $original) {
