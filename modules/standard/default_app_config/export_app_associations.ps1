@@ -1,12 +1,12 @@
 # ========================================
 # Export App Associations Script
 # ========================================
-# 現在のユーザーの既定のアプリ関連付けを XML にエクスポートする。
+# Export the current user's default app associations to XML.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - マスター PC での準備作業用（本番キッティングでは使用しない）
-# - DISM /Export-DefaultAppAssociations を使用
+# - Requires administrator privileges
+# - Used for master-PC preparation only (not for production kitting)
+# - Uses DISM /Export-DefaultAppAssociations
 # ========================================
 
 Write-Host ""
@@ -17,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "default_app_list.csv"
 
@@ -33,7 +33,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（Early Return）
+# Step 2: Prerequisite check (early return)
 # ========================================
 $xmlDir = Join-Path $PSScriptRoot "xml"
 if (-not (Test-Path $xmlDir)) {
@@ -50,7 +50,7 @@ if (-not (Test-Path $xmlDir)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Export Targets" -ForegroundColor Yellow
@@ -77,7 +77,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Export app associations to the above files?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -86,7 +86,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -106,7 +106,7 @@ foreach ($item in $enabledItems) {
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -eq 0) {
-            # ファイルが実際に生成されたか確認
+            # Confirm the file was actually created
             if (Test-Path $xmlPath) {
                 $fileSize = (Get-Item $xmlPath).Length
                 Show-Success "Exported: $xmlPath ($fileSize bytes)"
@@ -135,7 +135,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Export App Associations Results")
