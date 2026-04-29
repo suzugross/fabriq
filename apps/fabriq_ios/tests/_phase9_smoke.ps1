@@ -73,9 +73,12 @@ Check 'settings includes reg_hklm_config' ($settings -contains 'reg_hklm_config'
 Check 'settings excludes hostname_config' (-not ($settings -contains 'hostname_config'))
 
 $cleanup = Get-CategoryModuleCompletion -CategoryId 'cleanup'
-Check 'cleanup has 7 modules'          ($cleanup.Count -eq 7)
+Check 'cleanup has 9 modules'          ($cleanup.Count -eq 9)
 Check 'cleanup includes directory_cleaner' ($cleanup -contains 'directory_cleaner')
 Check 'cleanup includes bloatware_remove'  ($cleanup -contains 'bloatware_remove')
+Check 'cleanup includes destroy_history'   ($cleanup -contains 'destroy_history')
+Check 'cleanup includes destroy_ssid'      ($cleanup -contains 'destroy_ssid')
+Check 'cleanup includes local_user_delete' ($cleanup -contains 'local_user_delete')
 
 $copy = Get-CategoryModuleCompletion -CategoryId 'copy'
 Check 'copy has 2 modules'             ($copy.Count -eq 2)
@@ -83,9 +86,11 @@ Check 'copy includes copyfile_config'  ($copy -contains 'copyfile_config')
 Check 'copy includes robocopy_config'  ($copy -contains 'robocopy_config')
 
 $install = Get-CategoryModuleCompletion -CategoryId 'install'
-Check 'install has 11 modules'         ($install.Count -eq 11)
+Check 'install has 12 modules'         ($install.Count -eq 12)
 Check 'install includes app_config'    ($install -contains 'app_config')
 Check 'install includes winget_install' ($install -contains 'winget_install')
+Check 'install includes printer_driver_install' ($install -contains 'printer_driver_install')
+Check 'install includes printer_register'       ($install -contains 'printer_register')
 
 $scripting = Get-CategoryModuleCompletion -CategoryId 'scripting'
 Check 'scripting has 5 modules'        ($scripting.Count -eq 5)

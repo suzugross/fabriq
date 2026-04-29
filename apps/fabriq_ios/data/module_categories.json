@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "fabriq_ios independent module categorization. Each category provides its own (config)# verb and sub-mode prompt suffix. Modules in lib/commands/module.ps1 $script:FabriqIosExcludedModules are filtered out regardless of what this file says. Reclassify by editing this file - no code change required for category reshuffling within the existing 5 verbs.",
+  "description": "fabriq_ios independent module categorization. Each item in modules[] is either a string (implicit defaults: dir=name, script=name.ps1, csv=auto-detected first *_list.csv) OR an object with explicit overrides ({name, dir?, script?, csv?, label?}). Object form is required for multi-script modules (local_user_config, printer_driver_config) and multi-CSV modules (sysprep_config, history_destroyer). lib/commands/module.ps1 $script:FabriqIosExcludedModules takes precedence regardless of this file.",
   "categories": [
     {
       "id": "settings",
@@ -28,7 +28,13 @@
         "firewall_rule_make_config",
         "group_config",
         "ipv6_config",
-        "local_user_config",
+        {
+          "name":   "local_user_create",
+          "dir":    "local_user_config",
+          "script": "local_user_config.ps1",
+          "csv":    "local_user_list.csv",
+          "label":  "Create local users"
+        },
         "network_profile_config",
         "partition_config",
         "power_config",
@@ -44,7 +50,27 @@
         "ssid_config",
         "startlayout_config",
         "startup_command_config",
-        "sysprep_config",
+        {
+          "name":   "sysprep_main",
+          "dir":    "sysprep_config",
+          "script": "sysprep_config.ps1",
+          "csv":    "sysprep_list.csv",
+          "label":  "Sysprep execution settings"
+        },
+        {
+          "name":   "sysprep_unattend",
+          "dir":    "sysprep_config",
+          "script": "sysprep_config.ps1",
+          "csv":    "unattend_list.csv",
+          "label":  "Sysprep unattend.xml answer-file rows"
+        },
+        {
+          "name":   "sysprep_setupcomplete",
+          "dir":    "sysprep_config",
+          "script": "sysprep_config.ps1",
+          "csv":    "setupcomplete_list.csv",
+          "label":  "Sysprep SetupComplete actions"
+        },
         "system_finalize",
         "taskbar_config",
         "temp_ipaddress_config",
@@ -60,9 +86,29 @@
       "intro": "Configure and run a cleanup module (deletion / removal).",
       "modules": [
         "bloatware_remove",
+        {
+          "name":   "destroy_history",
+          "dir":    "history_destroyer",
+          "script": "history_destroyer.ps1",
+          "csv":    "destroy_list.csv",
+          "label":  "History / cache destruction targets"
+        },
+        {
+          "name":   "destroy_ssid",
+          "dir":    "history_destroyer",
+          "script": "history_destroyer.ps1",
+          "csv":    "ssid_list.csv",
+          "label":  "Wi-Fi SSID profile removal"
+        },
         "directory_cleaner",
         "file_delete",
-        "history_destroyer",
+        {
+          "name":   "local_user_delete",
+          "dir":    "local_user_config",
+          "script": "local_user_delete.ps1",
+          "csv":    "local_user_list.csv",
+          "label":  "Delete local users"
+        },
         "printer_delete",
         "process_killer",
         "profile_delete"
@@ -91,7 +137,20 @@
         "office_license_config",
         "office_update",
         "ppkg_config",
-        "printer_driver_config",
+        {
+          "name":   "printer_driver_install",
+          "dir":    "printer_driver_config",
+          "script": "printer_driver_install.ps1",
+          "csv":    "printer_driver_list.csv",
+          "label":  "Install printer drivers"
+        },
+        {
+          "name":   "printer_register",
+          "dir":    "printer_driver_config",
+          "script": "printer_config.ps1",
+          "csv":    "printer_list.csv",
+          "label":  "Register printers (queues)"
+        },
         "storeapp_config",
         "windows_license_config",
         "winget_install"

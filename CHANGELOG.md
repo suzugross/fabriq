@@ -16,6 +16,70 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_ios/ Phase 9b: JSON object-form entries for
+  multi-script / multi-CSV modules. data/module_categories.json
+  schemaVersion 1 now accepts each `modules[]` item as either a
+  string (implicit defaults: dir=name, script=name.ps1, csv
+  auto-detected via *_list.csv glob) OR an object with explicit
+  overrides: `{ name, dir?, script?, csv?, label? }`. This lets a
+  single underlying module directory expose multiple logical
+  entries with their own prompts and CSVs - the joke shell now
+  surfaces operations that string form cannot represent.
+  
+  Nine object-form entries added across 4 modules:
+    settings: local_user_create (-> local_user_config\local_user_config.ps1
+              + local_user_list.csv), sysprep_main / sysprep_unattend /
+              sysprep_setupcomplete (all -> sysprep_config\sysprep_config.ps1
+              with sysprep_list / unattend_list / setupcomplete_list CSVs)
+    cleanup : local_user_delete (-> local_user_config\local_user_delete.ps1,
+              shares local_user_list.csv with create), destroy_history
+              (-> history_destroyer\history_destroyer.ps1 + destroy_list.csv),
+              destroy_ssid (-> history_destroyer\history_destroyer.ps1
+              + ssid_list.csv)
+    install : printer_driver_install (-> printer_driver_config\
+              printer_driver_install.ps1), printer_register
+              (-> printer_driver_config\printer_config.ps1 + printer_list.csv)
+  
+  This silently fixes two bugs from Phase 9a's string-only model:
+  (1) `printer_driver_config` had no `printer_driver_config.ps1`
+  so the verb never resolved to anything; (2) `local_user_delete.ps1`
+  was completely unreachable from the shell.
+  
+  NEW lib/commands/categories.ps1: Resolve-ModuleEntry normalises
+  both string and object forms into a uniform hashtable
+  { Name; Dir; Script; Csv; Label; Category }. The exclusion list
+  in lib/commands/module.ps1 still takes precedence.
+  Find-ModuleEntryAcrossCategories searches every category when
+  the dispatch path knows the name but not the category.
+  Get-FabriqIosEntryName is the private accessor for the display
+  name regardless of entry shape.
+  
+  lib/commands/module.ps1 updated: Find-ModulePath gained an
+  optional -CategoryId so it honours per-entry Dir / Script
+  overrides when scoped (and falls back to cross-category search
+  otherwise). Get-ModuleCsvSchema gained matching -CategoryId
+  and now returns ScriptPath in the result so downstream callers
+  do not need a second Find-ModulePath round-trip. When an explicit
+  csv override is declared but the file is missing on disk, schema
+  is reported as unavailable (no silent substitution). String-form
+  entries continue to auto-detect via *_list.csv glob.
+  
+  Enter-CategoryConfigMode now passes $cat.id to both Find-ModulePath
+  and Get-ModuleCsvSchema so the right entry is resolved when the
+  same name might exist across categories. Invoke-ModuleEphemeralRun
+  reads $schema.ScriptPath instead of recomputing the path.
+  
+  VERSION bumped 0.2.0 -> 0.3.0 (MINOR: schema extension is a
+  backward-compatible addition - all existing string entries
+  continue to work unchanged). tests/_phase9b_smoke.ps1 NEW
+  (82 assertions, all PASS) covers Resolve-ModuleEntry for both
+  shapes, override resolution, cross-category search, dispatcher
+  routing of object-form entries, prefix completion narrowing,
+  and wrong-category rejection. tests/_phase9_smoke.ps1 updated
+  to reflect new entry counts (cleanup 7->9, install 11->12).
+  All phase smokes pass: 3=26, 4=17, 5=32, 6=41, 7=49, 9=74,
+  9b=82 -> 321/321.
+
 - apps/fabriq_ios/ Phase 9a: category-driven verb dispatch.
   Single (config-mod)# universe replaced with five
   category-specific verbs in (config)#:
