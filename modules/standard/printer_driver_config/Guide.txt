@@ -43,14 +43,20 @@ INF/ ディレクトリにドライバーの EXE ファイルや ZIP ファイ�
   ・再展開したい場合は展開先フォルダを手動で削除してください
 
   [前提条件]
-  tools/ ディレクトリに 7z.exe と 7z.dll を配置してください。
-  7-Zip のフル版（x64）から以下の 2 ファイルをコピーするだけです。
+  tools/ ディレクトリに 7z.exe と 7z.dll が同梱済みです（差し替え不要）。
   ターゲット PC に 7-Zip をインストールする必要はありません。
 
     tools/
-      7z.exe    ← 7-Zip フル版から
-      7z.dll    ← 7-Zip フル版から
+      7z.exe                ← 7-Zip 25.01 (x64) 同梱
+      7z.dll                ← 7-Zip 25.01 (x64) 同梱
+      README-license.txt    ← サードパーティライセンス表示
 
+  ・7-Zip は GNU LGPL v2.1+ ほかの組み合わせライセンス。詳細は
+    リポジトリルートの THIRD_PARTY_NOTICES.md および
+    LICENSES/ 配下のライセンス全文を参照
+  ・別バージョンに差し替える場合は 7z.exe / 7z.dll を上書き後、
+    README-license.txt のバージョン記載と SHA-256 を更新し、
+    THIRD_PARTY_NOTICES.md にも反映してください
   ・7z.exe が無い場合、.exe の展開はスキップされます
   ・7z.exe が無い場合でも .zip は PowerShell の Expand-Archive で
     展開を試みます（フォールバック）

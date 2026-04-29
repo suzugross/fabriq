@@ -293,7 +293,13 @@ Fabriq Studio（別プロジェクト。WPF / .NET 8.0）は Fabriq の **GUI �
 
 ## ライセンス
 
-[MIT License](LICENSE)
+[MIT License](LICENSE) — fabriq 本体。
+
+### サードパーティ同梱物
+
+本リポジトリは以下のサードパーティ製ソフトウェアをバイナリ同梱しています。各コンポーネントの著作権・ライセンス条件は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) および [LICENSES/](LICENSES/) を参照してください。
+
+- **7-Zip 25.01** (GNU LGPL v2.1+ ほか / Copyright © 1999-2025 Igor Pavlov / https://www.7-zip.org/) — `modules/standard/printer_driver_config/tools/` に `7z.exe` / `7z.dll` を同梱。プリンタドライバ展開用
 
 ## Author
 
