@@ -126,34 +126,46 @@ function Invoke-GitShow {
         [string]$RelativePath,
         [string]$DestinationPath
     )
-    # Use .NET Process directly rather than the PS invocation operator
-    # so we can read git's stdout as a single UTF-8 string with the
-    # original line endings and trailing newline preserved exactly.
-    # The PS pipeline-array approach (& git ... | -join) silently
-    # collapses the final line terminator and re-encodes line endings,
-    # which produced false-FAIL results in earlier verifier runs.
+    # Read git's stdout as raw bytes (no encoding conversion) and
+    # write them to the temp file verbatim. Earlier text-based
+    # extraction (StandardOutput.ReadToEnd with UTF-8 decoder, then
+    # WriteAllText with UTF-8 encoder) caused false FAILs on files
+    # containing Japanese inside string literals: the round-trip
+    # through .NET's UTF-16 string representation occasionally
+    # shifted multi-byte boundaries and broke string termination
+    # in the temp file's parse pass. BaseStream byte copy avoids
+    # any decoder/encoder pairing entirely.
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = 'git'
     $startInfo.Arguments = "--no-pager show HEAD:$RelativePath"
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    # NOTE: do NOT set StandardOutputEncoding here. We access stdout
+    # via BaseStream as bytes; setting the encoding would only matter
+    # for text-based StandardOutput methods, which we are not using.
     $startInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
     $startInfo.WorkingDirectory = (Get-Location).Path
 
     $proc = [System.Diagnostics.Process]::Start($startInfo)
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
-    $proc.WaitForExit()
+
+    # Copy stdout bytes verbatim into a memory stream
+    $msOut = New-Object System.IO.MemoryStream
+    try {
+        $proc.StandardOutput.BaseStream.CopyTo($msOut)
+    }
+    finally {
+        # Read stderr after stdout has drained to avoid pipe deadlock
+        $stderr = $proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+    }
 
     if ($proc.ExitCode -ne 0) {
         throw ("git show HEAD:${RelativePath} failed (exit " +
                 "$($proc.ExitCode)): $stderr")
     }
 
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($DestinationPath, $stdout, $utf8NoBom)
+    [System.IO.File]::WriteAllBytes($DestinationPath, $msOut.ToArray())
 }
 
 try {
