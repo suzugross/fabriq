@@ -1,13 +1,13 @@
 # ========================================
 # BitLocker Disable Script
 # ========================================
-# 対象ドライブの BitLocker を無効化（復号化）する。
+# Disable (decrypt) BitLocker on the target drives.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - bitlocker_list.csv の TargetDrive を参照（暗号化関連カラムは無視）
-# - 冪等性: 既に復号済み・復号中のドライブはスキップする
-# - 暗号化処理中のドライブは中断して復号化に転じる
+# - Requires administrator privileges
+# - Reads bitlocker_list.csv TargetDrive (encryption-related columns are ignored)
+# - Idempotency: drives already decrypted or decrypting are skipped
+# - Drives currently encrypting are interrupted and switched to decrypt
 # ========================================
 
 Write-Host ""
@@ -18,7 +18,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "bitlocker_list.csv"
 
@@ -34,7 +34,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "BitLocker Disable Targets" -ForegroundColor Yellow
@@ -47,7 +47,7 @@ foreach ($item in $enabledItems) {
     $driveLetter = $item.TargetDrive
     $displayName = if ($item.Description) { "$driveLetter $($item.Description)" } else { $driveLetter }
 
-    # ドライブ存在確認
+    # Verify the drive exists
     if (-not (Test-Path "${driveLetter}\")) {
         Write-Host "  [NOT FOUND] $displayName" -ForegroundColor DarkGray
         Write-Host "    Drive does not exist" -ForegroundColor DarkGray
@@ -55,7 +55,7 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # BitLocker ステータス取得
+    # Read BitLocker status
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
     if ($null -eq $blVolume) {
         Write-Host "  [NOT FOUND] $displayName" -ForegroundColor DarkGray
@@ -68,7 +68,7 @@ foreach ($item in $enabledItems) {
     $protectionStatus = $blVolume.ProtectionStatus
     $encryptPercent   = $blVolume.EncryptionPercentage
 
-    # 状態別マーカー表示
+    # Show a status-specific marker
     if ($volumeStatus -eq "FullyDecrypted") {
         Write-Host "  [ALREADY OFF] $displayName" -ForegroundColor DarkGray
         Write-Host "    Status: $protectionStatus ($volumeStatus)" -ForegroundColor DarkGray
@@ -102,7 +102,7 @@ if (-not $hasDisableTarget) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Disable BitLocker on the above drives?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -111,7 +111,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -125,7 +125,7 @@ foreach ($item in $enabledItems) {
     Write-Host "Processing: $displayName" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
-    # Skip 判定: ドライブ未検出
+    # Skip when the drive does not exist
     if (-not (Test-Path "${driveLetter}\")) {
         Show-Skip "Drive not found: $driveLetter"
         Write-Host ""
@@ -133,7 +133,7 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # BitLocker ステータス取得
+    # Read BitLocker status
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
     if ($null -eq $blVolume) {
         Show-Skip "Unable to get BitLocker status: $driveLetter"
@@ -144,7 +144,7 @@ foreach ($item in $enabledItems) {
 
     $volumeStatus = $blVolume.VolumeStatus
 
-    # Skip 判定: 既に復号済み
+    # Skip when the drive is already decrypted
     if ($volumeStatus -eq "FullyDecrypted") {
         Show-Skip "Already decrypted: $driveLetter"
         Write-Host ""
@@ -152,7 +152,7 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # Skip 判定: 復号化処理中
+    # Skip when decryption is already in progress
     if ($volumeStatus -eq "DecryptionInProgress") {
         Show-Skip "Decryption already in progress: $driveLetter ($($blVolume.EncryptionPercentage)% remaining)"
         Write-Host ""
@@ -160,12 +160,12 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # Warning: 暗号化処理中のドライブを中断して復号化
+    # Warning: interrupt an in-progress encryption and switch to decryption
     if ($volumeStatus -eq "EncryptionInProgress") {
         Show-Warning "Encryption is in progress on $driveLetter. Interrupting encryption and starting decryption."
     }
 
-    # メイン処理
+    # Main work
     try {
         Show-Info "Disabling BitLocker on $driveLetter..."
         $null = Disable-BitLocker -MountPoint $driveLetter -ErrorAction Stop
@@ -182,7 +182,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "BitLocker Disable Results")
