@@ -1,11 +1,12 @@
 # ========================================
 # Generic Process Runner Script
 # ========================================
-# 任意の EXE ファイルを CSV 定義に基づいて実行する汎用モジュール。
+# Generic module that runs arbitrary EXE files defined in a CSV.
 #
 # [NOTES]
-# - ExecutablePath は絶対パス、環境変数、WorkingDirectory からの相対パスに対応
-# - WorkingDirectory 未指定時は $PSScriptRoot を基準にパスを解決する
+# - ExecutablePath accepts absolute paths, environment variables,
+#   or paths relative to WorkingDirectory
+# - When WorkingDirectory is empty, paths are resolved relative to $PSScriptRoot
 # ========================================
 
 Write-Host ""
@@ -16,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "process_list.csv"
 
@@ -33,7 +34,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host "Process Execution List" -ForegroundColor Cyan
@@ -43,8 +44,8 @@ Write-Host ""
 $missingCount = 0
 
 foreach ($proc in $processList) {
-    # --- パス解決 ---
-    # 環境変数を展開
+    # --- Resolve path ---
+    # Expand environment variables
     $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
     $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
         Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
@@ -52,7 +53,7 @@ foreach ($proc in $processList) {
         ""
     }
 
-    # 絶対パス / 相対パスの解決
+    # Resolve absolute vs relative path
     if ([System.IO.Path]::IsPathRooted($exePath)) {
         $fullPath = $exePath
     } elseif (-not [string]::IsNullOrWhiteSpace($workDir)) {
@@ -61,7 +62,7 @@ foreach ($proc in $processList) {
         $fullPath = Join-Path $PSScriptRoot $exePath
     }
 
-    # 表示用パラメータの整形
+    # Format parameters for display
     $exists  = Test-Path $fullPath
     $timeout = if ([string]::IsNullOrWhiteSpace($proc.TimeoutSec) -or $proc.TimeoutSec -eq '0') { "None" } else { "$($proc.TimeoutSec)s" }
     $codes   = if ([string]::IsNullOrWhiteSpace($proc.SuccessCodes)) { "0" } else { $proc.SuccessCodes }
@@ -99,7 +100,7 @@ if ($missingCount -gt 0) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Proceed with process execution?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -108,7 +109,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: プロセス実行ループ
+# Step 5: Process-execution loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -117,7 +118,7 @@ $failCount    = 0
 foreach ($proc in $processList) {
     $desc = $proc.Description
 
-    # --- パス解決（Step 3 と同一ロジック） ---
+    # --- Resolve path (same logic as Step 3) ---
     $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
     $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
         Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
@@ -137,7 +138,7 @@ foreach ($proc in $processList) {
     Write-Host "Executing: $desc" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
-    # --- 存在チェック ---
+    # --- Existence check ---
     if (-not (Test-Path $fullPath)) {
         Show-Skip "Executable not found: $fullPath"
         Write-Host ""
@@ -145,19 +146,19 @@ foreach ($proc in $processList) {
         continue
     }
 
-    # --- パラメータ整形 ---
+    # --- Format parameters ---
     $successCodes = if ([string]::IsNullOrWhiteSpace($proc.SuccessCodes)) { "0" } else { $proc.SuccessCodes }
     $timeoutSec   = if ([string]::IsNullOrWhiteSpace($proc.TimeoutSec) -or $proc.TimeoutSec -eq '0') { 0 } else { [int]$proc.TimeoutSec }
     $successList  = @($successCodes -split ',' | ForEach-Object { [int]$_.Trim() })
 
-    # --- 作業ディレクトリの決定 ---
+    # --- Decide the working directory ---
     $execWorkDir = if (-not [string]::IsNullOrWhiteSpace($workDir)) {
         $workDir
     } else {
         $PSScriptRoot
     }
 
-    # --- Start-Process 引数の組み立て ---
+    # --- Build the Start-Process arguments ---
     $spParams = @{
         FilePath         = $fullPath
         WorkingDirectory = $execWorkDir
@@ -177,7 +178,7 @@ foreach ($proc in $processList) {
 
         Show-Info "Process started (PID: $($process.Id))"
 
-        # --- タイムアウト監視 ---
+        # --- Timeout watch ---
         $timedOut = $false
         if ($timeoutSec -gt 0) {
             $null = $process | Wait-Process -Timeout $timeoutSec -ErrorAction SilentlyContinue
@@ -221,7 +222,7 @@ foreach ($proc in $processList) {
 
         $exitCode = $process.ExitCode
 
-        # --- 結果判定 ---
+        # --- Decide the result ---
         if ($timedOut) {
             Show-Error "$desc : Timed out after $($timeoutSec)s"
             $failCount++
@@ -245,7 +246,7 @@ foreach ($proc in $processList) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Process Runner Results")
