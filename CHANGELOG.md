@@ -60,6 +60,12 @@
   全面置換（41 行）。新規モジュールの種ファイルなので最優先で
   整理。dev/verify_comments_only.ps1 と sed-based code-strip diff
   の二系統で「コードトークン不変・コメントのみ変更」を確認済み
+- kernel/common.ps1: コメントを日本語から英語へ全面置換（29 行の
+  単行コメント + 4 ブロック分の Comment-Based Help 記述）。
+  Comment-Based Help の `.SYNOPSIS` / `.DESCRIPTION` / `.PARAMETER`
+  等の dot-keyword は不変保持。runtime に必要な日本語ロケール
+  エラー検出文字列（`'used by another process|別のプロセス'`）は
+  機能コードのため残置。AST verifier 想定 PASS
 
 ## [3.0.0] - 2026-04-29
 
