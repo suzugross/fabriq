@@ -96,7 +96,17 @@ function Compare-TokenStreams {
     for ($i = 0; $i -lt $OriginalTokens.Count; $i++) {
         $a = $OriginalTokens[$i]
         $b = $ModifiedTokens[$i]
-        if ($a.Kind -ne $b.Kind -or $a.Text -ne $b.Text) {
+        # Normalize CRLF -> LF before comparing Text. Some tokens
+        # embed line terminators in their Text (LineContinuation,
+        # multi-line StringExpandable / StringLiteral). Treating
+        # CRLF and LF as equivalent makes the verifier robust to
+        # cross-platform / cross-extraction line-ending differences
+        # without sacrificing detection of real edits (a real edit
+        # changes Kind, token sequence, or Text bytes beyond just
+        # the `\r` byte).
+        $aText = $a.Text -replace "`r`n", "`n"
+        $bText = $b.Text -replace "`r`n", "`n"
+        if ($a.Kind -ne $b.Kind -or $aText -ne $bText) {
             Write-Host "[FAIL] Token mismatch at index ${i}:" `
                 -ForegroundColor Red
             Write-Host ("  $OriginalLabel L$($a.Extent.StartLineNumber): " +
@@ -116,26 +126,34 @@ function Invoke-GitShow {
         [string]$RelativePath,
         [string]$DestinationPath
     )
-    # Force UTF-8 output so multi-byte characters survive the pipeline.
-    $prevOutputEncoding = [Console]::OutputEncoding
-    try {
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        $headContent = & git --no-pager show "HEAD:$RelativePath" 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw ("git show HEAD:${RelativePath} failed (exit " +
-                    "$LASTEXITCODE): $headContent")
-        }
-        # Parser.ParseFile tolerates LF/CRLF and BOM; we just need the
-        # tokens, not exact byte fidelity. Write as UTF-8 without BOM.
-        # Append a trailing newline to compensate for PS pipeline
-        # collapse of the file's final line terminator.
-        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        $joined = ($headContent -join "`r`n") + "`r`n"
-        [System.IO.File]::WriteAllText($DestinationPath, $joined, $utf8NoBom)
+    # Use .NET Process directly rather than the PS invocation operator
+    # so we can read git's stdout as a single UTF-8 string with the
+    # original line endings and trailing newline preserved exactly.
+    # The PS pipeline-array approach (& git ... | -join) silently
+    # collapses the final line terminator and re-encodes line endings,
+    # which produced false-FAIL results in earlier verifier runs.
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = 'git'
+    $startInfo.Arguments = "--no-pager show HEAD:$RelativePath"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $startInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
+    $startInfo.WorkingDirectory = (Get-Location).Path
+
+    $proc = [System.Diagnostics.Process]::Start($startInfo)
+    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+
+    if ($proc.ExitCode -ne 0) {
+        throw ("git show HEAD:${RelativePath} failed (exit " +
+                "$($proc.ExitCode)): $stderr")
     }
-    finally {
-        [Console]::OutputEncoding = $prevOutputEncoding
-    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($DestinationPath, $stdout, $utf8NoBom)
 }
 
 try {
