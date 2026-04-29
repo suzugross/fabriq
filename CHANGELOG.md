@@ -15,6 +15,61 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_ios/: Phase 7 implementation - ModuleConfig
+  (config-mod)# mode for ephemeral module configuration. Cisco IOS
+  semantics: `(config)# module <name>` enters (config-mod)#, and
+  inside the mode `set <col1> <val1> <col2> <val2> ...` (or `add`
+  alias) IMMEDIATELY runs the module with a single ephemeral row
+  built from the column/value pairs. The existing <module>_list.csv
+  on disk is NEVER touched - only an in-memory PSCustomObject is
+  fed to the module via a path-matched override of
+  Import-ModuleCsv (`Set-Item Function:Global:Import-ModuleCsv`
+  with closure-captured ephemeral row + filename, restored in
+  finally). Reads of unrelated CSVs (e.g. hostlist.csv) pass
+  through to the real implementation.
+  
+  New file: lib/modes/module_config.ps1 (mode dispatcher).
+  lib/commands/module.ps1 expanded with Get-ModuleCsvSchema
+  (auto-discovers <prefix>_list.csv via glob - the naming convention
+  drops the action suffix, e.g. reg_hklm_config -> reg_hklm_list.csv,
+  app_config -> app_list.csv), Enter-ModuleConfigMode (validates
+  module + schema before mode entry), Show-ModuleConfigSchema
+  (Cisco-ish schema dump with preset.csv enum hints in [val|val]
+  brackets), and Invoke-ModuleEphemeralRun (the override + dispatch
+  + result-to-syslog mapping). lib/shell_state.ps1 gained
+  ConfigModuleName / ConfigModuleSchema fields and the new
+  GlobalConfig <-> ModuleConfig transition; lib/prompt.ps1 emits
+  `fabriq(config-mod)#` for the new mode; lib/parser.ps1 vocabulary
+  for ModuleConfig is set/add/show/exit/end/help/?;
+  lib/completer.ps1 routes `set`/`add` Tab completion to the
+  bound module's column names; data/help_text.csv adds 7 rows.
+  
+  Phase 6 immediate-run via `(config)# module <name>` is
+  intentionally retired - the same verb now enters config-mod for
+  ephemeral configuration. Modules without *_list.csv (e.g.
+  evidence_config) cannot be ephemeral-configured and are rejected
+  at mode entry. ENC: encrypted columns: not supported for set/add
+  in v0.2 (would require Protect-FabriqValue public-API promotion);
+  documented limitation. Default behaviour: Enabled column auto-
+  defaults to '1' so most modules don't filter the ephemeral row
+  out; FilterEnabled is honoured by the override; Segment is
+  intentionally ignored (ephemeral intent overrides segment scoping).
+  
+  Internal API coupling: still just Invoke-FabriqIosModule +
+  ModuleResult contract, plus the well-known PowerShell function-
+  shadowing pattern (`Set-Item Function:Global:`). No KERNEL_API
+  surface change. tests/_phase7_smoke.ps1 NEW (49 assertions, all
+  PASS) covers schema lookup, mode transitions, vocab/prompt,
+  pair-parsing reject paths, parser abbreviations (sh/se/a/ex/en),
+  Tab completion delegating to schema, and the override mechanics
+  (target-CSV intercepted, unrelated CSV passes through, restore
+  on exit). Real module-execution leg validated manually on a
+  test machine (not part of automated smoke).
+
+  tests/_phase6_smoke.ps1 updated for new mode-entry semantics
+  (40 assertions, all PASS).
+
 ### Changed
 - apps/fabriq_ios/: `show running-config` body replaced with live
   `ipconfig /all` output. The previous artificial dump (constructed

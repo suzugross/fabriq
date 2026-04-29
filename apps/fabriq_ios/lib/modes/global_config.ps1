@@ -26,7 +26,11 @@ function Invoke-GlobalConfigCommand {
                 Write-Host "% Incomplete: 'module <name>' (try 'module ?')" -ForegroundColor Red
                 return
             }
-            Invoke-ModuleByName -Name $Resolved.Args[0] -State $State
+            # Phase 7 redesign: enter ModuleConfig mode rather than
+            # immediately executing. Run happens via `set` / `add`
+            # inside (config-mod)#. The Phase 6 immediate-run path is
+            # intentionally retired.
+            Enter-ModuleConfigMode -Name $Resolved.Args[0] -State $State
         }
         'exit' { Set-ShellMode -State $State -NewMode 'PrivilegedExec' }
         'end'  { Set-ShellMode -State $State -NewMode 'PrivilegedExec' }

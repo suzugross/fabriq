@@ -90,6 +90,22 @@ function Get-DynamicCompletion {
         'interface'  { return @(Get-InterfaceCompletionFromAdapters) }
         'ip.address' { return @(Get-IpAddressCompletionFromHostlist -State $State) }
         'module'     { return @(Get-ModuleCompletionFromFilesystem) }
+        'set' {
+            # Inside (config-mod)# the first arg of `set` is a column
+            # name from the bound module's schema.
+            $s = $global:_FabriqIosShellState
+            if ($s -and $s.ConfigModuleSchema) {
+                return @($s.ConfigModuleSchema.Columns)
+            }
+            return @()
+        }
+        'add' {
+            $s = $global:_FabriqIosShellState
+            if ($s -and $s.ConfigModuleSchema) {
+                return @($s.ConfigModuleSchema.Columns)
+            }
+            return @()
+        }
         default      { return @() }
     }
 }
