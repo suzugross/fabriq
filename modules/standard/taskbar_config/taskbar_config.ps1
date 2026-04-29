@@ -18,7 +18,7 @@ Show-Separator
 Write-Host ""
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "taskbar_list.csv"
 
@@ -29,11 +29,11 @@ if ($null -eq $allItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load taskbar_list.csv")
 }
 
-# Enabled フィルタ + Order 昇順ソート（0件 = 全ピン解除として続行）
+# Filter Enabled + sort by Order ascending (zero rows means "unpin everything")
 $items = @($allItems | Where-Object { $_.Enabled -eq "1" } | Sort-Object { [int]$_.Order })
 
 # ========================================
-# Step 2: 前提条件チェック（Deploy先ディレクトリ）
+# Step 2: Prerequisite check (deploy-target directory)
 # ========================================
 $deployDir = "C:\Users\Default\AppData\Local\Microsoft\Windows\Shell"
 $deployPath = Join-Path $deployDir "LayoutModification.xml"
@@ -54,7 +54,7 @@ if (-not (Test-Path $deployDir)) {
 }
 
 # ========================================
-# Step 3: 実行前の確認表示
+# Step 3: Dry-run summary before execution
 # ========================================
 if ($items.Count -eq 0) {
     Show-Info "Taskbar pin targets: 0 apps (all default pins will be removed)"
@@ -86,7 +86,7 @@ foreach ($item in $items) {
     Write-Host ""
 }
 
-# 既存 XML の状態表示
+# Show the state of any existing XML
 if (Test-Path $deployPath) {
     Write-Host "  Deploy: $deployPath  [OVERWRITE]" -ForegroundColor Yellow
 }
@@ -103,7 +103,7 @@ else {
 Write-Host ""
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Generate and deploy LayoutModification.xml?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -111,16 +111,16 @@ if ($null -ne $cancelResult) { return $cancelResult }
 Write-Host ""
 
 # ========================================
-# Step 5: XML 生成 & デプロイ
+# Step 5: Generate XML and deploy
 # ========================================
 
-# 5-1: DesktopApp エントリを組み立て
+# 5-1: Build the DesktopApp entries
 $pinEntries = ""
 foreach ($item in $items) {
     $pinEntries += "      <taskbar:DesktopApp DesktopApplicationLinkPath=`"$($item.LinkPath)`"/>`r`n"
 }
 
-# 5-2: XML 全体を組み立て
+# 5-2: Build the full XML
 $xmlContent = @"
 <?xml version="1.0" encoding="utf-8"?>
 <LayoutModificationTemplate
@@ -138,11 +138,11 @@ $pinEntries      </taskbar:TaskbarPinList>
 </LayoutModificationTemplate>
 "@
 
-# 5-3: Default User プロファイルへ書き出し
+# 5-3: Write into the Default User profile
 try {
     $xmlContent | Out-File -FilePath $deployPath -Encoding UTF8 -Force -ErrorAction Stop
 
-    # 書き出し後の検証
+    # Post-write verification
     if (-not (Test-Path $deployPath)) {
         Show-Error "XML file was not created: $deployPath"
         Write-Host ""
@@ -166,7 +166,7 @@ catch {
     return (New-ModuleResult -Status "Error" -Message "Failed to write XML: $_")
 }
 
-# 5-4: sysprep_config/source/ へコピー
+# 5-4: Copy into sysprep_config/source/
 try {
     if (-not (Test-Path $sysprepSourceDir)) {
         $null = New-Item -ItemType Directory -Path $sysprepSourceDir -Force -ErrorAction Stop
@@ -185,6 +185,6 @@ catch {
 }
 
 # ========================================
-# Step 6: 結果返却
+# Step 6: Return result
 # ========================================
 return (New-ModuleResult -Status "Success" -Message "LayoutModification.xml deployed ($($items.Count) apps)")
