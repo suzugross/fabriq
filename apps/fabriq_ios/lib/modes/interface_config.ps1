@@ -13,10 +13,21 @@ function Invoke-InterfaceConfigCommand {
             }
             if ($Resolved.Args.Count -eq 2 -and $Resolved.Args[1] -eq 'from-hostlist') {
                 Invoke-IpAddressFromHostlist -State $State
-            } elseif ($Resolved.Args.Count -eq 3) {
-                Invoke-IpAddressManual -Ip $Resolved.Args[1] -Mask $Resolved.Args[2] -State $State
+            } elseif ($Resolved.Args.Count -ge 3 -and $Resolved.Args.Count -le 6) {
+                # Positional override: <ip> <mask> [<gw> [<dns1> [<dns2>]]]
+                # Trailing args are optional. When all 5 are supplied
+                # the operation is fully self-contained and works
+                # without a bound host.
+                $ip   = $Resolved.Args[1]
+                $mask = $Resolved.Args[2]
+                $gw   = if ($Resolved.Args.Count -ge 4) { $Resolved.Args[3] } else { '' }
+                $dns1 = if ($Resolved.Args.Count -ge 5) { $Resolved.Args[4] } else { '' }
+                $dns2 = if ($Resolved.Args.Count -ge 6) { $Resolved.Args[5] } else { '' }
+                Invoke-IpAddressManual -Ip $ip -Mask $mask `
+                                       -Gateway $gw -Dns1 $dns1 -Dns2 $dns2 `
+                                       -State $State
             } else {
-                Write-Host "% Usage: 'ip address from-hostlist' or 'ip address <ip> <mask>'" -ForegroundColor Red
+                Write-Host "% Usage: 'ip address from-hostlist' | 'ip address <ip> <mask> [<gw> [<dns1> [<dns2>]]]'" -ForegroundColor Red
             }
         }
         'exit' {

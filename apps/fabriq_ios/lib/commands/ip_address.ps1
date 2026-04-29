@@ -75,30 +75,62 @@ function Invoke-IpAddressFromHostlist {
 }
 
 function Invoke-IpAddressManual {
+    # Ad-hoc IP configuration with optional Gateway / DNS overrides.
+    # Each parameter beyond Ip+Mask is optional: when omitted, the
+    # bound host's value (from `(config)# hostname <NewName>`) is
+    # used; when no host is bound and the operator omits Gateway/DNS,
+    # those env vars stay empty and the underlying module skips
+    # those settings (or warns, depending on module behaviour).
+    #
+    # When no host is bound at all we seed an `(adhoc)` identity so
+    # ipaddress_config still has SELECTED_NEW_PCNAME / OldPCName /
+    # KanriNo populated for its display lines. All env mutations are
+    # restored in finally regardless of success.
     param(
         [string]$Ip,
         [string]$Mask,
+        [string]$Gateway,
+        [string]$Dns1,
+        [string]$Dns2,
         [hashtable]$State
     )
     if ($State.Mode -ne 'InterfaceConfig') {
         Write-Host "% 'ip address' is only available in interface configuration mode." -ForegroundColor Red
         return
     }
-    if (-not $env:SELECTED_NEW_PCNAME) {
-        Write-Host "% No host context. Run 'hostname <NewName>' in (config)# first to bind a host."
-        return
+
+    $prev = @{
+        NewName = $env:SELECTED_NEW_PCNAME
+        OldName = $env:SELECTED_OLD_PCNAME
+        Kanri   = $env:SELECTED_KANRI_NO
+        Ip      = $env:SELECTED_ETH_IP
+        Subnet  = $env:SELECTED_ETH_SUBNET
+        Gateway = $env:SELECTED_ETH_GATEWAY
+        Dns1    = $env:SELECTED_DNS1
+        Dns2    = $env:SELECTED_DNS2
     }
 
-    # Override Ethernet IP and subnet only; gateway / DNS are kept
-    # from the previously bound host so the module can still set them.
-    $prevIp     = $env:SELECTED_ETH_IP
-    $prevSubnet = $env:SELECTED_ETH_SUBNET
+    if ([string]::IsNullOrWhiteSpace($prev.NewName)) {
+        $env:SELECTED_NEW_PCNAME = '(adhoc)'
+        $env:SELECTED_OLD_PCNAME = $env:COMPUTERNAME
+        $env:SELECTED_KANRI_NO   = '0'
+    }
     $env:SELECTED_ETH_IP     = $Ip
     $env:SELECTED_ETH_SUBNET = $Mask
+    if (-not [string]::IsNullOrWhiteSpace($Gateway)) { $env:SELECTED_ETH_GATEWAY = $Gateway }
+    if (-not [string]::IsNullOrWhiteSpace($Dns1))    { $env:SELECTED_DNS1        = $Dns1 }
+    if (-not [string]::IsNullOrWhiteSpace($Dns2))    { $env:SELECTED_DNS2        = $Dns2 }
+
     try {
         Invoke-IpAddressFromHostlist -State $State
     } finally {
-        $env:SELECTED_ETH_IP     = $prevIp
-        $env:SELECTED_ETH_SUBNET = $prevSubnet
+        $env:SELECTED_NEW_PCNAME  = $prev.NewName
+        $env:SELECTED_OLD_PCNAME  = $prev.OldName
+        $env:SELECTED_KANRI_NO    = $prev.Kanri
+        $env:SELECTED_ETH_IP      = $prev.Ip
+        $env:SELECTED_ETH_SUBNET  = $prev.Subnet
+        $env:SELECTED_ETH_GATEWAY = $prev.Gateway
+        $env:SELECTED_DNS1        = $prev.Dns1
+        $env:SELECTED_DNS2        = $prev.Dns2
     }
 }
