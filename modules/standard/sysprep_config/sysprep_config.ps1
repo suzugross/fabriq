@@ -17,7 +17,7 @@ Show-Separator
 Write-Host ""
 
 # ========================================
-# デプロイ先パス定義
+# Deploy-target paths
 # ========================================
 $unattendDeployPath      = "C:\Windows\System32\Sysprep\unattend.xml"
 $setupCompleteDeployDir  = "C:\Windows\Setup\Scripts"
@@ -26,17 +26,17 @@ $sourceStagingDir        = Join-Path $setupCompleteDeployDir "source"
 $sourceDir               = Join-Path $PSScriptRoot "source"
 
 # ========================================
-# Unattend.xml テンプレート（固定部分 + プレースホルダ）
+# Unattend.xml template (fixed sections + placeholders)
 # ========================================
-# 固定部分:
-#   generalize  → ドライバ保持（PersistAllDeviceInstalls 等）
-#   specialize  → タイムゾーン（Tokyo Standard Time）
-#   oobeSystem  → 言語設定（ja-JP）、デバイス暗号化防止
+# Fixed sections:
+#   generalize  -> preserve drivers (PersistAllDeviceInstalls etc.)
+#   specialize  -> time zone (Tokyo Standard Time)
+#   oobeSystem  -> locale (ja-JP), prevent device encryption
 #
-# 可変部分（プレースホルダ）:
-#   {{SPECIALIZE_SETTINGS}} → ComputerName, CopyProfile
-#   {{OOBE_BLOCK}}          → <OOBE> 内の各スキップ設定
-#   {{USER_ACCOUNTS_BLOCK}} → TestUserName, EnableAdministrator
+# Variable sections (placeholders):
+#   {{SPECIALIZE_SETTINGS}} -> ComputerName, CopyProfile
+#   {{OOBE_BLOCK}}          -> per-skip settings inside <OOBE>
+#   {{USER_ACCOUNTS_BLOCK}} -> TestUserName, EnableAdministrator
 # ========================================
 $xmlTemplate = @'
 <?xml version="1.0" encoding="utf-8"?>
@@ -71,7 +71,7 @@ $xmlTemplate = @'
 '@
 
 # ========================================
-# SetupComplete.cmd テンプレート（ヘッダー・フッター）
+# SetupComplete.cmd template (header / footer)
 # ========================================
 $cmdHeader = @'
 @echo off
@@ -83,7 +83,7 @@ echo [%date% %time%] SetupComplete.cmd execution completed >> C:\Windows\Setup\S
 exit
 '@
 
-# OOBE 設定名の定義（カテゴリ判定用）
+# OOBE setting names (used for category classification)
 $oobeSettingNames = @(
     "HideEULAPage",
     "ProtectYourPC",
@@ -94,10 +94,10 @@ $oobeSettingNames = @(
 
 
 # ========================================
-# Step 1: CSV 読み込み（3 ファイル）
+# Step 1: Load CSVs (3 files)
 # ========================================
 
-# --- 1-1: sysprep_list.csv（sysprep 実行設定 / 単一行） ---
+# --- 1-1: sysprep_list.csv (sysprep execution settings, single row) ---
 $sysprepCsvPath = Join-Path $PSScriptRoot "sysprep_list.csv"
 
 $sysprepItems = Import-ModuleCsv -Path $sysprepCsvPath -FilterEnabled `
@@ -112,7 +112,7 @@ if ($sysprepItems.Count -eq 0) {
 
 $sysprepConfig = $sysprepItems[0]
 
-# --- 1-2: unattend_list.csv（応答ファイル設定 / キー・バリュー） ---
+# --- 1-2: unattend_list.csv (answer-file settings as key/value rows) ---
 $unattendCsvPath = Join-Path $PSScriptRoot "unattend_list.csv"
 
 $unattendItems = Import-ModuleCsv -Path $unattendCsvPath -FilterEnabled `
@@ -122,13 +122,14 @@ if ($null -eq $unattendItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load unattend_list.csv")
 }
 
-# キー・バリュー形式のハッシュテーブルに変換（0 件でも続行 = 固定値のみの XML を生成）
+# Convert to a key/value hashtable. Continue even on 0 rows so the XML
+# still gets generated using only the fixed sections.
 $settings = @{}
 foreach ($item in $unattendItems) {
     $settings[$item.SettingName] = $item.Value
 }
 
-# --- 1-3: setupcomplete_list.csv（SetupComplete アクション定義） ---
+# --- 1-3: setupcomplete_list.csv (SetupComplete action definitions) ---
 $setupCsvPath = Join-Path $PSScriptRoot "setupcomplete_list.csv"
 
 $setupItems = Import-ModuleCsv -Path $setupCsvPath -FilterEnabled `
@@ -138,27 +139,28 @@ if ($null -eq $setupItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load setupcomplete_list.csv")
 }
 
-# Order 昇順ソート（0 件でも続行 = ヘッダー・フッターのみの CMD を生成）
+# Sort by Order ascending. Continue even on 0 rows so the CMD still
+# gets generated with header + footer only.
 if ($setupItems.Count -gt 0) {
     $setupItems = @($setupItems | Sort-Object { [int]$_.Order })
 }
 
-# CopyFile アクションの抽出
+# Extract CopyFile actions
 $copyFileActions = @($setupItems | Where-Object { $_.ActionType -eq "CopyFile" })
 
 
 # ========================================
-# Step 2: 前提条件チェック
+# Step 2: Prerequisite checks
 # ========================================
 
-# --- sysprep.exe の存在確認 ---
+# --- Confirm sysprep.exe exists ---
 if (-not (Test-Path $sysprepConfig.SysprepExe)) {
     Show-Error "sysprep.exe not found: $($sysprepConfig.SysprepExe)"
     Write-Host ""
     return (New-ModuleResult -Status "Error" -Message "sysprep.exe not found")
 }
 
-# --- source/ ディレクトリの存在確認（CopyFile アクションがある場合のみ） ---
+# --- Confirm source/ directory exists (only when CopyFile actions are present) ---
 if ($copyFileActions.Count -gt 0) {
     if (-not (Test-Path $sourceDir)) {
         Show-Error "source/ directory not found: $sourceDir"
@@ -167,7 +169,7 @@ if ($copyFileActions.Count -gt 0) {
     }
 }
 
-# --- デプロイ先ディレクトリの作成 ---
+# --- Create deploy-target directories ---
 foreach ($dir in @($setupCompleteDeployDir, $sourceStagingDir)) {
     if (-not (Test-Path $dir)) {
         try {
@@ -184,10 +186,10 @@ foreach ($dir in @($setupCompleteDeployDir, $sourceStagingDir)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示
+# Step 3: Dry-run summary before execution
 # ========================================
 
-# --- [Sysprep 設定] ---
+# --- [Sysprep Settings] ---
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Sysprep Settings" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
@@ -197,7 +199,7 @@ Write-Host "  Mode:       /$($sysprepConfig.Mode)" -ForegroundColor White
 Write-Host "  Shutdown:   /$($sysprepConfig.Shutdown)" -ForegroundColor White
 Write-Host ""
 
-# --- [Unattend.xml 設定一覧] ---
+# --- [Unattend.xml Setting List] ---
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Unattend.xml Settings" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
@@ -208,7 +210,7 @@ if ($unattendItems.Count -eq 0) {
 }
 else {
     foreach ($item in $unattendItems) {
-        # AdminPassword はマスク表示
+        # Mask AdminPassword in the display
         $displayValue = if ($item.SettingName -eq "AdminPassword" -and $item.Value -ne "") {
             "********"
         } else {
@@ -219,7 +221,7 @@ else {
 }
 Write-Host ""
 
-# --- [SetupComplete.cmd アクション一覧] ---
+# --- [SetupComplete.cmd Action List] ---
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "SetupComplete.cmd Actions" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
@@ -267,7 +269,7 @@ else {
     }
 }
 
-# --- [デプロイ先] ---
+# --- [Deploy Targets] ---
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Deploy Targets" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
@@ -290,7 +292,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 第 1 確認（ファイル生成・配置）
+# Step 4: First confirmation (generate and deploy files)
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Generate and deploy configuration files?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -299,10 +301,10 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: ファイル生成 & デプロイ
+# Step 5: File generation and deploy
 # ========================================
 
-# --- 5-1: source/ → ステージングディレクトリへコピー ---
+# --- 5-1: Copy source/ -> staging directory ---
 if (Test-Path $sourceDir) {
     $sourceContents = @(Get-ChildItem -Path $sourceDir -ErrorAction SilentlyContinue)
     if ($sourceContents.Count -gt 0) {
@@ -318,10 +320,10 @@ if (Test-Path $sourceDir) {
     }
 }
 
-# --- 5-2: unattend.xml 動的生成 → デプロイ ---
+# --- 5-2: Generate unattend.xml dynamically -> deploy ---
 Show-Info "Generating unattend.xml..."
 
-# {{SPECIALIZE_SETTINGS}} の組み立て
+# Build {{SPECIALIZE_SETTINGS}}
 $specializeBlock = ""
 if ($settings.ContainsKey("ComputerName")) {
     $specializeBlock += "            <ComputerName>$($settings["ComputerName"])</ComputerName>`r`n"
@@ -330,7 +332,7 @@ if ($settings.ContainsKey("CopyProfile")) {
     $specializeBlock += "            <CopyProfile>$($settings["CopyProfile"])</CopyProfile>`r`n"
 }
 
-# {{OOBE_BLOCK}} の組み立て
+# Build {{OOBE_BLOCK}}
 $oobeContent = ""
 foreach ($name in $oobeSettingNames) {
     if ($settings.ContainsKey($name)) {
@@ -344,10 +346,10 @@ else {
     $oobeBlock = ""
 }
 
-# {{USER_ACCOUNTS_BLOCK}} の組み立て
+# Build {{USER_ACCOUNTS_BLOCK}}
 $userAccountsContent = ""
 
-# AdministratorPassword ブロック
+# AdministratorPassword block
 if ($settings.ContainsKey("EnableAdministrator") -and $settings["EnableAdministrator"] -eq "true") {
     $adminPassword = ""
     if ($settings.ContainsKey("AdminPassword")) {
@@ -359,7 +361,7 @@ if ($settings.ContainsKey("EnableAdministrator") -and $settings["EnableAdministr
     $userAccountsContent += "                </AdministratorPassword>`r`n"
 }
 
-# LocalAccount ブロック
+# LocalAccount block
 if ($settings.ContainsKey("TestUserName") -and $settings["TestUserName"] -ne "") {
     $testUser = $settings["TestUserName"]
     $userAccountsContent += "                <LocalAccounts>`r`n"
@@ -377,12 +379,12 @@ else {
     $userAccountsBlock = ""
 }
 
-# プレースホルダ置換（.Replace で安全に文字列置換）
+# Substitute placeholders (use .Replace for safe literal replacement)
 $xmlContent = $xmlTemplate.Replace('{{SPECIALIZE_SETTINGS}}', $specializeBlock)
 $xmlContent = $xmlContent.Replace('{{OOBE_BLOCK}}', $oobeBlock)
 $xmlContent = $xmlContent.Replace('{{USER_ACCOUNTS_BLOCK}}', $userAccountsBlock)
 
-# unattend.xml 書き出し
+# Write unattend.xml
 try {
     $xmlContent | Out-File -FilePath $unattendDeployPath -Encoding UTF8 -Force -ErrorAction Stop
 
@@ -408,7 +410,7 @@ catch {
     return (New-ModuleResult -Status "Error" -Message "Failed to write unattend.xml: $_")
 }
 
-# --- 5-3: SetupComplete.cmd 動的生成 → デプロイ ---
+# --- 5-3: Generate SetupComplete.cmd dynamically -> deploy ---
 Show-Info "Generating SetupComplete.cmd..."
 
 $cmdBody = $cmdHeader + "`r`n"
@@ -433,7 +435,7 @@ foreach ($action in $setupItems) {
 $cmdBody += "`r`n"
 $cmdBody += $cmdFooter
 
-# SetupComplete.cmd 書き出し
+# Write SetupComplete.cmd
 try {
     $cmdBody | Out-File -FilePath $setupCompleteDeployPath -Encoding UTF8 -Force -ErrorAction Stop
 
@@ -463,7 +465,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5.5: 第 2 確認（Sysprep 実行）
+# Step 5.5: Second confirmation (Sysprep execution)
 # ========================================
 $sysprepArgs = "/generalize /$($sysprepConfig.Mode) /$($sysprepConfig.Shutdown) /unattend:$unattendDeployPath"
 $sysprepCommand = "$($sysprepConfig.SysprepExe) $sysprepArgs"
@@ -480,7 +482,7 @@ Write-Host ""
 
 $cancelResult = Confirm-ModuleExecution -Message "Execute sysprep? (PC will $($sysprepConfig.Shutdown))"
 if ($null -ne $cancelResult) {
-    # ファイル配置は完了しているので Success で返す
+    # File deploy already succeeded; return Success even though sysprep was skipped
     Show-Info "Files deployed successfully. Sysprep was not executed."
     Write-Host ""
     return (New-ModuleResult -Status "Success" -Message "Files deployed. Sysprep not executed.")
@@ -488,13 +490,13 @@ if ($null -ne $cancelResult) {
 
 Write-Host ""
 
-# --- Sysprep 実行 ---
+# --- Run Sysprep ---
 Show-Info "Executing sysprep..."
 try {
     $proc = Start-Process -FilePath $sysprepConfig.SysprepExe -ArgumentList $sysprepArgs `
         -Wait -PassThru -ErrorAction Stop
 
-    # /quit モードの場合のみここに到達
+    # Only the /quit mode reaches this point
     if ($proc.ExitCode -ne 0) {
         Show-Error "Sysprep exited with code: $($proc.ExitCode)"
         Write-Host ""
@@ -512,8 +514,8 @@ catch {
 
 
 # ========================================
-# Step 6: 結果返却
+# Step 6: Return result
 # ========================================
-# /quit モードの場合のみ到達
-# /shutdown, /reboot の場合 → PC 停止のためここには到達しない（想定通り）
+# Only the /quit mode reaches this point.
+# /shutdown and /reboot stop the PC, so control never returns here (by design).
 return (New-ModuleResult -Status "Success" -Message "Sysprep completed ($($sysprepConfig.Mode)/$($sysprepConfig.Shutdown))")
