@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "description": "fabriq_ios independent module categorization. Each category provides its own (config)# verb and sub-mode prompt suffix. Modules in lib/commands/module.ps1 $script:FabriqIosExcludedModules are filtered out regardless of what this file says. Reclassify by editing this file - no code change required for category reshuffling within the existing 5 verbs.",
+  "categories": [
+    {
+      "id": "settings",
+      "verb": "module",
+      "promptSuffix": "config-mod",
+      "intro": "Configure and run a settings module (idempotent state setter).",
+      "modules": [
+        "acl_config",
+        "autologon_config",
+        "azure_ad_join_check",
+        "bitlocker_config",
+        "bloatware_export",
+        "brightness_config",
+        "browser_addon_config",
+        "builtin_admin_config",
+        "default_app_config",
+        "desktop_icon_config",
+        "display_config",
+        "domain_join",
+        "dpi_api_config",
+        "dpi_config",
+        "evidence_config",
+        "firewall_config",
+        "firewall_rule_config",
+        "firewall_rule_make_config",
+        "group_config",
+        "ipv6_config",
+        "local_user_config",
+        "network_profile_config",
+        "partition_config",
+        "power_config",
+        "reg_hkcu_config",
+        "reg_hklm_config",
+        "reg_template",
+        "resolution_api_config",
+        "restart_config",
+        "restore_point",
+        "scheduled_task_config",
+        "signout_config",
+        "spi_config",
+        "ssid_config",
+        "startlayout_config",
+        "startup_command_config",
+        "sysprep_config",
+        "system_finalize",
+        "taskbar_config",
+        "temp_ipaddress_config",
+        "time_sync_config",
+        "volume_config",
+        "wallpaper_config"
+      ]
+    },
+    {
+      "id": "cleanup",
+      "verb": "cleanup",
+      "promptSuffix": "config-clean",
+      "intro": "Configure and run a cleanup module (deletion / removal).",
+      "modules": [
+        "bloatware_remove",
+        "directory_cleaner",
+        "file_delete",
+        "history_destroyer",
+        "printer_delete",
+        "process_killer",
+        "profile_delete"
+      ]
+    },
+    {
+      "id": "copy",
+      "verb": "copy",
+      "promptSuffix": "config-copy",
+      "intro": "Configure and run a file copy module.",
+      "modules": [
+        "copyfile_config",
+        "robocopy_config"
+      ]
+    },
+    {
+      "id": "install",
+      "verb": "install",
+      "promptSuffix": "config-install",
+      "intro": "Configure and run an installation module.",
+      "modules": [
+        "app_config",
+        "cert_config",
+        "driver_config",
+        "odt_config",
+        "office_license_config",
+        "office_update",
+        "ppkg_config",
+        "printer_driver_config",
+        "storeapp_config",
+        "windows_license_config",
+        "winget_install"
+      ]
+    },
+    {
+      "id": "scripting",
+      "verb": "script",
+      "promptSuffix": "config-script",
+      "intro": "Configure and run a generic script-runner module.",
+      "modules": [
+        "generic_batch_runner",
+        "generic_process_runner",
+        "log_uploader",
+        "manual_kitting_assistant",
+        "script_looper"
+      ]
+    }
+  ]
+}

@@ -22,6 +22,7 @@ $script:FabriqRoot    = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 . (Join-Path $script:FabriqIosRoot 'lib\commands\hostname.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\interface.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\ip_address.ps1')
+. (Join-Path $script:FabriqIosRoot 'lib\commands\categories.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\module.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\modes\global_config.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\modes\module_config.ps1')
@@ -99,7 +100,7 @@ Write-Host '--- Enter-ModuleConfigMode (real entry path) ---' -ForegroundColor C
 # Successful entry: reg_hklm_config has both .ps1 and _list.csv
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state }
+$out = Get-CapturedOutput { Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state }
 Check 'enter reg_hklm_config -> ModuleConfig'  ($state.Mode -eq 'ModuleConfig')
 Check 'enter reg_hklm_config -> ConfigModuleName set' ($state.ConfigModuleName -eq 'reg_hklm_config')
 Check 'enter reg_hklm_config -> ConfigModuleSchema set' ($null -ne $state.ConfigModuleSchema)
@@ -115,7 +116,7 @@ Check 'exit clears ConfigModuleSchema'      ($null -eq $state.ConfigModuleSchema
 # end from ModuleConfig
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state | Out-Null
+Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state | Out-Null
 $resolved = @{ Command = 'end'; Args = @(); Error = $null }
 Invoke-ModuleConfigCommand -Resolved $resolved -State $state | Out-Null
 Check 'end -> PrivilegedExec'                ($state.Mode -eq 'PrivilegedExec')
@@ -124,7 +125,7 @@ Check 'end clears ConfigModuleName'          ($null -eq $state.ConfigModuleName)
 Write-Host '--- show command renders schema ---' -ForegroundColor Cyan
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state | Out-Null
+Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state | Out-Null
 $out = Get-CapturedOutput { Show-ModuleConfigSchema -State $state }
 Check 'show emits Module: header'   ($out -match 'Module:')
 Check 'show emits Columns header'   ($out -match 'Columns:')
@@ -133,7 +134,7 @@ Check 'show emits Usage header'     ($out -match 'Usage:')
 Write-Host '--- Pair-parsing reject paths (no actual run) ---' -ForegroundColor Cyan
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state | Out-Null
+Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state | Out-Null
 
 # Empty pairs
 $out = Get-CapturedOutput { Invoke-ModuleEphemeralRun -PairArgs @() -State $state }
@@ -254,7 +255,7 @@ Write-Host '--- Tab completion: set/add return column names ---' -ForegroundColo
 # Simulate the global state container used by the PSReadLine handlers
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state | Out-Null
+Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state | Out-Null
 $global:_FabriqIosShellState = $state
 
 $candidates = Get-FabriqIosCompletion -Line 'set ' -Position 4 -Mode 'ModuleConfig' -State $state

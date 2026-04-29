@@ -20,11 +20,13 @@ function Invoke-ModuleConfigCommand {
         'exit' {
             $State.ConfigModuleName   = $null
             $State.ConfigModuleSchema = $null
+            $State.CurrentCategoryId  = $null
             Set-ShellMode -State $State -NewMode 'GlobalConfig'
         }
         'end' {
             $State.ConfigModuleName   = $null
             $State.ConfigModuleSchema = $null
+            $State.CurrentCategoryId  = $null
             Set-ShellMode -State $State -NewMode 'PrivilegedExec'
         }
         default {

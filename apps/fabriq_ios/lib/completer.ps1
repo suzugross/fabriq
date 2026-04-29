@@ -87,7 +87,13 @@ function Get-DynamicCompletion {
         'configure'  { return @(Get-FabriqIosSubVocabulary -Parent 'configure'  -Mode $Mode) }
         'ip'         { return @(Get-FabriqIosSubVocabulary -Parent 'ip'         -Mode $Mode) }
         'interface'  { return @(Get-InterfaceCompletionFromAdapters) }
-        'module'     { return @(Get-ModuleCompletionFromFilesystem) }
+        # Phase 9: each category verb uses its own JSON-defined module
+        # list (apps/fabriq_ios/data/module_categories.json).
+        'module'     { return @(Get-CategoryModuleCompletion -CategoryId 'settings') }
+        'cleanup'    { return @(Get-CategoryModuleCompletion -CategoryId 'cleanup') }
+        'copy'       { return @(Get-CategoryModuleCompletion -CategoryId 'copy') }
+        'install'    { return @(Get-CategoryModuleCompletion -CategoryId 'install') }
+        'script'     { return @(Get-CategoryModuleCompletion -CategoryId 'scripting') }
         'set' {
             # Inside (config-mod)# the first arg of `set` is a column
             # name from the bound module's schema.

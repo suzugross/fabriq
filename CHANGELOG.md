@@ -16,6 +16,65 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_ios/ Phase 9a: category-driven verb dispatch.
+  Single (config-mod)# universe replaced with five
+  category-specific verbs in (config)#:
+    `module <name>`   -> (config-mod)#       settings (43 modules)
+    `cleanup <name>`  -> (config-clean)#     cleanup (7 modules)
+    `copy <name>`     -> (config-copy)#      copy (2 modules)
+    `install <name>`  -> (config-install)#   install (11 modules)
+    `script <name>`   -> (config-script)#    scripting (5 modules)
+  Inside any of these the same `set <col> <val> [<col> <val>...]`
+  / `add` / `show` / `exit` / `end` commands work - only the
+  prompt suffix and the candidate module list change.
+  
+  NEW data/module_categories.json (schemaVersion 1): the single
+  source of truth for the category-to-modules mapping. Each
+  category declares `id`, `verb`, `promptSuffix`, `intro`, and a
+  `modules[]` list. To reclassify or to remove "modules that don't
+  work well via CLI", edit this file - no PowerShell change needed.
+  
+  NEW lib/commands/categories.ps1: JSON loader (cached) +
+  Get-FabriqIosCategoryByVerb / Get-FabriqIosCategoryById /
+  Get-CategoryModuleCompletion / Test-ModuleInCategory. The
+  exclusion list in lib/commands/module.ps1 still takes precedence
+  (modules listed in JSON but globally excluded are silently
+  filtered out).
+  
+  ShellState gained CurrentCategoryId. lib/prompt.ps1 reads it
+  from the bound state and looks up the matching promptSuffix on
+  every render, so each (config-mod)/(config-clean)/(config-copy)/
+  etc. mode shows the right prompt out of the box.
+  
+  GlobalConfig vocabulary expanded from
+  ('hostname','interface','module','exit','end','help','?')
+  to add 'cleanup','copy','install','script'. Each verb routes
+  through Invoke-VerbModeEntry -> Enter-CategoryConfigMode, which
+  validates the verb-to-category mapping AND that the supplied
+  module name is listed under that category. Wrong-category
+  invocations (e.g. `cleanup reg_hklm_config`) are rejected before
+  any module-side work happens.
+  
+  G option (immediate strict): the `module` verb no longer accepts
+  modules outside the settings category - this is a deliberate
+  Phase 9 break. To run a cleanup module use `cleanup <name>`,
+  not `module <name>`. Phase 6 / 7 tests updated accordingly
+  (Enter-ModuleConfigMode renamed to Enter-CategoryConfigMode
+  with -Verb parameter; "not found" wording for category mismatch
+  changed to "is not in the '<category>' category").
+  
+  data/help_text.csv updated with 4 new GlobalConfig entries
+  (cleanup / copy / install / script). VERSION bumped 0.1.0 -> 0.2.0
+  (Phase 9 is a feature MINOR addition over the standalone Phase 8
+  fork). tests/_phase9_smoke.ps1 NEW (69 assertions, all PASS)
+  covers JSON loading, verb-to-category lookup, per-category
+  filtering, mode entry per verb, prompt suffix variation,
+  wrong-category rejection, parser abbreviations
+  (cl/co/ins/s -> cleanup/copy/install/script).
+  
+  All five other phase smokes still pass:
+  Phase 3=26, 4=17, 5=32, 6=41, 7=49, 9=69 -> 234/234.
+
 - Fabriq_IOS.exe (NEW, top-level): standalone launcher for the
   fabriq_ios sub-project. Mirrors the Fabriq.exe pattern - tiny C#
   wrapper (dev/launcher/Launcher_IOS.cs + app_ios.manifest +

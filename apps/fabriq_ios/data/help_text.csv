@@ -13,7 +13,11 @@ PrivilegedExec,?,Display this help
 PrivilegedExec,exit,End the seance
 GlobalConfig,hostname,Set the system hostname
 GlobalConfig,interface,Select an interface to configure
-GlobalConfig,module,Run an individual fabriq module
+GlobalConfig,module,Configure-and-run a settings module (idempotent state setter)
+GlobalConfig,cleanup,Configure-and-run a cleanup module (deletion / removal)
+GlobalConfig,copy,Configure-and-run a file copy module
+GlobalConfig,install,Configure-and-run an installation module
+GlobalConfig,script,Configure-and-run a generic script-runner module
 GlobalConfig,help,Display this help
 GlobalConfig,?,Display this help
 GlobalConfig,exit,Return to privileged EXEC mode

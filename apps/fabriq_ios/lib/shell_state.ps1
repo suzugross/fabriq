@@ -10,6 +10,7 @@ function New-ShellState {
         ProcessId          = $PID
         ConfigModuleName   = $null        # set when entering ModuleConfig
         ConfigModuleSchema = $null        # set when entering ModuleConfig
+        CurrentCategoryId  = $null        # 'settings' / 'cleanup' / 'copy' / 'install' / 'scripting'
     }
 }
 

@@ -115,19 +115,49 @@ function Get-ModuleCsvSchema {
     }
 }
 
-function Enter-ModuleConfigMode {
-    # Validates module + schema and transitions to ModuleConfig.
-    # Called by the GlobalConfig dispatcher's `module <name>` branch.
+function Invoke-VerbModeEntry {
+    # Helper invoked by the GlobalConfig dispatcher for each
+    # category verb (module / cleanup / copy / install / script).
+    # Validates Args.Count and delegates to Enter-CategoryConfigMode.
     param(
+        [string]$Verb,
+        [hashtable]$Resolved,
+        [hashtable]$State
+    )
+    if ($Resolved.Args.Count -lt 1) {
+        Write-Host ("% Incomplete: '{0} <name>' (try '{0} ?')" -f $Verb) -ForegroundColor Red
+        return
+    }
+    Enter-CategoryConfigMode -Verb $Verb -Name $Resolved.Args[0] -State $State
+}
+
+function Enter-CategoryConfigMode {
+    # Validates verb -> category, module-in-category, schema, and
+    # transitions to ModuleConfig. The category id is recorded in
+    # State.CurrentCategoryId so the prompt renders the appropriate
+    # suffix (config-mod / config-clean / config-copy / etc.).
+    param(
+        [string]$Verb,
         [string]$Name,
         [hashtable]$State
     )
     if ($State.Mode -ne 'GlobalConfig') {
-        Write-Host "% 'module' is only available in global configuration mode." -ForegroundColor Red
+        Write-Host ("% '{0}' is only available in global configuration mode." -f $Verb) -ForegroundColor Red
         return
     }
     if ([string]::IsNullOrWhiteSpace($Name)) {
-        Write-Host "% Incomplete: 'module <name>' (try 'module ?')" -ForegroundColor Red
+        Write-Host ("% Incomplete: '{0} <name>' (try '{0} ?')" -f $Verb) -ForegroundColor Red
+        return
+    }
+
+    $cat = Get-FabriqIosCategoryByVerb -Verb $Verb
+    if (-not $cat) {
+        Write-Host ("% Unknown category verb: {0}" -f $Verb) -ForegroundColor Red
+        return
+    }
+
+    if (-not (Test-ModuleInCategory -CategoryId $cat.id -ModuleName $Name)) {
+        Write-Host ("% Module '{0}' is not in the '{1}' category. Try '{2} ?'." -f $Name, $cat.id, $Verb) -ForegroundColor Red
         return
     }
 
@@ -139,14 +169,16 @@ function Enter-ModuleConfigMode {
 
     $schema = Get-ModuleCsvSchema -Name $Name
     if (-not $schema) {
-        Write-Host ("% Module '{0}' has no '{0}_list.csv'; ephemeral configuration is not available for this module." -f $Name) -ForegroundColor Red
+        Write-Host ("% Module '{0}' has no '*_list.csv'; ephemeral configuration is not available." -f $Name) -ForegroundColor Red
         return
     }
 
-    $State.ConfigModuleName   = $Name
-    $State.ConfigModuleSchema = $schema
+    $State.ConfigModuleName    = $Name
+    $State.ConfigModuleSchema  = $schema
+    $State.CurrentCategoryId   = $cat.id
     Set-ShellMode -State $State -NewMode 'ModuleConfig'
 
+    Write-Host $cat.intro
     Write-Host ("Configuring module {0}. Type 'show' for schema, 'set <col> <val> [<col> <val>...]' to configure-and-run, 'exit' to leave." -f $Name)
 }
 
