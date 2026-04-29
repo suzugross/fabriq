@@ -74,22 +74,11 @@ $r = Get-FabriqIosCompletion -Line 'show ru' -Position 7 -Mode 'PrivilegedExec' 
 Check 'show ru -> running-config' ($r -contains 'running-config')
 Check 'show ru count = 1'         ($r.Count -eq 1)
 
-$r = Get-FabriqIosCompletion -Line 'show ho' -Position 7 -Mode 'PrivilegedExec' -State $state
-Check 'show ho -> host'  ($r -contains 'host')
-Check 'show ho -> hosts' ($r -contains 'hosts')
-Check 'show ho count >= 2' ($r.Count -ge 2)
+# NOTE: Phase 8 removed `show host` / `show hosts` (hostlist coupling),
+# `(config)# hostname <Tab>` hostlist-based completion, and
+# `ip address from-hostlist`. Tests for those completions deleted.
 
 Write-Host '--- Get-FabriqIosCompletion: dynamic sources ---' -ForegroundColor Cyan
-$r = Get-FabriqIosCompletion -Line 'host ' -Position 5 -Mode 'GlobalConfig' -State $state
-Check 'host <space> GlobalConfig -> hostlist NewPC' ($r -contains 'NEW-PC-01')
-
-$r = Get-FabriqIosCompletion -Line 'host NEW-PC-' -Position 12 -Mode 'GlobalConfig' -State $state
-$allStartWithPrefix = $true
-foreach ($item in $r) { if (-not $item.StartsWith('NEW-PC-')) { $allStartWithPrefix = $false } }
-Check 'host NEW-PC- prefix filter' ($r.Count -ge 1 -and $allStartWithPrefix)
-
-$r = Get-FabriqIosCompletion -Line 'ip address ' -Position 11 -Mode 'InterfaceConfig' -State $state
-Check 'ip address <space> -> from-hostlist' ($r -contains 'from-hostlist')
 
 $r = Get-FabriqIosCompletion -Line 'ip add' -Position 6 -Mode 'InterfaceConfig' -State $state
 Check 'ip add -> address' ($r -contains 'address')

@@ -20,8 +20,8 @@ function Get-FabriqIosSubVocabulary {
     )
     $key = "$Mode.$Parent"
     switch ($key) {
-        'UserExec.show'            { return @('version','host','hosts','manifesto') }
-        'PrivilegedExec.show'      { return @('version','host','hosts','running-config','profiles','modules','evidence','manifesto') }
+        'UserExec.show'            { return @('version','manifesto') }
+        'PrivilegedExec.show'      { return @('version','running-config','profiles','modules','evidence','manifesto') }
         'PrivilegedExec.configure' { return @('terminal') }
         'InterfaceConfig.ip'       { return @('address') }
         default                    { return @() }

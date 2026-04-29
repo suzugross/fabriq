@@ -86,9 +86,7 @@ function Get-DynamicCompletion {
         'show'       { return @(Get-FabriqIosSubVocabulary -Parent 'show'       -Mode $Mode) }
         'configure'  { return @(Get-FabriqIosSubVocabulary -Parent 'configure'  -Mode $Mode) }
         'ip'         { return @(Get-FabriqIosSubVocabulary -Parent 'ip'         -Mode $Mode) }
-        'hostname'   { return @(Get-HostnameCompletionFromHostlist -State $State) }
         'interface'  { return @(Get-InterfaceCompletionFromAdapters) }
-        'ip.address' { return @(Get-IpAddressCompletionFromHostlist -State $State) }
         'module'     { return @(Get-ModuleCompletionFromFilesystem) }
         'set' {
             # Inside (config-mod)# the first arg of `set` is a column

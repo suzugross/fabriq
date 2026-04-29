@@ -1,8 +1,17 @@
-# Phase 4 functional smoke test (not Pester).
+# Phase 4 functional smoke test (revised for Phase 8).
 # Tests helper functions and reject-mode paths only. Does NOT trigger
 # actual hostname or IP mutation - that requires manual interactive
 # verification on a real test machine.
 # Run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File <this>
+#
+# Phase 8 deletions (no longer tested):
+# - Set-FabriqIosHostEnvironment / Find-HostlistRowByNewName /
+#   Get-HostnameCompletionFromHostlist / Get-IpAddressCompletionFromHostlist /
+#   Invoke-IpAddressFromHostlist
+# - All "from-hostlist" semantics
+# Replaced with simpler reject-path coverage matching the new
+# `hostname <name>` (direct env set) and `ip address <ip> <mask> ...`
+# (positional override) commands.
 
 $ErrorActionPreference = 'Stop'
 
@@ -50,58 +59,6 @@ Check '/30 -> 30'           ((ConvertFrom-SubnetMaskToPrefix '255.255.255.252') 
 Check 'empty -> empty'      ((ConvertFrom-SubnetMaskToPrefix '')                -eq '')
 Check 'malformed -> empty'  ((ConvertFrom-SubnetMaskToPrefix '255.255.255')     -eq '')
 
-Write-Host '--- Set-FabriqIosHostEnvironment ---' -ForegroundColor Cyan
-$preserved = @{
-    NewPC = $env:SELECTED_NEW_PCNAME
-    EthIP = $env:SELECTED_ETH_IP
-    EthSubnet = $env:SELECTED_ETH_SUBNET
-}
-$fakeRow = [PSCustomObject]@{
-    AdminID         = '999'
-    OldPCName       = 'OLD-FAKE'
-    NewPCName       = 'NEW-FAKE-01'
-    EthernetIP      = '10.0.0.99'
-    EthernetSubnet  = '255.255.255.0'
-    EthernetGateway = '10.0.0.1'
-    WifiIP          = ''
-    WifiSubnet      = ''
-    WifiGateway     = ''
-    DNS1            = '10.0.0.10'
-    DNS2            = ''
-    DNS3            = ''
-    DNS4            = ''
-    Pin             = ''
-}
-Set-FabriqIosHostEnvironment -Row $fakeRow
-Check 'SELECTED_NEW_PCNAME set'  ($env:SELECTED_NEW_PCNAME -eq 'NEW-FAKE-01')
-Check 'SELECTED_ETH_IP set'      ($env:SELECTED_ETH_IP    -eq '10.0.0.99')
-Check 'SELECTED_ETH_SUBNET set'  ($env:SELECTED_ETH_SUBNET -eq '255.255.255.0')
-Check 'SELECTED_DNS1 set'        ($env:SELECTED_DNS1      -eq '10.0.0.10')
-# Restore
-$env:SELECTED_NEW_PCNAME = $preserved.NewPC
-$env:SELECTED_ETH_IP     = $preserved.EthIP
-$env:SELECTED_ETH_SUBNET = $preserved.EthSubnet
-
-Write-Host '--- Find-HostlistRowByNewName ---' -ForegroundColor Cyan
-$state = New-ShellState
-$row = Find-HostlistRowByNewName -NewName 'NEW-PC-01' -State $state
-Check 'finds NEW-PC-01 in hostlist' ($null -ne $row -and $row.NewPCName -eq 'NEW-PC-01')
-$row = Find-HostlistRowByNewName -NewName 'DEFINITELY-NOT-IN-HOSTLIST' -State $state
-Check 'returns null for missing NewName' ($null -eq $row)
-
-Write-Host '--- Get-HostnameCompletionFromHostlist ---' -ForegroundColor Cyan
-$names = @(Get-HostnameCompletionFromHostlist -State $state)
-Check 'returns at least one name' ($names.Count -ge 1)
-Check 'includes NEW-PC-01'        ($names -contains 'NEW-PC-01')
-
-Write-Host '--- Get-IpAddressCompletionFromHostlist ---' -ForegroundColor Cyan
-$preservedIp = $env:SELECTED_ETH_IP
-$env:SELECTED_ETH_IP = '192.168.42.7'
-$cands = @(Get-IpAddressCompletionFromHostlist -State $state)
-Check 'always includes from-hostlist'  ($cands -contains 'from-hostlist')
-Check 'includes current SELECTED_ETH_IP' ($cands -contains '192.168.42.7')
-$env:SELECTED_ETH_IP = $preservedIp
-
 Write-Host '--- Get-InterfaceCompletionFromAdapters ---' -ForegroundColor Cyan
 $ifaces = @(Get-InterfaceCompletionFromAdapters)
 Check 'returns array (possibly empty) without throw' ($null -ne $ifaces)
@@ -111,31 +68,14 @@ Write-Host '--- Mutation reject-paths (no actual hostname/IP change) ---' -Foreg
 # Invoke-HostnameSelection rejects in non-GlobalConfig mode
 $state = New-ShellState
 $state.Mode = 'PrivilegedExec'
-$out = Get-CapturedOutput { Invoke-HostnameSelection -NewName 'NEW-PC-01' -State $state }
+$out = Get-CapturedOutput { Invoke-HostnameSelection -NewName 'NEW-PC-XX' -State $state }
 Check 'hostname rejected outside GlobalConfig' ($out -match 'global configuration mode')
 
-# Invoke-HostnameSelection with unknown NewName -> refused syslog, no module run
+# Invoke-HostnameSelection with empty name
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-$out = Get-CapturedOutput { Invoke-HostnameSelection -NewName 'CERTAINLY-NOT-A-REAL-HOST' -State $state }
-Check 'unknown NewName -> refused syslog' ($out -match '%FABRIQ-3-HOSTNAME')
-Check 'unknown NewName -> friendly hint'  ($out -match 'has no row with NewPCName')
-
-# Invoke-IpAddressFromHostlist rejects in non-InterfaceConfig mode
-$state = New-ShellState
-$state.Mode = 'GlobalConfig'
-$out = Get-CapturedOutput { Invoke-IpAddressFromHostlist -State $state }
-Check 'ip address rejected outside InterfaceConfig' ($out -match 'interface configuration mode')
-
-# Invoke-IpAddressFromHostlist without host context refuses
-$state = New-ShellState
-$state.Mode = 'InterfaceConfig'
-$state.CurrentInterface = 'TestEthernet'
-$preservedNew = $env:SELECTED_NEW_PCNAME
-$env:SELECTED_NEW_PCNAME = ''
-$out = Get-CapturedOutput { Invoke-IpAddressFromHostlist -State $state }
-Check 'ip address without host context refuses' ($out -match 'No host context')
-$env:SELECTED_NEW_PCNAME = $preservedNew
+$out = Get-CapturedOutput { Invoke-HostnameSelection -NewName '' -State $state }
+Check 'empty hostname -> incomplete' ($out -match 'Incomplete')
 
 # Invoke-IpAddressManual rejects in non-InterfaceConfig mode
 $state = New-ShellState
@@ -143,29 +83,30 @@ $state.Mode = 'GlobalConfig'
 $out = Get-CapturedOutput { Invoke-IpAddressManual -Ip '10.0.0.1' -Mask '255.255.255.0' -State $state }
 Check 'ip address manual rejected outside InterfaceConfig' ($out -match 'interface configuration mode')
 
-Write-Host '--- Dispatcher integration (parser -> mode -> stub-or-real) ---' -ForegroundColor Cyan
-
-# 'host NEW-PC-01' in GlobalConfig -> Invoke-HostnameSelection -> tries to find row.
-# We feed an unknown name so it short-circuits at the lookup (no module run).
-$state = New-ShellState
-$state.Mode = 'GlobalConfig'
-$resolved = Resolve-FabriqIosCommand -Tokens @('host','UNKNOWN-FOR-SMOKE') -Mode 'GlobalConfig'
-Check 'parser expands host -> hostname' ($resolved.Command -eq 'hostname')
-$out = Get-CapturedOutput { Invoke-GlobalConfigCommand -Resolved $resolved -State $state }
-Check 'dispatcher reaches refused-syslog path' ($out -match '%FABRIQ-3-HOSTNAME')
-
-# 'ip address from-hostlist' in InterfaceConfig with no host context -> short-circuit
+# Invoke-IpAddressManual without IP/Mask
 $state = New-ShellState
 $state.Mode = 'InterfaceConfig'
-$state.CurrentInterface = 'X'
-$preservedNew = $env:SELECTED_NEW_PCNAME
-$env:SELECTED_NEW_PCNAME = ''
-$resolved = Resolve-FabriqIosCommand -Tokens @('ip','address','from-hostlist') -Mode 'InterfaceConfig'
-Check 'parser ip address from-hostlist Args.Count=2' ($resolved.Args.Count -eq 2)
-Check 'parser ip address from-hostlist Args[1]'      ($resolved.Args[1] -eq 'from-hostlist')
-$out = Get-CapturedOutput { Invoke-InterfaceConfigCommand -Resolved $resolved -State $state }
-Check 'ip address dispatcher hits No host context' ($out -match 'No host context')
-$env:SELECTED_NEW_PCNAME = $preservedNew
+$state.CurrentInterface = 'TestEth'
+$out = Get-CapturedOutput { Invoke-IpAddressManual -Ip '' -Mask '' -State $state }
+Check 'ip address manual without ip/mask -> Usage' ($out -match 'Usage:')
+
+Write-Host '--- Dispatcher integration (parser -> mode dispatch) ---' -ForegroundColor Cyan
+
+# 'host NEW-PC-XYZ' -> parser expands to 'hostname'
+$resolved = Resolve-FabriqIosCommand -Tokens @('host','NEW-PC-XYZ') -Mode 'GlobalConfig'
+Check 'parser host -> hostname'      ($resolved.Command -eq 'hostname')
+Check 'parser preserves ad-hoc name' ($resolved.Args[0] -eq 'NEW-PC-XYZ')
+
+# `ip address 10.0.0.1 255.255.255.0 10.0.0.1` (4 args after expansion) -> ip
+$resolved = Resolve-FabriqIosCommand -Tokens @('ip','address','10.0.0.1','255.255.255.0','10.0.0.1') -Mode 'InterfaceConfig'
+Check 'parser ip address resolves'   ($resolved.Command -eq 'ip')
+Check 'parser ip address Args.Count=4' ($resolved.Args.Count -eq 4)
+Check 'parser ip address arg[0]=address' ($resolved.Args[0] -eq 'address')
+Check 'parser ip address arg[3]=gateway' ($resolved.Args[3] -eq '10.0.0.1')
+
+# 5-arg fully-self-contained form (with DNS)
+$resolved = Resolve-FabriqIosCommand -Tokens @('ip','address','10.0.0.1','255.255.255.0','10.0.0.1','8.8.8.8','1.1.1.1') -Mode 'InterfaceConfig'
+Check 'parser ip address 6 args (full form)' ($resolved.Args.Count -eq 6)
 
 Write-Host ''
 Write-Host ("=== Summary: {0} passed, {1} failed ===" -f $script:Pass, $script:Fail) `

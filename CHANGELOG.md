@@ -15,7 +15,80 @@
 
 ## [Unreleased]
 
+### Added
+- Fabriq_IOS.exe (NEW, top-level): standalone launcher for the
+  fabriq_ios sub-project. Mirrors the Fabriq.exe pattern - tiny C#
+  wrapper (dev/launcher/Launcher_IOS.cs + app_ios.manifest +
+  build_ios.ps1), auto-elevates via UAC, runs `conhost.exe
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+  apps\fabriq_ios\fabriq_ios.ps1` from the fabriq root. Reuses
+  fabriq.ico. AssemblyVersion 0.1.0.0 mirroring fabriq_ios's own
+  SemVer line. ~56 KB binary.
+- apps/fabriq_ios/VERSION (NEW): independent SemVer for the joke
+  shell sub-project (initial 0.1.0). Decoupled from kernel
+  version. show version / show running-config now read this.
+
 ### Changed
+- apps/fabriq_ios/: Phase 8 fork - established as a standalone
+  sub-project. The fabriq_operator launch path is removed (the
+  `[Fabriq IOS]` Quick Actions button is gone, FabriqApps dialog
+  excludes fabriq_ios from auto-discovery), and the joke shell
+  now boots only via Fabriq_IOS.exe at the fabriq root. The
+  development tree stays at apps/fabriq_ios/ (same repo) but
+  hostlist / workerlist / profile / fabriq-logging coupling is
+  severed:
+    - lib/parser.ps1 show subvocabularies dropped `host` and
+      `hosts`. UserExec.show is now @('version','manifesto');
+      PrivilegedExec.show is @('version','running-config',
+      'profiles','modules','evidence','manifesto'). `show profiles`
+      and `show evidence` are read-only informational displays
+      (no execution / no writing).
+    - lib/commands/show.ps1: removed Show-FabriqIosHost and
+      Show-FabriqIosHosts. Show-FabriqIosVersion / -RunningConfig
+      now use a new Get-FabriqIosVersion helper that reads
+      apps/fabriq_ios/VERSION. show running-config dropped the
+      `session worker <name>` line (workerlist coupling) and the
+      `version <kernel>` line is now `version <fabriq_ios>`.
+    - lib/commands/hostname.ps1: simplified Invoke-HostnameSelection
+      (no hostlist lookup). Takes the name as a positional ad-hoc
+      value, sets SELECTED_NEW_PCNAME directly with adhoc
+      OldPCName / KanriNo when no host is bound, runs
+      hostname_config. Get-HostnameCompletionFromHostlist removed.
+    - lib/commands/ip_address.ps1: Invoke-IpAddressFromHostlist
+      and Get-IpAddressCompletionFromHostlist removed. The only
+      surviving form is the Phase-8-extended positional
+      `ip address <ip> <mask> [<gw> [<dns1> [<dns2>]]]`.
+    - lib/modes/interface_config.ps1: dropped the `ip address
+      from-hostlist` branch and updated usage hint.
+    - lib/completer.ps1: dropped `hostname` and `ip.address`
+      Get-DynamicCompletion sources.
+    - lib/dispatch.ps1: dropped Set-FabriqIosHostEnvironment,
+      Find-HostlistRowByNewName, and the duplicate
+      ConvertFrom-SubnetMaskToPrefix (canonical copy stays in
+      lib/commands/ip_address.ps1). dispatch.ps1 now hosts only
+      Invoke-FabriqIosModule.
+  fabriq_ios.ps1 startup additionally shadows the fabriq logging
+  functions (Initialize-ExecutionHistory / Write-ExecutionHistory /
+  Add-ExecutionResult / Capture-ScreenEvidence /
+  Initialize-EvidenceBasePath / etc.) at global scope with no-ops,
+  so any module that accidentally calls them is silently dropped
+  (defence in depth - the current dispatch path never calls them).
+  Reads apps/fabriq_ios/VERSION into $script:FabriqIosVersion.
+- apps/fabriq_operator/lib/dashboard_form.ps1: Quick Actions
+  rearranged after [Fabriq IOS] removal. Front row now hosts
+  [Open CSV Editor] / [Windows Update] / [Refabriq]; second row
+  [System Launcher] / [And More...].
+- apps/fabriq_operator/lib/apps_dialog.ps1: auto-discovery now
+  also excludes fabriq_ios alongside fabriq_operator.
+- apps/fabriq_operator/lib/dashboard_form.ps1: renamed
+  Populate-ModuleGrid -> Update-ModuleGrid (PSScriptAnalyzer
+  warning PSUseApprovedVerbs - "Populate" is unapproved, "Update"
+  is approved).
+- tests/_phase3_smoke.ps1, _phase4_smoke.ps1, _phase5_smoke.ps1:
+  removed assertions for deleted hostlist-coupled functions and
+  show subcommands. Phase 4 smoke rewritten to cover the
+  ad-hoc hostname / 6-arg ip address forms.
+
 - apps/fabriq_ios/: `(config-if)# ip address` extended to accept up
   to 5 positional args, allowing fully ad-hoc IP configuration
   without requiring a host to be bound. Previous form

@@ -1,91 +1,32 @@
 # ip address * command implementations.
+# Phase 8: hostlist coupling removed. The only command form is
+# positional:
+#   ip address <ip> <mask>                                    (IP+Mask only)
+#   ip address <ip> <mask> <gw>                               (+ Gateway)
+#   ip address <ip> <mask> <gw> <dns1>                        (+ DNS1)
+#   ip address <ip> <mask> <gw> <dns1> <dns2>                 (+ DNS2)
+# `from-hostlist` is gone; standalone Ad-hoc identity is provided
+# automatically when no `(config)# hostname <Name>` has been run.
 
-function Get-IpAddressCompletionFromHostlist {
-    param([hashtable]$State)
-    $candidates = @('from-hostlist')
-    if ($env:SELECTED_ETH_IP) { $candidates += $env:SELECTED_ETH_IP }
-    if ($env:SELECTED_WIFI_IP -and $env:SELECTED_WIFI_IP -ne $env:SELECTED_ETH_IP) {
-        $candidates += $env:SELECTED_WIFI_IP
-    }
-    return $candidates
-}
-
-function Invoke-IpAddressFromHostlist {
-    param([hashtable]$State)
-    if ($State.Mode -ne 'InterfaceConfig') {
-        Write-Host "% 'ip address' is only available in interface configuration mode." -ForegroundColor Red
-        return
-    }
-    if (-not $env:SELECTED_NEW_PCNAME) {
-        Write-Host "% No host context. Run 'hostname <NewName>' in (config)# first to bind a host."
-        return
-    }
-    if (-not $env:SELECTED_ETH_IP) {
-        Write-Host "% Selected host has no EthernetIP; nothing to apply."
-        return
-    }
-
-    $modulePath = Join-Path $script:FabriqRoot 'modules\standard\ipaddress_config\ipaddress_config.ps1'
-    $previousPass = $global:FabriqMasterPassphrase
-    if ($State.Passphrase) { $global:FabriqMasterPassphrase = $State.Passphrase }
+function ConvertFrom-SubnetMaskToPrefix {
+    param([string]$Mask)
+    if ([string]::IsNullOrWhiteSpace($Mask)) { return '' }
     try {
-        $result = Invoke-FabriqIosModule -ScriptPath $modulePath
-    } finally {
-        $global:FabriqMasterPassphrase = $previousPass
-    }
-
-    if (-not $result) {
-        Write-Host "% Module returned no ModuleResult." -ForegroundColor Red
-        return
-    }
-
-    switch ($result.Status) {
-        'Success' {
-            $prefix = ConvertFrom-SubnetMaskToPrefix $env:SELECTED_ETH_SUBNET
-            Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'whispered' `
-                -Placeholders @{
-                    Ip        = $env:SELECTED_ETH_IP
-                    Prefix    = $prefix
-                    Interface = $State.CurrentInterface
-                }
-            if ($env:SELECTED_ETH_GATEWAY) {
-                Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'gateway' `
-                    -Placeholders @{ Gateway = $env:SELECTED_ETH_GATEWAY }
-            }
-            $dns = @($env:SELECTED_DNS1, $env:SELECTED_DNS2, $env:SELECTED_DNS3, $env:SELECTED_DNS4) |
-                   Where-Object { $_ }
-            if ($dns.Count -gt 0) {
-                Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'dns' `
-                    -Placeholders @{ DnsList = ($dns -join ', ') }
-            }
+        $octets = $Mask.Split('.')
+        if ($octets.Count -ne 4) { return '' }
+        $bin = ''
+        foreach ($o in $octets) {
+            $bin += [Convert]::ToString([int]$o, 2).PadLeft(8, '0')
         }
-        'Partial' {
-            Write-Host ("% Partial: {0}" -f $result.Message) -ForegroundColor Yellow
-        }
-        'Skipped' {
-            Write-Host ("% Skipped: {0}" -f $result.Message) -ForegroundColor Yellow
-        }
-        'Cancelled' {
-            Write-Host ("% Cancelled: {0}" -f $result.Message) -ForegroundColor Yellow
-        }
-        default {
-            Write-Host ("% IP address configuration failed: {0}" -f $result.Message) -ForegroundColor Red
-        }
+        return (($bin.ToCharArray() | Where-Object { $_ -eq '1' }).Count)
+    } catch {
+        return ''
     }
 }
 
 function Invoke-IpAddressManual {
-    # Ad-hoc IP configuration with optional Gateway / DNS overrides.
-    # Each parameter beyond Ip+Mask is optional: when omitted, the
-    # bound host's value (from `(config)# hostname <NewName>`) is
-    # used; when no host is bound and the operator omits Gateway/DNS,
-    # those env vars stay empty and the underlying module skips
-    # those settings (or warns, depending on module behaviour).
-    #
-    # When no host is bound at all we seed an `(adhoc)` identity so
-    # ipaddress_config still has SELECTED_NEW_PCNAME / OldPCName /
-    # KanriNo populated for its display lines. All env mutations are
-    # restored in finally regardless of success.
+    # Ad-hoc IP configuration. All env-var mutations are
+    # save/restored in finally; bound-host state survives the call.
     param(
         [string]$Ip,
         [string]$Mask,
@@ -96,6 +37,10 @@ function Invoke-IpAddressManual {
     )
     if ($State.Mode -ne 'InterfaceConfig') {
         Write-Host "% 'ip address' is only available in interface configuration mode." -ForegroundColor Red
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($Ip) -or [string]::IsNullOrWhiteSpace($Mask)) {
+        Write-Host "% Usage: 'ip address <ip> <mask> [<gw> [<dns1> [<dns2>]]]'" -ForegroundColor Red
         return
     }
 
@@ -121,9 +66,13 @@ function Invoke-IpAddressManual {
     if (-not [string]::IsNullOrWhiteSpace($Dns1))    { $env:SELECTED_DNS1        = $Dns1 }
     if (-not [string]::IsNullOrWhiteSpace($Dns2))    { $env:SELECTED_DNS2        = $Dns2 }
 
+    $modulePath = Join-Path $script:FabriqRoot 'modules\standard\ipaddress_config\ipaddress_config.ps1'
+    $previousPass = $global:FabriqMasterPassphrase
+    if ($State.Passphrase) { $global:FabriqMasterPassphrase = $State.Passphrase }
     try {
-        Invoke-IpAddressFromHostlist -State $State
+        $result = Invoke-FabriqIosModule -ScriptPath $modulePath
     } finally {
+        $global:FabriqMasterPassphrase = $previousPass
         $env:SELECTED_NEW_PCNAME  = $prev.NewName
         $env:SELECTED_OLD_PCNAME  = $prev.OldName
         $env:SELECTED_KANRI_NO    = $prev.Kanri
@@ -132,5 +81,43 @@ function Invoke-IpAddressManual {
         $env:SELECTED_ETH_GATEWAY = $prev.Gateway
         $env:SELECTED_DNS1        = $prev.Dns1
         $env:SELECTED_DNS2        = $prev.Dns2
+    }
+
+    if (-not $result) {
+        Write-Host "% Module returned no ModuleResult." -ForegroundColor Red
+        return
+    }
+
+    switch ($result.Status) {
+        'Success' {
+            $prefix = ConvertFrom-SubnetMaskToPrefix $Mask
+            Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'whispered' `
+                -Placeholders @{
+                    Ip        = $Ip
+                    Prefix    = $prefix
+                    Interface = $State.CurrentInterface
+                }
+            if (-not [string]::IsNullOrWhiteSpace($Gateway)) {
+                Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'gateway' `
+                    -Placeholders @{ Gateway = $Gateway }
+            }
+            $dns = @($Dns1, $Dns2) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            if ($dns.Count -gt 0) {
+                Write-FabriqIosSyslog -Severity 6 -Mnemonic 'IPADDR' -Key 'dns' `
+                    -Placeholders @{ DnsList = ($dns -join ', ') }
+            }
+        }
+        'Partial' {
+            Write-Host ("% Partial: {0}" -f $result.Message) -ForegroundColor Yellow
+        }
+        'Skipped' {
+            Write-Host ("% Skipped: {0}" -f $result.Message) -ForegroundColor Yellow
+        }
+        'Cancelled' {
+            Write-Host ("% Cancelled: {0}" -f $result.Message) -ForegroundColor Yellow
+        }
+        default {
+            Write-Host ("% IP address configuration failed: {0}" -f $result.Message) -ForegroundColor Red
+        }
     }
 }

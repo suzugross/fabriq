@@ -231,7 +231,7 @@ function Show-OperatorDashboard {
     $script:allModuleData = @()
 
     # Populate module grid
-    function Populate-ModuleGrid {
+    function Update-ModuleGrid {
         param([string]$CategoryFilter = "All", [string]$SearchText = "")
         $moduleGrid.Rows.Clear()
         $num = 1
@@ -249,7 +249,7 @@ function Show-OperatorDashboard {
         }
     }
 
-    Populate-ModuleGrid
+    Update-ModuleGrid
 
     $tabModules.Controls.Add($moduleGrid)
 
@@ -302,17 +302,14 @@ function Show-OperatorDashboard {
     $btnWindowsUpdate = New-StyledButton -Text "Windows Update" -X 226 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnWindowsUpdate)
 
-    $btnFabriqIos = New-StyledButton -Text "Fabriq IOS" -X 436 -Y $settY -Width 212 -Height 30
-    $tabSettings.Controls.Add($btnFabriqIos)
+    $btnRefabriq = New-StyledButton -Text "Refabriq" -X 436 -Y $settY -Width 212 -Height 30
+    $tabSettings.Controls.Add($btnRefabriq)
     $settY += 44
 
-    $btnRefabriq = New-StyledButton -Text "Refabriq" -X 16 -Y $settY -Width 200 -Height 30
-    $tabSettings.Controls.Add($btnRefabriq)
-
-    $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 226 -Y $settY -Width 200 -Height 30
+    $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 16 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnSystemLauncher)
 
-    $btnAndMore = New-StyledButton -Text "And More..." -X 436 -Y $settY -Width 212 -Height 30
+    $btnAndMore = New-StyledButton -Text "And More..." -X 226 -Y $settY -Width 212 -Height 30
     $tabSettings.Controls.Add($btnAndMore)
     $settY += 50
 
@@ -412,12 +409,12 @@ function Show-OperatorDashboard {
 
     # Category filter changed
     $catCombo.Add_SelectedIndexChanged({
-        Populate-ModuleGrid -CategoryFilter $catCombo.SelectedItem -SearchText $searchBox.Text
+        Update-ModuleGrid -CategoryFilter $catCombo.SelectedItem -SearchText $searchBox.Text
     })
 
     # Search text changed
     $searchBox.Add_TextChanged({
-        Populate-ModuleGrid -CategoryFilter $catCombo.SelectedItem -SearchText $searchBox.Text
+        Update-ModuleGrid -CategoryFilter $catCombo.SelectedItem -SearchText $searchBox.Text
     })
 
     # Execute single highlighted module
@@ -472,12 +469,6 @@ function Show-OperatorDashboard {
 
     $btnWindowsUpdate.Add_Click({
         $result.Action = "WindowsUpdate"
-        $form.Close()
-    })
-
-    $btnFabriqIos.Add_Click({
-        $result.Action  = "LaunchApp"
-        $result.AppName = "fabriq_ios"
         $form.Close()
     })
 
