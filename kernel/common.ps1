@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v2.2.2
+# Easy Kitting Batch - Common Function Library v3.0.0
 # ========================================
 
 # ========================================
