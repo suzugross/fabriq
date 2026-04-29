@@ -16,11 +16,46 @@
 ## [Unreleased]
 
 ### Added
+- .gitignore に例外行を追加: `!/Fabriq.exe`、
+  `!/modules/standard/printer_driver_config/tools/7z.exe`、
+  `!/modules/standard/printer_driver_config/tools/7z.dll`。
+  従来 `*.exe` / `*.dll` で全除外していた 3 つの同梱バイナリを
+  リポジトリ管理対象に昇格（クローンだけで printer_driver_config が
+  動作可能に、Fabriq ランチャーも GitHub 経由で配布可能に）
+- Fabriq.exe をリポジトリで管理開始（自社ランチャー、ソースは
+  dev/launcher/Launcher.cs。標準 System.* のみ依存で第三者
+  ライブラリなし）
+- modules/standard/printer_driver_config/tools/7z.exe と 7z.dll を
+  リポジトリで管理開始（7-Zip 25.01 (x64) 同梱、SHA-256 は
+  THIRD_PARTY_NOTICES.md に明記）
+- THIRD_PARTY_NOTICES.md（リポジトリ root に新規）: サードパーティ
+  同梱物のアトリビューション・ライセンス概要を一元化。現状は 7-Zip
+  25.01 (x64) のみ（modules/standard/printer_driver_config/tools/
+  配下の 7z.exe / 7z.dll）。同梱バイナリの SHA-256・公式 URL・
+  ソースコード入手先・unRAR 制限を明記
+- LICENSES/LGPL-2.1.txt（新規）: GNU LGPL v2.1 全文（FSF 公式から
+  取得した verbatim コピー）。LGPL v2.1 第 1-2 条が要求する
+  「ライセンスのコピーの同梱」義務に対応
+- LICENSES/7-Zip-license.txt（新規）: 7-Zip 公式 license.txt の
+  verbatim コピー（GNU LGPL / BSD 3-clause / BSD 2-clause / unRAR
+  制限の組み合わせを明文化した一次ライセンス文書）
+- modules/standard/printer_driver_config/tools/README-license.txt
+  （新規）: バイナリ配置場所での attribution。tools/ を切り出して
+  別ロケーションに持ち出した場合に表示が伴走するための副次表示
+- README.md「サードパーティ同梱物」節（新規）: ルート
+  THIRD_PARTY_NOTICES.md への入口リンクを追加
 - dev/verify_comments_only.ps1: 新規追加。.ps1 ファイルの変更が
   「コメントのみ」であることを PowerShell parser の AST トークン
   比較で機械的に証明するための検証ツール。日本語コメントを英語に
   一掃する作業の安全装置として導入。Mode 1（任意 2 パス比較）と
   Mode 2（working tree vs git HEAD 比較）をサポート
+
+### Changed
+- modules/standard/printer_driver_config/Guide.txt: tools/ 配下の
+  7z.exe / 7z.dll が同梱済みである旨に書き換え（従来は「ユーザーが
+  配置」と記述されていたが実態と乖離）。差し替え時の更新箇所
+  （README-license.txt と THIRD_PARTY_NOTICES.md のバージョン・
+  SHA-256）も明示
 
 ## [3.0.0] - 2026-04-29
 

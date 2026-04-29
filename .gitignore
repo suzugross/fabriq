@@ -7,6 +7,14 @@
 *.msi
 *.dll
 
+# 上記グローバル除外への例外（リポジトリで管理する同梱バイナリ）
+# - Fabriq.exe : 自社製ランチャー（dev/launcher/Launcher.cs ビルド成果物）
+# - 7z.exe / 7z.dll : 7-Zip 25.01 (x64) を printer_driver_config 用に同梱
+#   ライセンス情報は THIRD_PARTY_NOTICES.md および LICENSES/ 参照
+!/Fabriq.exe
+!/modules/standard/printer_driver_config/tools/7z.exe
+!/modules/standard/printer_driver_config/tools/7z.dll
+
 # 特定のフォルダの中身をまるごと除外
 /modules/standard/driver_config/driver/*
 !/modules/standard/driver_config/driver/.gitkeep
