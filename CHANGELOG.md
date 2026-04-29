@@ -16,6 +16,298 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_operator/lib/quickactions_dialog.ps1 (NEW): "And More"
+  sub-dialog (DataGridView pattern, mirrors apps_dialog.ps1 styling)
+  with 4 entries that map onto existing main.ps1 switch cases:
+    - Restart PC           -> Action="Restart"
+    - Export History       -> Action="HistoryExport"
+    - Regenerate Checklist -> Action="RegenerateChecklist"
+    - FabriqApps           -> Action="AppsMode"
+  Returns @{Action; AppName} which the dashboard form propagates
+  upward as its own $result, so no new main.ps1 handlers are
+  required for the items inside the dialog.
+- apps/fabriq_operator/lib/dashboard_form.ps1: Settings tab Quick
+  Actions section reorganised. Front row now hosts five high-frequency
+  shortcuts plus a single "And More..." entry point:
+    Row 1: [Open CSV Editor] [Windows Update]   [Fabriq IOS]
+    Row 2: [Refabriq]        [System Launcher]  [And More...]
+  Removed buttons (now under And More): Export History, Regenerate
+  Checklist, Restart PC, FabriqApps. New direct button [Fabriq IOS]
+  emits Action="LaunchApp" with AppName="fabriq_ios" (generic shortcut
+  pattern, reusable for future direct-app buttons). $result hashtable
+  gained AppName field. Visible-comment list of Action tokens updated.
+- kernel/main.ps1: new switch case "LaunchApp" mirrors the in-process
+  invocation pattern of "AppsMode" but bypasses Show-AppsDialog by
+  resolving apps/<AppName>/<AppName>.ps1 directly from
+  $guiSelection.AppName. Self-spawn logic inside the launched app
+  (e.g. fabriq_ios.ps1's $env:FABRIQ_IOS_SUBPROCESS guard) still
+  enforces subprocess isolation so the dashboard process is never
+  contaminated. Internal-only change (KERNEL_API.md surface unchanged);
+  PATCH-class influence on kernel/main.ps1, version-file bump deferred
+  until next release instruction.
+- apps/fabriq_ios/: Phase 6 implementation - `module <name>` command
+  in GlobalConfig (`fabriq(config)#`) for single-module execution
+  (profile execution intentionally not implemented per scope
+  decision). New file lib/commands/module.ps1 hosts
+  `Get-ModuleCompletionFromFilesystem` (auto-discovers
+  modules/standard and modules/extended via the `<dir>/<dir>.ps1`
+  convention, cached for the session), `Find-ModulePath` (standard
+  -> extended fallback), and `Invoke-ModuleByName` (passphrase
+  staging, dispatch via Phase 4's Invoke-FabriqIosModule, severity-
+  mapped MODULE syslog). Parser vocabulary
+  ('hostname','interface','module','exit','end','help','?'),
+  completer dynamic source `'module'`, GlobalConfig dispatcher
+  branch, help_text.csv row, and 5 new MODULE syslog templates
+  (success / partial / skipped / cancelled / error) added to
+  syslog_messages.csv. Excluded from listing / dispatch (6
+  modules):
+    - windows_update     (GUI-button-only, no module.csv)
+    - test_error_module / test_harness_config (test scaffolding)
+    - fabriq_app_launcher (recursive launcher)
+    - hostname_config    (covered by `(config)# hostname <name>`)
+    - ipaddress_config   (covered by `(config-if)# ip address ...`)
+  Internal API coupling unchanged (still just Invoke-FabriqIosModule
+  + ModuleResult contract). Tests/_phase6_smoke.ps1 (36 assertions,
+  all PASS) covers vocab / discovery / exclusion enforcement /
+  parser abbreviation (`mod` -> `module`) / dispatcher reject paths
+  / completion filtering. Actual module execution validated by
+  manual test on a target machine.
+
+### Fixed
+- apps/fabriq_ios/: prompt did not update on entry to Global Config
+  / Interface Config modes - `fabriq(config)#` and
+  `fabriq(config-if)#` never appeared, with the prompt freezing on
+  the prior `#`. The expected prompt only flashed momentarily when
+  the user pressed `?` (because the `?` handler ends with
+  `[...PSConsoleReadLine]::InvokePrompt()` which forces a re-invoke
+  of the prompt function). Root cause: PSConsoleReadLine.ReadLine()
+  does NOT invoke the global `prompt` function when called
+  programmatically - prompt rendering is normally the PowerShell
+  Console host's responsibility, and our subprocess REPL bypasses
+  the host's main loop entirely. The `Set-Item Function:\global:prompt`
+  override therefore only mattered for InvokePrompt() calls inside
+  PSReadLine key handlers, which is why the prompt only refreshed
+  on Tab/`?` press. UserExec / PrivilegedExec branches happened to
+  appear correctly because Read-Host -AsSecureString during
+  `enable` re-engaged the host UI subsystem and incidentally
+  rendered the next prompt; pure dispatch paths (configure
+  terminal, interface, end) never triggered that side-effect.
+  Fix: render the prompt explicitly with [Console]::Write inside
+  the REPL loop just before each PSConsoleReadLine.ReadLine() call.
+  Kept the global prompt function so Tab/`?` handlers'
+  InvokePrompt() still re-renders with the correct mode.
+- apps/fabriq_ios/: `?` help handler still overlapped help output
+  with the redrawn prompt+buffer even after switching to
+  `[Console]::WriteLine` + Out.Flush - InvokePrompt's anchor /
+  buffer-redraw step proved unreliable in our custom REPL setup
+  (where the prompt is rendered manually before each ReadLine,
+  not by the host). Replaced the in-handler InvokePrompt approach
+  entirely: the `?` handler now captures the current buffer text
+  into `$global:_FabriqIosPendingHelpRequest` /
+  `$global:_FabriqIosPendingHelpBuffer` and calls AcceptLine so
+  ReadLine returns immediately. The REPL loop in fabriq_ios.ps1
+  detects the pending-help flag, prints the help block via the
+  same Write-Host path that `show modules` uses (which the user
+  has confirmed renders cleanly), and `continue`s to the next loop
+  iteration. The next iteration's manual `[Console]::Write` of the
+  prompt then naturally lands below the help, matching Cisco IOS
+  layout. Side effect: the typed buffer is cleared after `?`
+  (Cisco preserves it), but the original line is submitted via
+  AcceptLine so PSReadLine adds it to history - the user can recall
+  with Up arrow if they want to continue editing.
+- apps/fabriq_ios/: `show running-config` layout deviated from
+  Cisco IOS in three places: (1) the `Current configuration : ! Surkittinist artefact`
+  header concatenated the byte-count line with a comment instead of
+  putting the comment on its own `!` line; (2) `ip default-gateway`
+  and `ip name-server` were emitted *inside* the `interface` block
+  with one space of indentation, but in real Cisco IOS those are
+  global config commands and belong at the top level; (3) multiple
+  DNS servers shared a single space-delimited `ip name-server` line
+  rather than one server per line. Also `manifesto-banner ^C ...`
+  was a fabricated banner type - real Cisco IOS only has motd /
+  login / exec / incoming / slip-ppp. Refactored
+  Show-FabriqIosRunningConfig to assemble the body as a list,
+  compute the byte count via UTF8.GetByteCount, render
+  `Current configuration : <N> bytes` followed by the body verbatim,
+  switch to `banner motd ^C ... ^C` (real Cisco syntax with
+  Surkittinist body preserved), and emit ip default-gateway /
+  ip name-server at the top level with one server per line. Smoke
+  test updated: `manifesto-banner` regex -> `banner motd`.
+  inserted *all* candidates space-joined (e.g. typing `hostname `
+  + Tab inserted "NEW-PC-01 NEW-PC-02 NEW-PC-03 " in one go) instead
+  of extending to the common prefix Cisco-style. Cause: the Tab
+  handler wrapped Get-FabriqIosCompletion's output with `@(...)`
+  while the function returns `,$arr` (1-element wrapping). The
+  outer `@(...)` therefore yielded a 1-element array containing the
+  inner candidate array, so `$candidates.Count -eq 1` was true,
+  the single-candidate branch fired, and `$candidates[0] + ' '`
+  coerced the inner array to a `$OFS`-joined string before
+  inserting. Removed the @() wrap on the two
+  `$candidates = Get-FabriqIosCompletion ...` call sites in
+  completer.ps1 (Tab and ? handlers). Common-prefix extension and
+  list-display behaviour now match Cisco IOS: first Tab extends to
+  the longest unique prefix; a second Tab when no extension is
+  possible shows the candidate list and re-prompts.
+- apps/fabriq_ios/: shared shell-state container moved from
+  `$script:FabriqIosShellState` to `$global:_FabriqIosShellState`
+  so the prompt scriptblock and Tab/`?` handlers observe the same
+  hashtable across the dot-source boundary between fabriq_ios.ps1
+  and lib/completer.ps1. (Prerequisite for the prompt fix above;
+  alone this was insufficient because of the deeper PSReadLine
+  invocation issue.)
+
+### Added
+- apps/fabriq_ios/: NEW joke shell (Cisco IOS-style overlay).
+  Phase 1 skeleton: directory layout + function signatures + data
+  CSVs (syslog_messages / help_text / version_banner). Self-spawning
+  subprocess isolation (`$env:FABRIQ_IOS_SUBPROCESS` sentinel +
+  `Start-Process powershell.exe -NoProfile -File ... -Wait`)
+  prevents PSReadLine handler / env var / global state leakage when
+  launched in-process via fabriq_operator's [FabriqApps] dialog
+  (`& $appResult.AppPath` at kernel/main.ps1:1340). Auto-discovered
+  by apps_dialog.ps1 -- no CSV registration required. Implementation
+  bodies stubbed with `throw 'Not implemented: ...'`; Pester tests
+  are `-Skip` placeholders. Future mutation phase will couple to
+  KERNEL_API.md §6 internal symbols (`Invoke-BatchExecution`,
+  `Initialize-ModuleSystem`, `Resolve-ProfileModules`,
+  `Test-MasterPassphrase`); coupling acknowledged in app README.
+  Kernel / KERNEL_API.md / KERNEL_VERSION / modules unchanged.
+- apps/fabriq_ios/: Phase 5 implementation (PSReadLine completion -
+  v0.1 acceptance criteria complete):
+    - lib/completer.ps1: full implementation. `Get-FabriqIosCompletion`
+      is a pure function (cursor position -> candidate string array)
+      driven by Get-FabriqIosCommandVocabulary +
+      Get-FabriqIosSubVocabulary + Get-DynamicCompletion (which
+      dispatches to hostlist / NetAdapter / IP completion sources).
+      `Get-CommonPrefix` enables progressive Tab completion. Tab
+      handler: single candidate -> insert + space; multiple
+      candidates with shared prefix -> extend to common prefix; no
+      shared prefix -> list candidates and re-render prompt.
+      `?` handler: empty buffer -> mode help; non-empty buffer ->
+      contextual candidates list; both then re-render prompt.
+    - fabriq_ios.ps1: `Initialize-FabriqIos` now imports PSReadLine
+      and throws if unavailable. `Start-FabriqIosShell` switches
+      from `Read-Host` (which bypasses PSReadLine in PS 5.1) to
+      `[Microsoft.PowerShell.PSConsoleReadLine]::ReadLine($host.Runspace,
+      $ExecutionContext)` and overrides `global:prompt` to render
+      the mode-aware Cisco-style prompt. Subprocess isolation
+      ensures the prompt override and PSReadLine handlers vanish
+      with the child process.
+    - tests/completer.tests.ps1: un-Skipped, real Pester assertions
+      for command vocabulary / prefix filter / subcommand expansion
+      / dynamic sources / Get-CommonPrefix.
+    - tests/_phase5_smoke.ps1 (NEW): 28-assertion smoke covering
+      every completion path; PSReadLine integration is verified
+      manually in interactive REPL.
+  SPEC v0.1 acceptance criteria checklist now fully met. Phase 4's
+  `Get-*Completion*` purely-data helpers are now wired into the
+  Tab and `?` keys.
+- apps/fabriq_ios/: Phase 4 implementation (mutation - real
+  hostname / IP address dispatch through fabriq modules):
+    - lib/dispatch.ps1 (NEW): minimal local dispatcher
+      `Invoke-FabriqIosModule` reproduces just enough of
+      kernel/main.ps1's Invoke-KittingScript to run a single module
+      script and capture its ModuleResult (we cannot dot-source
+      main.ps1 because that would launch a second fabriq_operator
+      GUI inside the isolated subprocess). Also hosts
+      `Set-FabriqIosHostEnvironment` (mirror of main.ps1's
+      Set-SelectedHostEnvironment, plaintext-only since
+      Import-ModuleCsv has already decrypted ENC: cells),
+      `Find-HostlistRowByNewName`, and `ConvertFrom-SubnetMaskToPrefix`.
+    - lib/commands/hostname.ps1: Invoke-HostnameSelection looks up
+      the hostlist row by NewPCName, sets SELECTED_* env vars,
+      runs modules/standard/hostname_config/hostname_config.ps1
+      via Invoke-FabriqIosModule, emits HOSTNAME/success +
+      HOSTNAME/reboot_required syslog on success or HOSTNAME/refused
+      on Error/missing-row. Get-HostnameCompletionFromHostlist
+      returns NewPCName values (used by Phase 5 PSReadLine wiring).
+    - lib/commands/ip_address.ps1: Invoke-IpAddressFromHostlist
+      runs modules/standard/ipaddress_config/ipaddress_config.ps1
+      against the currently bound SELECTED_* host context and emits
+      the three-line whispered/gateway/dns syslog on success.
+      Invoke-IpAddressManual overrides SELECTED_ETH_IP/SUBNET with
+      operator-supplied values for the duration of the call (env
+      restore in finally). Get-IpAddressCompletionFromHostlist
+      returns the literal 'from-hostlist' shortcut plus the bound
+      Ethernet/WiFi IPs.
+    - lib/commands/interface.ps1: Get-InterfaceCompletionFromAdapters
+      enumerates Get-NetAdapter -Physical (active) InterfaceAlias
+      values; Japanese aliases are preserved.
+    - lib/modes/global_config.ps1: hostname stub replaced with
+      Invoke-HostnameSelection.
+    - lib/modes/interface_config.ps1: ip address stub replaced with
+      Invoke-IpAddressFromHostlist (2 args) / Invoke-IpAddressManual
+      (3 args) routing.
+    - fabriq_ios.ps1: sets `$global:AutoPilotMode = $true` and
+      `$global:AutoPilotWaitSec = 0` so module-level
+      Confirm-ModuleExecution / Wait-KeyPress prompts auto-yes -
+      the act of typing the command in the REPL is the
+      confirmation, matching Cisco IOS UX. Adds lib/dispatch.ps1
+      to the dot-source list.
+  Internal API coupling expanded (KERNEL_API.md §6, accepted): the
+  ModuleResult contract (§5), `$global:_LastModuleResult` fallback,
+  `$global:AutoPilotMode` / `$global:AutoPilotWaitSec` flags, and
+  the Invoke-KittingScript dispatch pattern (locally re-implemented).
+  Evidence capture and execution-history writes are intentionally
+  NOT performed by fabriq_ios v0.1 - the joke shell stays out of
+  the audit trail. Documented as a v0.2 candidate.
+- apps/fabriq_ios/: Phase 3 implementation (REPL + read-only show
+  commands, no mutating kernel calls):
+    - fabriq_ios.ps1: real `Start-FabriqIosShell` REPL loop with
+      mode-aware prompt, '?'/'help' fast-path, error display,
+      try/catch around dispatchers. `Show-FabriqIosHelp` reads
+      data/help_text.csv (cached).
+    - lib/modes/{user_exec,privileged_exec,global_config,interface_config}.ps1:
+      mode dispatchers wired to Invoke-Enable/Invoke-Disable,
+      Invoke-ShowCommand, Set-ShellMode, and stub markers for
+      Phase 4 mutation commands (hostname/ip address).
+    - lib/commands/show.ps1: implemented Invoke-ShowCommand router
+      and 8 show commands (version/host/hosts/profiles/modules/
+      evidence/manifesto/running-config). 'show running-config'
+      emits Cisco-style '!' commented dump from SELECTED_*
+      environment variables; 'show manifesto' emits a poetic syslog
+      and points to the operator dashboard for the GUI manifesto
+      (kernel/ps1/manifesto.ps1 is a WinForms viewer, unsuitable
+      for the terminal). 'show hosts' uses Import-ModuleCsv with
+      $global:FabriqMasterPassphrase set/restored around the call
+      so ENC: cells decrypt only when the passphrase is set.
+    - lib/commands/enable_disable.ps1: Invoke-Enable validates via
+      Test-MasterPassphrase against
+      kernel/txt/passphrase_verify.txt; on success it stores the
+      plaintext in State.Passphrase and transitions to
+      PrivilegedExec with a poetic seance_begins syslog. Failure
+      emits passphrase_refused and stays in UserExec.
+    - lib/commands/interface.ps1: Set-FabriqIosCurrentInterface
+      stores alias and transitions to InterfaceConfig with an
+      INTERFACE/opened syslog.
+    - data/help_text.csv: added rows for help/? in every mode (now
+      23 rows covering all 4 mode vocabularies).
+  Internal API usage (KERNEL_API.md §6, accepted coupling):
+  Test-MasterPassphrase, Import-ModuleCsv, Show-Info / Show-Warning
+  (transitively via Import-ModuleCsv).
+  Phase 3 explicitly does NOT mutate any system state - hostname /
+  ip address / reload commands are stubbed with '% Phase 3 stub:'
+  messages or performative-only behaviour.
+  Kernel / KERNEL_API.md / KERNEL_VERSION / modules unchanged.
+- apps/fabriq_ios/: Phase 2 implementation (pure-logic layer, no
+  kernel calls yet):
+    - shell_state.ps1: Set-ShellMode with mode-transition table
+      (UserExec/PrivilegedExec/GlobalConfig/InterfaceConfig).
+    - parser.ps1: tokenization (quoted-arg + Japanese-alias aware),
+      Cisco-style prefix-uniqueness expansion (e.g. 'conf t' ->
+      'configure terminal', 'sh ru' -> 'show running-config'),
+      exact-match precedence to disambiguate 'host' vs 'hosts'.
+      Helpers: Get-FabriqIosCommandVocabulary,
+      Get-FabriqIosSubVocabulary, Resolve-Token.
+    - prompt.ps1: 4-mode prompt builder.
+    - syslog.ps1: Cisco-format timestamp ('*Apr 29 14:23:01.234',
+      locale-independent month abbreviation), CSV template lookup
+      with caching, placeholder substitution, severity-based
+      coloring. Refactored to expose `Format-FabriqIosSyslogLine`
+      pure function for testability.
+  Added Pester suites: shell_state.tests.ps1, prompt.tests.ps1,
+  syslog.tests.ps1; un-Skipped parser.tests.ps1.
+  Kernel / KERNEL_API.md / KERNEL_VERSION / modules unchanged.
 - .gitignore に例外行を追加: `!/Fabriq.exe`、
   `!/modules/standard/printer_driver_config/tools/7z.exe`、
   `!/modules/standard/printer_driver_config/tools/7z.dll`。

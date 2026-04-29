@@ -17,6 +17,7 @@ try {
     . (Join-Path $operatorLibDir "theme.ps1")
     . (Join-Path $operatorLibDir "session_form.ps1")
     . (Join-Path $operatorLibDir "apps_dialog.ps1")
+    . (Join-Path $operatorLibDir "quickactions_dialog.ps1")
     . (Join-Path $operatorLibDir "dashboard_form.ps1")
 
     $script:UseGui = $true
