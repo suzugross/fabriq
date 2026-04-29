@@ -1,13 +1,13 @@
 # ========================================
 # Restore Point Configuration Script
 # ========================================
-# Windows の復元ポイントに関する設定を行う。
-# システム保護の有効化、24時間制限の解除、
-# シャドウコピー容量設定、復元ポイントの作成を制御する。
+# Configure Windows System Restore.
+# Enable system protection, remove the 24-hour throttle, set the
+# shadow-copy storage cap, and create restore points on demand.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - クライアントOS（Windows 10/11）でのみ動作
+# - Requires administrator privileges
+# - Client OS only (Windows 10 / 11)
 # ========================================
 
 Write-Host ""
@@ -19,8 +19,8 @@ Write-Host ""
 # ========================================
 # Local Helper Functions
 # ========================================
-# common.ps1 に該当関数なし。reg_hklm_config の
-# Test-RegistryValueMatch パターンを参考に実装。
+# No equivalent helper exists in common.ps1; this implementation
+# follows the Test-RegistryValueMatch pattern from reg_hklm_config.
 # ========================================
 
 function Test-RestoreRegistryValue {
@@ -40,8 +40,8 @@ function Test-RestoreRegistryValue {
 
 function Get-ShadowStorageInfo {
     param([string]$Drive)
-    # ssid_config の netsh 出力パースパターンを参考に実装。
-    # vssadmin list shadowstorage の出力から最大容量を取得する。
+    # Implementation modeled on ssid_config's netsh-output parsing.
+    # Extracts the maximum size from `vssadmin list shadowstorage`.
     try {
         $output = vssadmin list shadowstorage /for=$Drive 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) { return $null }
@@ -55,7 +55,7 @@ function Get-ShadowStorageInfo {
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "restore_point_list.csv"
 
@@ -71,7 +71,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（管理者権限）
+# Step 2: Prerequisite check (administrator privileges)
 # ========================================
 if (-not (Test-AdminPrivilege)) {
     Show-Error "Administrator privileges required"
@@ -81,7 +81,7 @@ if (-not (Test-AdminPrivilege)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Restore Point Settings" -ForegroundColor Yellow
@@ -99,7 +99,7 @@ foreach ($item in $enabledItems) {
 
     switch ($settingName) {
         'enable_protection' {
-            # DisableSR = 0 ならシステム保護有効
+            # System protection is enabled when DisableSR = 0
             if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
                 $marker = "[SKIP]"
                 $markerColor = "Gray"
@@ -109,7 +109,7 @@ foreach ($item in $enabledItems) {
             Write-Host "    Drive: $drive" -ForegroundColor DarkGray
         }
         'remove_24h_limit' {
-            # SystemRestorePointCreationFrequency = 0 なら制限解除済み
+            # 24h limit is already removed when SystemRestorePointCreationFrequency = 0
             if (Test-RestoreRegistryValue -Name "SystemRestorePointCreationFrequency" -ExpectedValue 0) {
                 $marker = "[SKIP]"
                 $markerColor = "Gray"
@@ -147,7 +147,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Apply the above restore point settings?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -156,7 +156,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -173,7 +173,7 @@ foreach ($item in $enabledItems) {
     switch ($settingName) {
 
         'enable_protection' {
-            # 冪等性チェック: DisableSR が既に 0 ならスキップ
+            # Idempotency: skip when DisableSR is already 0
             if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
                 Show-Skip "System protection already enabled"
                 $skipCount++
@@ -194,7 +194,7 @@ foreach ($item in $enabledItems) {
         }
 
         'remove_24h_limit' {
-            # 冪等性チェック: 既に 0 ならスキップ
+            # Idempotency: skip when the value is already 0
             if (Test-RestoreRegistryValue -Name "SystemRestorePointCreationFrequency" -ExpectedValue 0) {
                 Show-Skip "24h limit already removed"
                 $skipCount++
@@ -268,7 +268,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Restore Point Configuration Results")
