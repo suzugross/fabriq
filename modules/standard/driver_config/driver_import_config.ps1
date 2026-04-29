@@ -1,12 +1,12 @@
 # ========================================
 # Driver Import Script
 # ========================================
-# driver/{モデル名}/ のドライバを pnputil でインポート（インストール）する。
+# Import (install) drivers stored under driver/{model-name}/ via pnputil.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - pnputil.exe /add-driver を使用
-# - 終了コード 3010 は再起動要求（成功扱い）
+# - Requires administrator privileges
+# - Uses pnputil.exe /add-driver
+# - Exit code 3010 means "reboot required" and is treated as success
 # ========================================
 
 Write-Host ""
@@ -17,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "driver.csv"
 
@@ -33,7 +33,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（Early Return）
+# Step 2: Prerequisite check (early return)
 # ========================================
 $driverDir = Join-Path $PSScriptRoot "driver"
 if (-not (Test-Path $driverDir)) {
@@ -45,9 +45,9 @@ if (-not (Test-Path $driverDir)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
-# モデル名の動的取得
+# Resolve the system model name dynamically
 $systemModel = ""
 try {
     $systemModel = Get-CimInstance -ClassName Win32_ComputerSystem |
@@ -57,7 +57,7 @@ catch {
     Show-Warning "Failed to get system model: $_"
 }
 
-# モデル名サニタイズ関数
+# Sanitize a model name into a path-safe form
 function Get-SafeModelName {
     param([string]$RawName)
     $safeName = $RawName -replace '\s', '_'
@@ -76,7 +76,7 @@ Write-Host ""
 $hasValidTarget = $false
 
 foreach ($item in $enabledItems) {
-    # モデル名の解決
+    # Resolve the model name (CSV value wins, otherwise auto-detect)
     $modelName = if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         $item.model
     }
@@ -102,7 +102,7 @@ foreach ($item in $enabledItems) {
         }
     }
 
-    # モデル名の出所を表示
+    # Show where the model name came from
     if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         Write-Host "    Source: CSV specified" -ForegroundColor DarkGray
     }
@@ -123,7 +123,7 @@ if (-not $hasValidTarget) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Import drivers from the above paths?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -132,14 +132,14 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
 
 foreach ($item in $enabledItems) {
-    # モデル名の解決
+    # Resolve the model name (CSV value wins, otherwise auto-detect)
     $modelName = if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         $item.model
     }
@@ -152,7 +152,7 @@ foreach ($item in $enabledItems) {
     Write-Host "Importing: Id=$($item.Id) - $modelName" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
-    # Skip 判定: フォルダが存在しない
+    # Skip when the folder does not exist
     if (-not (Test-Path $sourcePath)) {
         Show-Skip "Folder not found: $sourcePath"
         Write-Host ""
@@ -160,7 +160,7 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # Skip 判定: .inf ファイルがない
+    # Skip when there are no .inf files in the folder
     $infCount = @(Get-ChildItem -Path $sourcePath -Filter "*.inf" -Recurse -File).Count
     if ($infCount -eq 0) {
         Show-Skip "No .inf files in: $sourcePath"
@@ -175,11 +175,11 @@ foreach ($item in $enabledItems) {
         $pnputilResult = & pnputil.exe /add-driver $infPattern /subdirs /install 2>&1
         $exitCode = $LASTEXITCODE
 
-        # 終了コード判定
-        #   0    = 正常終了
-        #   259  = 既に最新または追加対象なし (ERROR_NO_MORE_ITEMS)
-        #   3010 = 要再起動 (成功扱い)
-        #   その他 = エラー
+        # Exit code interpretation:
+        #   0    = success
+        #   259  = already up to date / nothing to add (ERROR_NO_MORE_ITEMS)
+        #   3010 = reboot required (treated as success)
+        #   else = error
         if ($exitCode -eq 0) {
             Show-Success "Imported: $modelName"
             $successCount++
@@ -212,7 +212,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Driver Import Results")
