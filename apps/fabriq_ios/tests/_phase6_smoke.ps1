@@ -20,6 +20,7 @@ $script:FabriqRoot    = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 . (Join-Path $script:FabriqIosRoot 'lib\commands\hostname.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\interface.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\ip_address.ps1')
+. (Join-Path $script:FabriqIosRoot 'lib\commands\categories.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\module.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\modes\global_config.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\modes\module_config.ps1')
@@ -79,9 +80,11 @@ $state = New-ShellState
 $state.Mode = 'GlobalConfig'
 
 $r = Get-FabriqIosCompletion -Line 'module ' -Position 7 -Mode 'GlobalConfig' -State $state
-Check 'module <space> -> module list (>=50)' ($r.Count -ge 50)
+# Phase 9: `module` is settings category only (~43 modules), not all 65.
+Check 'module <space> -> settings list (>=30)' ($r.Count -ge 30)
 Check 'module <space> -> contains reg_hklm_config' ($r -contains 'reg_hklm_config')
 Check 'module <space> -> excludes hostname_config' (-not ($r -contains 'hostname_config'))
+Check 'module <space> -> excludes cleanup mods' (-not ($r -contains 'directory_cleaner'))
 
 $r = Get-FabriqIosCompletion -Line 'module reg_h' -Position 12 -Mode 'GlobalConfig' -State $state
 Check 'module reg_h prefix filter -> reg_hklm_config + reg_hkcu_config' ($r.Count -eq 2)
@@ -97,25 +100,25 @@ Write-Host '--- Module-entry reject paths (no actual run) ---' -ForegroundColor 
 # Enter-ModuleConfigMode outside GlobalConfig is rejected
 $state = New-ShellState
 $state.Mode = 'PrivilegedExec'
-$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state }
+$out = Get-CapturedOutput { Enter-CategoryConfigMode -Verb 'module' -Name 'reg_hklm_config' -State $state }
 Check 'module entry rejected outside GlobalConfig' ($out -match 'global configuration mode')
 Check 'state stays PrivilegedExec'                 ($state.Mode -eq 'PrivilegedExec')
 
 # Empty / whitespace name
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name '' -State $state }
+$out = Get-CapturedOutput { Enter-CategoryConfigMode -Verb 'module' -Name '' -State $state }
 Check 'empty name -> incomplete'    ($out -match 'Incomplete')
 Check 'state stays GlobalConfig'    ($state.Mode -eq 'GlobalConfig')
 
-# Unknown name
-$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'definitely-not-a-module' -State $state }
-Check 'unknown name -> not found'   ($out -match 'not found')
+# Unknown name (Phase 9: rejected at Test-ModuleInCategory step)
+$out = Get-CapturedOutput { Enter-CategoryConfigMode -Verb 'module' -Name 'definitely-not-a-module' -State $state }
+Check 'unknown name -> not in category' ($out -match "is not in the 'settings' category")
 Check 'state stays GlobalConfig (unknown)' ($state.Mode -eq 'GlobalConfig')
 
-# Excluded name
-$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'hostname_config' -State $state }
-Check 'excluded name -> not found'  ($out -match 'not found')
+# Excluded name (Phase 9: settings category JSON does not list hostname_config either)
+$out = Get-CapturedOutput { Enter-CategoryConfigMode -Verb 'module' -Name 'hostname_config' -State $state }
+Check 'excluded name -> not in category' ($out -match "is not in the 'settings' category")
 
 Write-Host '--- Dispatcher integration (parser -> mode -> reject) ---' -ForegroundColor Cyan
 $state = New-ShellState
@@ -127,11 +130,11 @@ Check 'parser: module alone resolves' ($resolved.Command -eq 'module')
 $out = Get-CapturedOutput { Invoke-GlobalConfigCommand -Resolved $resolved -State $state }
 Check 'dispatcher: module alone -> incomplete' ($out -match 'Incomplete')
 
-# 'module unknown-x' -> not found
+# 'module unknown-x' -> not in settings category (Phase 9 wording)
 $resolved = Resolve-FabriqIosCommand -Tokens @('module','unknown-for-smoke') -Mode 'GlobalConfig'
 Check 'parser: module + arg resolves' ($resolved.Args.Count -eq 1)
 $out = Get-CapturedOutput { Invoke-GlobalConfigCommand -Resolved $resolved -State $state }
-Check 'dispatcher: unknown -> not found' ($out -match 'not found')
+Check 'dispatcher: unknown -> not in category' ($out -match "is not in the 'settings' category")
 Check 'state stays GlobalConfig (dispatcher)' ($state.Mode -eq 'GlobalConfig')
 
 Write-Host ''

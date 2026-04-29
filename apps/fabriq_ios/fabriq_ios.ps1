@@ -88,6 +88,7 @@ $global:AutoPilotWaitSec = 0
 . (Join-Path $PSScriptRoot 'lib\commands\hostname.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\interface.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\ip_address.ps1')
+. (Join-Path $PSScriptRoot 'lib\commands\categories.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\module.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\enable_disable.ps1')
 

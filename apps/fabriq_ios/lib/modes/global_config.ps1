@@ -21,17 +21,11 @@ function Invoke-GlobalConfigCommand {
             $alias = ($Resolved.Args -join ' ')
             Set-FabriqIosCurrentInterface -Alias $alias -State $State
         }
-        'module' {
-            if ($Resolved.Args.Count -lt 1) {
-                Write-Host "% Incomplete: 'module <name>' (try 'module ?')" -ForegroundColor Red
-                return
-            }
-            # Phase 7 redesign: enter ModuleConfig mode rather than
-            # immediately executing. Run happens via `set` / `add`
-            # inside (config-mod)#. The Phase 6 immediate-run path is
-            # intentionally retired.
-            Enter-ModuleConfigMode -Name $Resolved.Args[0] -State $State
-        }
+        'module'   { Invoke-VerbModeEntry -Verb 'module'   -Resolved $Resolved -State $State }
+        'cleanup'  { Invoke-VerbModeEntry -Verb 'cleanup'  -Resolved $Resolved -State $State }
+        'copy'     { Invoke-VerbModeEntry -Verb 'copy'     -Resolved $Resolved -State $State }
+        'install'  { Invoke-VerbModeEntry -Verb 'install'  -Resolved $Resolved -State $State }
+        'script'   { Invoke-VerbModeEntry -Verb 'script'   -Resolved $Resolved -State $State }
         'exit' { Set-ShellMode -State $State -NewMode 'PrivilegedExec' }
         'end'  { Set-ShellMode -State $State -NewMode 'PrivilegedExec' }
         'help' { Show-FabriqIosHelp -Mode $State.Mode }
