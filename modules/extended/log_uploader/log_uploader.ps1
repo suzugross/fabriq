@@ -1,7 +1,7 @@
 # ========================================
 # Log Uploader Module
-# logs/ と evidence/ を指定先へ一括コピー
-# UNC認証対応（AuthUser/AuthPass in CSV）
+# Bulk-copy logs/ and evidence/ to a configured destination.
+# Supports UNC authentication (AuthUser / AuthPass in CSV).
 # ========================================
 
 Show-Separator
