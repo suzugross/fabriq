@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-# Ctrl+C 送信用 / フォーカス非奪取ボタン
+# Ctrl+C send helper and no-activate button class for the floating UI
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -78,7 +78,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "step_list.csv"
 $steps = Import-ModuleCsv -Path $csvPath -FilterEnabled `
@@ -94,7 +94,7 @@ if ($steps.Count -eq 0) {
 
 
 # ========================================
-# Step 2: prompt/ ディレクトリとファイルの検証
+# Step 2: Validate prompt/ directory and prompt files
 # ========================================
 $promptDir    = Join-Path $PSScriptRoot "prompt"
 $hasAnyPrompt = $steps | Where-Object { -not [string]::IsNullOrWhiteSpace($_.PromptFile) }
@@ -108,7 +108,7 @@ if ($hasAnyPrompt -and (-not (Test-Path $promptDir))) {
 $missingFiles = @()
 foreach ($step in $steps) {
     if ([string]::IsNullOrWhiteSpace($step.PromptFile)) {
-        continue  # PromptFile が空のステップはコンパクトモードで表示
+        continue  # Steps with empty PromptFile render in compact mode
     }
     $chkPath = Join-Path $promptDir $step.PromptFile
     if (-not (Test-Path $chkPath)) {
@@ -125,7 +125,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 3: 実行確認
+# Step 3: Execution confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Start Manual Kitting Assistant? ($($steps.Count) steps)"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -136,24 +136,24 @@ Write-Host ""
 # ========================================
 # Gundam Light Theme - Color Palette
 # ========================================
-$bgForm     = [System.Drawing.Color]::FromArgb(240, 241, 245)  # 機体ホワイト
-$bgPanel    = [System.Drawing.Color]::FromArgb(255, 255, 255)  # 純白パネル
-$bgPrompt   = [System.Drawing.Color]::FromArgb(248, 249, 252)  # テキストエリア背景
-$fgText     = [System.Drawing.Color]::FromArgb( 28,  32,  40)  # メインテキスト
-$fgDim      = [System.Drawing.Color]::FromArgb(100, 110, 130)  # 補助テキスト
-$fgHeader   = [System.Drawing.Color]::FromArgb(255, 255, 255)  # ヘッダーテキスト
-$borderClr  = [System.Drawing.Color]::FromArgb(200, 208, 220)  # ボーダー
-$bgHeader   = [System.Drawing.Color]::FromArgb( 28,  43,  94)  # 連邦軍ブルー（濃紺）
-$accentGold = [System.Drawing.Color]::FromArgb(200, 160,  30)  # Vフィン ゴールド
-$btnRedBg   = [System.Drawing.Color]::FromArgb(190,  35,  28)  # ガンダムレッド（実行）
-$btnBlueBg  = [System.Drawing.Color]::FromArgb( 46,  95, 163)  # フェデラルブルー（コピー）
-$btnYellowBg = [System.Drawing.Color]::FromArgb(170, 130,   0)  # ガンダムイエロー（Ctrl+C）
-$btnNavyBg  = [System.Drawing.Color]::FromArgb( 28,  43,  94)  # 連邦軍ブルー（完了）
-$fgBtn      = [System.Drawing.Color]::FromArgb(255, 255, 255)  # ボタンテキスト
+$bgForm     = [System.Drawing.Color]::FromArgb(240, 241, 245)  # mecha white
+$bgPanel    = [System.Drawing.Color]::FromArgb(255, 255, 255)  # pure white panel
+$bgPrompt   = [System.Drawing.Color]::FromArgb(248, 249, 252)  # text area background
+$fgText     = [System.Drawing.Color]::FromArgb( 28,  32,  40)  # main text
+$fgDim      = [System.Drawing.Color]::FromArgb(100, 110, 130)  # secondary text
+$fgHeader   = [System.Drawing.Color]::FromArgb(255, 255, 255)  # header text
+$borderClr  = [System.Drawing.Color]::FromArgb(200, 208, 220)  # border
+$bgHeader   = [System.Drawing.Color]::FromArgb( 28,  43,  94)  # federation blue (deep navy)
+$accentGold = [System.Drawing.Color]::FromArgb(200, 160,  30)  # V-fin gold
+$btnRedBg   = [System.Drawing.Color]::FromArgb(190,  35,  28)  # gundam red (Execute)
+$btnBlueBg  = [System.Drawing.Color]::FromArgb( 46,  95, 163)  # federal blue (Copy)
+$btnYellowBg = [System.Drawing.Color]::FromArgb(170, 130,   0)  # gundam yellow (Ctrl+C)
+$btnNavyBg  = [System.Drawing.Color]::FromArgb( 28,  43,  94)  # federation blue (Done)
+$fgBtn      = [System.Drawing.Color]::FromArgb(255, 255, 255)  # button text
 
 
 # ========================================
-# Helper: ボタン生成
+# Helper: Button factory
 # ========================================
 function New-StepButton {
     param(
@@ -200,7 +200,7 @@ $form.TopMost         = $true
 $form.ShowInTaskbar   = $true
 $form.KeyPreview      = $true
 
-# 画面右下に配置
+# Place at the bottom-right of the screen
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $form.Location = New-Object System.Drawing.Point(
     ($screen.Right  - $form.Width  - 20),
@@ -209,7 +209,7 @@ $form.Location = New-Object System.Drawing.Point(
 
 
 # ----------------------------------------
-# ヘッダーパネル（連邦軍ブルー）
+# Header panel (federation blue)
 # ----------------------------------------
 $pnlHeader           = New-Object System.Windows.Forms.Panel
 $pnlHeader.Location  = New-Object System.Drawing.Point(0, 0)
@@ -217,7 +217,7 @@ $pnlHeader.Size      = New-Object System.Drawing.Size(476, 56)
 $pnlHeader.BackColor = $bgHeader
 $null = $form.Controls.Add($pnlHeader)
 
-# ステップ進捗（小文字・薄い青）
+# Step progress (small text, pale blue)
 $lblProgress          = New-Object System.Windows.Forms.Label
 $lblProgress.Location = New-Object System.Drawing.Point(12, 8)
 $lblProgress.Size     = New-Object System.Drawing.Size(456, 18)
@@ -226,7 +226,7 @@ $lblProgress.ForeColor = [System.Drawing.Color]::FromArgb(170, 190, 225)
 $lblProgress.BackColor = $bgHeader
 $null = $pnlHeader.Controls.Add($lblProgress)
 
-# ステップタイトル（太字・白）
+# Step title (bold white)
 $lblTitle           = New-Object System.Windows.Forms.Label
 $lblTitle.Location  = New-Object System.Drawing.Point(12, 28)
 $lblTitle.Size      = New-Object System.Drawing.Size(456, 22)
@@ -237,7 +237,7 @@ $null = $pnlHeader.Controls.Add($lblTitle)
 
 
 # ----------------------------------------
-# Vフィン ゴールドアクセントライン
+# V-fin gold accent line
 # ----------------------------------------
 $pnlAccent           = New-Object System.Windows.Forms.Panel
 $pnlAccent.Location  = New-Object System.Drawing.Point(0, 56)
@@ -247,7 +247,7 @@ $null = $form.Controls.Add($pnlAccent)
 
 
 # ----------------------------------------
-# プロンプト表示エリア
+# Prompt display area
 # ----------------------------------------
 $pnlPromptBg           = New-Object System.Windows.Forms.Panel
 $pnlPromptBg.Location  = New-Object System.Drawing.Point(0, 59)
@@ -271,7 +271,7 @@ $null = $pnlPromptBg.Controls.Add($txtPrompt)
 
 
 # ----------------------------------------
-# 区切り線
+# Separator line
 # ----------------------------------------
 $pnlSep           = New-Object System.Windows.Forms.Panel
 $pnlSep.Location  = New-Object System.Drawing.Point(10, 273)
@@ -281,8 +281,8 @@ $null = $form.Controls.Add($pnlSep)
 
 
 # ----------------------------------------
-# アクションボタン群
-# （初期Y位置は Update-StepDisplay で動的に設定）
+# Action button group
+# (initial Y is set dynamically by Update-StepDisplay)
 # ----------------------------------------
 $btnOpenCmd   = New-StepButton -Text "実行"           -BgColor $btnRedBg
 $btnCopy1     = New-StepButton -Text "コピー1"        -BgColor $btnBlueBg
@@ -315,7 +315,7 @@ $null = $form.Controls.Add($btnCtrlCSend)
 
 
 # ----------------------------------------
-# 完了ボタンパネル（最下部・固定）
+# Done button panel (bottom, fixed position)
 # ----------------------------------------
 $pnlDone           = New-Object System.Windows.Forms.Panel
 $pnlDone.Location  = New-Object System.Drawing.Point(0, 512)
@@ -323,7 +323,7 @@ $pnlDone.Size      = New-Object System.Drawing.Size(476, 56)
 $pnlDone.BackColor = $bgPanel
 $null = $form.Controls.Add($pnlDone)
 
-# 完了ボタン上部に細い区切り線
+# Thin separator above the Done button
 $pnlDoneSep           = New-Object System.Windows.Forms.Panel
 $pnlDoneSep.Location  = New-Object System.Drawing.Point(0, 0)
 $pnlDoneSep.Size      = New-Object System.Drawing.Size(476, 1)
@@ -336,7 +336,7 @@ $null = $pnlDone.Controls.Add($btnDone)
 
 # ========================================
 # Update-StepDisplay
-# CSV 1行分のデータを UI 全体に反映する
+# Reflect a single CSV row's data across the entire UI
 # ========================================
 function Update-StepDisplay {
     param(
@@ -345,17 +345,17 @@ function Update-StepDisplay {
         [int]$Total
     )
 
-    # ── フォームタイトル・ヘッダー ──
+    # -- Form title and header --
     $form.Text        = "Manual Kitting Assistant  [$Index / $Total]"
     $lblProgress.Text = "ステップ $($Step.StepID)   $Index / $Total"
     $lblTitle.Text    = $Step.StepTitle
 
-    # ── コンパクトモード判定 ──
+    # -- Compact-mode decision --
     $hasPrompt           = -not [string]::IsNullOrWhiteSpace($Step.PromptFile)
     $pnlPromptBg.Visible = $hasPrompt
     $pnlSep.Visible      = $hasPrompt
 
-    # ── プロンプトファイル読み込み ──
+    # -- Load prompt file --
     if ($hasPrompt) {
         $pPath = Join-Path $promptDir $Step.PromptFile
         try {
@@ -369,12 +369,12 @@ function Update-StepDisplay {
         $txtPrompt.ScrollToCaret()
     }
 
-    # ── 実行ボタン（OpenCommand が空なら非表示）──
+    # -- Execute button (hidden when OpenCommand is empty) --
     $hasCmd = -not [string]::IsNullOrWhiteSpace($Step.OpenCommand)
     $btnOpenCmd.Visible = $hasCmd
     $btnOpenCmd.Tag = @{ Cmd = $Step.OpenCommand; Args = $Step.OpenArgs }
 
-    # ── コピーボタン（値が空なら非表示）──
+    # -- Copy buttons (each hidden when its value is empty) --
     @(
         @{ Btn = $btnCopy1; Val = $Step.Copy1 }
         @{ Btn = $btnCopy2; Val = $Step.Copy2 }
@@ -385,10 +385,10 @@ function Update-StepDisplay {
         $_.Btn.Tag = $_.Val
     }
 
-    # ── 可視ボタンのY座標を上から詰める ──
+    # -- Pack visible buttons from the top --
     $btnAreaTop = if ($hasPrompt) { 282 } else { 72 }
     $y          = $btnAreaTop
-    $spacing    = 46   # ボタン高さ(38px) + 余白(8px)
+    $spacing    = 46   # button height (38px) + margin (8px)
     foreach ($btn in @($btnOpenCmd, $btnCopy1, $btnCopy2, $btnCopy3, $btnCtrlCSend)) {
         if ($btn.Visible) {
             $btn.Location = New-Object System.Drawing.Point(10, $y)
@@ -396,19 +396,19 @@ function Update-StepDisplay {
         }
     }
 
-    # ── フォーム高さを動的調整 ──
+    # -- Adjust form height dynamically --
     if ($hasPrompt) {
-        # 通常モード: 固定高さ
+        # Normal mode: fixed height
         $form.ClientSize  = New-Object System.Drawing.Size(476, 568)
         $pnlDone.Location = New-Object System.Drawing.Point(0, 512)
     }
     else {
-        # コンパクトモード: ボタン数に応じてリサイズ
+        # Compact mode: resize to fit the visible button count
         $pnlDoneY  = $y + 8
         $newHeight = $pnlDoneY + 56
         $form.ClientSize  = New-Object System.Drawing.Size(476, $newHeight)
         $pnlDone.Location = New-Object System.Drawing.Point(0, $pnlDoneY)
-        # 画面右下に再配置
+        # Reposition to the bottom-right of the screen
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
         $form.Location = New-Object System.Drawing.Point(
             ($screen.Right  - $form.Width  - 20),
@@ -419,19 +419,19 @@ function Update-StepDisplay {
 
 
 # ========================================
-# アクション状態変数
+# Action state variable
 # ========================================
 $script:UserAction = $null   # "next" | "finished"
 
 
 # ========================================
-# ボタンイベント
+# Button event handlers
 # ========================================
 
-# 完了ボタン → 次のステップへ
+# Done button -> proceed to next step
 $btnDone.Add_Click({ $script:UserAction = "next" })
 
-# キーボードショートカット: F2 = 完了
+# Keyboard shortcut: F2 = Done
 $form.Add_KeyDown({
     param($sender, $e)
     if ($e.KeyCode -eq [System.Windows.Forms.Keys]::F2) {
@@ -441,8 +441,8 @@ $form.Add_KeyDown({
     }
 })
 
-# X ボタン → キャンセル確認ダイアログ
-# gyotaq パターン準拠: フォームは閉じずメインループが "cancel" を検知してから閉じる
+# X button -> cancel confirmation dialog
+# gyotaq pattern: do not close the form here; let the main loop detect "cancel" and close it
 $form.Add_FormClosing({
     param($sender, $e)
     if ($script:UserAction -ne "finished") {
@@ -455,11 +455,11 @@ $form.Add_FormClosing({
         if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
             $script:UserAction = "cancel"
         }
-        $e.Cancel = $true  # 閉じ処理はメインループに委ねる
+        $e.Cancel = $true  # delegate the close to the main loop
     }
 })
 
-# ── 実行ボタン ──
+# -- Execute button --
 # Tag = @{ Cmd = OpenCommand; Args = OpenArgs }
 $btnOpenCmd.Add_Click({
     $tag = $btnOpenCmd.Tag
@@ -483,8 +483,8 @@ $btnOpenCmd.Add_Click({
     }
 })
 
-# ── コピーボタン共通処理 ──
-# クリック時にボタンを緑でフラッシュしてクリップボードコピーを視覚的に通知する
+# -- Copy buttons (shared handler) --
+# Flash the button green on click as a visual cue that the copy succeeded
 function Invoke-ClipboardCopy {
     param(
         [System.Windows.Forms.Button]$Btn,
@@ -494,7 +494,7 @@ function Invoke-ClipboardCopy {
     if ($null -eq $value -or [string]::IsNullOrWhiteSpace($value)) { return }
     try {
         Set-Clipboard -Value $value
-        $Btn.BackColor = [System.Drawing.Color]::FromArgb(34, 130, 60)  # 緑フラッシュ
+        $Btn.BackColor = [System.Drawing.Color]::FromArgb(34, 130, 60)  # green flash
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 600
         $Btn.BackColor = $OriginalColor
@@ -508,11 +508,11 @@ $btnCopy1.Add_Click({ Invoke-ClipboardCopy -Btn $btnCopy1 -OriginalColor $btnBlu
 $btnCopy2.Add_Click({ Invoke-ClipboardCopy -Btn $btnCopy2 -OriginalColor $btnBlueBg })
 $btnCopy3.Add_Click({ Invoke-ClipboardCopy -Btn $btnCopy3 -OriginalColor $btnBlueBg })
 
-# ── Ctrl+C 送信 ──
-# WS_EX_NOACTIVATE によりクリック時もフォームはフォアグラウンドにならない。
-# GetForegroundWindow はクリック時点の操作対象ウィンドウ（Edge等）を返す。
-# SetForegroundWindow で明示的に対象ウィンドウへフォーカスを保証してから
-# C# ラッパー SendCtrlC() で keybd_event を発行する。
+# -- Ctrl+V send --
+# WS_EX_NOACTIVATE keeps the form from stealing focus on click.
+# GetForegroundWindow returns the user-facing target window at click time
+# (e.g., Edge). We re-assert focus to that target via SetForegroundWindow
+# and then issue keybd_event through the C# wrapper SendCtrlV().
 $btnCtrlCSend.Add_Click({
     $target = [FabriqCtrlCSender]::GetForegroundWindow()
     if ($target -eq [IntPtr]::Zero -or $target -eq $form.Handle) { return }
@@ -525,13 +525,13 @@ $btnCtrlCSend.Add_Click({
 
 
 # ========================================
-# フォーム表示（モードレス）
+# Show the form (modeless)
 # ========================================
 $form.Show()
 
 
 # ========================================
-# メインループ
+# Main loop
 # ========================================
 $totalSteps     = $steps.Count
 $completedCount = 0
@@ -542,19 +542,19 @@ foreach ($step in $steps) {
     $current++
     $script:UserAction = $null
 
-    # UI を現在ステップのデータで更新
+    # Update the UI with the current step's data
     Update-StepDisplay -Step $step -Index $current -Total $totalSteps
 
     Show-Info "[$current/$totalSteps] $($step.StepID): $($step.StepTitle)"
 
-    # ユーザーが「完了」または「キャンセル」を押すまで DoEvents ポーリングで待機
+    # Wait via DoEvents polling until the user presses Done or Cancel
     while ($null -eq $script:UserAction) {
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 50
     }
 
     if ($script:UserAction -eq "cancel") {
-        # 現在ステップ + 残りステップをすべてスキップ扱い
+        # Mark the current step plus all remaining steps as Skip
         $skipCount += ($totalSteps - $current + 1)
         Show-Info "Cancelled by user. Remaining steps skipped."
         Write-Host ""
@@ -568,7 +568,7 @@ foreach ($step in $steps) {
 
 
 # ========================================
-# 終了処理
+# Cleanup
 # ========================================
 $script:UserAction = "finished"
 $form.Close()
@@ -576,7 +576,7 @@ $form.Dispose()
 
 
 # ========================================
-# 結果返却
+# Return result
 # ========================================
 return (New-BatchResult -Success $completedCount -Skip $skipCount -Fail 0 `
     -Title "Manual Kitting Assistant Results")
