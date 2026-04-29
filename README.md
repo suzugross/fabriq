@@ -27,7 +27,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 57 種、Extended 16 種、計 73 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
+| **モジュールシステム** | Standard 57 種、Extended 14 種、計 71 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は完全自動化 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -58,7 +58,7 @@ fabriq/
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
 │   ├── standard/           # 標準モジュール群（57）
-│   └── extended/           # 拡張モジュール群（16）
+│   └── extended/           # 拡張モジュール群（14）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
 │   ├── fabriq_operator/    # メインダッシュボード GUI
@@ -183,7 +183,7 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode
 
 `windows_update` は GUI ダッシュボードの **Windows Update** ボタン専用で、`module.csv` を持たず Script Menu には表示されません。
 
-### Extended モジュール（16）
+### Extended モジュール（14）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -191,8 +191,6 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode
 | **Display** | `display_config`, `dpi_config` |
 | **Desktop** | `desktop_icon_config` |
 | **User Management** | `builtin_admin_config`, `group_config` |
-| **Applications** | `edge_config` |
-| **Media Codec** | `heif_config` |
 | **Maintenance** | `directory_cleaner`, `history_destroyer` |
 | **System** | `azure_ad_join_check`, `reg_template` |
 | **Scripts** | `script_looper` |

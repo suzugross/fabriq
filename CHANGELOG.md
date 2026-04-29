@@ -15,7 +15,27 @@
 
 ## [Unreleased]
 
+### Removed
+- modules/extended/edge_config: 削除（Edge プロファイルの robocopy /MIR
+  バックアップ/復元。プロファイル参照ゼロ・コード依存ゼロを確認の上、
+  現場固有度が高すぎるためフレームワークから除去）
+- modules/extended/heif_config: 削除（HEIF/HEVC AppxBundle 同梱モジュール。
+  プロファイル参照ゼロ・コード依存ゼロを確認の上、使用頻度が低すぎる
+  ためフレームワークから除去。約 27MB の同梱バイナリも除去）
+- apps/99_old/: 削除（autokey_recipe_editor / digital_gyotaq_editor /
+  profile_editor / registry_collection_app の退役 GUI アプリ群。
+  target_apps.csv からの参照ゼロを確認）
+- kernel/csv/categories.csv: heif_config 削除に伴い孤児化した
+  `Media Codec,120` 行を除去
+- README.md: Extended 一覧から edge_config / heif_config 行と
+  `Media Codec` カテゴリを除去。モジュール数 73 → 71、Extended 16 → 14
+  に更新
+
 ### Changed
+- modules/standard/fabriq_app_launcher: Guide.txt の記載例を退役 GUI
+  アプリ（autokey_recipe_editor / digital_gyotaq_editor）から現存する
+  apps/ 配下のもの（winget_gui / storeapp_editor / local_user_setup）に
+  差し替え
 - modules/standard/evidence_config: VERSION 1.4.0 → **1.5.0**
   - **§22 Office License を 4 段構成に拡張**（22a C2R / 22b OSPP /
     22c vNext per-user / 22d 自動解釈）。M365 subscription 環境で
