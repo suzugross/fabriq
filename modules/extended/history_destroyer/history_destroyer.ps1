@@ -18,7 +18,7 @@ Write-Host ""
 
 
 # ========================================
-# [P/Invoke] ごみ箱の完全消去に使用
+# [P/Invoke] used for fully emptying the Recycle Bin
 # ========================================
 Add-Type -MemberDefinition @'
     [DllImport("Shell32.dll")]
@@ -27,12 +27,12 @@ Add-Type -MemberDefinition @'
 
 
 # ========================================
-# プライベート関数群: Special ハンドラ
+# Private function group: Special handlers
 # ========================================
 
 # ----------------------------------------
-# ディスパッチャ: TargetPath → 対応ハンドラへ振り分け
-# 戻り値: "Success" or "Skip"（失敗時は throw）
+# Dispatcher: route TargetPath -> matching handler
+# Returns "Success" or "Skip" (handlers throw on failure)
 # ----------------------------------------
 function Invoke-DestroyHandler {
     param([string]$HandlerName)
@@ -49,7 +49,7 @@ function Invoke-DestroyHandler {
 }
 
 # ----------------------------------------
-# (1) イベントログ全消去
+# (1) Clear every event log
 # ----------------------------------------
 function Clear-AllEventLogs {
     $logs = Get-WinEvent -ListLog * -Force -ErrorAction SilentlyContinue
@@ -69,7 +69,7 @@ function Clear-AllEventLogs {
 }
 
 # ----------------------------------------
-# (2) ごみ箱消去 (P/Invoke)
+# (2) Empty Recycle Bin (P/Invoke)
 # ----------------------------------------
 function Clear-RecycleBinSafe {
     # Flags: SHERB_NOCONFIRMATION(1) | SHERB_NOPROGRESSUI(2) | SHERB_NOSOUND(4) = 7
@@ -79,14 +79,14 @@ function Clear-RecycleBinSafe {
         Show-Success "Recycle Bin emptied"
     }
     else {
-        # -2147418113 (0x8000FFFF) 等: ごみ箱が空の場合も正常
+        # HRESULT values like -2147418113 (0x8000FFFF) just mean the bin was already empty
         Show-Info "Recycle Bin already empty or emptied (HRESULT: $result)"
     }
     return "Success"
 }
 
 # ----------------------------------------
-# (3) Office MRU レジストリ動的列挙・削除
+# (3) Enumerate Office MRU registry keys dynamically and delete them
 # ----------------------------------------
 function Clear-OfficeMRU {
     $officeBase = "HKCU:\Software\Microsoft\Office"
@@ -120,7 +120,7 @@ function Clear-OfficeMRU {
 }
 
 # ----------------------------------------
-# (4)(5) ブラウザデータ削除（Edge / Chrome 共通）
+# (4)(5) Browser data cleanup (shared Edge / Chrome implementation)
 # ----------------------------------------
 function Clear-BrowserData {
     param(
@@ -134,7 +134,7 @@ function Clear-BrowserData {
         return "Skip"
     }
 
-    # ブラウザプロセス停止
+    # Stop the browser process
     $proc = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
     if ($proc) {
         try {
@@ -146,7 +146,7 @@ function Clear-BrowserData {
         }
     }
 
-    # 削除対象（元コード 14種）
+    # Targets to delete (14 entries from the original implementation)
     $browserTargets = @(
         "Cache", "Code Cache", "GPUCache",
         "History", "Cookies", "Cookies-journal",
@@ -156,7 +156,7 @@ function Clear-BrowserData {
         "Session Storage", "Local Storage"
     )
 
-    # 全プロファイルを列挙（Default, Profile 1, Profile 2, ...）
+    # Enumerate every profile (Default, Profile 1, Profile 2, ...)
     $profiles = Get-ChildItem $BasePath -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -eq "Default" -or $_.Name -match "^Profile " }
 
@@ -170,7 +170,7 @@ function Clear-BrowserData {
                     $cleanedCount++
                 }
                 catch {
-                    # ロック中ファイルは無視して継続
+                    # Ignore locked files and continue
                 }
             }
         }
@@ -181,7 +181,7 @@ function Clear-BrowserData {
 }
 
 # ----------------------------------------
-# (6) Windows Search インデックス再構築
+# (6) Rebuild the Windows Search index
 # ----------------------------------------
 function Clear-SearchIndex {
     $wsearchService = Get-Service -Name "WSearch" -ErrorAction SilentlyContinue
@@ -193,13 +193,13 @@ function Clear-SearchIndex {
     $searchDbPath = "$env:ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb"
 
     try {
-        # サービス停止
+        # Stop the service
         if ($wsearchService.Status -eq "Running") {
             Stop-Service -Name "WSearch" -Force -ErrorAction Stop
             Start-Sleep -Seconds 2
         }
 
-        # インデックスDB 削除
+        # Delete the index database
         if (Test-Path $searchDbPath) {
             Remove-Item $searchDbPath -Force -ErrorAction Stop
             Show-Success "Search index deleted"
@@ -209,12 +209,12 @@ function Clear-SearchIndex {
         }
     }
     catch {
-        # エラー発生時もサービス再起動を試行してから再 throw
+        # On error, still try to restart the service before re-throwing
         $null = Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
         throw
     }
     finally {
-        # 正常・異常問わずサービス再起動を保証
+        # Guarantee service restart on both success and failure paths
         $null = Start-Service -Name "WSearch" -ErrorAction SilentlyContinue
     }
 
@@ -222,7 +222,7 @@ function Clear-SearchIndex {
 }
 
 # ----------------------------------------
-# (7) キッティング用 Wi-Fi プロファイル削除 (ssid_list.csv)
+# (7) Delete kitting-time Wi-Fi profiles (ssid_list.csv)
 # ----------------------------------------
 function Clear-WiFiProfiles {
     $ssidCsvPath = Join-Path $PSScriptRoot "ssid_list.csv"
@@ -234,11 +234,11 @@ function Clear-WiFiProfiles {
 
     $ssidItems = Import-ModuleCsv -Path $ssidCsvPath -FilterEnabled
     if ($null -eq $ssidItems -or $ssidItems.Count -eq 0) {
-        # Import-ModuleCsv -FilterEnabled が既に Skip メッセージを出力済み
+        # Import-ModuleCsv -FilterEnabled already printed the Skip message
         return "Skip"
     }
 
-    # Wi-Fi サービス確認
+    # Confirm the Wi-Fi service is available
     $wlanSvc = Get-Service -Name "WlanSvc" -ErrorAction SilentlyContinue
     if (-not $wlanSvc -or $wlanSvc.Status -ne "Running") {
         Show-Skip "Wi-Fi service (WlanSvc) not available on this device"
@@ -253,7 +253,7 @@ function Clear-WiFiProfiles {
         $ssidName = $ssidItem.SSID
         $label = if ($ssidItem.Description) { "$ssidName ($($ssidItem.Description))" } else { $ssidName }
 
-        # 冪等性: プロファイル存在確認
+        # Idempotency: confirm the profile exists before deleting
         $null = & netsh wlan show profile name="$ssidName" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Show-Skip "Not found: $label"
@@ -261,7 +261,7 @@ function Clear-WiFiProfiles {
             continue
         }
 
-        # 削除
+        # Delete
         $null = & netsh wlan delete profile name="$ssidName" 2>&1
         if ($LASTEXITCODE -eq 0) {
             Show-Success "Deleted: $label"
@@ -283,10 +283,10 @@ function Clear-WiFiProfiles {
 
 
 # ========================================
-# Step 0: Explorer 停止（全操作の前提）
+# Step 0: Stop Explorer (prerequisite for every other operation)
 # ========================================
-# Explorer を停止してファイルロックを解除する。
-# メインループの外で手続き的に実行する。
+# Stopping Explorer releases the file locks it holds.
+# Run this once procedurally, outside the main loop.
 # ========================================
 Show-Warning "Explorer will be temporarily stopped during cleanup."
 Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
@@ -304,7 +304,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "destroy_list.csv"
 
@@ -318,7 +318,7 @@ if ($enabledItems.Count -eq 0) {
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
-# DeletePath の環境変数を展開（file_delete パターン準拠）
+# Expand environment variables in DeletePath targets (file_delete-style)
 foreach ($item in $enabledItems) {
     if ($item.ActionType -eq "DeletePath") {
         $item.TargetPath = Expand-UserEnvironmentVariables $item.TargetPath
@@ -327,14 +327,14 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（Early Return）
+# Step 2: Prerequisite check (early return)
 # ========================================
-# fabriq は管理者権限で起動されることが前提のため、
-# ここでは追加の前提条件チェックは省略する。
+# fabriq is always launched with admin privileges, so no extra
+# prerequisite check is needed here.
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Show-Info "Cleanup targets: $($enabledItems.Count) items"
 Write-Host ""
@@ -344,7 +344,7 @@ Write-Host "Destruction Targets" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-# GroupName でグルーピングして表示
+# Group by GroupName for display
 $groups = $enabledItems | Group-Object -Property GroupName
 
 foreach ($group in $groups) {
@@ -362,7 +362,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Proceed with history destruction?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -371,7 +371,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: メイン処理ループ
+# Step 5: Main processing loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -393,7 +393,7 @@ foreach ($item in $enabledItems) {
         switch ($item.ActionType) {
 
             "DeletePath" {
-                # ベストエフォート削除: 存在確認 → 最大限削除 → 残存チェック
+                # Best-effort delete: probe -> delete what we can -> verify residue
                 if (-not (Test-Path $item.TargetPath)) {
                     if ($ifNotFound -eq "Error") {
                         Show-Error "Target not found: $($item.TargetPath)"
@@ -407,10 +407,10 @@ foreach ($item in $enabledItems) {
                     continue
                 }
 
-                # SilentlyContinue: ロック中ファイルをスキップしつつ削除可能なものはすべて削除
+                # SilentlyContinue: skip locked files, delete everything else
                 Remove-Item -Path $item.TargetPath -Force -Recurse -ErrorAction SilentlyContinue
 
-                # 事後チェック: 残存ファイルの有無で Success / Warning を判定
+                # Post-check: decide Success / Warning based on residue
                 if (Test-Path $item.TargetPath) {
                     Show-Warning "Partially deleted: $displayName (some files in use)"
                 }
@@ -421,7 +421,7 @@ foreach ($item in $enabledItems) {
             }
 
             "ClearRegistry" {
-                # レジストリキーの値クリア（キー構造は保持、値のみ削除）
+                # Clear registry key values (preserve the key tree, drop only the values)
                 if (-not (Test-Path $item.TargetPath)) {
                     if ($ifNotFound -eq "Error") {
                         Show-Error "Registry key not found: $($item.TargetPath)"
@@ -435,10 +435,10 @@ foreach ($item in $enabledItems) {
                     continue
                 }
 
-                # 直下のプロパティ（値）をクリア
+                # Clear the immediate properties (values)
                 $null = Remove-ItemProperty -Path $item.TargetPath -Name * -Force -ErrorAction SilentlyContinue
 
-                # サブキーが存在する場合、各サブキーの値もクリア（キー構造は保持）
+                # If subkeys exist, also clear their values (still preserving the key tree)
                 $subKeys = Get-ChildItem -Path $item.TargetPath -ErrorAction SilentlyContinue
                 foreach ($subKey in $subKeys) {
                     $null = Remove-ItemProperty -Path $subKey.PSPath -Name * -Force -ErrorAction SilentlyContinue
@@ -449,15 +449,16 @@ foreach ($item in $enabledItems) {
             }
 
             "Command" {
-                # 単純ワンライナーコマンドの実行
+                # Execute a simple one-liner command
                 $null = Invoke-Expression $item.TargetPath
                 Show-Success "Command executed: $displayName"
                 $successCount++
             }
 
             "Special" {
-                # ディスパッチャ経由でハンドラを呼び出し
-                # 戻り値: "Success" → $successCount / "Skip" → $skipCount / throw → catch で $failCount
+                # Invoke the handler via the dispatcher.
+                # Return values: "Success" -> $successCount, "Skip" -> $skipCount,
+                # throw -> caught below as $failCount.
                 $handlerResult = Invoke-DestroyHandler -HandlerName $item.TargetPath
                 if ($handlerResult -eq "Skip") {
                     $skipCount++
@@ -483,7 +484,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# 最終Step: Explorer 再起動
+# Final step: restart Explorer
 # ========================================
 Show-Info "Restarting Explorer..."
 
@@ -499,7 +500,7 @@ if ($restarted) {
     Show-Success "Explorer restarted (${elapsed}s)"
 }
 else {
-    # Windows の自動再起動が間に合わなかった場合のみ明示的に起動
+    # Only force-start when Windows did not auto-revive Explorer in time
     Start-Process "explorer.exe"
     Show-Warning "Explorer auto-restart timed out. Started manually."
 }
@@ -507,7 +508,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "History Destroyer Results")
