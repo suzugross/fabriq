@@ -15,6 +15,13 @@
 
 ## [Unreleased]
 
+### Added
+- dev/verify_comments_only.ps1: 新規追加。.ps1 ファイルの変更が
+  「コメントのみ」であることを PowerShell parser の AST トークン
+  比較で機械的に証明するための検証ツール。日本語コメントを英語に
+  一掃する作業の安全装置として導入。Mode 1（任意 2 パス比較）と
+  Mode 2（working tree vs git HEAD 比較）をサポート
+
 ## [3.0.0] - 2026-04-29
 
 ### Removed (BREAKING)
