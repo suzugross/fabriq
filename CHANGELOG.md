@@ -65,7 +65,9 @@
   Comment-Based Help の `.SYNOPSIS` / `.DESCRIPTION` / `.PARAMETER`
   等の dot-keyword は不変保持。runtime に必要な日本語ロケール
   エラー検出文字列（`'used by another process|別のプロセス'`）は
-  機能コードのため残置。AST verifier 想定 PASS
+  機能コードのため残置。AST verifier PASS（13606 トークン一致）
+- kernel/main.ps1: コメントを日本語から英語へ全面置換（6 行）。
+  sed-based code-strip diff: IDENTICAL（block コメントなし）
 
 ## [3.0.0] - 2026-04-29
 
