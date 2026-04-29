@@ -1,19 +1,20 @@
 ﻿<#
 .SYNOPSIS
-    Office Deployment Tool (ODT) スタンドアロンインストーラー (修正版)
-    
+    Office Deployment Tool (ODT) standalone installer (revised).
+
 .DESCRIPTION
-    configuration.xml 内の <Add> 要素にある SourcePath 属性を
-    現在のフォルダの絶対パスに書き換えてインストールを実行します。
-    
+    Rewrites the SourcePath attribute on the <Add> element inside
+    configuration.xml to the current folder's absolute path, then
+    runs the installer.
+
 .PARAMETER XmlFileName
-    同じフォルダにある構成ファイルのファイル名（デフォルト: configuration.xml）
+    Configuration filename in the same folder (default: configuration.xml).
 #>
 Param(
     [string]$XmlFileName = "configuration.xml"
 )
 
-# 簡易ログ出力関数
+# Lightweight logging helper
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $TimeStamp = Get-Date -Format "yyyy/MM/dd HH:mm:ss"
@@ -31,7 +32,7 @@ $ErrorActionPreference = "Stop"
 try {
     Write-Log "処理を開始します。"
 
-    # 1. パスの設定（スクリプトの配置場所を基準にする）
+    # 1. Path setup (anchored to the script location)
     $BaseDir = $PSScriptRoot
     $SetupExePath = Join-Path $BaseDir "setup.exe"
     $ConfigXmlPath = Join-Path $BaseDir $XmlFileName
@@ -39,7 +40,7 @@ try {
 
     Write-Log "作業ディレクトリ: $BaseDir"
 
-    # 2. 資材チェック
+    # 2. Material check
     if (-not (Test-Path $SetupExePath)) {
         throw "setup.exe が見つかりません。配置場所: $SetupExePath"
     }
@@ -47,42 +48,42 @@ try {
         throw "構成ファイルが見つかりません。配置場所: $ConfigXmlPath"
     }
 
-    # 3. XMLの動的書き換え (Addタグへの絶対パス注入)
+    # 3. Dynamic XML rewrite (inject absolute path into the <Add> tag)
     Write-Log "構成ファイル($XmlFileName)を読み込み、<Add>タグの SourcePath を設定します..."
     
-    # XML読込
+    # Load the XML
     $XmlContent = [xml](Get-Content $ConfigXmlPath -Encoding UTF8)
     
-    # <Configuration> ノードの確認
+    # Verify the <Configuration> node exists
     if ($null -eq $XmlContent.Configuration) {
         throw "XMLファイルに <Configuration> ノードが見つかりません。"
     }
 
-    # <Add> ノードの取得
+    # Get the <Add> node
     $AddNode = $XmlContent.Configuration.Add
     if ($null -eq $AddNode) {
         throw "XMLファイルに <Add> ノードが見つかりません。構成ファイルを確認してください。"
     }
 
-    # SourcePath 属性を現在の絶対パスで上書き設定
-    # 元が "C:\" などになっていても、ここで $BaseDir に書き換わります
+    # Overwrite the SourcePath attribute with the current absolute path.
+    # Any prior value (e.g., "C:\") is replaced with $BaseDir here.
     $AddNode.SetAttribute("SourcePath", $BaseDir)
     
-    # 一時ファイルとして保存
+    # Save as a temp file
     $XmlContent.Save($TempXmlPath)
     Write-Log "一時構成ファイルを作成しました: $TempXmlPath"
     Write-Log "適用されたSourcePath: $BaseDir"
 
-    # 4. インストール実行
+    # 4. Run the installer
     Write-Log "Officeのインストールを開始します。完了まで待機してください..."
     
-    # 引数: /configure "一時ファイルの絶対パス"
+    # Args: /configure "<absolute path to temp file>"
     $Arguments = "/configure `"$TempXmlPath`""
     
-    # プロセス起動 (Waitで待機)
+    # Start the process (block via -Wait)
     $Process = Start-Process -FilePath $SetupExePath -ArgumentList $Arguments -Wait -NoNewWindow -PassThru
     
-    # 5. 結果確認
+    # 5. Check the result
     if ($Process.ExitCode -eq 0) {
         Write-Log "インストールが正常に完了しました。(ExitCode: 0)" "INFO"
     } else {
@@ -97,7 +98,7 @@ try {
     }
     exit 1
 } finally {
-    # 6. 後始末
+    # 6. Cleanup
     if (Test-Path $TempXmlPath) {
         try {
             Remove-Item -Force $TempXmlPath
