@@ -12,8 +12,9 @@ Fabriq内蔵アプリ（apps/ ディレクトリ）を起動します。
                 kernel/common.ps1 の Import-ModuleCsv が自動フィルタします。
 
 [記載例]
-  1,autokey_recipe_editor,1,AutoKey Recipe Editor,
-  1,digital_gyotaq_editor,0,Digital Gyotaq Editor,
+  1,winget_gui,1,Winget GUI,
+  1,storeapp_editor,1,Store App Editor,
+  1,local_user_setup,1,Local User Setup,
 
 ■ 前提条件
 ・apps/ ディレクトリが存在すること（モジュール位置の3階層上）

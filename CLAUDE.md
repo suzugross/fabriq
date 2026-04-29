@@ -116,7 +116,7 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
 - KERNEL_API.md の更新 : あり / なし
 - touched modules :
     <module_name> : X.Y.Z → X.Y.Z+N（種別 / 理由）
-- untouched modules : N/73（一切触っていないモジュール数）
+- untouched modules : N/71（一切触っていないモジュール数）
 - 配備方針 : kernel/ フォルダ差し替えのみで OK / モジュール X の更新も必要 / 全件再配布必要
 ```
 
