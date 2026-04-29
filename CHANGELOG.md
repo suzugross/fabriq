@@ -15,6 +15,26 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_ios/: `(config-if)# ip address` extended to accept up
+  to 5 positional args, allowing fully ad-hoc IP configuration
+  without requiring a host to be bound. Previous form
+  `<ip> <mask>` (Gateway / DNS still inherited from the bound host)
+  remains. New trailing arguments are all optional:
+    ip address from-hostlist                              (existing)
+    ip address <ip> <mask>                                (existing)
+    ip address <ip> <mask> <gw>                           (NEW)
+    ip address <ip> <mask> <gw> <dns1>                    (NEW)
+    ip address <ip> <mask> <gw> <dns1> <dns2>             (NEW)
+  Invoke-IpAddressManual extended to accept Gateway / Dns1 / Dns2
+  parameters and to seed an `(adhoc)` SELECTED_NEW_PCNAME identity
+  (with $env:COMPUTERNAME for OldPCName, '0' for KanriNo) when no
+  host is bound, so ipaddress_config still has display data even
+  without prior `(config)# hostname <NewName>`. All env-var
+  mutations remain saved/restored in finally. Use case: setting a
+  freshly-thought-up IP that does not correspond to any hostlist
+  row.
+
 ### Added
 - apps/fabriq_ios/: Phase 7 implementation - ModuleConfig
   (config-mod)# mode for ephemeral module configuration. Cisco IOS
