@@ -2912,10 +2912,6 @@ function Resolve-ProfileModules {
         $specialMarkers = @{
             '__RESTART__'    = @{ MenuName = "[RESTART]";    Flag = "_IsRestart" }
             '__REEXPLORER__' = @{ MenuName = "[REEXPLORER]"; Flag = "_IsReexplorer" }
-            '__STOPLOG__'    = @{ MenuName = "[STOPLOG]";    Flag = "_IsStopLog" }
-            '__STARTLOG__'   = @{ MenuName = "[STARTLOG]";   Flag = "_IsStartLog" }
-            '__SHUTDOWN__'   = @{ MenuName = "[SHUTDOWN]";   Flag = "_IsShutdown" }
-            '__PAUSE__'      = @{ MenuName = "[PAUSE]";      Flag = "_IsPause" }
         }
 
         if ($specialMarkers.ContainsKey($path)) {
@@ -3017,8 +3013,7 @@ function Show-ProfileConfirmation {
     $index = 1
     foreach ($m in $Modules) {
         # Check for any special marker
-        $isSpecial = $m._IsRestart -or $m._IsReexplorer -or $m._IsStopLog -or
-                     $m._IsStartLog -or $m._IsShutdown -or $m._IsPause
+        $isSpecial = $m._IsRestart -or $m._IsReexplorer
         if ($isSpecial) {
             Write-Host "  [$index] --- $($m.MenuName) ---" -ForegroundColor Yellow
         }
@@ -4040,22 +4035,6 @@ function Save-Screenshot {
     catch {
         return $null
     }
-}
-
-function Invoke-CountdownShutdown {
-    param([int]$Seconds = 5)
-
-    Write-Host ""
-    Write-Host "The computer will shut down in $Seconds seconds..." -ForegroundColor Yellow
-    Write-Host "Press Ctrl+C to abort" -ForegroundColor Yellow
-    Write-Host ""
-    for ($i = $Seconds; $i -ge 1; $i--) {
-        Write-Host "`r  Shutting down in $i seconds... " -NoNewline -ForegroundColor Yellow
-        Start-Sleep -Seconds 1
-    }
-    Write-Host ""
-    Stop-Computer -Force
-    Start-Sleep -Seconds 30
 }
 
 function Invoke-CountdownSignout {

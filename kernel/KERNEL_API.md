@@ -99,10 +99,7 @@
 | `__AUTOPILOT__` | 以降を AutoPilot 化（`Description` に `WaitSec=N`） |
 | `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行（Skip ボタン / timeout で強制中断可能、since kernel 2.1.0） |
 | `__RESTART__` | Windows 再起動 + RunOnce 経由で再開 |
-| `__SHUTDOWN__` | Windows シャットダウン |
-| `__PAUSE__` | ユーザー入力待ち |
 | `__REEXPLORER__` | Explorer 再起動 |
-| `__STOPLOG__` / `__STARTLOG__` | Transcript 停止・再開 |
 | `__AUTO_to_<User>__` | `autologon_config` に User 指定で呼び出し |
 
 ---
@@ -136,7 +133,7 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Invoke-SafeCommand` / `Invoke-SafeCommandAsync` / `Invoke-BatchExecution` / `Invoke-KittingScript`
 - `Resolve-ProfileModules` / `Initialize-ModuleSystem` / `Build-CategoryMenu` / `Load-Profiles`
 - `Save-ResumeState` / `Load-ResumeState` / `Remove-ResumeState` / `Restore-HostEnvironment`
-- `Register-FabriqRunOnce` / `Invoke-CountdownRestart` / `Invoke-CountdownShutdown`
+- `Register-FabriqRunOnce` / `Invoke-CountdownRestart`
 - `Write-ExecutionHistory` / `Initialize-ExecutionHistory` / `Restore-ExecutionHistory` / `Export-ExecutionHistory` / `Export-HtmlChecklist`
 - `Capture-ScreenEvidence` / `Initialize-EvidenceBasePath`
 - `Write-StatusFile` / `Start-StatusMonitor` / `Stop-StatusMonitor`
@@ -173,7 +170,8 @@ formal SemVer の出発点。以下すべて利用可能:
 - **§1 公開関数**: `Show-Info`, `Show-Success`, `Show-Warning`, `Show-Error`, `Show-Skip`, `Show-Separator`, `Show-CategorySeparator`, `Import-ModuleCsv`, `New-ModuleResult`, `New-BatchResult`, `Confirm-ModuleExecution`, `Confirm-Execution`, `Wait-KeyPress`, `Wait-NetworkReady`, `Test-AdminPrivilege`, `Unprotect-FabriqValue`
 - **§2 公開グローバル**: `$global:FabriqMasterPassphrase`, `$global:AutoPilotMode`, `$global:AutoPilotWaitSec`, `$global:FabriqEvidenceBasePath`
 - **§3 公開環境変数**: `SELECTED_*` 全般, `SELECTED_PRINTER_<N>_*`, `FABRIQ_SEGMENT`, `FABRIQ_AUTOLOGON_USER`, `FABRIQ_WORKER_NAME`, `FABRIQ_EVIDENCE_BASE`
-- **§4 Profile CSV スキーマ**: 列（`Order`, `ScriptPath`, `Enabled`, `Description`, `Segment`, `ErrorMode`）、特殊マーカー（`__AUTOPILOT__`, `__RESTART__`, `__SHUTDOWN__`, `__PAUSE__`, `__REEXPLORER__`, `__STOPLOG__`, `__STARTLOG__`, `__AUTO_to_<User>__`）
+- **§4 Profile CSV スキーマ**: 列（`Order`, `ScriptPath`, `Enabled`, `Description`, `Segment`, `ErrorMode`）、特殊マーカー（`__AUTOPILOT__`, `__RESTART__`, `__REEXPLORER__`, `__AUTO_to_<User>__`）。
+  ※ 2.0.0 baseline には `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` も含まれていたが、**[Unreleased]（次期 MAJOR）で削除予定**（下記参照）
 - **§5 ModuleResult 契約**: 全フィールド（`Status`, `Message`, `Details`, `Verified`, `Timestamp`, `_IsModuleResult`）
 
 ### 2.1.0
@@ -193,8 +191,15 @@ formal SemVer の出発点。以下すべて利用可能:
 - **§10「Evidence Manifest 契約（外部 evidence consumer 向け公開契約）」新設**
   - `kernel/EVIDENCE_MANIFEST.md`（schemaVersion 1）を単一真実源として明文化
   - `evidence_config` モジュール v1.3.0 以降が `pc_information/<dir>/manifest.json` を出力
-  - manifest schema（schemaVersion / sections / status enum / summary 等）、status セマンティクス、前方互換ルールを公開契約として固定
+  - manifest schema（schemaVersion / sections / status enum / summary 等)、status セマンティクス、前方互換ルールを公開契約として固定
   - 本契約は外部 evidence consumer ツール（fabriq_evidence_manager 等）が consume する前提。モジュールスクリプト側の公開 API（§1〜§5）には影響なし。この版を要求するのは本契約を使うツール側のみ
+
+### [Unreleased]（次期 MAJOR 候補）
+
+- **§4.2 特殊マーカー 4 種を削除（破壊的変更）**: `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__`
+  - 削除理由: 実運用での参照ゼロ（`__PAUSE__` / `__STOPLOG__` / `__STARTLOG__`）または唯一の使用箇所も廃止済み（`__SHUTDOWN__`）。fabriq_studio のマーカーパレットでも既に除外されており、UX 上は事実上 deprecated だった
+  - 既存プロファイル互換: 削除後のマーカーを含む旧プロファイルは `Resolve-ProfileModules` の `$invalidPaths` 経由で「module not found」warning として降格、kernel はクラッシュせず他モジュールの実行を継続する（graceful degradation）
+  - 残存特殊マーカー: `__AUTOPILOT__` / `__ASYNC__` / `__RESTART__` / `__REEXPLORER__` / `__AUTO_to_<User>__` の 5 種
 
 ### 判定ルール
 

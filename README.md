@@ -135,7 +135,6 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode
 30,standard/ipaddress_config/ipaddress_config.ps1,1,IP アドレス設定,,retry
 40,__RESTART__,1,再起動,,
 50,standard/reg_hklm_config/reg_hklm_config.ps1,1,レジストリ設定,,skip
-60,__SHUTDOWN__,1,シャットダウン,,
 ```
 
 | 列 | 説明 |
@@ -154,10 +153,7 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode
 | `__AUTOPILOT__` | 以降のプロファイル実行を AutoPilot モードで自動化。`Description` に `WaitSec=N` でモジュール間ウェイト秒を指定可能 |
 | `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行。ハング時に Status Monitor の **Skip** ボタン、または `async_config.json` の `DefaultTimeoutSec` で強制スキップ可能（`Enabled: false` で全体無効化） |
 | `__RESTART__` | Windows を再起動し、RunOnce 経由で次モジュールから自動再開 |
-| `__SHUTDOWN__` | Windows をシャットダウン |
-| `__PAUSE__` | ユーザー入力待ちで一時停止 |
 | `__REEXPLORER__` | Explorer を再起動（レジストリ変更の即時反映等） |
-| `__STOPLOG__` / `__STARTLOG__` | トランスクリプトの停止・再開 |
 | `__AUTO_to_<User>__` | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを呼び出す（例: `__AUTO_to_admin01__`） |
 
 ## モジュール一覧
