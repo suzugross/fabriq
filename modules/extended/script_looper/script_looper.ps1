@@ -20,7 +20,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "looper_list.csv"
 
@@ -36,12 +36,12 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（パス解決・パラメータ検証）
+# Step 2: Prerequisite check (resolve paths and validate parameters)
 # ========================================
 $baseDir = (Get-Location).Path
 
 foreach ($item in $enabledItems) {
-    # --- ScriptPath 解決（絶対パス or fabriqルート相対） ---
+    # --- Resolve ScriptPath (absolute, or relative to the fabriq root) ---
     $resolvedPath = if ([System.IO.Path]::IsPathRooted($item.ScriptPath)) {
         $item.ScriptPath
     } else {
@@ -50,7 +50,7 @@ foreach ($item in $enabledItems) {
     $null = $item | Add-Member -NotePropertyName "_ResolvedPath" -NotePropertyValue $resolvedPath -Force
     $null = $item | Add-Member -NotePropertyName "_PathValid" -NotePropertyValue (Test-Path $resolvedPath) -Force
 
-    # --- MaxRetry / IntervalSec / Condition 検証 ---
+    # --- Validate MaxRetry / IntervalSec / Condition ---
     $maxRetry = 0
     $intervalSec = 0
     $validParams = $true
@@ -70,7 +70,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Loop Targets" -ForegroundColor Yellow
@@ -101,7 +101,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Execute the above loop targets?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -110,7 +110,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: ループ実行
+# Step 5: Loop execution
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -124,7 +124,7 @@ foreach ($item in $enabledItems) {
     Write-Host "----------------------------------------" -ForegroundColor White
 
     # ----------------------------------------
-    # 前提チェック（Skip 判定）
+    # Per-item prerequisite check (Skip path)
     # ----------------------------------------
     if (-not $item._PathValid) {
         Show-Skip "Script not found: $($item._ResolvedPath)"
@@ -146,7 +146,7 @@ foreach ($item in $enabledItems) {
     $scriptPath  = $item._ResolvedPath
 
     # ----------------------------------------
-    # メイン処理（リトライループ）
+    # Main work (retry loop)
     # ----------------------------------------
     $lastStatus  = "Error"
     $lastMessage = ""
@@ -154,14 +154,14 @@ foreach ($item in $enabledItems) {
     for ($attempt = 1; $attempt -le $maxRetry; $attempt++) {
         Show-Info "Attempt $attempt/$maxRetry : $displayName"
 
-        # --- 対象スクリプト実行（ModuleResult 二重検出） ---
+        # --- Run the target script (dual ModuleResult detection) ---
         $moduleResult = $null
         try {
             $global:_LastModuleResult = $null
 
             $output = & $scriptPath
 
-            # Pipeline 出力から ModuleResult を探索
+            # Find a ModuleResult in the pipeline output
             if ($null -ne $output) {
                 foreach ($outItem in @($output)) {
                     if ($outItem -is [PSCustomObject] -and $outItem._IsModuleResult -eq $true) {
@@ -191,7 +191,7 @@ foreach ($item in $enabledItems) {
             $lastMessage = $_.Exception.Message
         }
 
-        # --- 試行結果のログ出力 ---
+        # --- Log this attempt's result ---
         switch ($lastStatus) {
             "Success"   { Show-Success "Attempt ${attempt}: Success - $lastMessage" }
             "Error"     { Show-Error   "Attempt ${attempt}: Error - $lastMessage" }
@@ -201,27 +201,27 @@ foreach ($item in $enabledItems) {
             default     { Show-Info    "Attempt ${attempt}: $lastStatus - $lastMessage" }
         }
 
-        # --- Condition 判定: リトライすべきか？ ---
+        # --- Condition check: should we retry? ---
         $shouldRetry = $false
         switch ($condition) {
             "OnError" {
-                # Error の場合のみリトライ。それ以外はループ終了。
+                # Retry only on Error; any other status ends the loop
                 if ($lastStatus -eq "Error") {
                     $shouldRetry = $true
                 }
             }
             "Always" {
-                # 常にリトライ（最終回を除く）
+                # Always retry (the final attempt is gated below)
                 $shouldRetry = $true
             }
         }
 
-        # 最終回ならリトライしない
+        # Do not retry past the final attempt
         if ($attempt -ge $maxRetry) {
             $shouldRetry = $false
         }
 
-        # --- ループ終了理由のログ ---
+        # --- Log the reason the loop ends ---
         if (-not $shouldRetry) {
             if ($lastStatus -eq "Error" -and $attempt -ge $maxRetry) {
                 Show-Warning "Max retry reached ($maxRetry). Giving up: $displayName"
@@ -235,7 +235,7 @@ foreach ($item in $enabledItems) {
             break
         }
 
-        # --- リトライ待機 ---
+        # --- Wait before retrying ---
         if ($intervalSec -gt 0) {
             Show-Warning "Retrying in ${intervalSec}s... (attempt $attempt/$maxRetry)"
             Start-Sleep -Seconds $intervalSec
@@ -245,7 +245,7 @@ foreach ($item in $enabledItems) {
         }
     }
 
-    # --- このエントリの最終判定 ---
+    # --- Final verdict for this entry ---
     if ($lastStatus -eq "Error") {
         $failCount++
     }
@@ -258,7 +258,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "[Script Looper] Results")

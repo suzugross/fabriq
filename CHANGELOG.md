@@ -73,6 +73,16 @@
   C# here-string（@'...'@）内部の `//` コメントと UI 用文字列
   リテラル（ボタンラベル、MessageBox メッセージ等）は機能コード
   のため不変保持。sed code-strip diff: IDENTICAL
+- modules/extended/history_destroyer: コメントを日本語から英語へ
+  全面置換（47 行）。sed code-strip diff: IDENTICAL
+- modules/standard/sysprep_config: コメントを日本語から英語へ全面
+  置換（47 行）。sed code-strip diff: IDENTICAL
+- modules/standard/bitlocker_config/bitlocker_await: コメントを
+  日本語から英語へ全面置換（27 行）。sed code-strip diff: IDENTICAL
+- modules/standard/driver_config/driver_import_config: コメントを
+  日本語から英語へ全面置換（22 行）。sed code-strip diff: IDENTICAL
+- modules/extended/script_looper: コメントを日本語から英語へ全面
+  置換（20 行）。sed code-strip diff: IDENTICAL
 
 ## [3.0.0] - 2026-04-29
 
