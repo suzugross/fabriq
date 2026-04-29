@@ -68,6 +68,11 @@
   機能コードのため残置。AST verifier PASS（13606 トークン一致）
 - kernel/main.ps1: コメントを日本語から英語へ全面置換（6 行）。
   sed-based code-strip diff: IDENTICAL（block コメントなし）
+- modules/extended/manual_kitting_assistant: コメントを日本語から
+  英語へ全面置換（48 行）。Phase 3 着手 1 ファイル目。
+  C# here-string（@'...'@）内部の `//` コメントと UI 用文字列
+  リテラル（ボタンラベル、MessageBox メッセージ等）は機能コード
+  のため不変保持。sed code-strip diff: IDENTICAL
 
 ## [3.0.0] - 2026-04-29
 
