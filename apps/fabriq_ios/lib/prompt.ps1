@@ -7,6 +7,7 @@ function Get-FabriqIosPrompt {
         'PrivilegedExec'  { return 'fabriq#' }
         'GlobalConfig'    { return 'fabriq(config)#' }
         'InterfaceConfig' { return 'fabriq(config-if)#' }
+        'ModuleConfig'    { return 'fabriq(config-mod)#' }
         default           { return 'fabriq?' }
     }
 }

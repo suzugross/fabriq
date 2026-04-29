@@ -54,6 +54,7 @@ $global:AutoPilotWaitSec = 0
 . (Join-Path $PSScriptRoot 'lib\modes\privileged_exec.ps1')
 . (Join-Path $PSScriptRoot 'lib\modes\global_config.ps1')
 . (Join-Path $PSScriptRoot 'lib\modes\interface_config.ps1')
+. (Join-Path $PSScriptRoot 'lib\modes\module_config.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\show.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\hostname.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\interface.ps1')
@@ -174,6 +175,7 @@ function Start-FabriqIosShell {
                 'PrivilegedExec'  { Invoke-PrivilegedExecCommand  -Resolved $resolved -State $state }
                 'GlobalConfig'    { Invoke-GlobalConfigCommand    -Resolved $resolved -State $state }
                 'InterfaceConfig' { Invoke-InterfaceConfigCommand -Resolved $resolved -State $state }
+                'ModuleConfig'    { Invoke-ModuleConfigCommand    -Resolved $resolved -State $state }
                 default {
                     Write-Host "% Unknown shell mode: $($state.Mode)" -ForegroundColor Red
                 }

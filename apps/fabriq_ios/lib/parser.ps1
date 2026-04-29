@@ -8,6 +8,7 @@ function Get-FabriqIosCommandVocabulary {
         'PrivilegedExec'  { return @('show','configure','reload','disable','exit','help','?') }
         'GlobalConfig'    { return @('hostname','interface','module','exit','end','help','?') }
         'InterfaceConfig' { return @('ip','exit','end','help','?') }
+        'ModuleConfig'    { return @('set','add','show','exit','end','help','?') }
         default           { return @() }
     }
 }

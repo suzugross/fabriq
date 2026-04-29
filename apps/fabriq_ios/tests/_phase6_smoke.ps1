@@ -1,7 +1,9 @@
 # Phase 6 functional smoke test - `module <name>` command in
-# GlobalConfig. Tests completion / lookup / dispatcher reject paths
-# only. Actual module execution is verified manually on a test
-# machine, since modules mutate live system state.
+# GlobalConfig. Phase 7 redesigned the semantics: this command now
+# enters ModuleConfig mode (config-mod)# rather than running the
+# module immediately. Phase 7 smoke covers the (config-mod)# mode
+# itself; this file keeps the GlobalConfig-level invariants
+# (auto-discovery, exclusion list, schema lookup, mode entry).
 # Run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File <this>
 
 $ErrorActionPreference = 'Stop'
@@ -20,6 +22,7 @@ $script:FabriqRoot    = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 . (Join-Path $script:FabriqIosRoot 'lib\commands\ip_address.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\commands\module.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\modes\global_config.ps1')
+. (Join-Path $script:FabriqIosRoot 'lib\modes\module_config.ps1')
 . (Join-Path $script:FabriqIosRoot 'lib\completer.ps1')
 
 $script:Pass = 0
@@ -50,7 +53,6 @@ $names = Get-ModuleCompletionFromFilesystem
 Check 'returns at least 50 names' ($names.Count -ge 50)
 Check 'sorted alphabetically'     ($names[0] -lt $names[-1])
 
-# Exclusion checks
 Check 'excludes windows_update'      (-not ($names -contains 'windows_update'))
 Check 'excludes test_error_module'   (-not ($names -contains 'test_error_module'))
 Check 'excludes test_harness_config' (-not ($names -contains 'test_harness_config'))
@@ -58,7 +60,6 @@ Check 'excludes fabriq_app_launcher' (-not ($names -contains 'fabriq_app_launche
 Check 'excludes hostname_config'     (-not ($names -contains 'hostname_config'))
 Check 'excludes ipaddress_config'    (-not ($names -contains 'ipaddress_config'))
 
-# Inclusion sanity (a few common modules)
 Check 'includes reg_hklm_config'    ($names -contains 'reg_hklm_config')
 Check 'includes bitlocker_config'   ($names -contains 'bitlocker_config')
 Check 'includes bloatware_remove'   ($names -contains 'bloatware_remove')
@@ -87,31 +88,33 @@ Check 'module reg_h prefix filter -> reg_hklm_config + reg_hkcu_config' ($r.Coun
 Check 'module reg_h -> contains reg_hklm_config'    ($r -contains 'reg_hklm_config')
 Check 'module reg_h -> contains reg_hkcu_config'    ($r -contains 'reg_hkcu_config')
 
-# 'mod' -> 'module' parser expansion
 $expanded = Expand-FabriqIosAbbreviation -Tokens @('mod','reg_hklm_config') -Mode 'GlobalConfig'
 Check 'mod -> module abbreviation'  ($expanded[0] -eq 'module')
 Check 'mod arg preserved'           ($expanded[1] -eq 'reg_hklm_config')
 
-Write-Host '--- Mutation reject paths (no actual module run) ---' -ForegroundColor Cyan
+Write-Host '--- Module-entry reject paths (no actual run) ---' -ForegroundColor Cyan
 
-# Invoke-ModuleByName outside GlobalConfig is rejected
+# Enter-ModuleConfigMode outside GlobalConfig is rejected
 $state = New-ShellState
 $state.Mode = 'PrivilegedExec'
-$out = Get-CapturedOutput { Invoke-ModuleByName -Name 'reg_hklm_config' -State $state }
-Check 'module rejected outside GlobalConfig' ($out -match 'global configuration mode')
+$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'reg_hklm_config' -State $state }
+Check 'module entry rejected outside GlobalConfig' ($out -match 'global configuration mode')
+Check 'state stays PrivilegedExec'                 ($state.Mode -eq 'PrivilegedExec')
 
 # Empty / whitespace name
 $state = New-ShellState
 $state.Mode = 'GlobalConfig'
-$out = Get-CapturedOutput { Invoke-ModuleByName -Name '' -State $state }
+$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name '' -State $state }
 Check 'empty name -> incomplete'    ($out -match 'Incomplete')
+Check 'state stays GlobalConfig'    ($state.Mode -eq 'GlobalConfig')
 
 # Unknown name
-$out = Get-CapturedOutput { Invoke-ModuleByName -Name 'definitely-not-a-module' -State $state }
+$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'definitely-not-a-module' -State $state }
 Check 'unknown name -> not found'   ($out -match 'not found')
+Check 'state stays GlobalConfig (unknown)' ($state.Mode -eq 'GlobalConfig')
 
 # Excluded name
-$out = Get-CapturedOutput { Invoke-ModuleByName -Name 'hostname_config' -State $state }
+$out = Get-CapturedOutput { Enter-ModuleConfigMode -Name 'hostname_config' -State $state }
 Check 'excluded name -> not found'  ($out -match 'not found')
 
 Write-Host '--- Dispatcher integration (parser -> mode -> reject) ---' -ForegroundColor Cyan
@@ -129,6 +132,7 @@ $resolved = Resolve-FabriqIosCommand -Tokens @('module','unknown-for-smoke') -Mo
 Check 'parser: module + arg resolves' ($resolved.Args.Count -eq 1)
 $out = Get-CapturedOutput { Invoke-GlobalConfigCommand -Resolved $resolved -State $state }
 Check 'dispatcher: unknown -> not found' ($out -match 'not found')
+Check 'state stays GlobalConfig (dispatcher)' ($state.Mode -eq 'GlobalConfig')
 
 Write-Host ''
 Write-Host ("=== Summary: {0} passed, {1} failed ===" -f $script:Pass, $script:Fail) `
