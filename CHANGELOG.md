@@ -83,6 +83,27 @@
   日本語から英語へ全面置換（22 行）。sed code-strip diff: IDENTICAL
 - modules/extended/script_looper: コメントを日本語から英語へ全面
   置換（20 行）。sed code-strip diff: IDENTICAL
+- Phase 3 batch 2-4 (16 ファイル): odt_install / odt_download /
+  local_user_setup / driver_export_config / restore_point /
+  generic_process_runner / bitlocker_disable / taskbar_config /
+  spi_config / process_killer / kernel/ps1/status_monitor /
+  export_app_associations / default_app_config / browser_addon_config /
+  ssid_config / log_uploader のコメントを日本語から英語へ翻訳。
+  string literal 内の機能コード（UI text / 正規表現マッチ /
+  Write-Log メッセージ / 技術エビデンス byte 列）は不変保持。
+  Phase 3 全 22 ファイル完了
+- 残存日本語ファイル 10 件はすべて機能コード扱い（不変保持）:
+  ssid_config / common.ps1 / evidence_config / printer_driver_install /
+  odt_install / odt_download / local_user_setup /
+  manual_kitting_assistant / firewall_rule_import /
+  firewall_rule_export。それぞれ regex match パターン、UI 文字列
+  リテラル、Write-Log メッセージ、または UTF-8/CP932 mojibake の
+  技術エビデンスとしての日本語であり、コメントのみ変更ポリシーの
+  対象外
+- Phase 3 全体で計 ~440 行のコメントを翻訳。Phase 1 (template) +
+  Phase 2 (kernel/common + main) + Phase 3 (modules/apps) で
+  日本語コメント残ゼロ達成（`feedback_scripts_english_only.md`
+  ポリシー準拠）
 
 ## [3.0.0] - 2026-04-29
 
