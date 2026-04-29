@@ -1,15 +1,16 @@
 # ========================================
 # BitLocker Await Script
 # ========================================
-# 暗号化/復号化処理中の BitLocker ボリュームが完了するまで待機する。
+# Wait for BitLocker volumes that are currently encrypting / decrypting
+# to reach a steady state.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - bitlocker_list.csv の TargetDrive を参照し、対象ドライブのみ監視する
-# - 冪等性: 暗号化中・復号化中のドライブがなければ Skipped を返す
-# - EncryptionInProgress: 100% → FullyEncrypted を待機
-# - DecryptionInProgress: 0% → FullyDecrypted を待機
-# - ポーリング間隔: 30秒
+# - Requires administrator privileges
+# - Watches only the drives listed in bitlocker_list.csv (TargetDrive column)
+# - Idempotency: returns Skipped when no drives are encrypting / decrypting
+# - EncryptionInProgress: waits for 100% -> FullyEncrypted
+# - DecryptionInProgress: waits for 0% -> FullyDecrypted
+# - Polling interval: 30 seconds
 # ========================================
 
 Write-Host ""
@@ -20,7 +21,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "bitlocker_list.csv"
 
@@ -36,7 +37,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "BitLocker Encryption Status" -ForegroundColor Yellow
@@ -49,7 +50,7 @@ foreach ($item in $enabledItems) {
     $driveLetter = $item.TargetDrive
     $displayName = if ($item.Description) { "$driveLetter $($item.Description)" } else { $driveLetter }
 
-    # ドライブ存在確認
+    # Verify the drive exists
     if (-not (Test-Path "${driveLetter}\")) {
         Write-Host "  [NOT FOUND] $displayName" -ForegroundColor DarkGray
         Write-Host "    Drive does not exist" -ForegroundColor DarkGray
@@ -57,7 +58,7 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # BitLocker ステータス取得
+    # Read BitLocker status
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
     if ($null -eq $blVolume) {
         Write-Host "  [NOT FOUND] $displayName" -ForegroundColor DarkGray
@@ -70,7 +71,7 @@ foreach ($item in $enabledItems) {
     $protectionStatus = $blVolume.ProtectionStatus
     $encryptPercent   = $blVolume.EncryptionPercentage
 
-    # 状態別マーカー表示
+    # Show a status-specific marker
     if ($volumeStatus -eq "FullyEncrypted") {
         Write-Host "  [COMPLETE] $displayName" -ForegroundColor DarkGray
         Write-Host "    Status: $protectionStatus ($volumeStatus)" -ForegroundColor DarkGray
@@ -107,7 +108,7 @@ if (-not $hasAwaitTarget) {
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Wait for encryption/decryption to complete?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -116,16 +117,16 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 待機ループ
+# Step 5: Wait loop
 # ========================================
-# タイムアウト: ドライブ単位で進捗を監視し、30分間
-# 1% も進行しなかったドライブは停滞とみなして監視を打ち切る。
-# 進行があればタイムアウトカウンタはリセットされる。
+# Stale timeout: progress is tracked per drive. If a drive shows
+# zero movement for 30 minutes it is treated as stalled and dropped
+# from the watch list. Any progress resets the stale counter.
 # ========================================
 $pollIntervalSec  = 30
-$staleTimeoutSec  = 1800   # 30分
+$staleTimeoutSec  = 1800   # 30 minutes
 
-# ドライブごとの進捗追跡テーブル
+# Per-drive progress tracking table
 $driveTracker = @{}
 foreach ($item in $enabledItems) {
     $dl = $item.TargetDrive
@@ -149,7 +150,7 @@ while ($true) {
     foreach ($item in $enabledItems) {
         $driveLetter = $item.TargetDrive
 
-        # タイムアウト済みドライブはスキップ
+        # Skip drives that already timed out
         if ($driveTracker.ContainsKey($driveLetter) -and $driveTracker[$driveLetter].TimedOut) { continue }
 
         if (-not (Test-Path "${driveLetter}\")) { continue }
@@ -163,20 +164,20 @@ while ($true) {
         if ($isEncrypting -or $isDecrypting) {
             $currentPercent = $blVolume.EncryptionPercentage
 
-            # 進捗判定
+            # Progress check
             if ($driveTracker.ContainsKey($driveLetter)) {
                 $tracker = $driveTracker[$driveLetter]
 
-                # 暗号化: パーセンテージ増加=進行 / 復号化: パーセンテージ減少=進行
+                # Encrypting: a higher percent means progress; Decrypting: a lower percent means progress
                 $hasProgress = if ($isEncrypting) { $currentPercent -gt $tracker.LastPercent } else { $currentPercent -lt $tracker.LastPercent }
 
                 if ($hasProgress) {
-                    # 進行あり → リセット
+                    # Progress observed -> reset the stale counter
                     $tracker.LastPercent  = $currentPercent
                     $tracker.StaleElapsed = 0
                 }
                 else {
-                    # 進行なし → カウンタ加算
+                    # No progress -> accumulate the stale counter
                     $tracker.StaleElapsed += $pollIntervalSec
                     if ($tracker.StaleElapsed -ge $staleTimeoutSec) {
                         $tracker.TimedOut = $true
@@ -200,7 +201,7 @@ while ($true) {
         break
     }
 
-    # 進捗表示
+    # Progress line
     $timestamp = Get-Date -Format "HH:mm:ss"
     $progressParts = @()
     foreach ($pd in $pendingDrives) {
@@ -216,9 +217,9 @@ Write-Host ""
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
-# 最終確認: 各ドライブの完了状態をチェック
+# Final check: confirm each drive reached a terminal state
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
@@ -243,7 +244,7 @@ foreach ($item in $enabledItems) {
         $successCount++
     }
     elseif ($blVolume.VolumeStatus -eq "FullyDecrypted") {
-        # 待機対象だった場合は成功、そうでなければスキップ
+        # Success if this drive was actively waited on; otherwise Skip
         if ($driveTracker.ContainsKey($driveLetter)) {
             Show-Success "Decryption complete: $displayName"
             $successCount++
