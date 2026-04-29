@@ -1,12 +1,12 @@
 # ========================================
 # Driver Export Script
 # ========================================
-# PCのサードパーティドライバを driver/{モデル名}/ にエクスポートする。
+# Export the PC's third-party drivers into driver/{model-name}/.
 #
 # [NOTES]
-# - 管理者権限が必要
-# - Export-WindowsDriver はサードパーティドライバのみエクスポートする
-# - 既存フォルダは中身をクリアして再エクスポートする
+# - Requires administrator privileges
+# - Export-WindowsDriver only exports third-party drivers
+# - Existing folders are cleared and re-exported
 # ========================================
 
 Write-Host ""
@@ -17,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "driver.csv"
 
@@ -33,7 +33,7 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック（Early Return）
+# Step 2: Prerequisite check (early return)
 # ========================================
 $driverDir = Join-Path $PSScriptRoot "driver"
 if (-not (Test-Path $driverDir)) {
@@ -50,9 +50,9 @@ if (-not (Test-Path $driverDir)) {
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
-# モデル名の動的取得
+# Resolve the system model name dynamically
 $systemModel = ""
 try {
     $systemModel = Get-CimInstance -ClassName Win32_ComputerSystem |
@@ -62,7 +62,7 @@ catch {
     Show-Warning "Failed to get system model: $_"
 }
 
-# モデル名サニタイズ関数
+# Sanitize a model name into a path-safe form
 function Get-SafeModelName {
     param([string]$RawName)
     $safeName = $RawName -replace '\s', '_'
@@ -79,7 +79,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
 foreach ($item in $enabledItems) {
-    # モデル名の解決
+    # Resolve the model name (CSV value wins, otherwise auto-detect)
     $modelName = if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         $item.model
     }
@@ -88,7 +88,7 @@ foreach ($item in $enabledItems) {
     }
     $destPath = Join-Path $driverDir $modelName
 
-    # 既存フォルダの有無で表示を切り替え
+    # Switch the display based on whether the folder exists
     if (Test-Path $destPath) {
         Write-Host "  [OVERWRITE] Id=$($item.Id) : $modelName" -ForegroundColor Red
     }
@@ -97,7 +97,7 @@ foreach ($item in $enabledItems) {
     }
     Write-Host "    Path: $destPath" -ForegroundColor DarkGray
 
-    # モデル名の出所を表示
+    # Show where the model name came from
     if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         Write-Host "    Source: CSV specified" -ForegroundColor DarkGray
     }
@@ -112,7 +112,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Export drivers to the above paths?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -121,14 +121,14 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
 
 foreach ($item in $enabledItems) {
-    # モデル名の解決
+    # Resolve the model name (CSV value wins, otherwise auto-detect)
     $modelName = if (-not [string]::IsNullOrWhiteSpace($item.model)) {
         $item.model
     }
@@ -142,20 +142,20 @@ foreach ($item in $enabledItems) {
     Write-Host "----------------------------------------" -ForegroundColor White
 
     try {
-        # 既存フォルダのクリア
+        # Clear any existing folder
         if (Test-Path $destPath) {
             Show-Info "Clearing existing folder: $destPath"
             Remove-Item -Path $destPath -Recurse -Force
         }
 
-        # フォルダ作成
+        # Create the folder
         New-Item -Path $destPath -ItemType Directory -Force | Out-Null
 
-        # ドライバエクスポート
+        # Export drivers
         Show-Info "Running Export-WindowsDriver..."
         $null = Export-WindowsDriver -Online -Destination $destPath
 
-        # エクスポート結果の確認
+        # Verify the export result
         $infCount = @(Get-ChildItem -Path $destPath -Filter "*.inf" -Recurse -File).Count
         Show-Success "Exported to: $destPath ($infCount .inf files)"
         $successCount++
@@ -170,7 +170,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Driver Export Results")
