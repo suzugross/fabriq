@@ -24,7 +24,7 @@ function Show-AppsDialog {
         $appDirs = @(Get-ChildItem -Path $AppsDir -Directory | Sort-Object Name)
         foreach ($dir in $appDirs) {
             $entryScript = Join-Path $dir.FullName "$($dir.Name).ps1"
-            if ((Test-Path $entryScript) -and $dir.Name -ne "fabriq_operator") {
+            if ((Test-Path $entryScript) -and $dir.Name -notin @("fabriq_operator","fabriq_ios")) {
                 $apps += [PSCustomObject]@{
                     Name = $dir.Name
                     Path = $entryScript

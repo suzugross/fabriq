@@ -36,6 +36,35 @@ $script:FabriqRoot    = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 # Test-MasterPassphrase, Unprotect-FabriqValue, etc.).
 . (Join-Path $script:FabriqRoot 'kernel\common.ps1')
 
+# Defensive log-output suppression. fabriq_ios is a sub-project that
+# never participates in the parent fabriq's audit trail (no execution
+# history, no on-disk evidence capture, no transcript). The dispatch
+# path (lib/dispatch.ps1) deliberately does not call any of these
+# functions, but a module might. Shadow them with no-ops at the
+# global scope so any accidental invocation is silently dropped.
+foreach ($_logFn in @(
+    'Initialize-ExecutionHistory',
+    'Restore-ExecutionHistory',
+    'Write-ExecutionHistory',
+    'Add-ExecutionResult',
+    'Export-ExecutionHistory',
+    'Export-HtmlChecklist',
+    'Initialize-EvidenceBasePath',
+    'Capture-ScreenEvidence'
+)) {
+    if (Get-Item "Function:$_logFn" -ErrorAction SilentlyContinue) {
+        Set-Item "Function:Global:$_logFn" -Value { } -Force
+    }
+}
+
+# Read fabriq_ios's independent VERSION file (semver, separate from
+# kernel). Used by `show version` and `show running-config`.
+$script:FabriqIosVersion = '0.0.0'
+$_verFile = Join-Path $PSScriptRoot 'VERSION'
+if (Test-Path $_verFile) {
+    $script:FabriqIosVersion = (Get-Content -Path $_verFile -Raw).Trim()
+}
+
 # Suppress per-module Confirm-ModuleExecution prompts: in fabriq_ios
 # the act of typing the command IS the confirmation (Cisco IOS UX).
 # Wait-KeyPress between modules is also unwanted in a REPL.

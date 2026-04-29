@@ -84,7 +84,8 @@ $state = New-ShellState
 
 $out = Get-CapturedOutput { Show-FabriqIosVersion }
 Check 'show version mentions Surkittinism' ($out -match 'Surkittinism')
-Check 'show version includes kernel version' ($out -match '\d+\.\d+\.\d+')
+Check 'show version includes IOS version'   ($out -match 'Fabriq IOS version')
+Check 'show version includes a SemVer'      ($out -match '\d+\.\d+\.\d+')
 
 $out = Get-CapturedOutput { Show-FabriqIosManifesto }
 Check 'show manifesto emits MANIFESTO syslog' ($out -match '%FABRIQ-7-MANIFESTO')
@@ -104,12 +105,8 @@ $out = Get-CapturedOutput { Show-FabriqIosRunningConfig -State $state }
 Check 'show running-config emits version line' ($out -match 'version \d+\.\d+\.\d+')
 Check 'show running-config emits banner motd' ($out -match 'banner motd')
 
-$out = Get-CapturedOutput { Show-FabriqIosHost -State $state }
-# No SELECTED_NEW_PCNAME in test env -> should be friendly
-Check 'show host (unselected) friendly message' ($out -match 'No host')
-
-$out = Get-CapturedOutput { Show-FabriqIosHosts -State $state }
-Check 'show hosts mentions Total' ($out -match 'Total')
+# NOTE: show host / show hosts removed in Phase 8 (hostlist coupling
+# dropped when fabriq_ios was forked into a sub-project).
 
 Write-Host '--- help renderer ---' -ForegroundColor Cyan
 foreach ($mode in @('UserExec','PrivilegedExec','GlobalConfig','InterfaceConfig')) {

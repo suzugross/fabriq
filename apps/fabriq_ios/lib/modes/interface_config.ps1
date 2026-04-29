@@ -11,9 +11,7 @@ function Invoke-InterfaceConfigCommand {
                 Write-Host "% Incomplete: 'ip address ...' (try 'ip address ?')" -ForegroundColor Red
                 return
             }
-            if ($Resolved.Args.Count -eq 2 -and $Resolved.Args[1] -eq 'from-hostlist') {
-                Invoke-IpAddressFromHostlist -State $State
-            } elseif ($Resolved.Args.Count -ge 3 -and $Resolved.Args.Count -le 6) {
+            if ($Resolved.Args.Count -ge 3 -and $Resolved.Args.Count -le 6) {
                 # Positional override: <ip> <mask> [<gw> [<dns1> [<dns2>]]]
                 # Trailing args are optional. When all 5 are supplied
                 # the operation is fully self-contained and works
@@ -27,7 +25,7 @@ function Invoke-InterfaceConfigCommand {
                                        -Gateway $gw -Dns1 $dns1 -Dns2 $dns2 `
                                        -State $State
             } else {
-                Write-Host "% Usage: 'ip address from-hostlist' | 'ip address <ip> <mask> [<gw> [<dns1> [<dns2>]]]'" -ForegroundColor Red
+                Write-Host "% Usage: 'ip address <ip> <mask> [<gw> [<dns1> [<dns2>]]]'" -ForegroundColor Red
             }
         }
         'exit' {

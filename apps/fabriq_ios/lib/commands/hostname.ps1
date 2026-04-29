@@ -1,20 +1,10 @@
 # hostname * command implementations.
-
-function Get-HostnameCompletionFromHostlist {
-    param([hashtable]$State)
-    $csvPath = Join-Path $script:FabriqRoot 'kernel\csv\hostlist.csv'
-    if (-not (Test-Path $csvPath)) { return @() }
-
-    $previousPass = $global:FabriqMasterPassphrase
-    if ($State.Passphrase) { $global:FabriqMasterPassphrase = $State.Passphrase }
-    try {
-        $rows = @(Import-ModuleCsv -Path $csvPath)
-    } finally {
-        $global:FabriqMasterPassphrase = $previousPass
-    }
-    if (-not $rows) { return @() }
-    return @($rows | ForEach-Object { $_.NewPCName } | Where-Object { $_ })
-}
+# Phase 8: hostlist coupling removed. `(config)# hostname <NewName>`
+# now takes the name as a positional ad-hoc value, sets
+# SELECTED_NEW_PCNAME directly (with adhoc identity for the other
+# SELECTED_* identity slots if no host is bound), and runs
+# hostname_config. Subsequent `ip address` commands inherit the
+# bound name for module-side display.
 
 function Invoke-HostnameSelection {
     param(
@@ -25,16 +15,19 @@ function Invoke-HostnameSelection {
         Write-Host "% 'hostname' is only available in global configuration mode." -ForegroundColor Red
         return
     }
-
-    $row = Find-HostlistRowByNewName -NewName $NewName -State $State
-    if (-not $row) {
-        Write-FabriqIosSyslog -Severity 3 -Mnemonic 'HOSTNAME' -Key 'refused' `
-                              -Placeholders @{ NewName = $NewName }
-        Write-Host ("  hostlist.csv has no row with NewPCName = '{0}'" -f $NewName)
+    if ([string]::IsNullOrWhiteSpace($NewName)) {
+        Write-Host "% Incomplete: 'hostname <NewName>'" -ForegroundColor Red
         return
     }
 
-    Set-FabriqIosHostEnvironment -Row $row
+    # Bind the name. If no identity is in place (fresh session), seed
+    # adhoc OldPCName/AdminID so the underlying module's display lines
+    # are populated.
+    if ([string]::IsNullOrWhiteSpace($env:SELECTED_NEW_PCNAME)) {
+        $env:SELECTED_OLD_PCNAME = $env:COMPUTERNAME
+        $env:SELECTED_KANRI_NO   = '0'
+    }
+    $env:SELECTED_NEW_PCNAME = $NewName
 
     $modulePath = Join-Path $script:FabriqRoot 'modules\standard\hostname_config\hostname_config.ps1'
     $previousPass = $global:FabriqMasterPassphrase
