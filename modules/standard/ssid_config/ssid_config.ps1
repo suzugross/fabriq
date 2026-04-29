@@ -53,8 +53,8 @@ if (-not $hasWlanInterface) {
 }
 
 # Extract existing profile names (locale-independent parsing)
-# Format: "    All User Profile     : SSID_NAME" (EN)
-#         "    すべてのユーザー プロファイル : SSID_NAME" (JA)
+# Format (EN locale): "    All User Profile     : SSID_NAME"
+# Format (JA locale): equivalent localized line, also delimited by " : "
 # Match lines with " : " pattern followed by content
 $existingProfiles = @()
 foreach ($line in $profileOutput) {
