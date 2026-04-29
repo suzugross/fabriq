@@ -449,7 +449,7 @@ function Update-StatusDisplay {
         if ($fileInfo.LastWriteTime -eq $script:lastWriteTime) { return }
         $script:lastWriteTime = $fileInfo.LastWriteTime
 
-        # ロックフリー読み取り（リトライ付き）
+        # Lock-free read with retry
         $jsonText = $null
         for ($retry = 0; $retry -lt 3; $retry++) {
             try {
@@ -467,7 +467,7 @@ function Update-StatusDisplay {
 
         $status = $jsonText | ConvertFrom-Json
 
-        # --- PC Info 比較更新 ---
+        # --- PC Info comparison / refresh ---
         $pc  = $status.PCInfo
         $cur = $status.CurrentPCInfo
         $pcText = ""
@@ -478,7 +478,7 @@ function Update-StatusDisplay {
             $pcText += "Worker:    $workerName`r`n`r`n"
         }
 
-        # CurrentPCInfo が存在しない場合は従来表示にフォールバック
+        # Fall back to the legacy display when CurrentPCInfo is unavailable
         if ($null -eq $cur) {
             $pcText += "ID:        $($pc.AdminID)`r`n"
             $pcText += "Old Name:  $($pc.OldPCName)`r`n"
@@ -495,7 +495,7 @@ function Update-StatusDisplay {
         else {
             $pcText += "ID:       $($pc.AdminID)`r`n"
 
-            # --- PC Name 比較 ---
+            # --- PC Name comparison ---
             $curName = $cur.ComputerName
             $tgtName = $pc.NewPCName
             if ([string]::IsNullOrEmpty($tgtName)) {
@@ -510,7 +510,7 @@ function Update-StatusDisplay {
             }
             $pcText += "`r`n"
 
-            # --- Ethernet 比較 ---
+            # --- Ethernet comparison ---
             if (-not [string]::IsNullOrEmpty($pc.EthernetIP)) {
                 $pcText += "[Ethernet]`r`n"
 
@@ -543,7 +543,7 @@ function Update-StatusDisplay {
                 $pcText += "`r`n"
             }
 
-            # --- Wi-Fi 比較 ---
+            # --- Wi-Fi comparison ---
             if (-not [string]::IsNullOrEmpty($pc.WifiIP)) {
                 $pcText += "[Wi-Fi]`r`n"
 
@@ -573,7 +573,7 @@ function Update-StatusDisplay {
                 $pcText += "`r`n"
             }
 
-            # --- DNS 比較 ---
+            # --- DNS comparison ---
             $targetDns = @($pc.DNS) | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object
             $currentDns = @($cur.DNS) | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object
             if ($targetDns.Count -gt 0) {
@@ -589,7 +589,7 @@ function Update-StatusDisplay {
                 $pcText += "`r`n"
             }
 
-            # --- Printers 比較 ---
+            # --- Printers comparison ---
             $targetPrinters = @($pc.Printers)
             if ($targetPrinters.Count -gt 0) {
                 $pcText += "[Printers]`r`n"
@@ -610,7 +610,7 @@ function Update-StatusDisplay {
             Set-ColorizedText -RichTextBox $pcInfoRtb -Text $pcText
         }
 
-        # --- Execution Summary 更新 ---
+        # --- Execution Summary refresh ---
         $exec = $status.Execution
         $execText = ""
 
@@ -641,7 +641,7 @@ function Update-StatusDisplay {
                 for ($i = 0; $i -lt $maxShow; $i++) {
                     $d = $details[$i]
 
-                    # セッション境界セパレーター
+                    # Session-boundary separator
                     if ($d.Status -eq "Separator") {
                         $execText += "------------------------------`r`n"
                         continue
@@ -658,14 +658,14 @@ function Update-StatusDisplay {
                         default     { "[--]" }
                     }
 
-                    # 復元エントリには ^ プレフィックス
+                    # Prefix restored entries with ^
                     $prefix = ""
                     if ($d.IsRestored -eq $true) {
                         $prefix = "^ "
                     }
 
                     $msg = if ($d.Message) { " $($d.Message)" } else { "" }
-                    # メッセージが長い場合は切り詰め
+                    # Truncate the line when it grows too long
                     $line = "$prefix$icon $($d.Operation)$msg"
                     if ($line.Length -gt 70) { $line = $line.Substring(0, 67) + "..." }
                     $execText += "$line`r`n"
