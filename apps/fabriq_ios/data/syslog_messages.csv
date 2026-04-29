@@ -1,0 +1,22 @@
+Mnemonic,Severity,Key,Template
+HOSTNAME,5,success,The name {NewName} has been carved into the silicon. The machine awaits the next dawn.
+HOSTNAME,4,reboot_required,The machine must close its eyes and open them again to remember its new name.
+HOSTNAME,3,refused,The machine refuses the name {NewName}. Perhaps it dreams of another.
+IPADDR,6,whispered,Address {Ip}/{Prefix} has been whispered to interface {Interface}. The wire understands.
+IPADDR,6,gateway,Gateway {Gateway} stands at the threshold.
+IPADDR,6,dns,DNS servers {DnsList} are now the oracles.
+IPADDR,4,inhabited,The address {Ip} is already inhabited by an unknown butterfly.
+INTERFACE,5,configured,"Interface {Alias}, the metallic vein, is now configured."
+INTERFACE,6,opened,Interface {Alias} is now an open mouth speaking in packets.
+MANIFESTO,7,quote,"Surkittinism is the convulsive beauty of mass deployment, or it is nothing."
+AUTOMATE,3,error_default,The machine speaks but no one is listening: {Detail}.
+RESTART,4,reload_dream,The machine shall close its eyes and open them again. Save your unfinished poems.
+ENABLE,5,seance_begins,The seance begins. Your shadow now wears the privileged crown.
+ENABLE,3,passphrase_refused,The wall refuses your password. Try again or remain in the daylight.
+DISABLE,5,disrobed,The crown has been returned. You walk the daylight once more.
+EXIT,5,seance_ends,The seance ends. The machine returns to its silent dream.
+MODULE,5,success,The {Name} ritual has completed. The machine has been touched.
+MODULE,4,partial,"The {Name} ritual completed, but only some thresholds were crossed: {Detail}"
+MODULE,6,skipped,"The {Name} ritual found nothing to consecrate: {Detail}"
+MODULE,5,cancelled,The {Name} ritual was abandoned at the threshold.
+MODULE,3,error,"The {Name} ritual was rejected by the silicon: {Detail}"

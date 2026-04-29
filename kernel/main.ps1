@@ -1349,6 +1349,41 @@ $script:guiExitRequested = $false
                 }
             }
 
+            "LaunchApp" {
+                # Direct shortcut path used by Quick Actions buttons that
+                # bypass the FabriqApps picker (e.g. the [Fabriq IOS]
+                # button). Resolves apps/<AppName>/<AppName>.ps1 the
+                # same way Show-AppsDialog does and runs it in-process,
+                # mirroring the AppsMode handler above.
+                $appName = $guiSelection.AppName
+                if ([string]::IsNullOrWhiteSpace($appName)) {
+                    Show-Warning "LaunchApp received no AppName"
+                    Wait-KeyPress
+                }
+                else {
+                    $appPath = Join-Path $APPS_DIR ("{0}\{0}.ps1" -f $appName)
+                    if (-not (Test-Path $appPath)) {
+                        Show-Error "App not found: $appPath"
+                        Wait-KeyPress
+                    }
+                    else {
+                        Clear-Host
+                        Show-Info "Launching [$appName]"
+                        Write-Host ""
+                        try {
+                            & $appPath
+                            Write-Host ""
+                            Show-Success "App closed"
+                        }
+                        catch {
+                            Write-Host ""
+                            Show-Error "Error launching app: $_"
+                        }
+                        Wait-KeyPress
+                    }
+                }
+            }
+
             "HistoryExport" {
                 $null = Export-ExecutionHistory
                 Wait-KeyPress

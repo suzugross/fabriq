@@ -16,12 +16,13 @@ function Show-OperatorDashboard {
     )
 
     $result = @{
-        Action             = "Quit"          # ExecuteProfile, ExecuteModules, NewSession, OpenCsvEditor, OpenEvidence, WindowsUpdate, Restart, Refabriq, HistoryExport, RegenerateChecklist, Manifesto, Quit
+        Action             = "Quit"          # ExecuteProfile, ExecuteModules, NewSession, OpenCsvEditor, OpenEvidence, WindowsUpdate, Restart, Refabriq, HistoryExport, RegenerateChecklist, Manifesto, LaunchApp, AppsMode, Quit
         ProfilePath        = ""
         ProfileName        = ""
         SelectedModules    = @()
         AutoPilot          = $false
         AutoPilotWaitSec   = 3
+        AppName            = ""              # used with Action = LaunchApp
     }
 
     $form = New-Object System.Windows.Forms.Form
@@ -288,7 +289,9 @@ function Show-OperatorDashboard {
     $tabSettings.Controls.Add($sepLine)
     $settY += 16
 
-    # Quick Actions
+    # Quick Actions - 5 front-row shortcuts plus an "And More..."
+    # button that opens a dialog with the secondary actions
+    # (Restart PC / Export History / Regenerate Checklist / FabriqApps).
     $qaLabel = New-StyledLabel -Text "Quick Actions" -X 16 -Y $settY -Width 600 -Height 20 -Font $script:fontBold -FgColor $script:fgHeader
     $tabSettings.Controls.Add($qaLabel)
     $settY += 30
@@ -296,28 +299,21 @@ function Show-OperatorDashboard {
     $btnOpenCsvEditor = New-StyledButton -Text "Open CSV Editor" -X 16 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnOpenCsvEditor)
 
-    $btnHistoryExport = New-StyledButton -Text "Export History" -X 226 -Y $settY -Width 200 -Height 30
-    $tabSettings.Controls.Add($btnHistoryExport)
-
-    $btnRegenChecklist = New-StyledButton -Text "Regenerate Checklist" -X 436 -Y $settY -Width 212 -Height 30
-    $tabSettings.Controls.Add($btnRegenChecklist)
-    $settY += 44
-
-    $btnWindowsUpdate = New-StyledButton -Text "Windows Update" -X 16 -Y $settY -Width 200 -Height 30
+    $btnWindowsUpdate = New-StyledButton -Text "Windows Update" -X 226 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnWindowsUpdate)
 
-    $btnRestart = New-StyledButton -Text "Restart PC" -X 226 -Y $settY -Width 200 -Height 30
-    $tabSettings.Controls.Add($btnRestart)
-
-    $btnRefabriq = New-StyledButton -Text "Refabriq" -X 436 -Y $settY -Width 212 -Height 30
-    $tabSettings.Controls.Add($btnRefabriq)
+    $btnFabriqIos = New-StyledButton -Text "Fabriq IOS" -X 436 -Y $settY -Width 212 -Height 30
+    $tabSettings.Controls.Add($btnFabriqIos)
     $settY += 44
 
-    $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 16 -Y $settY -Width 200 -Height 30
+    $btnRefabriq = New-StyledButton -Text "Refabriq" -X 16 -Y $settY -Width 200 -Height 30
+    $tabSettings.Controls.Add($btnRefabriq)
+
+    $btnSystemLauncher = New-StyledButton -Text "System Launcher" -X 226 -Y $settY -Width 200 -Height 30
     $tabSettings.Controls.Add($btnSystemLauncher)
 
-    $btnApps = New-StyledButton -Text "FabriqApps" -X 226 -Y $settY -Width 200 -Height 30
-    $tabSettings.Controls.Add($btnApps)
+    $btnAndMore = New-StyledButton -Text "And More..." -X 436 -Y $settY -Width 212 -Height 30
+    $tabSettings.Controls.Add($btnAndMore)
     $settY += 50
 
     # Separator
@@ -474,29 +470,38 @@ function Show-OperatorDashboard {
         $form.Close()
     })
 
-    $btnHistoryExport.Add_Click({
-        $result.Action = "HistoryExport"
-        $form.Close()
-    })
-
-    $btnRegenChecklist.Add_Click({
-        $result.Action = "RegenerateChecklist"
-        $form.Close()
-    })
-
     $btnWindowsUpdate.Add_Click({
         $result.Action = "WindowsUpdate"
         $form.Close()
     })
 
-    $btnRestart.Add_Click({
-        $result.Action = "Restart"
+    $btnFabriqIos.Add_Click({
+        $result.Action  = "LaunchApp"
+        $result.AppName = "fabriq_ios"
         $form.Close()
     })
 
     $btnRefabriq.Add_Click({
         $result.Action = "Refabriq"
         $form.Close()
+    })
+
+    $btnSystemLauncher.Add_Click({
+        $result.Action = "SystemLauncher"
+        $form.Close()
+    })
+
+    $btnAndMore.Add_Click({
+        # Show the And More sub-dialog modally over the dashboard.
+        # On selection, propagate the chosen Action up to the
+        # dashboard's $result so main.ps1 dispatches via its existing
+        # switch case (Restart / HistoryExport / RegenerateChecklist /
+        # AppsMode). Cancel keeps the dashboard open.
+        $subResult = Show-AndMoreDialog
+        if ($subResult.Action -and $subResult.Action -ne "Cancel") {
+            $result.Action = $subResult.Action
+            $form.Close()
+        }
     })
 
     $btnNewSession.Add_Click({
@@ -506,16 +511,6 @@ function Show-OperatorDashboard {
 
     $btnManifesto.Add_Click({
         $result.Action = "Manifesto"
-        $form.Close()
-    })
-
-    $btnSystemLauncher.Add_Click({
-        $result.Action = "SystemLauncher"
-        $form.Close()
-    })
-
-    $btnApps.Add_Click({
-        $result.Action = "AppsMode"
         $form.Close()
     })
 

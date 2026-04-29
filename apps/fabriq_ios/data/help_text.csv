@@ -1,0 +1,25 @@
+Mode,Command,HelpText
+UserExec,enable,Enter privileged EXEC mode
+UserExec,show,Display information
+UserExec,help,Display this help
+UserExec,?,Display this help
+UserExec,exit,End the seance
+PrivilegedExec,configure,Enter configuration mode
+PrivilegedExec,show,Display information
+PrivilegedExec,reload,Halt and dream (currently performative only)
+PrivilegedExec,disable,Return to user EXEC mode
+PrivilegedExec,help,Display this help
+PrivilegedExec,?,Display this help
+PrivilegedExec,exit,End the seance
+GlobalConfig,hostname,Set the system hostname
+GlobalConfig,interface,Select an interface to configure
+GlobalConfig,module,Run an individual fabriq module
+GlobalConfig,help,Display this help
+GlobalConfig,?,Display this help
+GlobalConfig,exit,Return to privileged EXEC mode
+GlobalConfig,end,Return to privileged EXEC mode
+InterfaceConfig,ip,Configure IP parameters
+InterfaceConfig,help,Display this help
+InterfaceConfig,?,Display this help
+InterfaceConfig,exit,Return to global configuration mode
+InterfaceConfig,end,Return to privileged EXEC mode
