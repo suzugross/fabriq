@@ -213,67 +213,44 @@ function Show-FabriqIosManifesto {
 function Show-FabriqIosRunningConfig {
     param([hashtable]$State)
 
+    # Cisco IOS shows the configuration definitions in `show
+    # running-config`; on Windows the most truthful analog is
+    # ipconfig /all (live interface state, MAC, lease, gateway, DNS).
+    # We deliberately deviate from Cisco semantics and emit real
+    # ipconfig output, wrapped in the Cisco-style preamble / footer
+    # so the joke aesthetic still survives. ipconfig is invoked
+    # directly (not captured into a variable) so the console
+    # encoding handles the locale-dependent output without any
+    # PowerShell pipeline re-interpretation that would mojibake on
+    # JP Windows.
     $kernelVer = ''
     $kernelVerFile = Join-Path $script:FabriqRoot 'kernel\KERNEL_VERSION'
     if (Test-Path $kernelVerFile) {
         $kernelVer = (Get-Content -Path $kernelVerFile -Raw).Trim()
     }
-
     $worker = if ($env:FABRIQ_WORKER_NAME) { $env:FABRIQ_WORKER_NAME } else { 'anonymous' }
-    $iface  = if ($State.CurrentInterface) { $State.CurrentInterface } else { 'Ethernet0' }
-
-    # Assemble the configuration body as a list so we can compute the
-    # Cisco-style "Current configuration : N bytes" header before
-    # rendering. Layout follows real Cisco IOS running-config output:
-    # global commands at the top level; only interface-scoped commands
-    # are indented inside an `interface` block.
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("!")
-    $lines.Add("! Surkittinist artefact")
-    $lines.Add("!")
-    $lines.Add("version $kernelVer")
-    $lines.Add("!")
-    $lines.Add("banner motd ^C")
-    $lines.Add("    Surkittinism is the convulsive beauty of mass deployment, or it is nothing.")
-    $lines.Add("^C")
-    $lines.Add("!")
-    if ($env:SELECTED_NEW_PCNAME) {
-        $lines.Add("hostname $env:SELECTED_NEW_PCNAME")
-    } else {
-        $lines.Add("no hostname")
-    }
-    $lines.Add("!")
-    if ($env:SELECTED_ETH_IP) {
-        $lines.Add("interface $iface")
-        $lines.Add(" ip address $env:SELECTED_ETH_IP $env:SELECTED_ETH_SUBNET")
-        $lines.Add("!")
-    }
-    # Global ip stanza: default-gateway and name-servers are GLOBAL
-    # config commands in Cisco IOS, not interface-level. One
-    # ip name-server line per server, matching show running-config.
-    $globalIp = $false
-    if ($env:SELECTED_ETH_GATEWAY) {
-        $lines.Add("ip default-gateway $env:SELECTED_ETH_GATEWAY")
-        $globalIp = $true
-    }
-    foreach ($d in @($env:SELECTED_DNS1, $env:SELECTED_DNS2, $env:SELECTED_DNS3, $env:SELECTED_DNS4)) {
-        if ($d) {
-            $lines.Add("ip name-server $d")
-            $globalIp = $true
-        }
-    }
-    if ($globalIp) { $lines.Add("!") }
-    $lines.Add("session worker $worker")
-    $lines.Add("!")
-    $lines.Add("end")
-
-    $bodyText = ($lines -join "`r`n") + "`r`n"
-    $bytes = [System.Text.Encoding]::UTF8.GetByteCount($bodyText)
 
     Write-Host ""
     Write-Host "Building configuration..."
     Write-Host ""
-    Write-Host ("Current configuration : {0} bytes" -f $bytes)
-    foreach ($line in $lines) { Write-Host $line }
+    Write-Host "Current configuration : (live, sourced from ipconfig /all)"
+    Write-Host "!"
+    Write-Host "! Surkittinist artefact - Windows is not Cisco; the body is honest."
+    Write-Host "!"
+    Write-Host ("version {0}" -f $kernelVer)
+    Write-Host "!"
+    Write-Host "banner motd ^C"
+    Write-Host "    Surkittinism is the convulsive beauty of mass deployment, or it is nothing."
+    Write-Host "^C"
+    Write-Host "!"
+    try {
+        & ipconfig.exe /all
+    } catch {
+        Write-Host ("! ipconfig invocation failed: {0}" -f $_.Exception.Message)
+    }
+    Write-Host "!"
+    Write-Host ("session worker {0}" -f $worker)
+    Write-Host "!"
+    Write-Host "end"
     Write-Host ""
 }
