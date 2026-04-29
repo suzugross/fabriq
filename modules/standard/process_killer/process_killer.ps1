@@ -1,12 +1,12 @@
 # ========================================
 # Process Killer Script
 # ========================================
-# process_list.csv に定義されたプロセスを強制終了する。
-# 対象プロセスが起動していない場合は何もしない（冪等性維持）。
+# Forcibly stop the processes listed in process_list.csv.
+# Does nothing when the target process is not running (idempotent).
 #
 # [NOTES]
-# - ProcessName は Get-Process -Name に渡す名前（.exe 不要）
-# - 管理者権限がない場合、他ユーザーのプロセスは終了できないことがある
+# - ProcessName is passed to Get-Process -Name (no .exe suffix)
+# - Without admin privileges, processes owned by other users may not be killable
 # ========================================
 
 Write-Host ""
@@ -17,7 +17,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 1: CSV 読み込み
+# Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "process_list.csv"
 
@@ -33,13 +33,13 @@ if ($enabledItems.Count -eq 0) {
 
 
 # ========================================
-# Step 2: 前提条件チェック
+# Step 2: Prerequisite check
 # ========================================
-# プロセス終了に外部リソースは不要のため省略
+# Stopping a process does not depend on external resources; skip.
 
 
 # ========================================
-# Step 3: 実行前の確認表示（ドライラン）
+# Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Target Processes" -ForegroundColor Yellow
@@ -65,7 +65,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 4: 実行確認
+# Step 4: User confirmation
 # ========================================
 $cancelResult = Confirm-ModuleExecution -Message "Terminate the above running processes?"
 if ($null -ne $cancelResult) { return $cancelResult }
@@ -74,7 +74,7 @@ Write-Host ""
 
 
 # ========================================
-# Step 5: 設定適用ループ
+# Step 5: Apply-settings loop
 # ========================================
 $successCount = 0
 $skipCount    = 0
@@ -86,7 +86,7 @@ foreach ($item in $enabledItems) {
     Write-Host "----------------------------------------" -ForegroundColor White
 
     # ----------------------------------------
-    # 冪等性チェック：プロセスが存在しなければ Skip
+    # Idempotency: skip when the process is not running
     # ----------------------------------------
     $processes = @(Get-Process -Name $item.ProcessName -ErrorAction SilentlyContinue)
     if ($processes.Count -eq 0) {
@@ -97,7 +97,7 @@ foreach ($item in $enabledItems) {
     }
 
     # ----------------------------------------
-    # メイン処理：強制終了
+    # Main work: force-stop
     # ----------------------------------------
     try {
         Stop-Process -Name $item.ProcessName -Force -ErrorAction Stop
@@ -114,7 +114,7 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
-# Step 6: 結果集計・返却
+# Step 6: Aggregate and return result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
     -Title "Process Killer Results")
