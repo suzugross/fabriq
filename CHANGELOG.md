@@ -15,6 +15,23 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_ios/: `show running-config` body replaced with live
+  `ipconfig /all` output. The previous artificial dump (constructed
+  from SELECTED_* env vars at the moment of invocation) deviated
+  from reality whenever the operator had not yet committed the
+  selected host's settings to the OS, so its Cisco-style fidelity
+  came at the cost of accuracy. New behaviour: keep the Cisco-style
+  preamble (Building configuration... / Current configuration : ...
+  / version / banner motd / Surkittinist comment) and footer
+  (session worker / end), but emit ipconfig /all output verbatim
+  between them. ipconfig is invoked directly (no PowerShell capture)
+  so the console encoding handles locale-dependent text without
+  mojibake on JP Windows. Code comment acknowledges the deliberate
+  deviation from Cisco semantics (where running-config shows
+  definitions, not runtime state) - joke aesthetic in the wrappers,
+  honest body.
+
 ### Added
 - apps/fabriq_operator/lib/quickactions_dialog.ps1 (NEW): "And More"
   sub-dialog (DataGridView pattern, mirrors apps_dialog.ps1 styling)
