@@ -15,6 +15,30 @@
 
 ## [Unreleased]
 
+### Removed (BREAKING — 次期 MAJOR 候補)
+- kernel: 特殊マーカー 4 種を削除: `__SHUTDOWN__` / `__PAUSE__` /
+  `__STOPLOG__` / `__STARTLOG__`
+  - 公開 API surface の破壊的変更（KERNEL_API.md §4.2）。次期 MAJOR
+    （3.0.0 候補）に向けた整理
+  - 削除理由: 実運用での参照ゼロまたは唯一の使用箇所も廃止済み
+    （`__SHUTDOWN__` は profiles/Master_Pre01.csv のみ使用 → 同時削除）。
+    fabriq_studio のマーカーパレットでも既に除外されており、UX 上は
+    事実上 deprecated だった
+  - kernel/main.ps1: 4 つのハンドラブロック（約 75 行）削除
+  - kernel/common.ps1: `$specialMarkers` ハッシュから 4 エントリ削除
+    （6 → 2）、`Show-BatchConfirmation` の `$isSpecial` 検出を 6 フラグ
+    から 2 フラグに簡素化
+  - kernel/KERNEL_API.md: §4.2 表から 4 エントリ削除、§8 に
+    [Unreleased] セクション追加（次期 MAJOR 候補の破壊的変更を記録）
+  - profiles/Master_Pre01.csv: `__SHUTDOWN__` 行を削除（driver_export
+    のみの 1 行プロファイルに変更）
+  - kernel/common.ps1: `Invoke-CountdownShutdown` 関数（15 行）削除。
+    `__SHUTDOWN__` の唯一の呼び出し元だったためデッドコード化。
+    KERNEL_API.md §6 内部 API 一覧からも除去
+  - 互換性: 削除済みマーカーを含む旧プロファイルは `$invalidPaths` 経由
+    で「module not found」warning に降格、kernel はクラッシュせず他
+    モジュールの実行を継続する（graceful degradation）
+
 ### Removed
 - modules/extended/edge_config: 削除（Edge プロファイルの robocopy /MIR
   バックアップ/復元。プロファイル参照ゼロ・コード依存ゼロを確認の上、
