@@ -16,6 +16,28 @@
 ## [Unreleased]
 
 ### Fixed
+- apps/fabriq_ios/ inline `?` no longer hides the alphabetically-first
+  candidate. The chord handler in lib/completer.ps1 wrote candidate
+  rows starting from the input row's current cursor column, then
+  called InvokePrompt() which redrew prompt+buffer at PSReadLine's
+  _initialY = the input row, overwriting whatever the first Write-Host
+  had appended. With six Group enums for `(config-mod)# set Enabled 1
+  Group ?`, only Backup Operators..Users were visible; Administrators
+  silently vanished even though Tab returned all six (Tab handler
+  already had a leading sacrificial Write-Host "" that the ? handler
+  was missing). The empty-list "(no candidates)" message was hidden
+  by the same mechanism.
+
+  Fix: emit the same sacrificial blank line at the start of the ?
+  candidate emission so candidates land on rows below the input row
+  and survive the InvokePrompt redraw. Orphan-tail blanking math is
+  unchanged: $tailY (captured after all writes) shifts down by one
+  to match, and $extra = $prevRows - $rowsWritten only depends on the
+  relative diff, which both presses share. VERSION 0.3.4 -> 0.3.5
+  (PATCH, visual fix in the same family as 0.3.2-0.3.4 inline ?
+  refinements; covers visual subtlety #1 from the file-level comment
+  block which was documented but never implemented).
+
 - apps/fabriq_ios/ inline `?` no longer leaves merged garbage
   candidates from previous presses ("Passwordperators" =
   new "Password" overlaid on stale "Operators...something"). Two
