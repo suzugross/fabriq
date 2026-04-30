@@ -50,6 +50,13 @@ function Get-FabriqIosCompletion {
         }
         if ($tokensBefore.Count -eq 1) {
             $candidates = @(Get-DynamicCompletion -Source ($first.Match) -Mode $Mode -State $State)
+        } elseif ($first.Match -in @('set','add')) {
+            # set/add are N-deep alternating col/val sequences inside
+            # ModuleConfig, not 2-token sub-vocabulary verbs. Position
+            # parity decides the candidate kind: even args after verb
+            # -> next is a column name; odd -> next is an enum value
+            # for the column at $tokensBefore[-1].
+            $candidates = @(Get-SetAddPositionalCompletion -TokensBefore $tokensBefore -State $State)
         } else {
             $subVocab = @(Get-FabriqIosSubVocabulary -Parent $first.Match -Mode $Mode)
             $second = $null
@@ -74,6 +81,37 @@ function Get-FabriqIosCompletion {
     }
 
     return ,@($candidates | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+function Get-SetAddPositionalCompletion {
+    # Pure helper for ModuleConfig `set`/`add` completion at any
+    # position past the first column. Returns column names when the
+    # next token should be a column, or enum values for the previous
+    # column when the next token should be a value. Already-named
+    # columns (case-insensitive) are filtered out so `set Foo 1 ?`
+    # does not re-suggest Foo.
+    param(
+        [string[]]$TokensBefore,
+        [hashtable]$State
+    )
+    if (-not ($State -and $State.ConfigModuleSchema)) { return @() }
+    $argsAfterVerb = $TokensBefore.Count - 1
+    if (($argsAfterVerb % 2) -eq 0) {
+        # Next position is a column name. Drop columns already used.
+        $used = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+        for ($i = 1; $i -lt $TokensBefore.Count; $i += 2) {
+            [void]$used.Add($TokensBefore[$i])
+        }
+        return @($State.ConfigModuleSchema.Columns | Where-Object { -not $used.Contains($_) })
+    } else {
+        # Next position is a value for the column at TokensBefore[-1].
+        $col = $TokensBefore[-1]
+        $enums = $State.ConfigModuleSchema.Enums
+        if ($enums -and $enums.ContainsKey($col)) {
+            return @($enums[$col])
+        }
+        return @()
+    }
 }
 
 function Get-DynamicCompletion {

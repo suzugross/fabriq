@@ -15,6 +15,35 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_ios/ ModuleConfig `set` / `add` Tab completion no
+  longer goes silent past the first column. Previously
+  Get-FabriqIosCompletion routed any 2+ token prefix into the
+  fixed-arity sub-vocabulary path (designed for `show running-config`
+  style verbs), so `set Enabled <Tab>`, `set Enabled 1 <Tab>`,
+  `set Enabled 1 Type REG_<Tab>` etc. all returned no candidates.
+  
+  Added Get-SetAddPositionalCompletion: a dedicated branch for
+  set / add that decides candidate kind by position parity. Even
+  args after the verb -> next token is a column (filtered to
+  hide already-named columns, case-insensitive). Odd -> next is
+  an enum value for the column at TokensBefore[-1], pulled from
+  ConfigModuleSchema.Enums (preset.csv). Columns without preset
+  enums silently return zero candidates rather than erroring.
+  
+  Behaviour matches Cisco IOS chained-arg completion within a
+  single `set` command and removes the friction of having to
+  re-check `show` for each subsequent column. The named
+  `set <col> <val> [<col> <val>...]` syntax is preserved as-is;
+  no parser change.
+  
+  VERSION 0.3.0 -> 0.3.1 (PATCH: completion engine completing
+  cases that were always intended to work). 18 new assertions
+  added to tests/_phase7_smoke.ps1 covering enum-value position,
+  prefix narrowing, used-column filtering (case-insensitive),
+  multi-pair chains (3 pairs deep), add-verb parity with set,
+  and enum-less columns. All phase smokes pass: 339/339.
+
 ### Added
 - apps/fabriq_ios/ Phase 9b: JSON object-form entries for
   multi-script / multi-CSV modules. data/module_categories.json
