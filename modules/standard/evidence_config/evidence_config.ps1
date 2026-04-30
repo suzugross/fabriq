@@ -291,6 +291,11 @@ Write-Host "    [23] Security Baseline (TPM / Secure Boot / VBS / LSA / BIOS)" -
 Write-Host "    [24] Group Policy Report (gpresult /h HTML)" -ForegroundColor White
 Write-Host "    [25] Certificates (4 stores in single CSV)" -ForegroundColor White
 Write-Host "    [26] Battery Report (laptop only)" -ForegroundColor White
+Write-Host "    [27] Environment Variables (Machine + User scopes, CSV)" -ForegroundColor White
+Write-Host "    [28] Startup Items (Win32_StartupCommand + logon ScheduledTask, CSV)" -ForegroundColor White
+Write-Host "    [29] Memory Slots & Array Summary (CSV)" -ForegroundColor White
+Write-Host "    [30] PnP Devices (full enumeration with driver version/date, CSV)" -ForegroundColor White
+Write-Host "    [31] Hardware Identifiers (System / BaseBoard / Enclosure, TXT)" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -2056,6 +2061,421 @@ try {
 }
 catch {
     Out-Log "[ERROR] Failed to generate battery report: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 27. Environment Variables (Machine + User scopes)
+# ----------------------------------------
+# Machine and User scope only. Process scope is volatile (depends on the
+# running shell context, not the system state) so it is excluded as
+# evidentiary noise. Values are recorded raw — masking is intentionally
+# avoided because evidence must capture what was actually configured.
+# ----------------------------------------
+Start-Section -Id "27" -Title "Environment Variables (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $envRows = @()
+    foreach ($scope in 'Machine','User') {
+        try {
+            $vars = [System.Environment]::GetEnvironmentVariables($scope)
+            foreach ($key in $vars.Keys) {
+                $envRows += [PSCustomObject]@{
+                    Scope = $scope
+                    Name  = $key
+                    Value = $vars[$key]
+                }
+            }
+            Out-Log "  $scope scope: $($vars.Count) variables"
+        }
+        catch {
+            Out-Log "  [WARN] Could not enumerate $scope scope: $_" -Color Yellow
+        }
+    }
+
+    $envRows = $envRows | Sort-Object Scope, Name
+    $outEnv = Join-Path $targetDir "27_EnvironmentVariables.csv"
+    $envRows | Export-Csv -Path $outEnv -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "27_EnvironmentVariables.csv"
+
+    Out-Log "Environment variables: $($envRows.Count) entries -> 27_EnvironmentVariables.csv"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate environment variables: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 28. Startup Items (Win32_StartupCommand + logon-triggered ScheduledTask)
+# ----------------------------------------
+# Two sources combined into a single CSV with a Source column:
+#   - Win32_StartupCommand : Run / RunOnce registry keys + Startup folders
+#     (legacy comprehensive view, PCView-compatible)
+#   - Get-ScheduledTask    : logon-triggered tasks that are not Disabled,
+#     excluding Microsoft\Windows\* OS internals (audit noise reduction)
+# Disabled tasks are dropped to keep the CSV evidence-relevant.
+# ----------------------------------------
+Start-Section -Id "28" -Title "Startup Items (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $startupRows = @()
+
+    # 28a. Win32_StartupCommand (Run / RunOnce / Startup folder)
+    try {
+        $cmds = @(Get-CimInstance Win32_StartupCommand -ErrorAction Stop)
+        foreach ($c in $cmds) {
+            $startupRows += [PSCustomObject]@{
+                Source   = 'Win32_StartupCommand'
+                Name     = $c.Name
+                User     = $c.User
+                Command  = $c.Command
+                Location = $c.Location
+                Enabled  = $true
+            }
+        }
+        Out-Log "  Win32_StartupCommand: $($cmds.Count) entries"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_StartupCommand failed: $_" -Color Yellow
+    }
+
+    # 28b. Logon-triggered ScheduledTask (non-Disabled, exclude OS internals)
+    try {
+        $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $_.State -ne 'Disabled' -and
+            $_.TaskPath -notlike '\Microsoft\Windows\*' -and
+            ($_.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' })
+        })
+        foreach ($t in $tasks) {
+            $action = $t.Actions | Select-Object -First 1
+            $cmdText = if ($action) {
+                $exe = $action.Execute
+                $args = $action.Arguments
+                if ([string]::IsNullOrWhiteSpace($args)) { $exe } else { "$exe $args" }
+            } else {
+                ''
+            }
+            $startupRows += [PSCustomObject]@{
+                Source   = 'ScheduledTask'
+                Name     = $t.TaskName
+                User     = ($t.Principal.UserId)
+                Command  = $cmdText
+                Location = $t.TaskPath
+                Enabled  = ($t.State -ne 'Disabled')
+            }
+        }
+        Out-Log "  ScheduledTask (logon-trigger, non-Disabled, non-MS): $($tasks.Count) entries"
+    }
+    catch {
+        Out-Log "  [WARN] Get-ScheduledTask failed: $_" -Color Yellow
+    }
+
+    $outStartup = Join-Path $targetDir "28_StartupItems.csv"
+    $startupRows | Export-Csv -Path $outStartup -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "28_StartupItems.csv"
+
+    Out-Log "Startup items: $($startupRows.Count) entries -> 28_StartupItems.csv"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate startup items: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 29. Memory Slots (per-slot detail) + 29b. Memory Array Summary
+# ----------------------------------------
+# Two CSVs (mirrors the §8b Disks/Partitions split convention):
+#   - 29_MemorySlots.csv         : per-slot detail (Win32_PhysicalMemory)
+#   - 29b_MemoryArraySummary.csv : array-level (Win32_PhysicalMemoryArray)
+# FormFactor and SMBIOSMemoryType numeric codes are translated to strings
+# per the WMI schema (FormFactor 8=DIMM / 12=SODIMM, SMBIOSMemoryType
+# 24=DDR3 / 26=DDR4 / 30=LPDDR4 / 34=DDR5 / 35=LPDDR5).
+# ----------------------------------------
+Start-Section -Id "29" -Title "Memory Slots (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    # Translation tables (WMI schema constants)
+    $formFactorMap = @{
+        0 = 'Unknown'; 1 = 'Other'; 2 = 'SIP'; 3 = 'DIP'; 4 = 'ZIP'; 5 = 'SOJ'
+        6 = 'Proprietary'; 7 = 'SIMM'; 8 = 'DIMM'; 9 = 'TSOP'; 10 = 'PGA'
+        11 = 'RIMM'; 12 = 'SODIMM'; 13 = 'SRIMM'; 14 = 'SMD'; 15 = 'SSMP'
+        16 = 'QFP'; 17 = 'TQFP'; 18 = 'SOIC'; 19 = 'LCC'; 20 = 'PLCC'
+        21 = 'BGA'; 22 = 'FPBGA'; 23 = 'LGA'; 24 = 'FB-DIMM'
+    }
+    $smbiosMemTypeMap = @{
+        0 = 'Unknown'; 1 = 'Other'; 2 = 'DRAM'; 3 = 'Synchronous DRAM'
+        4 = 'Cache DRAM'; 5 = 'EDO'; 6 = 'EDRAM'; 7 = 'VRAM'; 8 = 'SRAM'
+        9 = 'RAM'; 10 = 'ROM'; 11 = 'Flash'; 12 = 'EEPROM'; 13 = 'FEPROM'
+        14 = 'EPROM'; 15 = 'CDRAM'; 16 = '3DRAM'; 17 = 'SDRAM'; 18 = 'SGRAM'
+        19 = 'RDRAM'; 20 = 'DDR'; 21 = 'DDR2'; 22 = 'DDR2 FB-DIMM'
+        24 = 'DDR3'; 25 = 'FBD2'; 26 = 'DDR4'; 27 = 'LPDDR'; 28 = 'LPDDR2'
+        29 = 'LPDDR3'; 30 = 'LPDDR4'; 31 = 'Logical non-volatile device'
+        32 = 'HBM'; 33 = 'HBM2'; 34 = 'DDR5'; 35 = 'LPDDR5'
+    }
+
+    # 29. Per-slot detail
+    $slotRows = @()
+    $modules = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+    foreach ($m in $modules) {
+        $ffCode = [int]$m.FormFactor
+        $ffName = if ($formFactorMap.ContainsKey($ffCode)) { $formFactorMap[$ffCode] } else { "Code $ffCode" }
+        $mtCode = if ($null -ne $m.SMBIOSMemoryType) { [int]$m.SMBIOSMemoryType } else { 0 }
+        $mtName = if ($smbiosMemTypeMap.ContainsKey($mtCode)) { $smbiosMemTypeMap[$mtCode] } else { "Code $mtCode" }
+
+        $capGB = if ($m.Capacity) { [math]::Round([double]$m.Capacity / 1GB, 2) } else { 0 }
+
+        $slotRows += [PSCustomObject]@{
+            BankLabel              = $m.BankLabel
+            DeviceLocator          = $m.DeviceLocator
+            Capacity_GB            = $capGB
+            Speed_MHz              = $m.Speed
+            ConfiguredClockSpeed_MHz = $m.ConfiguredClockSpeed
+            ConfiguredVoltage_mV   = $m.ConfiguredVoltage
+            Manufacturer           = $m.Manufacturer
+            PartNumber             = ($m.PartNumber).Trim()
+            SerialNumber           = ($m.SerialNumber).Trim()
+            FormFactor             = $ffName
+            SMBIOSMemoryType       = $mtName
+            DataWidth_bit          = $m.DataWidth
+            TotalWidth_bit         = $m.TotalWidth
+        }
+    }
+    $outSlots = Join-Path $targetDir "29_MemorySlots.csv"
+    $slotRows | Export-Csv -Path $outSlots -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "29_MemorySlots.csv"
+    Out-Log "Memory slots: $($slotRows.Count) populated module(s) -> 29_MemorySlots.csv"
+
+    # 29b. Array summary
+    $arrayRows = @()
+    try {
+        $arrays = @(Get-CimInstance Win32_PhysicalMemoryArray -ErrorAction Stop)
+        foreach ($a in $arrays) {
+            # MaxCapacity is in KB; MaxCapacityEx (UInt64) is preferred when present
+            $maxKB = if ($a.MaxCapacityEx -and $a.MaxCapacityEx -gt 0) { [double]$a.MaxCapacityEx } else { [double]$a.MaxCapacity }
+            $maxGB = if ($maxKB) { [math]::Round($maxKB / 1MB, 2) } else { 0 }
+            $arrayRows += [PSCustomObject]@{
+                Tag             = $a.Tag
+                Location        = $a.Location
+                Use             = $a.Use
+                MemoryErrorCorrection = $a.MemoryErrorCorrection
+                MaxCapacity_GB  = $maxGB
+                MemoryDevices   = $a.MemoryDevices
+            }
+        }
+        $outArray = Join-Path $targetDir "29b_MemoryArraySummary.csv"
+        $arrayRows | Export-Csv -Path $outArray -NoTypeInformation -Encoding UTF8
+        Add-SectionFile "29b_MemoryArraySummary.csv"
+        Out-Log "Memory array summary: $($arrayRows.Count) array(s) -> 29b_MemoryArraySummary.csv"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_PhysicalMemoryArray failed: $_" -Color Yellow
+        $sectionStatus = 'Partial'
+        $sectionReason = "Array summary sub-collection failed: $($_.Exception.Message)"
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate memory slots: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 30. PnP Devices (full enumeration with driver version/date)
+# ----------------------------------------
+# Get-PnpDevice without -PresentOnly returns past-connected devices too,
+# which is intentional for audit traceability. DriverVersion / DriverDate
+# are queried per-instance via Get-PnpDeviceProperty (cost: tens of seconds
+# on a typical client). Per-device query failures fall back to blank cells
+# without failing the section.
+# ----------------------------------------
+Start-Section -Id "30" -Title "PnP Devices (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $devices = @(Get-PnpDevice -ErrorAction Stop | Sort-Object Class, FriendlyName)
+    $deviceRows = @()
+    $queryFailures = 0
+
+    foreach ($d in $devices) {
+        $driverVersion = ''
+        $driverDate    = ''
+        try {
+            $props = Get-PnpDeviceProperty -InstanceId $d.InstanceId `
+                -KeyName 'DEVPKEY_Device_DriverVersion','DEVPKEY_Device_DriverDate' `
+                -ErrorAction Stop
+            foreach ($p in $props) {
+                switch ($p.KeyName) {
+                    'DEVPKEY_Device_DriverVersion' { $driverVersion = "$($p.Data)" }
+                    'DEVPKEY_Device_DriverDate'    {
+                        if ($p.Data -is [datetime]) {
+                            $driverDate = $p.Data.ToString('yyyy-MM-dd')
+                        } else {
+                            $driverDate = "$($p.Data)"
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            $queryFailures++
+        }
+
+        $deviceRows += [PSCustomObject]@{
+            Class         = $d.Class
+            FriendlyName  = $d.FriendlyName
+            Status        = $d.Status
+            Present       = $d.Present
+            Manufacturer  = $d.Manufacturer
+            Service       = $d.Service
+            DriverVersion = $driverVersion
+            DriverDate    = $driverDate
+            InstanceId    = $d.InstanceId
+        }
+    }
+
+    $outPnp = Join-Path $targetDir "30_PnpDevices.csv"
+    $deviceRows | Export-Csv -Path $outPnp -NoTypeInformation -Encoding UTF8
+    Add-SectionFile "30_PnpDevices.csv"
+
+    Out-Log "PnP devices: $($deviceRows.Count) entries (driver query failures: $queryFailures) -> 30_PnpDevices.csv"
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate PnP devices: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+
+# ----------------------------------------
+# 31. Hardware Identifiers (System / BaseBoard / Enclosure)
+# ----------------------------------------
+# Aggregates four WMI classes that PCView's "WMI" tab covered but were
+# previously unrecorded by fabriq evidence:
+#   - Win32_ComputerSystem        (Manufacturer / Model / SystemFamily / SKU)
+#   - Win32_ComputerSystemProduct (Vendor / Name / IdentifyingNumber / UUID)
+#   - Win32_BaseBoard             (motherboard Manufacturer / Product / SN)
+#   - Win32_SystemEnclosure       (chassis type / asset tag / SN)
+# ChassisTypes numeric codes are translated to strings per the WMI schema.
+# This complements §10 (PC serial number) and §23 (BIOS / TPM) without
+# duplication.
+# ----------------------------------------
+Start-Section -Id "31" -Title "Hardware Identifiers" -FileName "31_HardwareIdentifiers.txt"
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    $chassisTypeMap = @{
+        1 = 'Other'; 2 = 'Unknown'; 3 = 'Desktop'; 4 = 'Low Profile Desktop'
+        5 = 'Pizza Box'; 6 = 'Mini Tower'; 7 = 'Tower'; 8 = 'Portable'
+        9 = 'Laptop'; 10 = 'Notebook'; 11 = 'Hand Held'; 12 = 'Docking Station'
+        13 = 'All-in-One'; 14 = 'Sub-Notebook'; 15 = 'Space-Saving'
+        16 = 'Lunch Box'; 17 = 'Main Server Chassis'; 18 = 'Expansion Chassis'
+        19 = 'Sub-Chassis'; 20 = 'Bus Expansion Chassis'; 21 = 'Peripheral Chassis'
+        22 = 'RAID Chassis'; 23 = 'Rack-Mount Chassis'; 24 = 'Sealed-Case PC'
+        25 = 'Multi-System Chassis'; 26 = 'Compact PCI'; 27 = 'Advanced TCA'
+        28 = 'Blade'; 29 = 'Blade Enclosure'; 30 = 'Tablet'; 31 = 'Convertible'
+        32 = 'Detachable'; 33 = 'IoT Gateway'; 34 = 'Embedded PC'
+        35 = 'Mini PC'; 36 = 'Stick PC'
+    }
+
+    Out-Log "---- Win32_ComputerSystem ----"
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        Out-Log "Manufacturer:      $($cs.Manufacturer)"
+        Out-Log "Model:             $($cs.Model)"
+        Out-Log "SystemFamily:      $($cs.SystemFamily)"
+        Out-Log "SystemSKUNumber:   $($cs.SystemSKUNumber)"
+        Out-Log "TotalPhysicalMem:  $([math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2)) GB"
+        Out-Log "NumberOfProcessors: $($cs.NumberOfProcessors)"
+        Out-Log "NumberOfLogicalProcessors: $($cs.NumberOfLogicalProcessors)"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_ComputerSystem failed: $_" -Color Yellow
+    }
+    Out-Log ""
+
+    Out-Log "---- Win32_ComputerSystemProduct ----"
+    try {
+        $csp = Get-CimInstance Win32_ComputerSystemProduct -ErrorAction Stop
+        Out-Log "Vendor:            $($csp.Vendor)"
+        Out-Log "Name:              $($csp.Name)"
+        Out-Log "Version:           $($csp.Version)"
+        Out-Log "IdentifyingNumber: $($csp.IdentifyingNumber)"
+        Out-Log "UUID:              $($csp.UUID)"
+        Out-Log "SKUNumber:         $($csp.SKUNumber)"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_ComputerSystemProduct failed: $_" -Color Yellow
+    }
+    Out-Log ""
+
+    Out-Log "---- Win32_BaseBoard ----"
+    try {
+        $bb = Get-CimInstance Win32_BaseBoard -ErrorAction Stop
+        Out-Log "Manufacturer:      $($bb.Manufacturer)"
+        Out-Log "Product:           $($bb.Product)"
+        Out-Log "Version:           $($bb.Version)"
+        Out-Log "SerialNumber:      $($bb.SerialNumber)"
+        Out-Log "Tag:               $($bb.Tag)"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_BaseBoard failed: $_" -Color Yellow
+    }
+    Out-Log ""
+
+    Out-Log "---- Win32_SystemEnclosure ----"
+    try {
+        $se = Get-CimInstance Win32_SystemEnclosure -ErrorAction Stop
+        $ctRaw = @($se.ChassisTypes)
+        $ctNames = $ctRaw | ForEach-Object {
+            $code = [int]$_
+            if ($chassisTypeMap.ContainsKey($code)) {
+                "$code ($($chassisTypeMap[$code]))"
+            } else {
+                "$code (Unmapped)"
+            }
+        }
+        Out-Log "Manufacturer:      $($se.Manufacturer)"
+        Out-Log "Model:             $($se.Model)"
+        Out-Log "ChassisTypes:      $($ctNames -join ', ')"
+        Out-Log "SerialNumber:      $($se.SerialNumber)"
+        Out-Log "SMBIOSAssetTag:    $($se.SMBIOSAssetTag)"
+        Out-Log "AssetTag:          $($se.AssetTag)"
+        Out-Log "SecurityStatus:    $($se.SecurityStatus)"
+        Out-Log "LockPresent:       $($se.LockPresent)"
+    }
+    catch {
+        Out-Log "  [WARN] Win32_SystemEnclosure failed: $_" -Color Yellow
+    }
+
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to collect hardware identifiers: $_" -Color Red
     $failCount++
     $sectionStatus = 'Failed'
     $sectionReason = "$($_.Exception.Message)"
