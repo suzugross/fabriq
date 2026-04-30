@@ -249,32 +249,81 @@ function Register-FabriqIosCompleter {
         # from where it left off (e.g. `host?` -> show `hostname` ->
         # cursor lands back at the end of `host`).
         #
-        # Visual subtlety: PSReadLine's InvokePrompt re-anchors the
-        # input area below the help output but does NOT clear the
-        # original prompt row that was painted by [Console]::Write in
-        # the REPL loop. Without manual cleanup, that row persists
-        # ABOVE the help and visually duplicates the new prompt below
-        # ("? で描画されなおすたびに前の表示と重なる"). Erase it ourselves
-        # before writing candidates so the help+new-prompt stack
-        # cleanly without the stale row above.
+        # Visual subtlety #1: PSReadLine's InvokePrompt re-renders
+        # prompt+buffer at the original _initialY (the row where
+        # ReadLine started). After Write-Host'ing N help rows starting
+        # from that row, InvokePrompt overwrites row 1 of help with
+        # the prompt - leaving rows 2..N visible BELOW the prompt.
+        #
+        # Visual subtlety #2: each repeat `?` press writes its
+        # candidates to the SAME row range as the previous press
+        # (since _initialY is unchanged). If the new candidate list
+        # is shorter than the old one, two failure modes appear:
+        #   (a) per-row: a new short candidate ("Password") landing
+        #       on a row that previously held a longer candidate
+        #       ("PasswordOperators"-something) leaves the trailing
+        #       characters of the old visible after the new
+        #       ("Passwordperators").
+        #   (b) per-list: rows beyond the new list's length still
+        #       hold old candidates that were never overwritten, so
+        #       a tail of stale rows hangs below.
+        # Fix (a) by padding every help row to full window width so
+        # any leftover trailing chars are blanked. Fix (b) by tracking
+        # the previous press's row count and explicitly blanking any
+        # orphan tail rows. Reset the count when the input row
+        # changes (user submitted a command and a fresh prompt is on
+        # a new row), since the rows below now contain unrelated
+        # console output we must not overwrite.
         $candidates = Get-FabriqIosCompletion -Line $buffer -Position $buffer.Length `
                                               -Mode $state.Mode -State $state
 
-        $inputY = [Console]::CursorTop
-        $w      = [Console]::WindowWidth
-        if ($w -gt 1) {
-            [Console]::SetCursorPosition(0, $inputY)
-            [Console]::Write((' ' * ($w - 1)))
-            [Console]::SetCursorPosition(0, $inputY)
+        $inputY   = [Console]::CursorTop
+        $w        = [Console]::WindowWidth
+        $padWidth = if ($w -gt 1) { $w - 1 } else { 0 }
+        $blankRow = if ($padWidth -gt 0) { ' ' * $padWidth } else { '' }
+
+        $prevRows = 0
+        if ($global:_FabriqIosLastHelpInputY -eq $inputY -and `
+            $null -ne $global:_FabriqIosLastHelpRowCount) {
+            $prevRows = [int]$global:_FabriqIosLastHelpRowCount
         }
 
+        $rowsWritten = 0
         if ($candidates.Count -gt 0) {
             foreach ($c in ($candidates | Sort-Object)) {
-                Write-Host ("  " + $c) -ForegroundColor DarkCyan
+                $row = '  ' + $c
+                if ($padWidth -gt 0 -and $row.Length -lt $padWidth) {
+                    $row = $row.PadRight($padWidth)
+                }
+                Write-Host $row -ForegroundColor DarkCyan
+                $rowsWritten++
             }
         } else {
-            Write-Host "  (no candidates)" -ForegroundColor DarkGray
+            $row = '  (no candidates)'
+            if ($padWidth -gt 0 -and $row.Length -lt $padWidth) {
+                $row = $row.PadRight($padWidth)
+            }
+            Write-Host $row -ForegroundColor DarkGray
+            $rowsWritten = 1
         }
+
+        # Wipe any orphan tail rows the previous press left behind.
+        if ($prevRows -gt $rowsWritten -and $padWidth -gt 0) {
+            $tailY = [Console]::CursorTop
+            $extra = $prevRows - $rowsWritten
+            $bufBottom = [Console]::BufferHeight - 1
+            for ($i = 0; $i -lt $extra; $i++) {
+                $y = $tailY + $i
+                if ($y -gt $bufBottom) { break }
+                [Console]::SetCursorPosition(0, $y)
+                [Console]::Write($blankRow)
+            }
+            [Console]::SetCursorPosition(0, $tailY)
+        }
+
+        $global:_FabriqIosLastHelpInputY   = $inputY
+        $global:_FabriqIosLastHelpRowCount = $rowsWritten
+
         [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
     }
 }
