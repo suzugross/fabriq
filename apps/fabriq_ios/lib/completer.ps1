@@ -247,12 +247,27 @@ function Register-FabriqIosCompleter {
         # the user has typed so far, then let PSReadLine redraw the
         # prompt with the original buffer intact so editing continues
         # from where it left off (e.g. `host?` -> show `hostname` ->
-        # cursor lands back at the end of `host`). Same Write-Host +
-        # InvokePrompt pattern the Tab handler above uses; the buffer
-        # is preserved across InvokePrompt by design.
+        # cursor lands back at the end of `host`).
+        #
+        # Visual subtlety: PSReadLine's InvokePrompt re-anchors the
+        # input area below the help output but does NOT clear the
+        # original prompt row that was painted by [Console]::Write in
+        # the REPL loop. Without manual cleanup, that row persists
+        # ABOVE the help and visually duplicates the new prompt below
+        # ("? で描画されなおすたびに前の表示と重なる"). Erase it ourselves
+        # before writing candidates so the help+new-prompt stack
+        # cleanly without the stale row above.
         $candidates = Get-FabriqIosCompletion -Line $buffer -Position $buffer.Length `
                                               -Mode $state.Mode -State $state
-        Write-Host ""
+
+        $inputY = [Console]::CursorTop
+        $w      = [Console]::WindowWidth
+        if ($w -gt 1) {
+            [Console]::SetCursorPosition(0, $inputY)
+            [Console]::Write((' ' * ($w - 1)))
+            [Console]::SetCursorPosition(0, $inputY)
+        }
+
         if ($candidates.Count -gt 0) {
             foreach ($c in ($candidates | Sort-Object)) {
                 Write-Host ("  " + $c) -ForegroundColor DarkCyan
