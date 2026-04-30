@@ -263,6 +263,59 @@ Check 'set <space> -> column names' ($candidates.Count -ge 3)
 $candidates = Get-FabriqIosCompletion -Line 'add ' -Position 4 -Mode 'ModuleConfig' -State $state
 Check 'add <space> -> column names' ($candidates.Count -ge 3)
 
+Write-Host '--- Tab completion: set/add multi-pair (Phase 9c) ---' -ForegroundColor Cyan
+# After a column with declared enums, value position offers enum values.
+$line = 'set Enabled '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'set Enabled <space> -> enum values'   ($candidates.Count -ge 2)
+Check 'set Enabled <space> contains 1'       ($candidates -contains '1')
+Check 'set Enabled <space> contains 0'       ($candidates -contains '0')
+
+# Prefix narrowing on enum values.
+$line = 'set Type REG_D'
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'set Type REG_D -> filtered enum'      ($candidates -contains 'REG_DWORD')
+Check 'set Type REG_D excludes REG_SZ'       (-not ($candidates -contains 'REG_SZ'))
+
+# After col-value pair, next position is a column name again.
+$line = 'set Enabled 1 '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'set Enabled 1 <space> -> column names' ($candidates.Count -ge 3)
+Check 'set Enabled 1 <space> contains AdminID' ($candidates -contains 'AdminID')
+Check 'set Enabled 1 <space> excludes used Enabled' (-not ($candidates -contains 'Enabled'))
+
+# Prefix narrowing on second column name.
+$line = 'set Enabled 1 Ad'
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'set Enabled 1 Ad -> AdminID'          ($candidates -contains 'AdminID')
+Check 'set Enabled 1 Ad excludes Enabled'    (-not ($candidates -contains 'Enabled'))
+
+# Three-pair chain: after two pairs, columns come back, used cols hidden.
+$line = 'set Enabled 1 Type REG_DWORD '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check '3rd-pair column completion fires'     ($candidates.Count -ge 1)
+Check '3rd-pair excludes Enabled'            (-not ($candidates -contains 'Enabled'))
+Check '3rd-pair excludes Type'               (-not ($candidates -contains 'Type'))
+Check '3rd-pair includes Value'              ($candidates -contains 'Value')
+
+# add verb gets the same treatment.
+$line = 'add Enabled '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'add Enabled <space> -> enum values'   ($candidates.Count -ge 2)
+$line = 'add Enabled 1 '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'add Enabled 1 <space> -> columns'     ($candidates.Count -ge 3)
+
+# Column with no preset enums returns no value candidates (silent, not error).
+$line = 'set SettingTitle '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'set <enum-less col> <space> -> empty' ($candidates.Count -eq 0)
+
+# Case-insensitive used-column filtering.
+$line = 'set enabled 1 '
+$candidates = Get-FabriqIosCompletion -Line $line -Position $line.Length -Mode 'ModuleConfig' -State $state
+Check 'used-column filter is case-insensitive' (-not ($candidates -contains 'Enabled'))
+
 $global:_FabriqIosShellState = $null
 
 Write-Host ''
