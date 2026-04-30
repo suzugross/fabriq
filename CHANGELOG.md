@@ -15,6 +15,45 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/evidence_config: 5 new sections covering inventory
+  items that PCView (a legacy 2011 inventory tool) captured but fabriq
+  evidence previously did not, raising audit-pack completeness:
+    - §27 Environment Variables (CSV) — Machine + User scopes,
+      27_EnvironmentVariables.csv. Process scope intentionally excluded
+      as volatile (depends on running shell, not system state).
+    - §28 Startup Items (CSV) — 28_StartupItems.csv with a Source
+      column. Win32_StartupCommand is captured in full (Run / RunOnce /
+      Startup folder, PCView-compatible). ScheduledTask is filtered to
+      logon-triggered, non-Disabled, non-`\Microsoft\Windows\*` entries
+      to keep the CSV evidence-relevant.
+    - §29 Memory Slots (CSV) — 29_MemorySlots.csv per-slot detail from
+      Win32_PhysicalMemory (BankLabel / DeviceLocator / Capacity_GB /
+      Speed_MHz / Manufacturer / PartNumber / SerialNumber / FormFactor
+      / SMBIOSMemoryType / DataWidth / TotalWidth) with FormFactor and
+      SMBIOSMemoryType numeric codes translated to strings.
+    - §29b Memory Array Summary (CSV) — 29b_MemoryArraySummary.csv from
+      Win32_PhysicalMemoryArray (MaxCapacity_GB / MemoryDevices /
+      MemoryErrorCorrection). Split mirrors §8b Disks/Partitions
+      convention. Sub-collection failure marks §29 Partial without
+      failing the whole section.
+    - §30 PnP Devices (CSV) — 30_PnpDevices.csv from `Get-PnpDevice`
+      without `-PresentOnly` (past-connected devices retained for audit
+      traceability). DriverVersion / DriverDate are queried per-instance
+      via `Get-PnpDeviceProperty`; per-device query failures fall back
+      to blank cells without failing the section.
+    - §31 Hardware Identifiers (TXT) — 31_HardwareIdentifiers.txt
+      aggregating Win32_ComputerSystem / Win32_ComputerSystemProduct /
+      Win32_BaseBoard / Win32_SystemEnclosure. ChassisTypes numeric
+      codes translated to strings. Complements §10 (PC serial) and §23
+      (BIOS / TPM) without duplication.
+  evidence_config 1.5.0 -> 1.6.0 (MINOR, backward-compatible additions).
+  manifest schemaVersion stays at 1 per kernel/EVIDENCE_MANIFEST.md §4.2
+  ("new section addition is OK within schemaVersion=1"). Section IDs
+  27 / 28 / 29 / 29b / 30 / 31 are new, evidence_manager will fall back
+  to UnknownSection raw display until its KnownSections dictionary
+  catches up (separate task; no fabriq-side blocker).
+
 ### Fixed
 - apps/fabriq_ios/ inline `?` no longer hides the alphabetically-first
   candidate. The chord handler in lib/completer.ps1 wrote candidate
