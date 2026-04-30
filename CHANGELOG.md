@@ -16,6 +16,39 @@
 ## [Unreleased]
 
 ### Fixed
+- apps/fabriq_ios/ inline `?` no longer leaves merged garbage
+  candidates from previous presses ("Passwordperators" =
+  new "Password" overlaid on stale "Operators...something"). Two
+  underlying causes:
+  
+  (a) Per-row overlap: each `?` press writes its candidates to the
+      same row range as the previous press because PSReadLine's
+      _initialY does not move. A new short candidate landing on a
+      row that previously held a longer one left the trailing
+      characters of the old visible after the new.
+      Fix: pad every help row to full window width so leftover
+      trailing chars are blanked.
+  
+  (b) Per-list tail: rows beyond the new list's length still held
+      old candidates that were never overwritten, producing a
+      stale tail underneath.
+      Fix: track the previous press's row count and explicitly
+      blank any orphan tail rows. Reset the count when the input
+      row changes (user submitted a command and a fresh prompt
+      sits on a new row), since rows below now hold unrelated
+      console output we must not overwrite.
+  
+  Also disabled PSReadLine prediction (PredictionSource None) in
+  Initialize-FabriqIos. Default since PSReadLine 2.2 is InlineView,
+  which renders history-based suggestions in the same screen area
+  used by our manual candidate rows. Subprocess-scoped so the
+  parent shell's prediction setting is not affected. Wrapped in
+  try/catch for PSReadLine < 2.1 compatibility.
+  
+  Replaces the 0.3.3 single-row clear which addressed the wrong
+  failure mode. VERSION 0.3.3 -> 0.3.4 (PATCH, visual refinement).
+
+### Fixed (superseded)
 - apps/fabriq_ios/ inline `?` no longer leaves the original prompt
   row visible above the candidate list. The previous fix preserved
   the buffer correctly, but each `?` press painted the new

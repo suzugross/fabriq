@@ -104,6 +104,17 @@ function Initialize-FabriqIos {
             throw "PSReadLine is required for fabriq_ios but is not available: $($_.Exception.Message)"
         }
     }
+
+    # Disable history-based prediction inside the subprocess. The
+    # shell ships its own Cisco-style Tab and `?` completion; PSReadLine
+    # prediction (InlineView / ListView, default since PSReadLine 2.2)
+    # would render suggested completions in the same screen area we
+    # use for our manual candidate rows, causing visual overlap. The
+    # Set-PSReadLineOption -PredictionSource parameter is unavailable
+    # on PSReadLine < 2.1 - swallow the error there.
+    try {
+        Set-PSReadLineOption -PredictionSource None -ErrorAction Stop
+    } catch {}
 }
 
 function Show-Banner {
