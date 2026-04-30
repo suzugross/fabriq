@@ -15,6 +15,32 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_ios/ inline `?` no longer leaves the original prompt
+  row visible above the candidate list. The previous fix preserved
+  the buffer correctly, but each `?` press painted the new
+  prompt+buffer below the help via InvokePrompt while leaving the
+  REPL's manually-rendered prompt row (from [Console]::Write before
+  ReadLine) intact, producing a stale duplicate row above the help
+  on every redraw ("？で描画されなおすたびに前の表示と重なる").
+  
+  PSReadLine's InvokePrompt re-anchors _initialY at the post-help
+  cursor row but does not erase rows above it, since they were
+  written outside PSReadLine's own input-area tracking. The `?`
+  chord handler now SetCursorPosition + space-fills the current
+  input row before writing candidates, so the help and the
+  re-rendered prompt below stack cleanly with nothing left over.
+  
+  Single-row clear only - multi-row wrapped buffers still leave
+  the upper wrap rows as visual artifact (PSReadLine state stays
+  correct, just cosmetic). Acceptable for fabriq_ios since most
+  commands fit on one line; revisit if long quoted values become
+  common. Tab handler unchanged (user has not reported the same
+  artifact for Tab; same pattern would apply if needed).
+  
+  VERSION 0.3.2 -> 0.3.3 (PATCH, visual-only refinement of the
+  Cisco-style `?` introduced in 0.3.2).
+
 ### Changed
 - apps/fabriq_ios/ inline `?` now preserves the buffer in Cisco IOS
   fashion. Previously, pressing `?` after typing something
