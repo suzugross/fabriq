@@ -150,33 +150,18 @@ function Start-FabriqIosShell {
             break
         }
 
-        # `?` was pressed in PSReadLine: the handler in
-        # lib/completer.ps1 captured the buffer and submitted via
-        # AcceptLine. Render help on the same path as `show modules`
-        # so the prompt redraws cleanly below.
+        # `?` was pressed at an EMPTY prompt: the handler in
+        # lib/completer.ps1 deferred to the REPL via AcceptLine
+        # because the full mode-level help is too long to redraw
+        # cleanly under InvokePrompt. Non-empty buffer cases are now
+        # handled inline by the chord handler (Cisco-style: show
+        # candidates, restore buffer, continue editing).
         if ($global:_FabriqIosPendingHelpRequest) {
-            $savedBuffer = $global:_FabriqIosPendingHelpBuffer
             $global:_FabriqIosPendingHelpRequest = $false
             $global:_FabriqIosPendingHelpBuffer  = $null
 
             Write-Host ""
-            if ([string]::IsNullOrWhiteSpace($savedBuffer)) {
-                Show-FabriqIosHelp -Mode $state.Mode
-            } else {
-                $candidates = Get-FabriqIosCompletion -Line $savedBuffer `
-                                                      -Position $savedBuffer.Length `
-                                                      -Mode $state.Mode -State $state
-                if ($candidates.Count -gt 0) {
-                    Write-Host "  Candidates:"
-                    foreach ($c in ($candidates | Sort-Object)) {
-                        Write-Host ("    " + $c)
-                    }
-                    Write-Host ""
-                } else {
-                    Write-Host "  (no candidates)" -ForegroundColor DarkGray
-                    Write-Host ""
-                }
-            }
+            Show-FabriqIosHelp -Mode $state.Mode
             continue
         }
 

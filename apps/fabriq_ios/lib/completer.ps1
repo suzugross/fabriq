@@ -226,22 +226,40 @@ function Register-FabriqIosCompleter {
             return
         }
 
-        # Capture the buffer at the moment '?' was pressed and hand off
-        # to the REPL loop. The REPL prints help on the same code path
-        # as `show modules` (Write-Host then a manual prompt render at
-        # the next iteration), which renders cleanly without the
-        # PSReadLine InvokePrompt overlap issues.
         $line = $null; $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+        $buffer = if ($null -eq $line) { '' } else { $line.Substring(0, [Math]::Min($cursor, $line.Length)) }
 
-        $global:_FabriqIosPendingHelpRequest = $true
-        $global:_FabriqIosPendingHelpBuffer  = if ($null -eq $line) { '' } else { $line.Substring(0, [Math]::Min($cursor, $line.Length)) }
+        if ([string]::IsNullOrWhiteSpace($buffer)) {
+            # Empty prompt: defer to the REPL for full Show-FabriqIosHelp
+            # output. The mode-level help can run 30+ lines, which is
+            # too long for InvokePrompt to redraw cleanly underneath.
+            # AcceptLine returns control to the REPL, which detects the
+            # pending flag and prints help on the same path as `show
+            # modules` before rendering a fresh prompt.
+            $global:_FabriqIosPendingHelpRequest = $true
+            $global:_FabriqIosPendingHelpBuffer  = ''
+            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+            return
+        }
 
-        # AcceptLine submits the current buffer (so it lands in
-        # PSReadLine history and the user can recall it with Up
-        # arrow) and returns control to the REPL loop. Buffer
-        # content itself will be ignored because the REPL detects
-        # the pending-help flag first.
-        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        # Cisco IOS inline `?`: show only the candidate list for what
+        # the user has typed so far, then let PSReadLine redraw the
+        # prompt with the original buffer intact so editing continues
+        # from where it left off (e.g. `host?` -> show `hostname` ->
+        # cursor lands back at the end of `host`). Same Write-Host +
+        # InvokePrompt pattern the Tab handler above uses; the buffer
+        # is preserved across InvokePrompt by design.
+        $candidates = Get-FabriqIosCompletion -Line $buffer -Position $buffer.Length `
+                                              -Mode $state.Mode -State $state
+        Write-Host ""
+        if ($candidates.Count -gt 0) {
+            foreach ($c in ($candidates | Sort-Object)) {
+                Write-Host ("  " + $c) -ForegroundColor DarkCyan
+            }
+        } else {
+            Write-Host "  (no candidates)" -ForegroundColor DarkGray
+        }
+        [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
     }
 }

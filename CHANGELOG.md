@@ -15,6 +15,36 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_ios/ inline `?` now preserves the buffer in Cisco IOS
+  fashion. Previously, pressing `?` after typing something
+  (`(config)# host?`) showed candidates but then redrew an empty
+  prompt - the user had to retype the partial command. Now the
+  buffer is restored after the candidate list, so editing
+  continues from where it left off:
+  
+    (config)# host?
+      hostname
+    (config)# host_      <- cursor here, ready to keep typing
+  
+  Implementation: the `?` chord handler in lib/completer.ps1 now
+  branches on buffer contents. Non-empty buffer takes the same
+  inline path as Tab (Write-Host candidates + InvokePrompt, which
+  preserves the input line by design). Empty buffer still defers
+  to the REPL via AcceptLine because the full mode-level help can
+  run 30+ lines and would push the prompt out of InvokePrompt's
+  redraw window. The original "重なる" overlap problem from the
+  earlier inline attempt was caused by Show-FabriqIosHelp's
+  long-form output, not by InvokePrompt itself - candidate lists
+  are short enough that the issue does not recur.
+  
+  REPL pending-help branch in fabriq_ios.ps1 simplified
+  accordingly: the non-empty-buffer arm is dead code under the new
+  handler and was removed. VERSION 0.3.1 -> 0.3.2 (PATCH: UX
+  refinement, no API change). Smoke tests unchanged - PSReadLine
+  chord behaviour is not exercised in the smoke suite (requires a
+  real terminal); manual verification only.
+
 ### Fixed
 - apps/fabriq_ios/ ModuleConfig `set` / `add` Tab completion no
   longer goes silent past the first column. Previously
