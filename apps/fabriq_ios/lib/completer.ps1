@@ -288,6 +288,20 @@ function Register-FabriqIosCompleter {
             $prevRows = [int]$global:_FabriqIosLastHelpRowCount
         }
 
+        # Sacrificial leading newline. InvokePrompt below redraws
+        # prompt+buffer at PSReadLine's _initialY (the input row),
+        # overwriting whatever was written there. Without this, the
+        # first Write-Host writes mid-row at the input's cursor column,
+        # then the redraw wipes the appended chars - the alphabetically-
+        # first candidate silently vanishes (e.g. Administrators
+        # missing from `set Group ?` even though Tab returned it). The
+        # Tab handler uses the same trick. The sacrificial row is not
+        # counted in $rowsWritten because $tailY (captured after all
+        # writes) already reflects the extra row, and $extra =
+        # $prevRows - $rowsWritten only depends on the relative diff
+        # which both presses share.
+        Write-Host ""
+
         $rowsWritten = 0
         if ($candidates.Count -gt 0) {
             foreach ($c in ($candidates | Sort-Object)) {
