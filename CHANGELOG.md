@@ -15,6 +15,26 @@
 
 ## [Unreleased]
 
+## [3.1.4] - 2026-05-02
+
+### Fixed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Frex dashboard の
+  `[Complete]` ボタン警告判定が unchecked 行の Error / Partial を
+  見落としていた問題を修正。原因: P11 で「default は全 uncheck」に
+  変えた結果、AutoPilot 後の単発再実行で dashboard が再表示される
+  と全行 unchecked → checked のみを issue 計数する旧ロジック
+  （`if (-not $isChecked) { continue }`）が Error 行を全て無視 →
+  ボタンが緑の "Complete" 表示になっていた（GUI 行と HTML には
+  正しい Status が出ていたため、ボタンラベルだけ実態と齟齬）。
+  修正: Error / Partial は **常にカウント**（実行結果の事実を
+  uncheck で隠せない）、Pending は **checked 時のみカウント**
+  （operator の "やる" 意思表示）に分離。Skipped / Cancelled は
+  従来通り無視。`btnComplete.Add_Click` の確認ダイアログも同じ
+  ルールで生成、ダイアログ文言を「checked rows」→「rows」に
+  変更。AutoPilot を ON にすると bulk-check で Pending 行が
+  追加カウントされて警告が出る挙動も同時に整合。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.3] - 2026-05-02
 
 ### Fixed
