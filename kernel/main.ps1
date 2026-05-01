@@ -281,6 +281,17 @@ function Invoke-BatchExecution {
     }
 
     Clear-ExecutionResults
+
+    # Reload current-session history into IsRestored entries so the
+    # previous batch's results survive Clear-ExecutionResults's wipe of
+    # non-IsRestored entries between batches in the same session.
+    # Without this, FrexProfile single re-runs caused HTML checklist /
+    # dashboard to show all other modules as "NotRun" because their
+    # fresh entries (added by Add-ExecutionResult during the prior batch)
+    # were dropped on the next Clear. SessionID filter prevents
+    # cross-session entries from leaking in.
+    Restore-ExecutionHistory -SessionIDFilter $script:SessionID
+
     $total = $SelectedModules.Count
     $current = 0
 
@@ -322,14 +333,14 @@ function Invoke-BatchExecution {
             # Register RunOnce
             if (-not (Register-FabriqRunOnce)) {
                 Remove-ResumeState
-                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed"
-                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed"
+                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed" -Order $module.Order
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed" -Order $module.Order
                 continue
             }
 
             # Record in execution history
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..."
-            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))"
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..." -Order $module.Order
+            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))" -Order $module.Order
 
             Invoke-CountdownRestart
             return
@@ -357,14 +368,14 @@ function Invoke-BatchExecution {
                 }
                 # Only force-start when Windows did not auto-revive Explorer in time
                 if (-not $restarted) { Start-Process explorer.exe }
-                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted"
-                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted"
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted" -Order $module.Order
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted" -Order $module.Order
             }
             catch {
                 $reexplorerStatus  = "Error"
                 $reexplorerMessage = $_.Exception.Message
-                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message
-                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message -Order $module.Order
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message -Order $module.Order
             }
             $completedResults += @{
                 Order    = $module.Order
@@ -470,8 +481,8 @@ function Invoke-BatchExecution {
             $verifiedStr = if ($result.Verified) { "True" } else { "False" }
         }
 
-        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message -Verified $result.Verified
-        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr
+        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message -Verified $result.Verified -Order $module.Order
+        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr -Order $module.Order
         Capture-ScreenEvidence -ModuleName $module.MenuName -Status $result.Status
 
         # Track completed results for resume state and FrexProfile feedback.
@@ -700,8 +711,10 @@ function Invoke-FrexProfileLoop {
                     continue
                 }
 
-                Add-ExecutionResult -Operation "[RESTART NOW]" -Status "Success" -Message "FrexProfile Restart Now"
-                $null = Write-ExecutionHistory -ModuleName "[RESTART NOW]" -Category "System" -Status "Success" -Message "FrexProfile Restart Now (dashboard reopen on resume)"
+                # [RESTART NOW] is profile-external — Order=0 marks
+                # "no Profile row association" (CSV cell stays empty).
+                Add-ExecutionResult -Operation "[RESTART NOW]" -Status "Success" -Message "FrexProfile Restart Now" -Order 0
+                $null = Write-ExecutionHistory -ModuleName "[RESTART NOW]" -Category "System" -Status "Success" -Message "FrexProfile Restart Now (dashboard reopen on resume)" -Order 0
 
                 Invoke-CountdownRestart
                 # Process exits here (Restart-Computer in Invoke-CountdownRestart).
@@ -712,8 +725,11 @@ function Invoke-FrexProfileLoop {
                 $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
                 $tgt = @($resolved.ValidModules | Where-Object { [int]$_.Order -eq [int]$frex.ResetTargetOrder })[0]
                 if ($null -ne $tgt) {
-                    Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator"
-                    $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator"
+                    # Order is critical here so per-row state matching
+                    # picks up the Pending entry against the correct
+                    # Profile row (not its MenuName twin).
+                    Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
+                    $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
                     Show-Info "Reset state: Order $($tgt.Order) ($($tgt.MenuName)) -> Pending"
                 }
             }
@@ -1360,9 +1376,11 @@ if ($isResuming -and -not $isFrexResuming) {
         Write-Host ""
 
         foreach ($cm in $resumeState.CompletedModules) {
-            Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)"
+            $cmOrder = if ($null -ne $cm.Order) { [int]$cm.Order } else { 0 }
+            Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder
         }
-        Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
+        $restartOrder = if ($null -ne $resumeState.ResumeAfterOrder) { [int]$resumeState.ResumeAfterOrder } else { 0 }
+        Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $restartOrder
 
         # Restore the absolute profile start timestamp so the post-resume
         # elapsed display covers the full wall-clock duration of the
@@ -1452,10 +1470,14 @@ if ($isFrexResuming) {
 
             # Mirror Linear: replay CompletedModules into ExecutionResults
             # for status display continuity across the restart boundary.
+            # Order propagated through resume_state v2's CompletedModules
+            # reshape (Save-ResumeState now persists Order per entry).
             foreach ($cm in $resumeState.CompletedModules) {
-                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)"
+                $cmOrder = if ($null -ne $cm.Order) { [int]$cm.Order } else { 0 }
+                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder
             }
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
+            $frexRestartOrder = if ($null -ne $resumeState.ResumeAfterOrder) { [int]$resumeState.ResumeAfterOrder } else { 0 }
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $frexRestartOrder
 
             # Restore absolute profile start timestamp for accurate elapsed display
             $frexResumedStart = $null

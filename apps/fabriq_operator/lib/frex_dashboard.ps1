@@ -48,24 +48,47 @@ function Show-FrexDashboard {
     if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
         $history = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO)
         # Filter to current session only; Import-ExecutionHistory returns descending
-        # by Timestamp, so the first occurrence per ModuleName is the latest.
+        # by Timestamp, so the first occurrence per key is the latest.
         $sessionHist = @($history | Where-Object { $_.SessionID -eq $script:SessionID })
-        $byMenu = @{}
+
+        # Build two lookup tables:
+        #   byOrder: keyed on int Order (preferred, per-row precision)
+        #   byMenu : keyed on ModuleName (fallback for legacy entries
+        #            without Order, and for non-Profile entries)
+        $byOrder = @{}
+        $byMenu  = @{}
         foreach ($h in $sessionHist) {
+            $hasOrder = $h.PSObject.Properties.Name -contains 'Order' -and -not [string]::IsNullOrWhiteSpace($h.Order)
+            if ($hasOrder) {
+                try {
+                    $hOrder = [int]$h.Order
+                    if ($hOrder -gt 0 -and -not $byOrder.ContainsKey($hOrder)) {
+                        $byOrder[$hOrder] = $h
+                    }
+                } catch { }
+            }
             if (-not $byMenu.ContainsKey($h.ModuleName)) {
                 $byMenu[$h.ModuleName] = $h
             }
         }
+
         foreach ($r in $rows) {
-            if ($byMenu.ContainsKey($r.MenuName)) {
-                $h = $byMenu[$r.MenuName]
-                $verified = if ($h.Verified -eq 'True') { $true }
-                            elseif ($h.Verified -eq 'False') { $false }
+            $found = $null
+            $rOrder = [int]$r.Order
+            if ($byOrder.ContainsKey($rOrder)) {
+                $found = $byOrder[$rOrder]
+            }
+            elseif ($byMenu.ContainsKey($r.MenuName)) {
+                $found = $byMenu[$r.MenuName]
+            }
+            if ($null -ne $found) {
+                $verified = if ($found.Verified -eq 'True') { $true }
+                            elseif ($found.Verified -eq 'False') { $false }
                             else { $null }
-                $stateMap[[int]$r.Order] = @{
-                    Status   = $h.Status
+                $stateMap[$rOrder] = @{
+                    Status   = $found.Status
                     Verified = $verified
-                    Message  = $h.Message
+                    Message  = $found.Message
                 }
             }
         }

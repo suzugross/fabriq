@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.1.2
+# Easy Kitting Batch - Common Function Library v3.1.3
 # ========================================
 
 # ========================================
@@ -1232,7 +1232,13 @@ function Add-ExecutionResult {
         [string]$Operation,
         [string]$Status,
         [string]$Message = "",
-        [Nullable[bool]]$Verified = $null
+        [Nullable[bool]]$Verified = $null,
+        # Profile CSV row Order this result corresponds to. 0 means
+        # "no Profile row" (e.g., [RESTART NOW], log uploader, ad-hoc
+        # module runs). Used by FrexProfile dashboard / HTML checklist
+        # for per-row state tracking when multiple Profile rows share
+        # the same MenuName.
+        [int]$Order = 0
     )
 
     $script:ExecutionResults += [PSCustomObject]@{
@@ -1241,6 +1247,7 @@ function Add-ExecutionResult {
         Message   = $Message
         Timestamp = Get-Date
         Verified  = $Verified
+        Order     = $Order
     }
 
     # Refresh the status monitor
@@ -1480,7 +1487,15 @@ function Write-ExecutionHistory {
         [string]$Category,
         [string]$Status,
         [string]$Message = "",
-        [string]$Verified = ""
+        [string]$Verified = "",
+        # Profile CSV row Order this entry corresponds to. 0 means
+        # "no Profile row" (markers / ad-hoc / log uploader); the CSV
+        # cell is left empty in that case. Positive integer = exact
+        # Profile row identity, used for per-row state matching.
+        # New column added in kernel 3.1.3 — backward compatible
+        # (legacy rows without Order column read as Order=0 via
+        # Restore-ExecutionHistory).
+        [int]$Order = 0
     )
 
     $maxRetry = 3
@@ -1501,7 +1516,11 @@ function Write-ExecutionHistory {
         $escapedMessage = "`"$escapedMessage`""
     }
 
-    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID),$Verified"
+    # Order column: emit empty for "no Profile row" (markers / ad-hoc),
+    # otherwise the integer value.
+    $orderStr = if ($Order -gt 0) { "$Order" } else { "" }
+
+    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID),$Verified,$orderStr"
 
     # Create with header if file does not exist
     $needHeader = -not (Test-Path $script:HistoryPath)
@@ -1509,7 +1528,7 @@ function Write-ExecutionHistory {
     for ($i = 0; $i -lt $maxRetry; $i++) {
         try {
             if ($needHeader) {
-                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified"
+                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order"
                 $header | Out-File -FilePath $script:HistoryPath -Encoding UTF8 -Force
                 $needHeader = $false
             }
@@ -1582,13 +1601,45 @@ function Import-ExecutionHistory {
 }
 
 function Restore-ExecutionHistory {
+    param(
+        # When set, restrict the load to entries whose SessionID equals
+        # this value, with no row-count limit. Used by Invoke-BatchExecution
+        # at the start of each batch (in-batch reload) to refresh the
+        # IsRestored set with the current session's history exactly,
+        # surviving Clear-ExecutionResults's wipe of non-IsRestored
+        # entries between batches. Empty string = legacy behavior
+        # (cross-session pull, top 50 most recent, with separator row
+        # appended). See KERNEL_API.md S6 internal implementation.
+        [string]$SessionIDFilter = ""
+    )
+
     if (-not $env:SELECTED_KANRI_NO) { return }
 
+    $isFilterMode = -not [string]::IsNullOrEmpty($SessionIDFilter)
+
     try {
-        [array]$history = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO -Limit 50)
+        # Filter mode: no limit (current session is naturally bounded).
+        # Legacy mode: top 50 most recent for display continuity.
+        $limit = if ($isFilterMode) { 0 } else { 50 }
+        [array]$history = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO -Limit $limit)
+
+        if ($isFilterMode) {
+            $history = @($history | Where-Object { $_.SessionID -eq $SessionIDFilter })
+        }
 
         if ($history.Count -eq 0) {
-            Show-Info "No previous execution history for AdminID $env:SELECTED_KANRI_NO"
+            if ($isFilterMode) {
+                # Filter mode + 0 hits = first batch of a new session.
+                # Explicitly REPLACE ExecutionResults with empty so any
+                # cross-session IsRestored entries from session-start
+                # Restore are evicted (otherwise stale prev-session
+                # entries with matching MenuName / Order could pollute
+                # current Profile's HTML rendering).
+                $script:ExecutionResults = @()
+            }
+            else {
+                Show-Info "No previous execution history for AdminID $env:SELECTED_KANRI_NO"
+            }
             return
         }
 
@@ -1609,6 +1660,16 @@ function Restore-ExecutionHistory {
                 $restoredVerified = ($entry.Verified -eq "True")
             }
 
+            # Order column may be missing (legacy CSV pre-3.1.3) or
+            # empty (markers / ad-hoc rows). Default to 0 = "no Profile
+            # row association"; non-zero = exact Profile row identity
+            # for per-Order matching.
+            $restoredOrder = 0
+            $hasOrderCol = $entry.PSObject.Properties.Name -contains 'Order'
+            if ($hasOrderCol -and -not [string]::IsNullOrWhiteSpace($entry.Order)) {
+                try { $restoredOrder = [int]$entry.Order } catch { $restoredOrder = 0 }
+            }
+
             $restoredResults += [PSCustomObject]@{
                 Operation  = $entry.ModuleName
                 Status     = $entry.Status
@@ -1617,22 +1678,31 @@ function Restore-ExecutionHistory {
                 IsRestored = $true
                 SessionID  = $entry.SessionID
                 Verified   = $restoredVerified
+                Order      = $restoredOrder
             }
         }
 
         if ($restoredResults.Count -gt 0) {
-            # Boundary separator between restored history and the current session
-            $restoredResults += [PSCustomObject]@{
-                Operation  = "--- Current Session ---"
-                Status     = "Separator"
-                Message    = ""
-                Timestamp  = Get-Date
-                IsRestored = $false
-                SessionID  = $script:SessionID
-            }
+            if (-not $isFilterMode) {
+                # Boundary separator between restored history and the current session
+                $restoredResults += [PSCustomObject]@{
+                    Operation  = "--- Current Session ---"
+                    Status     = "Separator"
+                    Message    = ""
+                    Timestamp  = Get-Date
+                    IsRestored = $false
+                    SessionID  = $script:SessionID
+                    Order      = 0
+                }
 
-            $script:ExecutionResults = $restoredResults
-            Show-Success "Restored $($restoredResults.Count - 1) history entries"
+                $script:ExecutionResults = $restoredResults
+                Show-Success "Restored $($restoredResults.Count - 1) history entries"
+            }
+            else {
+                # Filter mode: silent replace — the in-batch reload is a
+                # mechanical state refresh, no UX message warranted.
+                $script:ExecutionResults = $restoredResults
+            }
         }
     }
     catch {
@@ -1932,8 +2002,20 @@ function Export-HtmlChecklist {
 
     $rowsHtml = ""
     foreach ($module in $DefinedModules) {
-        # Match by MenuName (last occurrence wins for duplicated names)
-        $result = $currentResults | Where-Object { $_.Operation -eq $module.MenuName } | Select-Object -Last 1
+        # Match prefers Order (per-row precision; supports multiple
+        # Profile rows sharing the same MenuName). Falls back to
+        # MenuName for legacy entries that lack Order (pre-3.1.3
+        # history.csv rows).
+        $result = $null
+        $moduleOrder = if ($null -ne $module.Order) { [int]$module.Order } else { 0 }
+        if ($moduleOrder -gt 0) {
+            $result = $currentResults | Where-Object {
+                ($null -ne $_.Order) -and ([int]$_.Order -eq $moduleOrder)
+            } | Select-Object -Last 1
+        }
+        if ($null -eq $result) {
+            $result = $currentResults | Where-Object { $_.Operation -eq $module.MenuName } | Select-Object -Last 1
+        }
 
         $statusLabel = "Not Run"
         $statusClass = "notrun"
@@ -2346,8 +2428,10 @@ function Complete-ProfileExecution {
                 Show-Info "Uploading updated evidence..."
                 $uploadResult = & $logUploaderScript
                 if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
-                    Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
-                    $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+                    # Log upload is profile-external — Order=0 means
+                    # "no Profile row association" (CSV cell empty).
+                    Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message -Order 0
+                    $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message -Order 0
                 }
             }
         }
@@ -2632,7 +2716,11 @@ function Save-ResumeState {
         SessionID        = $script:SessionID
         ResumeAfterOrder = $ResumeAfterOrder
         CompletedModules = @($CompletedModules | ForEach-Object {
-            @{ MenuName = $_.MenuName; Status = $_.Status }
+            # Order included so post-restart resume can re-Add-ExecutionResult
+            # with the correct Profile row Order, preserving per-row state
+            # tracking across the restart boundary.
+            $cmOrder = if ($null -ne $_.Order) { [int]$_.Order } else { 0 }
+            @{ MenuName = $_.MenuName; Status = $_.Status; Order = $cmOrder }
         })
         HostEnvironment  = $hostEnv
         EvidenceBasePath = $global:FabriqEvidenceBasePath

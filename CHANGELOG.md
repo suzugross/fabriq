@@ -15,6 +15,65 @@
 
 ## [Unreleased]
 
+## [3.1.3] - 2026-05-02
+
+### Fixed
+- kernel/main.ps1 + kernel/common.ps1: FrexProfile で単発実行
+  （[Run This]）を行うと、その後の HTML チェックリスト / dashboard で
+  他の Profile エントリが NotRun として表示される問題を修正。
+  原因: `Invoke-BatchExecution` 先頭の `Clear-ExecutionResults` が
+  `IsRestored=$true` 行のみ保護し、直前バッチで追加された
+  非 IsRestored 行を wipe していた。`__RESTART__` を跨いだ Profile
+  では「跨いだ前は session-start Restore で IsRestored 化された
+  ため生存／跨いだ後は wipe される」非対称が発生。
+  対処: `Invoke-BatchExecution` の `Clear-ExecutionResults` 直後に
+  `Restore-ExecutionHistory -SessionIDFilter $script:SessionID` を
+  呼んで現セッションの履歴を IsRestored 化、wipe を相殺。
+
+### Added
+- kernel/common.ps1: `execution_history.csv` に `Order` 列を追加
+  （末尾追加、後方互換）。Profile CSV 行の `Order` を執行履歴の
+  一級識別子として記録し、同名 MenuName の複数行を per-row で
+  区別可能に。
+    - `Write-ExecutionHistory` に `-Order [int]` パラメータ追加。
+      0 = "Profile 行に紐付かない" (markers / ad-hoc / log uploader)、
+      正整数 = Profile CSV 行の Order
+    - `Add-ExecutionResult` に `-Order [int]` パラメータ追加、結果
+      オブジェクトに保存
+    - `Restore-ExecutionHistory` が `Order` 列を解釈して結果オブジェクトに
+      復元。旧 CSV（`Order` 列なし）は Order=0 として扱う
+    - `Save-ResumeState` の `CompletedModules` reshape に `Order`
+      フィールド追加（resume 後の per-row 状態追跡継続性確保）
+    - `Show-FrexDashboard` の state map を `(SessionID, Order)`
+      タプル照合に切替。Order=0 のエントリは MenuName fallback
+    - `Export-HtmlChecklist` の照合を Order ベースに切替、Order=0 は
+      MenuName fallback。これにより同名 MenuName の複数 Profile
+      行が異なる Status を表示可能（旧来は最終エントリで上書きされ
+      まとめ表示されていた pre-existing issue を解消）
+    - `Invoke-BatchExecution` の全 Add/Write 呼び出しサイト
+      （`__RESTART__` / `__REEXPLORER__` / 通常モジュール）に
+      `-Order $module.Order` を配線
+    - `Invoke-FrexProfileLoop` の `[Restart Now]` / `[Mark as Pending]`
+      ハンドラに `-Order` を配線
+    - Linear / Frex resume bootstrap の `CompletedModules` 再生に
+      `-Order` を配線
+
+- kernel/common.ps1: `Restore-ExecutionHistory` に
+  `-SessionIDFilter [string]` パラメータ追加。指定時は該当
+  SessionID のエントリのみ pull、Limit 50 解除、Separator 行
+  非生成、結果が 0 件の場合は明示的に空配列で `$script:ExecutionResults`
+  を置換（cross-session の IsRestored 残骸を eviction）。
+  既存呼び出しは引数省略で legacy 挙動維持（top 50 cross-session、
+  Separator 付き）。
+
+### Changed
+- kernel/common.ps1: `execution_history.csv` のスキーマが拡張
+  （`Order` 列追加）。外部 evidence consumer ツールは Import-Csv
+  で読み込めば自動対応。列順依存があるツールのみ要追従（fabriq
+  本体・fabriq_evidence_manager・fabriq_studio はいずれも header-driven
+  読み込みのため影響なし）。
+  KERNEL_API.md §6 内部実装、公開 API 影響なし、KERNEL_VERSION 影響なし。
+
 ## [3.1.2] - 2026-05-02
 
 ### Changed
