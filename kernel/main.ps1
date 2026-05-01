@@ -562,7 +562,12 @@ function Invoke-FrexProfileLoop {
     param(
         [Parameter(Mandatory)][string]$ProfilePath,
         [Parameter(Mandatory)][string]$ProfileName,
-        [Parameter(Mandatory)][array]$AllModules
+        [Parameter(Mandatory)][array]$AllModules,
+        # When set, the dashboard opens with the "PENDING FINALIZE" badge
+        # already visible. Used by the Frex resume entry point: when
+        # auto-continue ran a batch on resume, the operator returns to a
+        # dashboard that already needs [Complete] pressed.
+        [bool]$InitialPendingFinalize = $false
     )
 
     if (-not (Test-Path $ProfilePath)) {
@@ -572,6 +577,11 @@ function Invoke-FrexProfileLoop {
     }
 
     $lastFinalizedAt = ""
+    # Tracks "batch has run since last [Complete]". Flipped to $true by
+    # RunBatch / RunSingle / ResetState and back to $false by Complete.
+    # Drives the dashboard's PENDING FINALIZE badge and the Back / X
+    # close-confirmation dialog.
+    $pendingFinalize = $InitialPendingFinalize
     $exitInner = $false
 
     while (-not $exitInner) {
@@ -584,6 +594,7 @@ function Invoke-FrexProfileLoop {
             -AllModules       $AllModules `
             -LastBatchResults $script:LastBatchResults `
             -LastFinalizedAt  $lastFinalizedAt `
+            -PendingFinalize  $pendingFinalize `
             -HostName         $env:SELECTED_NEW_PCNAME `
             -WorkerName       $env:FABRIQ_WORKER_NAME
 
@@ -617,6 +628,7 @@ function Invoke-FrexProfileLoop {
                 } finally {
                     $global:AutoConfirmMode = $false
                 }
+                $pendingFinalize = $true
                 Write-Host ""
             }
 
@@ -631,21 +643,22 @@ function Invoke-FrexProfileLoop {
                 Show-Info "Running batch ($($batch.Count) modules)..."
                 Write-Host ""
 
-                # AutoPilot ON → finalize fires automatically (Linear-symmetric).
-                # AutoPilot OFF → operator finalizes explicitly via [Complete].
+                # 3.1.5 onward: execution is unconditionally AutoPilot
+                # (unattended batch with ErrorMode dispatch / inter-module
+                # wait). Finalize is unconditionally manual — operator
+                # presses [Complete] when ready. This decouples
+                # "execution mode" from "completion declaration".
                 Invoke-BatchExecution -SelectedModules $batch `
-                    -AutoPilot:         $frex.AutoPilot `
+                    -AutoPilot:         $true `
                     -AutoPilotWaitSec   $frex.AutoPilotWaitSec `
                     -ProfilePath        $ProfilePath `
                     -ProfileName        $ProfileName `
-                    -FinalizeOnComplete:$frex.AutoPilot `
+                    -FinalizeOnComplete:$false `
                     -ExecutionMode      'Frex' `
                     -SelectedOrders     @($frex.SelectedOrders) `
                     -FullProfileModules $resolved.ValidModules
 
-                if ($frex.AutoPilot) {
-                    $lastFinalizedAt = (Get-Date).ToString("HH:mm:ss")
-                }
+                $pendingFinalize = $true
                 Write-Host ""
             }
 
@@ -657,6 +670,7 @@ function Invoke-FrexProfileLoop {
                     -DefinedModules $resolved.ValidModules `
                     -Mode           'Manual'
                 $lastFinalizedAt = (Get-Date).ToString("HH:mm:ss")
+                $pendingFinalize = $false
                 Wait-KeyPress
             }
 
@@ -731,6 +745,10 @@ function Invoke-FrexProfileLoop {
                     Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
                     $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
                     Show-Info "Reset state: Order $($tgt.Order) ($($tgt.MenuName)) -> Pending"
+                    # State changed since last [Complete] (if any) —
+                    # mark pending so the operator is reminded to
+                    # regenerate the checklist.
+                    $pendingFinalize = $true
                 }
             }
 
@@ -1439,16 +1457,19 @@ if ($isResuming -and -not $isFrexResuming) {
 # Resume Execution (FrexProfile path)
 # ========================================
 # Reached when resume_state.json had schemaVersion=2 + ExecutionMode='Frex'.
-# Two sub-paths:
-#   - $frexAutoContinue=true (AutoPilot ON + mid-batch __RESTART__,
-#     countdown accepted): mirror Linear's auto-resume — re-run remaining
-#     checked modules in AutoPilot mode, finalize via Complete-ProfileExecution,
-#     then fall through to main loop. The unattended contract is preserved
-#     end-to-end across reboots.
+# Two sub-paths, both ending at the FrexProfile dashboard so the
+# operator can press [Complete] manually (3.1.5: finalize is always
+# operator-driven, never auto-fired by execution paths):
+#   - $frexAutoContinue=true (AutoPilot mid-batch __RESTART__, countdown
+#     accepted): re-run the remaining checked subset unattended (preserves
+#     the unattended-execution contract for Profile-internal RESTART), then
+#     drop into the FrexProfile dashboard with PendingFinalize=$true so the
+#     operator returns to a flagged state.
 #   - $frexAutoContinue=false (manual mode mid-batch / countdown aborted /
-#     [Restart Now] sentinel): reopen the FrexProfile dashboard so the
-#     operator can review state and decide next steps.
+#     [Restart Now] sentinel): no re-execution, dashboard reopens directly.
 if ($isFrexResuming) {
+    $frexInitialPending = $false
+
     if ($frexAutoContinue) {
         # Auto-continue: build remaining set as
         # (Order > ResumeAfterOrder) ∩ SelectedOrders so we re-run only
@@ -1493,6 +1514,8 @@ if ($isFrexResuming) {
 
             $frexResumeWaitSec = if ($resumeState.AutoPilotWaitSec) { [int]$resumeState.AutoPilotWaitSec } else { 3 }
 
+            # 3.1.5: -FinalizeOnComplete:$false. Operator presses [Complete]
+            # on the dashboard reopen below.
             Invoke-BatchExecution -SelectedModules $frexRemaining `
                 -AutoPilot:$true `
                 -AutoPilotWaitSec   $frexResumeWaitSec `
@@ -1500,12 +1523,14 @@ if ($isFrexResuming) {
                 -ProfileName        $resumeState.ProfileName `
                 -FullProfileModules $frexResolved.ValidModules `
                 -ProfileStartTime   $frexResumedStart `
-                -FinalizeOnComplete:$true `
+                -FinalizeOnComplete:$false `
                 -ExecutionMode      'Frex' `
                 -SelectedOrders     @($resumeState.SelectedOrders)
             # Invoke-BatchExecution removes resume_state on natural completion.
 
-            # Mirror Linear's post-resume completion message
+            # Operator returns to a dashboard already flagged for finalize
+            $frexInitialPending = $true
+
             Write-Host ""
             Show-Separator
             $hasErrors = @($script:ExecutionResults | Where-Object {
@@ -1515,28 +1540,29 @@ if ($isFrexResuming) {
                 Write-Host "FrexProfile Auto-Continue Completed with Errors" -ForegroundColor Yellow
                 Show-Separator
                 Write-Host ""
-                Show-Warning "Some modules had errors. Reopen FrexProfile to retry."
+                Show-Warning "Some modules had errors. Press [Complete] on the dashboard once review is done."
             }
             else {
                 Write-Host "FrexProfile Auto-Continue Completed" -ForegroundColor Green
                 Show-Separator
+                Write-Host ""
+                Show-Info "Press [Complete] on the dashboard to generate the HTML checklist and upload evidence."
             }
             Write-Host ""
-            Wait-KeyPress
-            Clear-Host
         }
     }
-    else {
-        # Manual mode mid-batch / countdown aborted / [Restart Now] sentinel
-        # → reopen FrexProfile dashboard. The dashboard rebuilds row state
-        # from execution_history.csv; pre-reboot [RESTART] / [RESTART NOW]
-        # rows that recorded their history before reboot show as Success.
-        Invoke-FrexProfileLoop `
-            -ProfilePath $resumeState.ProfilePath `
-            -ProfileName $resumeState.ProfileName `
-            -AllModules  $allModules
-        Clear-Host
-    }
+
+    # Both branches converge here: open the FrexProfile dashboard so the
+    # operator can review state and trigger finalize manually. Manual
+    # mode / countdown abort / [Restart Now] sentinel start with
+    # PendingFinalize=$false; auto-continue starts with $true.
+    Invoke-FrexProfileLoop `
+        -ProfilePath            $resumeState.ProfilePath `
+        -ProfileName            $resumeState.ProfileName `
+        -AllModules             $allModules `
+        -InitialPendingFinalize $frexInitialPending
+
+    Clear-Host
 }
 
 # ========================================

@@ -15,6 +15,53 @@
 
 ## [Unreleased]
 
+## [3.1.5] - 2026-05-02
+
+### Changed
+- apps/fabriq_operator/lib/frex_dashboard.ps1 + kernel/main.ps1:
+  FrexProfile の実行モデルを「実行 = 常に AutoPilot 挙動 / 完了 =
+  常に手動」に simplify。AutoPilot toggle を撤去し、operator が
+  AutoPilot か否か判断する余地を取り除いて、checkbox による
+  module 選択だけで意思決定が完結する形に統一。
+    - Dashboard footer の `[AutoPilot ☐]` checkbox を撤去
+    - 代わりに `[Select All]` / `[Clear All]` の bulk-select 2 ボタン
+      を追加。`[Select All]` は CSV `Enabled=1` 行のみ check（CSV
+      作成者の opt-in 意図を尊重して `Enabled=0` 行は unchecked）、
+      `[Clear All]` は全 uncheck
+    - `[Run Selected]` は `result.AutoPilot = $true` を hardcode、
+      `Invoke-FrexProfileLoop` の "RunBatch" ハンドラも
+      `-AutoPilot:$true -FinalizeOnComplete:$false` を hardcode して
+      条件分岐を撤去
+    - Frex resume 実行ブロックの `-FinalizeOnComplete:$true` を
+      `:$false` に変更。auto-continue 完走後は dashboard へ復帰
+      （operator が `[Complete]` を押下するまで HTML / log_uploader
+      は発火しない）
+- WaitSec NumericUpDown は据え置き（常時 unattended 実行のため inter-
+  module 待機制御として常時必要）。位置は X=255 へ移動
+
+### Added
+- apps/fabriq_operator/lib/frex_dashboard.ps1 + kernel/main.ps1:
+  「PENDING FINALIZE」状態追跡 UI を追加。`[Run Selected]` /
+  `[Run This]` / `[Mark as Pending]` 後 dashboard を再表示すると、
+  ヘッダの "Last finalized" 行が **赤バッジ "PENDING FINALIZE"** に
+  切り替わる。`[Complete]` 押下で解除されて元の "Last finalized:
+  HH:MM:SS" 表示に戻る。
+    - `Show-FrexDashboard` に `[bool]$PendingFinalize = $false`
+      パラメータ追加
+    - `Invoke-FrexProfileLoop` に `[bool]$InitialPendingFinalize =
+      $false` パラメータ追加（Frex resume 入口から auto-continue
+      経由で開く際に `$true` を渡して、operator が flagged 状態の
+      dashboard で復帰するよう制御）
+    - Frex dashboard の `[Back]` ボタン / X ボタンクローズ時に
+      `$PendingFinalize=$true` の場合は確認ダイアログ表示。No で
+      閉鎖キャンセル、Yes で操作続行（成果物未生成のまま離脱）
+- 運用注意: 完了 phase が常に手動になるため、operator が
+  `[Complete]` を押し忘れると HTML 未生成 / log_uploader 未発火の
+  状態で離脱可能。pending badge と close 確認の 2 段階の UI 警告で
+  認知支援を提供するが、最終的な press 動作は operator 責務。
+
+KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.4] - 2026-05-02
 
 ### Fixed
