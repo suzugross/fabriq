@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver3.0 - Manifeste du Surkitinisme -
+# Fabriq ver3.1 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -236,7 +236,27 @@ function Invoke-BatchExecution {
         # passes the original start timestamp restored from resume_state.json
         # so the displayed elapsed time spans the entire wall-clock duration
         # (including reboot/login/startup gaps).
-        [datetime]$ProfileStartTime = (Get-Date)
+        [datetime]$ProfileStartTime = (Get-Date),
+        # Whether to fire the post-profile finalize pipeline
+        # (Complete-ProfileExecution) on natural completion. Default $true
+        # preserves Linear behavior. FrexProfile passes :$false for batch
+        # / single-execution runs that should leave finalize to the
+        # operator-driven [Complete] button. Has no effect when
+        # __RESTART__ exits the loop early (resume path will set this
+        # again on its second-leg call).
+        # [bool] (not [switch]) is intentional so the default can be $true
+        # without tripping PSAvoidDefaultValueSwitchParameter; callers
+        # use -FinalizeOnComplete:$false to opt out.
+        [bool]$FinalizeOnComplete = $true,
+        # FrexProfile pass-through params for resume_state.json v2.
+        # When ExecutionMode='Linear' (default) the internal Save-ResumeState
+        # call writes v1 format (byte-for-byte compatible). When 'Frex',
+        # SelectedOrders / ModuleStates are persisted into the v2 resume
+        # state so the post-reboot dashboard can rebuild the operator's
+        # checkbox subset accurately.
+        [ValidateSet('Linear','Frex')][string]$ExecutionMode = 'Linear',
+        [int[]]$SelectedOrders = @(),
+        [hashtable]$ModuleStates = @{}
     )
 
     # AutoPilot: set global flag (Profile scope, reset in finally)
@@ -244,6 +264,13 @@ function Invoke-BatchExecution {
         $global:AutoPilotMode = $true
         $global:AutoPilotWaitSec = $AutoPilotWaitSec
     }
+
+    # Per-module results accumulator. Declared at function scope (not
+    # inside try) so the finally block can publish a final snapshot to
+    # $script:LastBatchResults regardless of how the batch ends
+    # (cancel / completion / mid-throw / __RESTART__ early exit).
+    $completedResults = @()
+    $script:LastBatchResults = @()
 
     try {
 
@@ -256,7 +283,6 @@ function Invoke-BatchExecution {
     Clear-ExecutionResults
     $total = $SelectedModules.Count
     $current = 0
-    $completedResults = @()
 
     foreach ($module in $SelectedModules) {
         $current++
@@ -281,11 +307,17 @@ function Invoke-BatchExecution {
             # Save resume state. ProfileStartTime is the absolute origin
             # (not elapsed) so the post-resume display covers the full
             # wall clock including reboot/login/startup gaps.
+            # When ExecutionMode='Linear' (default) Save-ResumeState writes
+            # v1 format; when 'Frex', it writes schemaVersion=2 with
+            # SelectedOrders / ModuleStates pre-populated from the caller.
             Save-ResumeState -ProfilePath $ProfilePath `
                              -ProfileName $ProfileName `
                              -ResumeAfterOrder $module.Order `
                              -CompletedModules $completedResults `
-                             -ProfileStartTime $ProfileStartTime
+                             -ProfileStartTime $ProfileStartTime `
+                             -ExecutionMode $ExecutionMode `
+                             -SelectedOrders $SelectedOrders `
+                             -ModuleStates $ModuleStates
 
             # Register RunOnce
             if (-not (Register-FabriqRunOnce)) {
@@ -307,6 +339,12 @@ function Invoke-BatchExecution {
         if ($module._IsReexplorer) {
             Show-BatchProgress -Current $current -Total $total -ItemName "[REEXPLORER]"
             Show-Info "Restarting Explorer..."
+            # Capture actual outcome so $completedResults reflects the
+            # try/catch result instead of a hardcoded "Success" (the
+            # latter caused resume display to mislabel failed reexplorer
+            # markers as successful).
+            $reexplorerStatus  = "Success"
+            $reexplorerMessage = "Explorer restarted"
             try {
                 Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
                 $maxWait = 15; $interval = 1; $elapsed = 0; $restarted = $false
@@ -323,10 +361,18 @@ function Invoke-BatchExecution {
                 $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted"
             }
             catch {
+                $reexplorerStatus  = "Error"
+                $reexplorerMessage = $_.Exception.Message
                 Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message
                 $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message
             }
-            $completedResults += @{ MenuName = "[REEXPLORER]"; Status = "Success" }
+            $completedResults += @{
+                Order    = $module.Order
+                MenuName = "[REEXPLORER]"
+                Status   = $reexplorerStatus
+                Verified = $null
+                Message  = $reexplorerMessage
+            }
             continue
         }
 
@@ -428,8 +474,17 @@ function Invoke-BatchExecution {
         $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr
         Capture-ScreenEvidence -ModuleName $module.MenuName -Status $result.Status
 
-        # Track completed results for resume state
-        $completedResults += @{ MenuName = $module.MenuName; Status = $result.Status }
+        # Track completed results for resume state and FrexProfile feedback.
+        # Save-ResumeState reshapes to {MenuName, Status} on serialization;
+        # extra keys are dropped. Frex dashboard reads the full hashtable
+        # via $script:LastBatchResults (published in finally below).
+        $completedResults += @{
+            Order    = $module.Order
+            MenuName = $module.MenuName
+            Status   = $result.Status
+            Verified = $result.Verified
+            Message  = $result.Message
+        }
     }
 
     # All modules completed (no restart, or all restarts done)
@@ -442,66 +497,20 @@ function Invoke-BatchExecution {
 
     Show-ExecutionSummary -ElapsedTime $batchElapsed
 
-    # Auto-export evidence if this is a profile execution
-    if (-not [string]::IsNullOrEmpty($ProfileName)) {
-        Write-Host ""
-        Write-Host "[INFO] Auto-exporting execution history as evidence..." -ForegroundColor Cyan
-        $null = Export-ExecutionHistory
-
-        # HTML checklist
-        Write-Host "[INFO] Generating HTML checklist..." -ForegroundColor Cyan
+    # Auto-export evidence if this is a profile execution.
+    # Pipeline (export history / HTML checklist / log_uploader / viewer)
+    # is centralized in Complete-ProfileExecution; -Mode 'Auto' preserves
+    # Linear finalize behavior (silent upload, viewer last).
+    # FrexProfile callers pass -FinalizeOnComplete:$false to skip finalize
+    # and let the operator commit explicitly via the [Complete] button.
+    if (-not [string]::IsNullOrEmpty($ProfileName) -and $FinalizeOnComplete) {
         $checklistModules = if ($null -ne $FullProfileModules) { $FullProfileModules } else { $SelectedModules }
-        $checklistPath = Export-HtmlChecklist `
-            -ProfileName      $ProfileName `
-            -ProfilePath      $ProfilePath `
-            -DefinedModules   $checklistModules `
-            -ExecutionResults $script:ExecutionResults `
-            -ElapsedTime      $batchElapsed
-
-        # Retain profile info for checklist regeneration from menu [cl]
-        $global:FabriqLastProfileName    = $ProfileName
-        $global:FabriqLastProfilePath    = $ProfilePath
-        $global:FabriqLastProfileModules = $checklistModules
-
-        # Auto-run log upload
-        $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
-        if (Test-Path $logUploaderScript) {
-            $destConfig = ".\kernel\csv\log_destinations.csv"
-            $hasDestinations = $false
-            if (Test-Path $destConfig) {
-                try {
-                    $dests = @(Import-Csv -Path $destConfig -Encoding Default | Where-Object { $_.Enabled -eq "1" })
-                    $hasDestinations = ($dests.Count -gt 0)
-                }
-                catch { }
-            }
-
-            if ($hasDestinations) {
-                Write-Host ""
-                Write-Host "[INFO] Auto-uploading logs and evidence..." -ForegroundColor Cyan
-                try {
-                    $null = & $logUploaderScript
-                }
-                catch {
-                    Show-Warning "Log upload failed: $($_.Exception.Message)"
-                }
-            }
-        }
-
-        # Launch HTML checklist viewer
-        if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
-            Write-Host ""
-            Write-Host "[INFO] Opening HTML checklist viewer..." -ForegroundColor Cyan
-            $viewerScript = ".\kernel\ps1\view_report.ps1"
-            if (Test-Path $viewerScript) {
-                try {
-                    & $viewerScript -HtmlPath $checklistPath
-                }
-                catch {
-                    Show-Warning "Failed to open report viewer: $($_.Exception.Message)"
-                }
-            }
-        }
+        $null = Complete-ProfileExecution `
+            -ProfileName    $ProfileName `
+            -ProfilePath    $ProfilePath `
+            -DefinedModules $checklistModules `
+            -ElapsedTime    $batchElapsed `
+            -Mode           'Auto'
     }
 
     } # end try
@@ -509,6 +518,220 @@ function Invoke-BatchExecution {
         # AutoPilot: always reset (Profile scope guarantee)
         $global:AutoPilotMode = $false
         $global:AutoPilotWaitSec = 3
+        # Publish per-module results for FrexProfile dashboard polling.
+        # Always set in finally so cancel / mid-throw paths produce a
+        # consistent snapshot (possibly partial, possibly empty).
+        # Note: __RESTART__ early-exit kills the process before finally
+        # runs; the post-restart resume call rewrites this with the
+        # post-restart segment only, which is the intended semantic.
+        $script:LastBatchResults = $completedResults
+    }
+}
+
+# ========================================
+# Function: FrexProfile Inner Loop
+# ========================================
+# Drives the FrexProfile dashboard sub-loop. Called from two entry
+# points:
+#   (a) main loop "FrexProfile" action  (operator opens from main dashboard)
+#   (b) Frex resume bootstrap            (post-reboot path, schemaVersion=2)
+#
+# The dashboard returns an action intent on each iteration; this function
+# dispatches the intent (Run / Complete / RestartNow / ResetState) and
+# loops back. Returns when the operator presses Back / closes the form.
+#
+# Resume state lifecycle inside this loop:
+#   - Open with resume_state.json possibly present (Frex resume entry).
+#   - "RestartNow" rewrites resume_state.json with fresh ModuleStates.
+#   - "Close" (Back) removes resume_state.json defensively.
+#   - Anything else leaves resume_state.json alone so a crash mid-session
+#     can re-enter the loop on the next launch.
+# ========================================
+function Invoke-FrexProfileLoop {
+    param(
+        [Parameter(Mandatory)][string]$ProfilePath,
+        [Parameter(Mandatory)][string]$ProfileName,
+        [Parameter(Mandatory)][array]$AllModules
+    )
+
+    if (-not (Test-Path $ProfilePath)) {
+        Show-Error "FrexProfile: profile not found: $ProfilePath"
+        Wait-KeyPress
+        return
+    }
+
+    $lastFinalizedAt = ""
+    $exitInner = $false
+
+    while (-not $exitInner) {
+        Write-StatusFile -Phase "idle"
+        Hide-ConsoleWindow
+
+        $frex = Show-FrexDashboard `
+            -ProfilePath      $ProfilePath `
+            -ProfileName      $ProfileName `
+            -AllModules       $AllModules `
+            -LastBatchResults $script:LastBatchResults `
+            -LastFinalizedAt  $lastFinalizedAt `
+            -HostName         $env:SELECTED_NEW_PCNAME `
+            -WorkerName       $env:FABRIQ_WORKER_NAME
+
+        Show-ConsoleWindow
+        Clear-Host
+
+        switch ($frex.Action) {
+
+            "RunSingle" {
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+                $tgt = @($resolved.ValidModules | Where-Object { [int]$_.Order -eq [int]$frex.TargetOrder })[0]
+                if ($null -eq $tgt) {
+                    Show-Error "FrexProfile: target order $($frex.TargetOrder) not found"
+                    Wait-KeyPress
+                    continue
+                }
+                Show-Info "Running single module (Order $($tgt.Order)): $($tgt.MenuName)"
+                Write-Host ""
+
+                # AutoConfirm so Y/N + Press-Enter are skipped for one-click run.
+                # Resets in finally even if Invoke-BatchExecution throws.
+                $global:AutoConfirmMode = $true
+                try {
+                    Invoke-BatchExecution -SelectedModules @($tgt) `
+                        -ProfilePath         $ProfilePath `
+                        -ProfileName         $ProfileName `
+                        -FinalizeOnComplete:$false `
+                        -ExecutionMode       'Frex' `
+                        -SelectedOrders      @([int]$tgt.Order) `
+                        -FullProfileModules  $resolved.ValidModules
+                } finally {
+                    $global:AutoConfirmMode = $false
+                }
+                Write-Host ""
+            }
+
+            "RunBatch" {
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+                $batch = @($resolved.ValidModules | Where-Object { [int]$_.Order -in $frex.SelectedOrders } | Sort-Object { [int]$_.Order })
+                if ($batch.Count -eq 0) {
+                    Show-Warning "FrexProfile: no modules matched the selected orders"
+                    Wait-KeyPress
+                    continue
+                }
+                Show-Info "Running batch ($($batch.Count) modules)..."
+                Write-Host ""
+
+                # AutoPilot ON → finalize fires automatically (Linear-symmetric).
+                # AutoPilot OFF → operator finalizes explicitly via [Complete].
+                Invoke-BatchExecution -SelectedModules $batch `
+                    -AutoPilot:         $frex.AutoPilot `
+                    -AutoPilotWaitSec   $frex.AutoPilotWaitSec `
+                    -ProfilePath        $ProfilePath `
+                    -ProfileName        $ProfileName `
+                    -FinalizeOnComplete:$frex.AutoPilot `
+                    -ExecutionMode      'Frex' `
+                    -SelectedOrders     @($frex.SelectedOrders) `
+                    -FullProfileModules $resolved.ValidModules
+
+                if ($frex.AutoPilot) {
+                    $lastFinalizedAt = (Get-Date).ToString("HH:mm:ss")
+                }
+                Write-Host ""
+            }
+
+            "Complete" {
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+                $null = Complete-ProfileExecution `
+                    -ProfileName    $ProfileName `
+                    -ProfilePath    $ProfilePath `
+                    -DefinedModules $resolved.ValidModules `
+                    -Mode           'Manual'
+                $lastFinalizedAt = (Get-Date).ToString("HH:mm:ss")
+                Wait-KeyPress
+            }
+
+            "RestartNow" {
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+
+                # Build current ModuleStates snapshot from execution_history.csv
+                # (latest entry per ModuleName, current SessionID).
+                $moduleStates = @{}
+                $hist = @()
+                if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
+                    $hist = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO | Where-Object { $_.SessionID -eq $script:SessionID })
+                }
+                $byMenu = @{}
+                foreach ($h in $hist) {
+                    if (-not $byMenu.ContainsKey($h.ModuleName)) { $byMenu[$h.ModuleName] = $h }
+                }
+                foreach ($r in $resolved.ValidModules) {
+                    $key = "$($r.Order)"
+                    if ($byMenu.ContainsKey($r.MenuName)) {
+                        $h = $byMenu[$r.MenuName]
+                        $moduleStates[$key] = @{
+                            Status   = $h.Status
+                            Verified = $h.Verified
+                            Message  = $h.Message
+                        }
+                    } else {
+                        $moduleStates[$key] = @{
+                            Status   = 'Pending'
+                            Verified = ''
+                            Message  = ''
+                        }
+                    }
+                }
+
+                # ResumeAfterOrder=-1 sentinel: post-reboot path simply
+                # reopens the FrexProfile dashboard (no Linear-style
+                # auto-continuation of "Order > N" remaining modules).
+                Save-ResumeState `
+                    -ProfilePath        $ProfilePath `
+                    -ProfileName        $ProfileName `
+                    -ResumeAfterOrder   -1 `
+                    -CompletedModules   @() `
+                    -ExecutionMode      'Frex' `
+                    -SelectedOrders     @($frex.SelectedOrders) `
+                    -ModuleStates       $moduleStates
+
+                if (-not (Register-FabriqRunOnce)) {
+                    Show-Error "Failed to register RunOnce; restart aborted"
+                    Remove-ResumeState
+                    Wait-KeyPress
+                    continue
+                }
+
+                Add-ExecutionResult -Operation "[RESTART NOW]" -Status "Success" -Message "FrexProfile Restart Now"
+                $null = Write-ExecutionHistory -ModuleName "[RESTART NOW]" -Category "System" -Status "Success" -Message "FrexProfile Restart Now (dashboard reopen on resume)"
+
+                Invoke-CountdownRestart
+                # Process exits here (Restart-Computer in Invoke-CountdownRestart).
+                return
+            }
+
+            "ResetState" {
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+                $tgt = @($resolved.ValidModules | Where-Object { [int]$_.Order -eq [int]$frex.ResetTargetOrder })[0]
+                if ($null -ne $tgt) {
+                    Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator"
+                    $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator"
+                    Show-Info "Reset state: Order $($tgt.Order) ($($tgt.MenuName)) -> Pending"
+                }
+            }
+
+            "Close" {
+                # Defensive cleanup: any lingering Frex resume state from
+                # entry into this loop is consumed at this point. Linear
+                # paths never have resume_state alive at this moment, so
+                # this is a no-op for them (Remove-ResumeState is guarded
+                # by Test-Path).
+                Remove-ResumeState
+                $exitInner = $true
+            }
+
+            default {
+                $exitInner = $true
+            }
+        }
     }
 }
 
@@ -835,10 +1058,21 @@ if (Test-Path $wuStatePath) {
     Write-Host ""
 }
 
+$isFrexResuming = $false
+$frexAutoContinue = $false
 if ($null -ne $resumeState) {
+    # Detect resume_state.json schemaVersion. Absent / pre-P4 = legacy v1
+    # (Linear). schemaVersion>=2 + ExecutionMode='Frex' = FrexProfile resume.
+    $resumeSchemaVer = if ($null -ne $resumeState.schemaVersion) { [int]$resumeState.schemaVersion } else { 1 }
+    $isFrexResuming = ($resumeSchemaVer -ge 2 -and $resumeState.ExecutionMode -eq 'Frex')
+
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Yellow
-    Write-Host "  Profile Resume Detected" -ForegroundColor Yellow
+    if ($isFrexResuming) {
+        Write-Host "  FrexProfile Resume Detected" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Profile Resume Detected" -ForegroundColor Yellow
+    }
     Write-Host "========================================" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  Profile:  $($resumeState.ProfileName)" -ForegroundColor White
@@ -850,7 +1084,31 @@ if ($null -ne $resumeState) {
 
     $resumeIsAutoPilot = ($resumeState.AutoPilot -eq $true)
 
-    if ($resumeIsAutoPilot) {
+    if ($isFrexResuming) {
+        # FrexProfile resume branches on (AutoPilot, ResumeAfterOrder):
+        #   - AutoPilot=true  + ResumeAfterOrder>=0 (mid-batch __RESTART__)
+        #     → honor unattended contract: countdown + auto-continue
+        #     execution (Linear-symmetric); fall through to Frex
+        #     auto-continue execution block below.
+        #   - AutoPilot=false (manual mode mid-batch) OR
+        #     ResumeAfterOrder=-1 ([Restart Now] sentinel)
+        #     → reopen the FrexProfile dashboard so the operator decides
+        #     what to run next.
+        $frexHasMidBatch = ([int]$resumeState.ResumeAfterOrder -ge 0)
+        if ($resumeIsAutoPilot -and $frexHasMidBatch) {
+            Wait-SystemReady
+            $frexAutoContinue = Invoke-AutoResumeCountdown -Seconds 60
+            # If countdown is aborted, $frexAutoContinue is $false and
+            # we fall back to dashboard-reopen behavior. Either way the
+            # environment must be restored, so $shouldResume stays true.
+            $shouldResume = $true
+        }
+        else {
+            Show-Info "FrexProfile resume: dashboard will reopen after environment restore"
+            $shouldResume = $true
+        }
+    }
+    elseif ($resumeIsAutoPilot) {
         # AutoPilot resume: wait for system stability, then countdown
         Wait-SystemReady
         $shouldResume = Invoke-AutoResumeCountdown -Seconds 60
@@ -1075,9 +1333,11 @@ $global:FabriqStatusMonitorProcess = Start-StatusMonitor
 
 
 # ========================================
-# Resume Execution (if resuming)
+# Resume Execution (Linear path)
 # ========================================
-if ($isResuming) {
+# Runs only for the Linear resume case. FrexProfile resume runs in its
+# own block below ($isFrexResuming branch).
+if ($isResuming -and -not $isFrexResuming) {
     $validation = Resolve-ProfileModules -ProfileCsvPath $resumeState.ProfilePath -AllModules $allModules
     $remainingModules = @($validation.ValidModules | Where-Object {
         $_.Order -gt $resumeState.ResumeAfterOrder
@@ -1158,6 +1418,106 @@ if ($isResuming) {
 }
 
 # ========================================
+# Resume Execution (FrexProfile path)
+# ========================================
+# Reached when resume_state.json had schemaVersion=2 + ExecutionMode='Frex'.
+# Two sub-paths:
+#   - $frexAutoContinue=true (AutoPilot ON + mid-batch __RESTART__,
+#     countdown accepted): mirror Linear's auto-resume — re-run remaining
+#     checked modules in AutoPilot mode, finalize via Complete-ProfileExecution,
+#     then fall through to main loop. The unattended contract is preserved
+#     end-to-end across reboots.
+#   - $frexAutoContinue=false (manual mode mid-batch / countdown aborted /
+#     [Restart Now] sentinel): reopen the FrexProfile dashboard so the
+#     operator can review state and decide next steps.
+if ($isFrexResuming) {
+    if ($frexAutoContinue) {
+        # Auto-continue: build remaining set as
+        # (Order > ResumeAfterOrder) ∩ SelectedOrders so we re-run only
+        # the operator's previously-checked subset (not the entire
+        # post-restart Profile tail).
+        $frexResolved = Resolve-ProfileModules -ProfileCsvPath $resumeState.ProfilePath -AllModules $allModules -IncludeDisabled
+        $frexSelectedSet = @{}
+        foreach ($o in @($resumeState.SelectedOrders)) { $frexSelectedSet[[int]$o] = $true }
+        $frexRemaining = @($frexResolved.ValidModules | Where-Object {
+            $frexSelectedSet.ContainsKey([int]$_.Order) -and [int]$_.Order -gt [int]$resumeState.ResumeAfterOrder
+        } | Sort-Object { [int]$_.Order })
+
+        if ($frexRemaining.Count -eq 0) {
+            Show-Info "FrexProfile auto-continue: no remaining checked modules"
+            Remove-ResumeState
+        }
+        else {
+            Show-Info "FrexProfile auto-continue: $($frexRemaining.Count) remaining checked modules"
+
+            # Mirror Linear: replay CompletedModules into ExecutionResults
+            # for status display continuity across the restart boundary.
+            foreach ($cm in $resumeState.CompletedModules) {
+                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)"
+            }
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart"
+
+            # Restore absolute profile start timestamp for accurate elapsed display
+            $frexResumedStart = $null
+            if ($resumeState.ProfileStartTime) {
+                try {
+                    $frexResumedStart = [datetime]::Parse($resumeState.ProfileStartTime)
+                }
+                catch {
+                    Show-Warning "Failed to parse FrexProfile resume_state ProfileStartTime ('$($resumeState.ProfileStartTime)'): $_"
+                }
+            }
+            if ($null -eq $frexResumedStart) { $frexResumedStart = Get-Date }
+
+            $frexResumeWaitSec = if ($resumeState.AutoPilotWaitSec) { [int]$resumeState.AutoPilotWaitSec } else { 3 }
+
+            Invoke-BatchExecution -SelectedModules $frexRemaining `
+                -AutoPilot:$true `
+                -AutoPilotWaitSec   $frexResumeWaitSec `
+                -ProfilePath        $resumeState.ProfilePath `
+                -ProfileName        $resumeState.ProfileName `
+                -FullProfileModules $frexResolved.ValidModules `
+                -ProfileStartTime   $frexResumedStart `
+                -FinalizeOnComplete:$true `
+                -ExecutionMode      'Frex' `
+                -SelectedOrders     @($resumeState.SelectedOrders)
+            # Invoke-BatchExecution removes resume_state on natural completion.
+
+            # Mirror Linear's post-resume completion message
+            Write-Host ""
+            Show-Separator
+            $hasErrors = @($script:ExecutionResults | Where-Object {
+                $_.Status -eq "Error" -and -not $_.IsRestored
+            }).Count -gt 0
+            if ($hasErrors) {
+                Write-Host "FrexProfile Auto-Continue Completed with Errors" -ForegroundColor Yellow
+                Show-Separator
+                Write-Host ""
+                Show-Warning "Some modules had errors. Reopen FrexProfile to retry."
+            }
+            else {
+                Write-Host "FrexProfile Auto-Continue Completed" -ForegroundColor Green
+                Show-Separator
+            }
+            Write-Host ""
+            Wait-KeyPress
+            Clear-Host
+        }
+    }
+    else {
+        # Manual mode mid-batch / countdown aborted / [Restart Now] sentinel
+        # → reopen FrexProfile dashboard. The dashboard rebuilds row state
+        # from execution_history.csv; pre-reboot [RESTART] / [RESTART NOW]
+        # rows that recorded their history before reboot show as Success.
+        Invoke-FrexProfileLoop `
+            -ProfilePath $resumeState.ProfilePath `
+            -ProfileName $resumeState.ProfileName `
+            -AllModules  $allModules
+        Clear-Host
+    }
+}
+
+# ========================================
 # Main Loop
 # ========================================
 
@@ -1183,6 +1543,15 @@ $script:guiExitRequested = $false
         Clear-Host
 
         switch ($guiSelection.Action) {
+
+            "FrexProfile" {
+                # FrexProfile dashboard sub-loop. Returns when the operator
+                # presses Back. P7 wires the entry button on main dashboard.
+                Invoke-FrexProfileLoop `
+                    -ProfilePath $guiSelection.ProfilePath `
+                    -ProfileName $guiSelection.ProfileName `
+                    -AllModules  $allModules
+            }
 
             "ExecuteProfile" {
                 # Resolve profile modules and execute via existing engine
@@ -1395,30 +1764,14 @@ $script:guiExitRequested = $false
                     Wait-KeyPress
                     continue
                 }
-                Show-Info "Regenerating checklist..."
-                $null = Export-ExecutionHistory
-                $checklistPath = Export-HtmlChecklist `
-                    -ProfileName      $global:FabriqLastProfileName `
-                    -ProfilePath      $global:FabriqLastProfilePath `
-                    -DefinedModules   $global:FabriqLastProfileModules `
-                    -ExecutionResults  $script:ExecutionResults
-                if (-not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
-                    $viewerScript = ".\kernel\ps1\view_report.ps1"
-                    if (Test-Path $viewerScript) {
-                        & $viewerScript -HtmlPath $checklistPath
-                    }
-                }
-
-                # Auto-upload to log destinations
-                $uploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
-                if (Test-Path $uploaderScript) {
-                    Show-Info "Uploading updated evidence..."
-                    $uploadResult = & $uploaderScript
-                    if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
-                        Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
-                        $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
-                    }
-                }
+                # Manual mode: viewer-before-upload + record "Log Upload (cl)"
+                # in execution history. Behavior matches the previous inline
+                # implementation byte-for-byte.
+                $null = Complete-ProfileExecution `
+                    -ProfileName    $global:FabriqLastProfileName `
+                    -ProfilePath    $global:FabriqLastProfilePath `
+                    -DefinedModules $global:FabriqLastProfileModules `
+                    -Mode           'Manual'
                 Wait-KeyPress
             }
 
