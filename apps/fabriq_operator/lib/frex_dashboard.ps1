@@ -22,6 +22,12 @@ function Show-FrexDashboard {
         [array]$LastBatchResults = @(),
         # Optional: timestamp of last [Complete] press (display only)
         [string]$LastFinalizedAt = "",
+        # When $true, the header shows a red "PENDING FINALIZE" badge in
+        # place of the "Last finalized" line, and [Back] / X-button close
+        # asks for confirmation. Caller (Invoke-FrexProfileLoop) tracks
+        # this flag across dashboard reopens so it persists from batch
+        # completion to operator's [Complete] press.
+        [bool]$PendingFinalize = $false,
         [string]$HostName = $env:SELECTED_NEW_PCNAME,
         [string]$WorkerName = $env:FABRIQ_WORKER_NAME
     )
@@ -138,12 +144,28 @@ function Show-FrexDashboard {
     $titleLbl = New-StyledLabel -Text "FrexProfile: $ProfileName" -X 16 -Y 6 -Width 600 -Height 22 -Font $script:fontLarge -FgColor $script:fgWhite
     $headerPanel.Controls.Add($titleLbl)
 
-    $finalizedTxt = if ([string]::IsNullOrEmpty($LastFinalizedAt)) {
-        "Last finalized: -"
-    } else {
-        "Last finalized: $LastFinalizedAt"
+    # Header sub-line: Pending Finalize badge (warning) takes precedence
+    # over the neutral "Last finalized" timestamp. They communicate
+    # mutually exclusive states — pending = batch ran but no Complete
+    # yet, finalized = Complete pressed.
+    if ($PendingFinalize) {
+        $finalizedLbl = New-Object System.Windows.Forms.Label
+        $finalizedLbl.Location = New-Object System.Drawing.Point(16, 28)
+        $finalizedLbl.Size = New-Object System.Drawing.Size(180, 18)
+        $finalizedLbl.Text = "  PENDING FINALIZE  "
+        $finalizedLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+        $finalizedLbl.Font = $script:fontBold
+        $finalizedLbl.BackColor = $script:bgDelete
+        $finalizedLbl.ForeColor = $script:fgWhite
     }
-    $finalizedLbl = New-StyledLabel -Text $finalizedTxt -X 16 -Y 28 -Width 400 -Height 18 -FgColor ([System.Drawing.Color]::FromArgb(200, 200, 200))
+    else {
+        $finalizedTxt = if ([string]::IsNullOrEmpty($LastFinalizedAt)) {
+            "Last finalized: -"
+        } else {
+            "Last finalized: $LastFinalizedAt"
+        }
+        $finalizedLbl = New-StyledLabel -Text $finalizedTxt -X 16 -Y 28 -Width 400 -Height 18 -FgColor ([System.Drawing.Color]::FromArgb(200, 200, 200))
+    }
     $headerPanel.Controls.Add($finalizedLbl)
 
     $hostLbl = New-StyledLabel -Text "$HostName  |  W: $WorkerName" -X 500 -Y 14 -Width 380 -Height 22 -FgColor ([System.Drawing.Color]::FromArgb(200, 200, 200))
@@ -295,16 +317,23 @@ function Show-FrexDashboard {
     $footerPanel = New-StyledPanel -X 10 -Y 540 -Width 870 -Height 80 -BgColor $script:bgTabPage
     $form.Controls.Add($footerPanel)
 
-    # AutoPilot checkbox + WaitSec input (left)
-    $chkAutoPilot = New-StyledCheckBox -Text "AutoPilot" -X 10 -Y 8 -Width 100 -Checked $false
-    $footerPanel.Controls.Add($chkAutoPilot)
+    # Bulk-select buttons + WaitSec input (left).
+    # AutoPilot checkbox was removed in 3.1.5 — execution is always
+    # AutoPilot-style (unattended), and finalization is always manual
+    # via [Complete]. [Select All] checks Enabled=1 rows (CSV author's
+    # default set); [Clear All] unchecks everything.
+    $btnSelectAll = New-StyledButton -Text "Select All" -X 10 -Y 8 -Width 90 -Height 24
+    $footerPanel.Controls.Add($btnSelectAll)
 
-    $waitLbl = New-StyledLabel -Text "WaitSec:" -X 115 -Y 10 -Width 60 -Height 22
+    $btnClearAll = New-StyledButton -Text "Clear All" -X 105 -Y 8 -Width 90 -Height 24
+    $footerPanel.Controls.Add($btnClearAll)
+
+    $waitLbl = New-StyledLabel -Text "WaitSec:" -X 205 -Y 10 -Width 55 -Height 22
     $footerPanel.Controls.Add($waitLbl)
 
     $waitInput = New-Object System.Windows.Forms.NumericUpDown
-    $waitInput.Location = New-Object System.Drawing.Point(175, 8)
-    $waitInput.Size = New-Object System.Drawing.Size(60, 24)
+    $waitInput.Location = New-Object System.Drawing.Point(260, 8)
+    $waitInput.Size = New-Object System.Drawing.Size(55, 24)
     $waitInput.Minimum = 0
     $waitInput.Maximum = 60
     $waitInput.Value = 3
@@ -403,22 +432,29 @@ function Show-FrexDashboard {
         & $updateRunThisLabel
     })
 
-    # AutoPilot toggle: bulk-check Enabled=1 rows when turned ON.
-    # Turning OFF preserves user's current checkbox state (intentional —
-    # supports the workflow of "tick AutoPilot to bulk-select, untick to
-    # switch off AutoPilot mode while keeping the bulk selection for a
-    # manual-confirm batch run").
-    # Only Enabled=1 rows are bulk-checked (CSV author's intent for
-    # opt-in Enabled=0 rows is preserved; operators can manually check
-    # them after the bulk operation).
-    $chkAutoPilot.Add_CheckedChanged({
-        if (-not $chkAutoPilot.Checked) {
-            return
-        }
+    # [Select All] bulk-checks Enabled=1 rows (CSV author's default
+    # set). Operators can then individually uncheck rows they want to
+    # exclude. Enabled=0 rows stay unchecked unless the operator
+    # explicitly checks them.
+    $btnSelectAll.Add_Click({
         $frexState.BulkUpdating = $true
         try {
             foreach ($row in $grid.Rows) {
                 $row.Cells['Checked'].Value = [bool]$row.Tag.IsCheckedDefault
+            }
+        }
+        finally {
+            $frexState.BulkUpdating = $false
+        }
+        & $updateCounters
+    })
+
+    # [Clear All] unchecks every row.
+    $btnClearAll.Add_Click({
+        $frexState.BulkUpdating = $true
+        try {
+            foreach ($row in $grid.Rows) {
+                $row.Cells['Checked'].Value = $false
             }
         }
         finally {
@@ -445,7 +481,11 @@ function Show-FrexDashboard {
         }
         $result.Action = "RunBatch"
         $result.SelectedOrders = $checkedOrders
-        $result.AutoPilot = [bool]$chkAutoPilot.Checked
+        # Execution mode is unconditionally AutoPilot since 3.1.5 —
+        # the AutoPilot checkbox was removed and unattended batch
+        # behavior is the default. Finalize is always manual via
+        # the [Complete] button (handled in main.ps1).
+        $result.AutoPilot = $true
         $result.AutoPilotWaitSec = [int]$waitInput.Value
         $form.Close()
     })
@@ -537,9 +577,30 @@ function Show-FrexDashboard {
         $form.Close()
     })
 
-    # Form close via X button = Close action
+    # Form close (Back button or X button). Warn the operator if a
+    # batch ran but [Complete] has not been pressed yet — leaving in
+    # this state means no HTML checklist is generated and no evidence
+    # is uploaded to log_destinations. Active execution actions
+    # (RunBatch / RunSingle / Complete / RestartNow / ResetState) set
+    # $result.Action before calling form.Close, so they bypass the
+    # warning. The warning fires only on the Close path.
     $form.Add_FormClosing({
-        if ($result.Action -eq "" -or $null -eq $result.Action) {
+        param($s, $e)
+        $isCloseIntent = [string]::IsNullOrEmpty($result.Action) -or $result.Action -eq 'Close'
+        if ($isCloseIntent -and $PendingFinalize) {
+            $msg = "Batch results are pending finalize.`n`nPress [Complete] to generate the HTML checklist and upload evidence to log destinations.`n`nLeave the FrexProfile dashboard without finalizing anyway?"
+            $dlg = [System.Windows.Forms.MessageBox]::Show(
+                $msg,
+                "FrexProfile - Pending Finalize",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($dlg -ne [System.Windows.Forms.DialogResult]::Yes) {
+                $e.Cancel = $true
+                return
+            }
+        }
+        if ([string]::IsNullOrEmpty($result.Action)) {
             $result.Action = "Close"
         }
     })
