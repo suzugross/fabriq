@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `2.2.2`（`kernel/KERNEL_VERSION` を真のソースとする）
+**Current Kernel Version**: `3.1.2`（`kernel/KERNEL_VERSION` を真のソースとする）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -57,6 +57,7 @@
 | `$global:FabriqMasterPassphrase` | `string` | マスターパスフレーズ（`Unprotect-FabriqValue` に渡す際などに使用） |
 | `$global:AutoPilotMode` | `bool` | AutoPilot 実行中か |
 | `$global:AutoPilotWaitSec` | `int` | AutoPilot モジュール間ウェイト秒 |
+| `$global:AutoConfirmMode` | `bool` | FrexProfile 単発実行中か（`Confirm-Execution` / `Wait-KeyPress` を短絡。AutoPilot のサブセット動作） |
 | `$global:FabriqEvidenceBasePath` | `string` | エビデンス保存先ベースパス（サブディレクトリを作る基点） |
 
 **書き込み**: 公開 API として書き込み可能なグローバル変数は `$global:_LastModuleResult`（`New-ModuleResult` 内部で自動更新）のみ。それ以外は読み取り専用。
@@ -201,6 +202,31 @@ formal SemVer の出発点。以下すべて利用可能:
   - 既存プロファイル互換: 削除後のマーカーを含む旧プロファイルは `Resolve-ProfileModules` の `$invalidPaths` 経由で「module not found」warning として降格、kernel はクラッシュせず他モジュールの実行を継続する（graceful degradation）
   - 残存特殊マーカー: `__AUTOPILOT__` / `__ASYNC__` / `__RESTART__` / `__REEXPLORER__` / `__AUTO_to_<User>__` の 5 種
 - §6 内部 API 一覧から `Invoke-CountdownShutdown` を削除（`__SHUTDOWN__` 削除に伴うデッドコード除去）
+
+### 3.1.0
+
+- **§2 公開グローバル変数に `$global:AutoConfirmMode` 追加**
+  - FrexProfile dashboard の単発実行（`[Run This]`）で `Confirm-Execution` /
+    `Wait-KeyPress` を短絡し、Y/N プロンプトと Press-Enter 待機をスキップする
+    flag。AutoPilot のサブセット動作で、AutoPilot の inter-module wait /
+    ErrorMode 分岐 / `Show-AutoPilotErrorDialog` は発火しない
+  - 通常モジュールスクリプトは本グローバルを参照しない（fabriq 本体が
+    FrexProfile sub-loop 内でのみ立てる、モジュールから見れば読み取り
+    専用 flag）。本値を読むモジュールスクリプトを書く場合のみこの版を要求する
+- FrexProfile 機能群の追加: profile CSV を state-aware に部分実行できる
+  GUI（`apps/fabriq_operator/lib/frex_dashboard.ps1`）と関連 sub-loop。
+  公開 API としてはモジュール側に影響なし — Profile CSV スキーマも特殊
+  マーカーも不変。Linear `Execute Profile` 経路は並走運用で従来通り（FrexProfile
+  安定後に Linear 撤去予定）
+- 内部実装整理:
+  - `resume_state.json` に optional `schemaVersion=2` フィールドを追加
+    （FrexProfile resume が `SelectedOrders` / `ModuleStates` を保持）。
+    Linear が書いた v1 ファイルは引き続き読み書き両方で動作（後方互換）
+  - `Complete-ProfileExecution` 関数で post-profile pipeline を集約
+    （`Invoke-BatchExecution` 末尾と `[cl]` 再生成の重複を解消）
+  - `Invoke-FrexProfileLoop` ヘルパーで FrexProfile sub-loop を一元化
+    （main loop "FrexProfile" action と Frex resume bootstrap の単一の
+    真実の源）
 
 ### 判定ルール
 

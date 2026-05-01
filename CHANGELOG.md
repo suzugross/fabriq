@@ -15,7 +15,229 @@
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-05-02
+
+### Changed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Frex dashboard の
+  チェック状態既定値と AutoPilot トグル挙動を仕様変更:
+    - **既定値**: 全モジュール unchecked（旧: CSV `Enabled` を反映）。
+      Frex の哲学（"default mode = pick from blank"）と整合
+    - **AutoPilot ON**: Enabled=1 の行のみ bulk-check（CSV 作成者の
+      opt-in 意図を尊重して Enabled=0 行は unchecked のまま残す）
+    - **AutoPilot OFF**: 副作用なし、現在のチェック状態を保持。
+      "AutoPilot で全選択 → AutoPilot を外して通常実行" という
+      bulk-select-only ワークフローを支援
+  実装: 行追加時の初期 check を `$false` に固定、`row.Tag` に
+  `IsCheckedDefault` フィールドを追加して AutoPilot bulk-check が
+  CSV `Enabled` 値を参照可能に。`$chkAutoPilot.Add_CheckedChanged`
+  ハンドラ新設で bulk-set を実装。`$frexState.BulkUpdating` flag で
+  bulk 中の `CellValueChanged` 連発による `updateCounters` 過剰
+  呼び出しを抑止（70 モジュール × N 連発の性能影響を防止）。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
+## [3.1.1] - 2026-05-01
+
+### Fixed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Frex dashboard の
+  チェックボックス列が編集不能だった問題を修正。`Set-GridStyle` が
+  `$grid.ReadOnly = $true` を設定し、WinForms 仕様により per-column の
+  `ReadOnly = $false` が無視されていた。`Set-GridStyle` 呼び出し直後に
+  `$grid.ReadOnly = $false` でグリッドレベル設定を解除し、Order /
+  Module / Status / Verified の各列を個別に `ReadOnly = $true` で
+  ロックすることで checkbox 列のみ編集可能化。
+- kernel/main.ps1: AutoPilot ON で `__RESTART__` マーカーを含む Frex
+  バッチ実行が再起動後にダッシュボードへ戻ってしまい unattended
+  契約が破られていた問題を修正。3.1.0 設計時に D5（`[Restart Now]`
+  ボタン要件）を `__RESTART__` マーカー全般に過剰適用していた認識
+  誤り。Frex resume を 3 経路に分岐:
+    - AutoPilot=true + ResumeAfterOrder≥0（mid-batch __RESTART__）
+      → countdown + auto-continue 実行（Linear 対称）
+    - AutoPilot=false + ResumeAfterOrder≥0（manual mid-batch）
+      → dashboard 復帰
+    - ResumeAfterOrder=-1（`[Restart Now]` sentinel、任意の AutoPilot）
+      → dashboard 復帰
+  Auto-continue 経路は SelectedOrders ∩ (Order > ResumeAfterOrder) で
+  残モジュールを構築し、`Invoke-BatchExecution -ExecutionMode 'Frex'
+  -SelectedOrders ... -FinalizeOnComplete:$true` で完走させる。
+  Wait-KeyPress + 完了メッセージは Linear 対称。
+
+## [3.1.0] - 2026-05-01
+
 ### Added
+- apps/fabriq_operator/lib/dashboard_form.ps1: Profiles タブに
+  `[Execute (Frex)]` ボタンを追加（success-green アクセント色、
+  `[View Details]` と `[Execute Profile]` の中間に配置）。
+  クリックで `$result.Action = "FrexProfile"` を返却し main.ps1 が
+  `Invoke-FrexProfileLoop` を起動。AutoPilot は FrexProfile dashboard
+  側の checkbox（既定 OFF）が独立に制御するため、main dashboard の
+  AutoPilot 設定は Frex 経路に伝播させない。`[View Details]` は
+  W=110 → W=92 に縮小、X=378 → X=200 に左シフトしてレイアウト調整。
+  `[Execute Profile]` は X=498/W=150 のまま不変（Linear 経路の
+  operator muscle memory を保護）。これで P1〜P7 を貫く配線が
+  完成し、operator が Profile を選んで `[Execute (Frex)]` を押す
+  と FrexProfile dashboard が起動する。
+
+- kernel/main.ps1: `Invoke-FrexProfileLoop` ヘルパー関数を新設。
+  FrexProfile dashboard sub-loop を駆動する内部関数で、main loop の
+  `"FrexProfile"` action と Frex resume bootstrap の両方から呼び出される
+  単一の真実の源。dashboard が返す Action を以下に dispatch する:
+  - `RunSingle`  → AutoConfirmMode ON で Invoke-BatchExecution 単発呼び出し
+                   （`-FinalizeOnComplete:$false`、`-ExecutionMode 'Frex'`）
+  - `RunBatch`   → Invoke-BatchExecution 複数呼び出し。AutoPilot ON 時は
+                   finalize 自動発火（Linear 対称）、OFF 時は operator が
+                   `[Complete]` で finalize
+  - `Complete`   → Complete-ProfileExecution -Mode 'Manual'
+  - `RestartNow` → 現在の checked subset と execution_history.csv 由来の
+                   ModuleStates を schemaVersion=2 / ExecutionMode='Frex'
+                   resume_state.json に保存 → Register-FabriqRunOnce →
+                   Invoke-CountdownRestart。`ResumeAfterOrder=-1` sentinel
+                   で「dashboard 復帰のみ、auto-continuation なし」を表現
+  - `ResetState` → execution_history.csv に Status='Pending' 行追記で
+                   特定 Order の状態を Pending に戻す
+  - `Close`      → Remove-ResumeState で Frex resume state を消費して終了
+- kernel/main.ps1: main loop switch に `"FrexProfile"` action ハンドラを
+  追加（Invoke-FrexProfileLoop を呼ぶだけ）。P7 で main dashboard 側に
+  ボタンが追加されるまでは dead code として安全待機
+- kernel/main.ps1: 起動時 resume 検知ロジックに schemaVersion 分岐追加。
+  schemaVersion>=2 + ExecutionMode='Frex' を `$isFrexResuming` として
+  検出し、Linear の auto-resume countdown / Y-N プロンプトをスキップして
+  常に dashboard 復帰経路へ進む。Linear resume execution block には
+  `-and -not $isFrexResuming` ガードを追加して同時起動を排他化
+- kernel/main.ps1: Frex resume execution block を追加（Initialize-
+  ModuleSystem 後に Invoke-FrexProfileLoop を呼ぶ）。Linear resume
+  execution block と並列構造で配置
+
+### Fixed
+- kernel/common.ps1: Export-HtmlChecklist の Status switch に明示的な
+  `Pending` 分岐を追加。従来は default 分岐に落ちて `notRunTotal` が
+  加算されず、HTML フッタの集計合計が `DefinedModules.Count` と
+  食い違う pre-existing バグだった（Linear では Pending Status が
+  通常生成されないため顕在化しなかったが、FrexProfile の `[Mark as
+  Pending]` 操作で表面化）。修正後は Pending 行が `notRunTotal++` に
+  寄与し overall 判定 "Incomplete" / Not Run chip / Pending ラベル
+  表示が一貫。Linear 既存 HTML 出力には影響なし。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
+### Changed
+- kernel/main.ps1: Invoke-BatchExecution に FrexProfile 用の
+  pass-through パラメータ 3 つ追加: `-ExecutionMode 'Linear'|'Frex'`,
+  `-SelectedOrders int[]`, `-ModuleStates hashtable`。`__RESTART__`
+  ハンドラ内の `Save-ResumeState` 呼び出しに透過的に渡される。
+  Linear 既存呼び出しは省略時 v1 出力（byte-for-byte 互換）、Frex
+  経由で渡されると schemaVersion=2 出力。KERNEL_API.md §6 内部実装、
+  公開 API 影響なし、KERNEL_VERSION 影響なし。
+
+- apps/fabriq_operator/lib/frex_dashboard.ps1: FrexProfile dashboard 形式の
+  WinForms 新規追加。`Show-FrexDashboard` 関数 1 個を提供。
+  - profile CSV を `Resolve-ProfileModules -IncludeDisabled` で全行
+    取得（Enabled=0 含む）し、CSV 既定のチェック状態を初期表示
+  - 状態列は `execution_history.csv` の現セッション ID フィルタ +
+    オプション `$LastBatchResults` 上書きで構築（D2「履歴=真実の源」
+    決定の実装）
+  - 行ダブルクリック / `[Run This: N]` ボタンで個別実行、
+    `[Run Selected (N)]` でチェック分一括、Order 昇順
+  - `[Complete]` ボタンは常に押下可能。Error / Partial / Pending が
+    checked 行に残ると "Complete with N issues"（黄）に切替、
+    押下時に確認ダイアログ。確認後 main.ps1 が
+    Complete-ProfileExecution を呼ぶ（P6/P7 で配線）
+  - `[Restart Now]` ボタンは Profile 外から再起動を発火（D5 「いつでも
+    実行できるリスタートマーカー」要件）。confirm dialog → main.ps1 が
+    Save-ResumeState v2 + Register-FabriqRunOnce + Invoke-CountdownRestart
+  - 行右クリック → "Mark as Pending (reset state)" で個別行のみ Pending
+    リセット要求を返す
+  - AutoPilot 既定 OFF（FrexProfile での約束）、WaitSec NumericUpDown
+  - 戻り値 hashtable: `{ Action, SelectedOrders, TargetOrder, AutoPilot,
+    AutoPilotWaitSec, ResetTargetOrder }`。Action は
+    `RunSingle` / `RunBatch` / `Complete` / `RestartNow` / `ResetState` / `Close`
+  - 本フェーズでは何も実行 dispatch しない（intent を返却するだけ）。
+    実行配線と Frex resume 検知は P6 で main.ps1 に追加予定
+- apps/fabriq_operator/fabriq_operator.ps1: lib dot-source に
+  frex_dashboard.ps1 を追加（fabriq_operator GUI ロード時に自動展開）
+
+- kernel/common.ps1: Save-ResumeState に schemaVersion=2 書き出し対応
+  を追加。新 optional パラメータ `-ExecutionMode 'Linear'|'Frex'`、
+  `-SelectedOrders int[]`、`-ModuleStates hashtable` を追加し、
+  `-ExecutionMode 'Frex'` のときのみ `schemaVersion` / `ExecutionMode` /
+  `SelectedOrders` / `ModuleStates` の v2 拡張フィールドを JSON に
+  書き出す。Linear 既存呼び出しは新パラメータを渡さないため出力は
+  pre-P4 の v1 と byte-for-byte 互換。Load-ResumeState は P4 では
+  不変（v1 / v2 両方が ConvertFrom-Json でそのまま読める。Frex resume
+  分岐は P6 で main.ps1 に追加予定）。
+  P4 単独では v2 を書き出す呼び出し元が無いため実ファイル生成は
+  発生しない（純粋に capability の追加）。
+  KERNEL_API.md §6 内部実装、公開 API 影響なし、KERNEL_VERSION 影響なし。
+  互換性 stance: アップグレード方向のみ互換（旧 fabriq が v2 ファイルを
+  読むときは未知 schemaVersion を検知せず v1 として処理 → 副作用は
+  実害なし。逆ダウングレードは未保証）。
+
+- kernel/common.ps1: `$script:LastBatchResults` 配列を新設。
+  Invoke-BatchExecution が完走 / cancel / mid-throw のどの経路でも
+  finally 経由で publish される per-module 結果スナップショット。
+  各エントリは hashtable `{ Order, MenuName, Status, Verified, Message }`。
+  FrexProfile dashboard が `execution_history.csv` の SessionID
+  全 import を回避して直前 1 バッチの差分だけを即座に拾うための
+  揮発チャンネル。`Reset-FabriqState` でクリア。
+  KERNEL_API.md §6 内部実装に該当、公開 API 影響なし。
+
+### Changed
+- kernel/main.ps1: Invoke-BatchExecution の `$completedResults` を
+  hashtable 拡張（Order / Verified / Message を追加）。Save-ResumeState
+  は射影で {MenuName, Status} のみシリアライズするため `resume_state.json`
+  形式は不変。`__REEXPLORER__` ハンドラの結果記録を try/catch の実結果
+  に修正（従来は失敗時も "Success" がハードコードされていた pre-existing
+  バグ。resume 表示の Status 文字列のみが影響、ロジックには無影響）。
+  `$completedResults` の宣言を try ブロック前に移動して finally から
+  参照可能に。挙動互換、KERNEL_VERSION 影響なし。
+
+- kernel/main.ps1: Invoke-BatchExecution に `[bool]$FinalizeOnComplete`
+  パラメータを追加（既定 `$true`）。`$true` 時のみループ完走後に
+  `Complete-ProfileExecution` を発火させる。Linear 既存呼び出しは
+  既定値で従来挙動を維持（呼び出し側無修正）。FrexProfile バッチ
+  / 個別実行は `:$false` を渡して finalize を operator 主導の
+  `[Complete]` ボタンに委譲する。`__RESTART__` 早期抜けには影響なし
+  （resume 時の二脚目で改めて評価される）。
+  switch ではなく [bool] を採用してデフォルト $true を許容
+  （PSAvoidDefaultValueSwitchParameter 回避、既存 `:$false` 構文は
+  両方の型で互換）。KERNEL_API.md §6 内部実装。
+  公開 API 影響なし、KERNEL_VERSION 影響なし。
+
+- kernel/common.ps1 + kernel/main.ps1: post-profile pipeline（execution
+  history エクスポート → HTML チェックリスト生成 → log_uploader →
+  view_report 起動）を `Complete-ProfileExecution` 関数に集約。
+  従来 `Invoke-BatchExecution` 末尾と main.ps1 の `RegenerateChecklist`
+  action にコピーペーストで重複していた実装を 1 関数に統合し、
+  - `-Mode 'Auto'`   = Linear AutoPilot 完走（silent upload / viewer 後）
+  - `-Mode 'Manual'` = `[cl]` 再生成（"Log Upload (cl)" 履歴記録 / viewer 前）
+  の二経路を ValidateSet で明示。挙動は両経路とも byte-for-byte 互換。
+  単一の真実の源を確保することで、FrexProfile `[Complete]` ボタン
+  (P5/P7) が同じ関数を呼ぶだけで finalize できる。
+  KERNEL_API.md §6 内部実装。公開 API 影響なし、KERNEL_VERSION 影響なし。
+
+### Added
+- kernel/common.ps1: `$global:AutoConfirmMode` フラグ導入。
+  Confirm-Execution / Wait-KeyPress に短絡条件を追加し、Y/N プロンプトと
+  Press-Enter 待機をスキップする AutoPilot のサブセット動作を提供。
+  AutoPilot の他の副作用（inter-module wait、ErrorMode 分岐、
+  Show-AutoPilotErrorDialog、ErrorMode retry loop）は発火しない。
+  FrexProfile の個別モジュール実行で「ボタンクリック1回で実行」を
+  実現するための土台。AutoPilot と同時 ON の場合は AutoPilot 表示が
+  優先（防御的、実用上両立しない設計）。
+  KERNEL_API.md §2 への正式記載は FrexProfile 機能群完成時に MINOR
+  bump と同時に行う方針のため、現時点では文書化保留。
+  KERNEL_VERSION 影響なし。
+
+- kernel/common.ps1: Resolve-ProfileModules に `-IncludeDisabled` switch
+  を追加。指定時は `Enabled=0` 行も返却対象に含め、各エントリへ
+  `_IsCheckedDefault` プロパティ（CSV `Enabled` 値の bool 反映）を
+  付与する。Linear 経路は switch 省略で完全互換（フィールド非付与）。
+  `__AUTOPILOT__` / `__ASYNC__` マーカーの作用は `Enabled=1` 必須に
+  内部で縛り、無効化マーカーが global state を flip することを防ぐ。
+  FrexProfile dashboard が CSV 既定のチェック状態を再現するための
+  土台。Resolve-ProfileModules は KERNEL_API.md §6 の内部実装の
+  ため公開 API への影響なし、KERNEL_VERSION 影響なし。
+  （FrexProfile 機能の Phase 1 / 全体は完成時に MINOR で集約 bump
+  予定）
+
 - modules/standard/evidence_config: 5 new sections covering inventory
   items that PCView (a legacy 2011 inventory tool) captured but fabriq
   evidence previously did not, raising audit-pack completeness:

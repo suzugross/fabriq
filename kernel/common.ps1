@@ -1,11 +1,24 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.0.0
+# Easy Kitting Batch - Common Function Library v3.1.2
 # ========================================
 
 # ========================================
 # Global Variables
 # ========================================
 $script:ExecutionResults = @()
+
+# Last batch execution results (per-module).
+# Populated by Invoke-BatchExecution at natural completion (and from
+# finally on cancel / mid-throw paths). Each entry is a hashtable:
+#   Order    : int     - profile CSV Order (markers included with their Order)
+#   MenuName : string  - module display name (with [seg:..] suffix etc)
+#   Status   : string  - Success / Error / Skipped / Cancelled / Partial
+#   Verified : Nullable[bool] - Post-Apply Verification result, or $null
+#   Message  : string  - module-reported message
+# Consumed by FrexProfile dashboard to flash post-execution state without
+# re-importing execution_history.csv. Reset by Reset-FabriqState.
+$script:LastBatchResults = @()
+
 $script:SessionID = Get-Date -Format "yyyyMMdd_HHmmss"
 $script:HistoryPath = ".\logs\history\execution_history.csv"
 $script:ProfilesDir = ".\profiles"
@@ -23,6 +36,14 @@ $script:SessionInfo = $null
 # AutoPilot Mode (Profile execution only)
 $global:AutoPilotMode = $false
 $global:AutoPilotWaitSec = 3
+
+# AutoConfirm Mode (FrexProfile single-execution only).
+# Suppresses Y/N prompts and Wait-KeyPress so a one-click Run-This run
+# completes without blocking. Strictly a subset of AutoPilot: does NOT
+# enable inter-module wait, ErrorMode dispatch, or the
+# Show-AutoPilotErrorDialog retry loop. Set $true only for the duration
+# of one Frex single-module run; reset in finally.
+$global:AutoConfirmMode = $false
 
 # ========================================
 # Sleep Suppression (SetThreadExecutionState)
@@ -612,6 +633,14 @@ function Confirm-Execution {
         return $true
     }
 
+    # AutoConfirm: Frex single-execution short-circuit. Mirrors AutoPilot's
+    # Y/N suppression but stays out of AutoPilot's other paths (no
+    # inter-module wait, no ErrorMode retry dialog).
+    if ($global:AutoConfirmMode) {
+        Write-Host "[AUTOCONFIRM] $Message -> Y (auto)" -ForegroundColor DarkCyan
+        return $true
+    }
+
     while ($true) {
         Write-Host -NoNewline "$Message (Y/N): "
         $response = Read-Host
@@ -630,8 +659,9 @@ function Confirm-Execution {
 function Wait-KeyPress {
     param([string]$Message = "Press Enter to continue...")
 
-    # AutoPilot: skip wait
-    if ($global:AutoPilotMode) {
+    # AutoPilot or AutoConfirm: skip wait so unattended / one-click
+    # flows do not block on Press-Enter.
+    if ($global:AutoPilotMode -or $global:AutoConfirmMode) {
         return
     }
 
@@ -1921,6 +1951,11 @@ function Export-HtmlChecklist {
                 "Cancelled" { $statusLabel = "Cancel";  $statusClass = "skip";    $skipTotal++ }
                 "Warning"   { $statusLabel = "Warn";    $statusClass = "partial"; $successTotal++ }
                 "Error"     { $statusLabel = "NG";      $statusClass = "ng";      $errorTotal++ }
+                # Pending: explicit status set by FrexProfile [Mark as Pending]
+                # action. Counts toward notRunTotal so HTML totals reconcile
+                # with $DefinedModules.Count (otherwise Pending fell into the
+                # default branch with no counter increment, leaving a gap).
+                "Pending"   { $statusLabel = "Pending"; $statusClass = "notrun"; $notRunTotal++ }
                 default     { $statusLabel = $result.Status; $statusClass = "notrun" }
             }
             $message = if ($result.Message) { [System.Web.HttpUtility]::HtmlEncode($result.Message) } else { "-" }
@@ -2220,6 +2255,122 @@ $rowsHtml      </tbody>
     }
 }
 
+# ========================================
+# Profile Completion Pipeline (Linear auto-finalize / [cl] regen / Frex Complete)
+# ========================================
+# Single source of truth for the post-profile pipeline:
+#   1. Export execution history CSV into the evidence directory
+#   2. Generate the HTML checklist
+#   3. Update $global:FabriqLastProfile{Name,Path,Modules}
+#   4. Run log_uploader if log_destinations.csv has enabled rows
+#   5. Launch view_report.ps1
+#
+# Mode preserves two pre-existing behaviors verbatim:
+#   'Auto'   : Linear AutoPilot finalize (Invoke-BatchExecution end).
+#              Silent log upload, viewer launched AFTER upload, "Auto-..."
+#              wording.
+#   'Manual' : main.ps1 [cl] / RegenerateChecklist action.
+#              Log upload recorded as ExecutionResult / history entry
+#              ("Log Upload (cl)"), viewer launched BEFORE upload,
+#              "Regenerating..." wording.
+# Frex [Complete] (P5/P7) will use 'Manual'.
+# ========================================
+function Complete-ProfileExecution {
+    param(
+        [Parameter(Mandatory)][string]$ProfileName,
+        [Parameter(Mandatory)][string]$ProfilePath,
+        [Parameter(Mandatory)][array]$DefinedModules,
+        [TimeSpan]$ElapsedTime = [TimeSpan]::Zero,
+        [ValidateSet('Auto','Manual')][string]$Mode = 'Auto'
+    )
+
+    Write-Host ""
+
+    # Step 1: Export execution history CSV → evidence directory
+    if ($Mode -eq 'Auto') {
+        Write-Host "[INFO] Auto-exporting execution history as evidence..." -ForegroundColor Cyan
+    } else {
+        Show-Info "Regenerating checklist..."
+    }
+    $null = Export-ExecutionHistory
+
+    # Step 2: Generate HTML checklist
+    if ($Mode -eq 'Auto') {
+        Write-Host "[INFO] Generating HTML checklist..." -ForegroundColor Cyan
+    }
+    $checklistPath = Export-HtmlChecklist `
+        -ProfileName      $ProfileName `
+        -ProfilePath      $ProfilePath `
+        -DefinedModules   $DefinedModules `
+        -ExecutionResults $script:ExecutionResults `
+        -ElapsedTime      $ElapsedTime
+
+    # Step 3: Retain profile info for [cl] regeneration on the same session
+    $global:FabriqLastProfileName    = $ProfileName
+    $global:FabriqLastProfilePath    = $ProfilePath
+    $global:FabriqLastProfileModules = $DefinedModules
+
+    # Step 4 (Manual only): viewer BEFORE upload, preserving [cl] behavior
+    if ($Mode -eq 'Manual' -and -not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+        $viewerScript = ".\kernel\ps1\view_report.ps1"
+        if (Test-Path $viewerScript) {
+            try { & $viewerScript -HtmlPath $checklistPath } catch { }
+        }
+    }
+
+    # Step 5: Log uploader (only when log_destinations.csv has enabled rows)
+    $logUploaderScript = ".\modules\extended\log_uploader\log_uploader.ps1"
+    if (Test-Path $logUploaderScript) {
+        $destConfig = ".\kernel\csv\log_destinations.csv"
+        $hasDestinations = $false
+        if (Test-Path $destConfig) {
+            try {
+                $dests = @(Import-Csv -Path $destConfig -Encoding Default | Where-Object { $_.Enabled -eq "1" })
+                $hasDestinations = ($dests.Count -gt 0)
+            }
+            catch { }
+        }
+
+        if ($hasDestinations) {
+            if ($Mode -eq 'Auto') {
+                Write-Host ""
+                Write-Host "[INFO] Auto-uploading logs and evidence..." -ForegroundColor Cyan
+                try {
+                    $null = & $logUploaderScript
+                }
+                catch {
+                    Show-Warning "Log upload failed: $($_.Exception.Message)"
+                }
+            }
+            else {
+                Show-Info "Uploading updated evidence..."
+                $uploadResult = & $logUploaderScript
+                if ($null -ne $uploadResult -and $uploadResult._IsModuleResult) {
+                    Add-ExecutionResult -Operation "Log Upload (cl)" -Status $uploadResult.Status -Message $uploadResult.Message
+                    $null = Write-ExecutionHistory -ModuleName "Log Upload (cl)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message
+                }
+            }
+        }
+    }
+
+    # Step 6 (Auto only): viewer AFTER upload, preserving Linear finalize behavior
+    if ($Mode -eq 'Auto' -and -not [string]::IsNullOrEmpty($checklistPath) -and (Test-Path $checklistPath)) {
+        Write-Host ""
+        Write-Host "[INFO] Opening HTML checklist viewer..." -ForegroundColor Cyan
+        $viewerScript = ".\kernel\ps1\view_report.ps1"
+        if (Test-Path $viewerScript) {
+            try {
+                & $viewerScript -HtmlPath $checklistPath
+            }
+            catch {
+                Show-Warning "Failed to open report viewer: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    return $checklistPath
+}
+
 function Clear-AllLogs {
     Write-Host ""
     Show-Separator
@@ -2441,7 +2592,17 @@ function Save-ResumeState {
         [string]$ProfileName,
         [int]$ResumeAfterOrder,
         [array]$CompletedModules,
-        [datetime]$ProfileStartTime = (Get-Date)
+        [datetime]$ProfileStartTime = (Get-Date),
+        # ----- v2 schema fields (FrexProfile) -----
+        # Set ExecutionMode='Frex' (and optionally pass SelectedOrders /
+        # ModuleStates) to emit schemaVersion=2 with Frex-specific fields.
+        # Linear callers omit these and the output is byte-for-byte
+        # compatible with pre-P4 v1 format (no schemaVersion field).
+        # The reading path (Load-ResumeState) is unchanged in P4 — Frex
+        # resume detection lands in P6.
+        [ValidateSet('Linear','Frex')][string]$ExecutionMode = 'Linear',
+        [int[]]$SelectedOrders = @(),
+        [hashtable]$ModuleStates = @{}
     )
 
     # Snapshot all host environment variables
@@ -2492,6 +2653,17 @@ function Save-ResumeState {
         }
     }
 
+    # v2 schema additions: only emit when caller declared Frex mode.
+    # When ExecutionMode='Linear' (default) the output is byte-for-byte
+    # compatible with pre-P4 v1 format (no schemaVersion / ExecutionMode
+    # / SelectedOrders / ModuleStates fields are written).
+    if ($ExecutionMode -eq 'Frex') {
+        $state['schemaVersion']  = 2
+        $state['ExecutionMode']  = 'Frex'
+        $state['SelectedOrders'] = @($SelectedOrders)
+        $state['ModuleStates']   = $ModuleStates
+    }
+
     $state | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResumeStatePath -Encoding UTF8 -Force
 }
 
@@ -2539,6 +2711,7 @@ function Reset-FabriqState {
     # 2. Execution Results & Session ID
     # ----------------------------------------
     $script:ExecutionResults = @()
+    $script:LastBatchResults = @()
     $script:SessionID        = Get-Date -Format "yyyyMMdd_HHmmss"
 
     # ----------------------------------------
@@ -2836,7 +3009,14 @@ function Load-Profiles {
 function Resolve-ProfileModules {
     param(
         [string]$ProfileCsvPath,
-        [array]$AllModules
+        [array]$AllModules,
+        # When set, returns rows with Enabled=0 too, each tagged with
+        # _IsCheckedDefault reflecting the original CSV Enabled value.
+        # __AUTOPILOT__ / __ASYNC__ markers still require Enabled=1 to
+        # take effect, so disabled marker rows do not flip global state.
+        # Consumed by FrexProfile to populate the dashboard with all
+        # rows while preserving CSV-driven default checkbox state.
+        [switch]$IncludeDisabled
     )
 
     $validModules = @()
@@ -2861,19 +3041,26 @@ function Resolve-ProfileModules {
         }
     }
 
-    # Filter enabled, sort by Order
-    $enabledEntries = @($entries | Where-Object { $_.Enabled -eq "1" })
-    $sortedEntries = @($enabledEntries | Sort-Object { [int]$_.Order })
+    # Filter enabled (unless -IncludeDisabled), sort by Order
+    if ($IncludeDisabled) {
+        $sortedEntries = @($entries | Sort-Object { [int]$_.Order })
+    } else {
+        $sortedEntries = @($entries | Where-Object { $_.Enabled -eq "1" } | Sort-Object { [int]$_.Order })
+    }
 
     foreach ($entry in $sortedEntries) {
         $path = $entry.ScriptPath.Trim().Replace("/", "\")
         if ([string]::IsNullOrEmpty($path)) { continue }
 
-        # AutoPilot metadata (extracted, not added to module list)
+        # AutoPilot metadata (extracted, not added to module list).
+        # Effect requires Enabled=1 even under -IncludeDisabled, so a
+        # disabled marker row never flips global AutoPilot state.
         if ($path -eq '__AUTOPILOT__') {
-            $autoPilot = $true
-            if ($entry.Description -match 'WaitSec=(\d+)') {
-                $autoPilotWaitSec = [int]$Matches[1]
+            if ($entry.Enabled -eq "1") {
+                $autoPilot = $true
+                if ($entry.Description -match 'WaitSec=(\d+)') {
+                    $autoPilotWaitSec = [int]$Matches[1]
+                }
             }
             continue
         }
@@ -2881,12 +3068,15 @@ function Resolve-ProfileModules {
         # Async mode: subsequent modules run in a child runspace so they
         # can be skipped via flag file or cut off on timeout. The marker
         # itself is not added to the module list.
+        # Effect requires Enabled=1 even under -IncludeDisabled.
         if ($path -eq '__ASYNC__') {
-            if ($asyncEnabledGlobally) {
-                $asyncMode = $true
-            }
-            else {
-                Show-Info "__ASYNC__ marker ignored (async disabled in async_config.json)"
+            if ($entry.Enabled -eq "1") {
+                if ($asyncEnabledGlobally) {
+                    $asyncMode = $true
+                }
+                else {
+                    Show-Info "__ASYNC__ marker ignored (async disabled in async_config.json)"
+                }
             }
             continue
         }
@@ -2900,6 +3090,9 @@ function Resolve-ProfileModules {
                 $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
                 $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonUser" -NotePropertyValue $autoLogonUser
                 $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
+                if ($IncludeDisabled) {
+                    $moduleWithOrder | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
+                }
                 $moduleWithOrder.MenuName = "[AUTO:$autoLogonUser] $($autoLogonModule.MenuName)"
                 $validModules += $moduleWithOrder
             }
@@ -2925,6 +3118,9 @@ function Resolve-ProfileModules {
                 Order        = [int]$entry.Order
             }
             $obj | Add-Member -NotePropertyName $marker.Flag -NotePropertyValue $true
+            if ($IncludeDisabled) {
+                $obj | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
+            }
             $validModules += $obj
             continue
         }
@@ -2948,6 +3144,12 @@ function Resolve-ProfileModules {
 
             # Async dispatch flag (sticky after __ASYNC__ marker until end of profile)
             $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
+
+            # Default checkbox state for FrexProfile (only when -IncludeDisabled).
+            # Reflects the CSV's original Enabled value at load time.
+            if ($IncludeDisabled) {
+                $moduleWithOrder | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
+            }
 
             $validModules += $moduleWithOrder
         }
