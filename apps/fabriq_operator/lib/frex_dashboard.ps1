@@ -340,10 +340,18 @@ function Show-FrexDashboard {
         $issueCount = 0
         foreach ($row in $grid.Rows) {
             $isChecked = [bool]$row.Cells['Checked'].Value
-            if (-not $isChecked) { continue }
-            $checkedCount++
+            if ($isChecked) { $checkedCount++ }
             $st = "$($row.Cells['Status'].Value)"
-            if ($st -in @('Error', 'Partial', 'Pending')) {
+            # Errors and Partials are facts about an actual execution
+            # outcome — count regardless of check state (operator cannot
+            # mask a real failure by simply unchecking the row).
+            # Pending is intent-based: count only when the row is checked
+            # (operator has declared "I plan to run this but haven't yet").
+            # Success / Skipped / Cancelled are not flagged.
+            if ($st -eq 'Error' -or $st -eq 'Partial') {
+                $issueCount++
+            }
+            elseif ($st -eq 'Pending' -and $isChecked) {
                 $issueCount++
             }
         }
@@ -467,18 +475,27 @@ function Show-FrexDashboard {
             }
         }
 
-        # Soft warning when issues remain (Error / Partial / Pending among checked)
+        # Soft warning when issues remain. Same rule as $updateCounters:
+        # Error / Partial = always flagged (real execution outcomes);
+        # Pending = flagged only when checked (operator's declared intent).
         $issueRows = @()
         foreach ($row in $grid.Rows) {
-            if (-not [bool]$row.Cells['Checked'].Value) { continue }
+            $isChecked = [bool]$row.Cells['Checked'].Value
             $st = "$($row.Cells['Status'].Value)"
-            if ($st -in @('Error', 'Partial', 'Pending')) {
+            $isIssue = $false
+            if ($st -eq 'Error' -or $st -eq 'Partial') {
+                $isIssue = $true
+            }
+            elseif ($st -eq 'Pending' -and $isChecked) {
+                $isIssue = $true
+            }
+            if ($isIssue) {
                 $issueRows += "  Order $($row.Tag.Order): $($row.Tag.MenuName) [$st]"
             }
         }
 
         if ($issueRows.Count -gt 0) {
-            $msg = "The following checked rows have unresolved status:`n`n" + ($issueRows -join "`n") + "`n`nMark this profile complete and export evidence?"
+            $msg = "The following rows have unresolved status:`n`n" + ($issueRows -join "`n") + "`n`nMark this profile complete and export evidence?"
             $dlg = [System.Windows.Forms.MessageBox]::Show(
                 $msg,
                 "FrexProfile - Complete with issues",
