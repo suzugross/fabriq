@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `3.1.2`（`kernel/KERNEL_VERSION` を真のソースとする）
+**Current Kernel Version**: `3.1.3`（`kernel/KERNEL_VERSION` を真のソースとする）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
