@@ -15,6 +15,28 @@
 
 ## [Unreleased]
 
+## [3.1.7] - 2026-05-02
+
+### Fixed
+- apps/fabriq_operator/lib/frex_dashboard.ps1 + kernel/common.ps1
+  (Export-HtmlChecklist): 同じ MenuName を持つ Profile 行が複数
+  ある場合（例: `_test_harness.csv` の Order 80 と Order 110 が
+  両方 `[seg:error_basic]`）、片方だけ実行すると未実行側にも
+  実行側のステータスがミラーされる残バグを修正。
+  3.1.3 で `Order` 列を一級識別子として導入したが、Order 一致
+  ヒットが無いときの **MenuName fallback が候補の Order を見ず
+  に flat に照合**していた。結果、未実行 row が兄弟 row の
+  実行結果を流用してしまう状態だった。
+  修正: state map / HTML checklist の MenuName fallback を
+  STRICT 化。候補エントリの Order が
+    (a) 0 = legacy / 非 Profile → 採用（旧 history.csv との互換）
+    (b) row の Order と一致 → 採用（防御的）
+    (c) 別の非ゼロ Order → **不採用**（兄弟 row のエントリと
+        判断、自分は Pending のまま維持）
+  これにより同名 MenuName の複数 row が真に独立した状態を
+  持てる。Order 列を持たない旧 history.csv との互換性は維持。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.6] - 2026-05-02
 
 ### Fixed
