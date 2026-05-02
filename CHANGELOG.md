@@ -15,6 +15,35 @@
 
 ## [Unreleased]
 
+## [3.1.8] - 2026-05-02
+
+### Changed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: 単発実行 UI を
+  per-row `[Run]` ボタンに移行。各 module 行に `DataGridViewButtonColumn`
+  で `[Run]` ボタンを配置し、クリックで該当 row の `RunSingle`
+  action を即時 dispatch。footer の `[Run This: M]` ボタンを撤去
+  （per-row 化により冗長）。
+    - Grid 末尾に `RunBtn` 列追加（W=56、`UseColumnTextForButtonValue`）
+    - `CellContentClick` ハンドラで列名 `RunBtn` の場合のみ
+      `result.Action = "RunSingle"` をセットして form.Close()
+    - 同 row の checkbox 列クリックは既存 `CellValueChanged` /
+      `CurrentCellDirtyStateChanged` で処理されるため干渉なし
+    - `[Run This: M]` ボタン関連コード（btnRunThis 宣言・Click
+      ハンドラ・updateRunThisLabel scriptblock・SelectionChanged
+      ハンドラ・初期同期呼び出し）を完全撤去
+    - footer Row 1 のレイアウト調整: `[Run Selected (N)]` を
+      W=160 → W=340 に拡張して空きを埋め、Row 2 の `[Complete]`
+      (W=340) と視覚的に整合
+- 内部挙動の互換性: per-row Run も legacy `[Run This]` も同じ
+  `RunSingle` action を `Invoke-FrexProfileLoop` に渡す → 同じ
+  `Invoke-BatchExecution` 呼び出しに帰着。AutoConfirmMode、
+  per-Order tracking、PendingFinalize 状態管理など下層ロジックは
+  全て unchanged。UI 層の入れ替えのみ。
+- マーカー行（[RESTART] / [REEXPLORER]）も同様に per-row `[Run]`
+  ボタンが押せる（Profile-internal RESTART を ad-hoc 実行する操作が
+  直感的に）。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.7] - 2026-05-02
 
 ### Fixed
