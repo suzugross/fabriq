@@ -1,0 +1,142 @@
+■ 概要
+Pianist は、業務アプリ等の GUI 操作が必須な設定作業を、Profile 単位で
+実行する Extended モジュールです。autokey_template の進化版で、
+FrexProfile / Linear 両方のプロファイル経由での実行と、Script Menu
+からの単発実行に対応します。
+
+v0.2.x の app 版は廃止され、本モジュールに統合されました。Profile の
+作成・編集は Fabriq Studio 側に一任しています。
+
+■ UI ポリシー
+すべての操作はマウスクリックで行います。キーボードショートカットは
+持たせていません。理由は:
+  - キーボードは SendKeys でターゲットアプリへ送る専用チャネル
+  - Run 中の race / 迷子キー事故防止
+
+■ 実行経路
+1. Profile CSV 経由 (推奨)
+   profiles/*.csv の行に
+     extended/pianist/pianist.ps1, Segment=<segment_name>
+   を指定すると、kernel が pianist_list.csv を Segment フィルタで
+   絞り込み、対応する 1 profile を直接 GUI に流し込んで実行する。
+
+2. Script Menu からの単発実行
+   ダッシュボード > [Execute Module] > ManualWorks > Pianist
+   pianist_list.csv の Enabled=1 全行が候補としてプルダウンに
+   並び、operator が選択して実行する。
+
+■ pianist_list.csv の列
+  Enabled      : 実行候補に含めるか (1/0)
+  ProfileName  : profiles/ 配下のフォルダ名 (1 ProfileName = 1 phase 構造)
+  Group        : 表示用グループ名 (Sample / Production など、自由記述)
+  Description  : 候補一覧での説明文
+  Segment      : Profile CSV 経由で指定する segment 名 (Import-ModuleCsv が
+                 自動フィルタする)
+
+■ Profile 構造
+modules/extended/pianist/profiles/<profile_name>/
+  pianist.json       : メタデータ (label / description / target_app / default_phase)
+  procedure.csv      : 操作手続 (Phase x Step マトリクス)
+  values.csv         : 設定値プール ($VarName で procedure から参照)
+  shortcuts.csv      : 起動先ショートカット集 (v1.0 では参照のみ、UI 側未実装)
+  instructions/      : Phase 手順テキスト & 参照画像
+    <PhaseID>.txt    : 手順説明 (plain text、画面に表示)
+  screenshots/       : procedure.csv の Screenshot Step 用エビデンス置き場
+
+■ procedure.csv の列
+  PhaseID     : 同 ID の行群が 1 Phase に集約される (例: P01, P02...)
+  PhaseLabel  : Phase ヘッダーバーに表示するラベル
+  Color       : Phase ヘッダーの色
+                Blue / Green / Yellow / Orange / Red / Purple / Cyan / Pink / Gray
+  StepNo      : Phase 内の通番 (昇順実行)
+  Action      : アクション種別 (後述)
+  Value       : アクション引数 ($VarName で values.csv の値に展開)
+  Wait        : Step 完了後の追加待機 (ms)。WaitWin では timeout
+  Note        : Step preview とログに表示するメモ
+  Screenshot  : screenshots/ 配下の参照画像ファイル名 (任意)
+
+■ アクション 10 種
+  Open         : URL / exe / ms-settings: などを既定で起動
+  WaitWin      : ウィンドウタイトル <Value> を含むものが現れるまで待機
+  AppFocus     : ウィンドウタイトル <Value> にフォーカス (必須パターン)
+  Type         : SendKeys でテキスト送信 ($VarName 展開)
+  Key          : SendKeys で特殊キー送信 ({ENTER}, {TAB}, ^v, %{F4})
+  Wait         : 指定 ms 待機
+  Copy         : 値をクリップボードへ
+  Paste        : 値をクリップボードへ -> Ctrl+V
+  Screenshot   : 画面キャプチャを fabriq evidence へ保存
+  Prompt       : MessageBox で operator 介入待ち
+
+■ Phase 設計ルール
+operator が Phase ボタンをクリックした瞬間、フォーカスは Pianist に
+移ります。そのため、既存ウィンドウを操作する Phase は必ず Step 1 に
+AppFocus を置いてください。
+  例:
+    P02,...,1,AppFocus,Notepad,...
+    P02,...,2,Type,...
+  例外:
+    - 新規ウィンドウを Open で起こす Phase は AppFocus 不要
+    - WaitWin は内部で SetForegroundWindow を呼ぶので兼ねる
+
+■ 実行モデル (operator 視点)
+  1. ダッシュボード or Profile CSV から起動
+  2. (候補が複数なら) プロファイル選択ダイアログでひとつ選ぶ
+  3. fabriq の確認ダイアログで [Y] を押して GUI を開く
+  4. 左右の <, > ボタンで Phase を行き来する
+  5. 各 Phase 画面で:
+     - [Run Phase]    : Phase の全 Step を順次実行
+     - [Screenshot]   : 手動でエビデンスを取得
+     - [Phase Status] : OK / Warning / Error / Skip + Note を記録
+  6. 最後の Phase で > が "Done" ボタンに変化
+  7. Done を押すと kernel に ModuleResult を返却
+     -> 通常モジュールと同じく実行履歴 / HTML チェックリスト /
+        evidence summary に並ぶ
+
+■ 二軸のステータス
+各 Phase は 2 軸の独立した状態を持ちます:
+  Auto   : Run Phase の自動実行結果
+           NotRun / Running / Success / Partial / Error
+  Manual : operator 判定
+           Unset / OK / Warning / Error / Skip
+
+両方を Phase 画面下部にバッジ表示。
+
+■ 集計ロジック (Module 終了時)
+  Manual 内訳に基づき集計:
+    Error >= 1                                -> Status=Error,    Verified=$false
+    Warning >= 1 or Unset >= 1                -> Status=Partial,  Verified=$null
+    全て OK / Skip                             -> Status=Success,  Verified=$true
+  Cancel された場合 (X ボタン or キャンセル確認):
+    Status=Cancelled
+
+  ModuleResult を return すると kernel が:
+    - Write-ExecutionHistory で logs/history/execution_history.csv に追記
+    - SessionID / WorkerName / KanriNo / PCName を自動補完
+    - Capture-ScreenEvidence で前後スクショ取得
+    - エラー時は Invoke-SafeCommand で try/catch + ERROR 履歴
+
+■ ベストプラクティス
+  - Phase 最初の Step は AppFocus (規約必須)
+  - 日本語や記号を Type すると IME に弱いので Paste を優先
+  - ウィンドウ待機は WaitWin で行い、Wait の固定スリープに依存しない
+  - 機密値は Studio で ENC: 暗号化して values.csv に
+  - instructions/<PhaseID>.txt に operator が読む手順を記述
+  - 重要な分岐点で Prompt アクションを置き、operator に目視確認させる
+
+■ 制限・既知事項 (v1.0.0)
+  - UIA / AutomationId 操作は非対応 (将来検討)
+  - 録画機能なし
+  - IF / LOOP 等の制御構文なし。線形シーケンスのみ
+  - Mouse 系アクションなし (座標クリックは冪等性なしのため非採用)
+  - 並列実行不可 (1 Phase 実行中は他全ボタン disable)
+  - Phase 状態は session-only (Pianist 終了でリセット、永続化なし)
+  - Tools (Values の ad-hoc Copy/Type, Shortcuts ランチャ) は v1.0 で非搭載。
+    必要なら values.csv を Studio で開いて手動コピー、ショートカットは
+    System Launcher 等で代替。
+
+■ デバッグのコツ
+  - 下部 Log に各 Step の実行結果が時系列で出る
+  - Phase ヘッダーの色 / Steps preview / Auto バッジで動作確認
+  - WaitWin / AppFocus が見つからない場合: ウィンドウタイトルが日本語
+    Windows と英語 Windows で異なる可能性。Studio 側で profile 編集時に
+    実環境のタイトル文字列に合わせること

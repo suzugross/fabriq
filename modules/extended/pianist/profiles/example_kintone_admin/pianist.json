@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "label": "Kintone Admin Setup (sample)",
+  "description": "Sample profile demonstrating Pianist features. Replace with your own target-app workflow.",
+  "target_app": "Kintone admin console (web)",
+  "default_phase": "P01",
+  "version": "0.1.0"
+}

@@ -1,0 +1,6 @@
+﻿Key,Value,Encrypted,Note
+TenantUrl,https://example.cybozu.com/admin,0,管理コンソールURL
+TenantName,Example Tenant,0,目視確認用テナント名
+AdminUser,admin01,0,管理者ID
+AdminPass,changeme-initial,0,初期パスワード（実運用では Encrypted=1 + ENC: で保存）
+NewPass,Set-Strong-Password-Here,0,新パスワード（実運用では Encrypted=1 + ENC: で保存）
