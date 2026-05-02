@@ -1,4 +1,4 @@
-# Fabriq ver3.1
+# Fabriq ver3.2
 
 **Manifeste du Surkitinisme**
 

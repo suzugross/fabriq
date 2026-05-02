@@ -15,6 +15,54 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-05-02
+
+### Added
+- kernel/KERNEL_API.md §4.1: Profile CSV スキーマに **任意列 `Group`**
+  を追加（後方互換、列順末尾追加）。同一 `Group` 値の行群を
+  FrexProfile dashboard の Groups バー上の `[Run: <Group>]` ボタンで
+  1 クリック実行できる。空文字列 / 列欠落は「グループ無所属」を
+  意味し、ボタン化されない。
+- apps/fabriq_operator/lib/frex_dashboard.ps1: ヘッダー直下に
+  **Groups バー**を新設。Profile に少なくとも 1 行 `Group` 値が
+  ある場合のみ render（無ければ layout shift 無し）。各 Group ごとに
+  `[Run: <Group>]` ボタンを配置（青アクセント色、太字）。クリックで
+  当該 Group のモジュール群を即時 batch 実行（`RunGroup` action 経由）。
+- kernel/main.ps1: `Invoke-FrexProfileLoop` に新 case `"RunGroup"`
+  追加。`RunBatch` と同じ `Invoke-BatchExecution` パイプラインを
+  共有（`-AutoPilot:$true` `-FinalizeOnComplete:$false`
+  `-ExecutionMode 'Frex'`）、`SelectedOrders` の source が group
+  filter になるだけ。完走後 `$pendingFinalize=$true` 設定。
+- kernel/common.ps1: `Resolve-ProfileModules` が `Group` 列を読んで
+  module オブジェクトに `_Group` プロパティを付与。3 か所
+  （`__AUTO_to_<User>__` / 特殊マーカー / 通常モジュール）すべてに
+  対応。Linear 経路は `_Group` を参照しないため挙動完全互換。
+
+### Changed
+- kernel/KERNEL_VERSION : 3.1.9 → **3.2.0**（**MINOR** bump、Profile CSV
+  スキーマへの後方互換な任意列追加）。版表記同期: README.md L1
+  `ver3.1` → `ver3.2`、kernel/common.ps1 L2 `v3.1.9` → `v3.2.0`、
+  kernel/main.ps1 L3 `ver3.1` → `ver3.2`。
+- kernel/KERNEL_API.md §8 に `### 3.2.0` エントリ追加（Group 列の
+  契約、literal interpretation 仕様、Linear 不参照を明記）。
+
+### Notes (literal-Group contract)
+- Group 内に `__RESTART__` を含めることは可（reboot → resume →
+  group の残りモジュールのみ実行）。
+- Group 跨ぎの `__RESTART__`（Group 値が空 or 異なる）は当該 Group
+  実行時に **skip** される。Operator が RESTART を group 実行に
+  含めたい場合は明示的に Group 値を打つ必要がある。
+
+### Existing flow compatibility
+- Linear `[Execute Profile]` : 完全不変
+- Frex `[Run Selected]` : 完全不変
+- Frex 行ごと `[Run]` : 完全不変
+- AutoPilot resume after `__RESTART__` : `SelectedOrders` 機構を共有、
+  group 実行中に RESTART が発火しても resume は group の残り orders
+  のみ自動継続
+- 旧 fabriq が新 Profile CSV を読む : `Group` 列は header-driven
+  Import-Csv で無視される（旧挙動維持）
+
 ## [3.1.9] - 2026-05-02
 
 ### Changed
