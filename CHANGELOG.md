@@ -15,6 +15,18 @@
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-05-02
+
+### Changed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Group 列の薄水色塗り
+  （3.2.1 で導入）を撤去。Operator から「他の無着色列との対比で
+  悪目立ちして気になる」フィードバックを受けての調整。Group 列は
+  既定スタイル（無着色、太字でない）に戻し、ヘッダー "Group" +
+  セル内のテキスト表示だけで identification を成立させる方針に。
+  Status / Verified の badge 色だけが視覚アクセントとして残るので、
+  全体の色数が減って情報の優先順位が明確化される副次効果も。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.2.1] - 2026-05-02
 
 ### Fixed
