@@ -85,7 +85,29 @@ function Show-FrexDashboard {
                 $found = $byOrder[$rOrder]
             }
             elseif ($byMenu.ContainsKey($r.MenuName)) {
-                $found = $byMenu[$r.MenuName]
+                # MenuName fallback is intentionally STRICT to handle the
+                # case of two Profile rows sharing the same MenuName
+                # (e.g., same module + same segment at Orders 80 and 110).
+                # Without this strictness, an executed sibling row's
+                # entry would leak into an unexecuted row's state.
+                # Accept the candidate only when:
+                #   (a) candidate has Order=0 (legacy CSV without Order
+                #       column, or non-Profile entries like [RESTART NOW]),
+                #       which cannot have a sibling-row identity, OR
+                #   (b) candidate's Order matches the row's Order
+                #       (defensive — should normally be caught by byOrder).
+                $candidate = $byMenu[$r.MenuName]
+                $candOrder = 0
+                $candHasOrder = $candidate.PSObject.Properties.Name -contains 'Order' -and -not [string]::IsNullOrWhiteSpace($candidate.Order)
+                if ($candHasOrder) {
+                    try { $candOrder = [int]$candidate.Order } catch { $candOrder = 0 }
+                }
+                if ($candOrder -eq 0 -or $candOrder -eq $rOrder) {
+                    $found = $candidate
+                }
+                # Otherwise: candidate belongs to a sibling Profile row
+                # (different non-zero Order, same MenuName) — leave this
+                # row Pending so its state is genuinely "not yet run".
             }
             if ($null -ne $found) {
                 $verified = if ($found.Verified -eq 'True') { $true }

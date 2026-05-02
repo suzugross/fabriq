@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.1.6
+# Easy Kitting Batch - Common Function Library v3.1.7
 # ========================================
 
 # ========================================
@@ -2005,7 +2005,10 @@ function Export-HtmlChecklist {
         # Match prefers Order (per-row precision; supports multiple
         # Profile rows sharing the same MenuName). Falls back to
         # MenuName for legacy entries that lack Order (pre-3.1.3
-        # history.csv rows).
+        # history.csv rows). The fallback is STRICT: only entries
+        # with Order=0 (legacy / non-Profile) or matching Order are
+        # accepted, so an executed sibling row sharing the same
+        # MenuName does not leak its status into this row's display.
         $result = $null
         $moduleOrder = if ($null -ne $module.Order) { [int]$module.Order } else { 0 }
         if ($moduleOrder -gt 0) {
@@ -2014,7 +2017,12 @@ function Export-HtmlChecklist {
             } | Select-Object -Last 1
         }
         if ($null -eq $result) {
-            $result = $currentResults | Where-Object { $_.Operation -eq $module.MenuName } | Select-Object -Last 1
+            $result = $currentResults | Where-Object {
+                if ($_.Operation -ne $module.MenuName) { return $false }
+                # Accept legacy entry (Order=0/null) or matching-Order entry only.
+                $candOrder = if ($null -ne $_.Order) { [int]$_.Order } else { 0 }
+                return ($candOrder -eq 0 -or $candOrder -eq $moduleOrder)
+            } | Select-Object -Last 1
         }
 
         $statusLabel = "Not Run"
