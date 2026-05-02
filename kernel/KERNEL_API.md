@@ -204,27 +204,6 @@ formal SemVer の出発点。以下すべて利用可能:
   - 残存特殊マーカー: `__AUTOPILOT__` / `__ASYNC__` / `__RESTART__` / `__REEXPLORER__` / `__AUTO_to_<User>__` の 5 種
 - §6 内部 API 一覧から `Invoke-CountdownShutdown` を削除（`__SHUTDOWN__` 削除に伴うデッドコード除去）
 
-### 3.2.0
-
-- **§4.1 Profile CSV スキーマに任意列 `Group` 追加（後方互換 / MINOR）**
-  - 同一 `Group` 値の行群を FrexProfile dashboard の Groups バー上の
-    `[Run: <Group>]` ボタンで一括実行できる。実行は AutoPilot 挙動 +
-    `-FinalizeOnComplete:$false`（既存 Frex ルール踏襲、完了フェーズは
-    operator が `[Complete]` で手動）
-  - 列は **末尾追加**（CSV ツールの列順依存リスクを最小化）。空文字列
-    または列自体の欠落は「グループ無所属」を意味する
-  - Linear `[Execute Profile]` は本列を参照しない（旧来挙動維持、
-    Linear から見れば `_Group` 属性が module オブジェクトに増えるだけで
-    無害）
-  - Group 内に `__RESTART__` を含めることは可。Group 跨ぎ間の
-    `__RESTART__`（Group 値が異なる）は当該 Group 実行時には skip
-    される（**literal interpretation**：Group 列が batch を厳密に
-    決定する契約）。Operator が RESTART を含めたい場合は明示的に
-    Group 値を打つ
-- §6 内部実装に Invoke-FrexProfileLoop の "RunGroup" action / Show-
-  FrexDashboard の Groups バー UI / `_Group` モジュール属性を追加
-  （いずれもモジュール側からは不可視）
-
 ### 3.1.0
 
 - **§2 公開グローバル変数に `$global:AutoConfirmMode` 追加**
@@ -249,6 +228,27 @@ formal SemVer の出発点。以下すべて利用可能:
   - `Invoke-FrexProfileLoop` ヘルパーで FrexProfile sub-loop を一元化
     （main loop "FrexProfile" action と Frex resume bootstrap の単一の
     真実の源）
+
+### 3.2.0
+
+- **§4.1 Profile CSV スキーマに任意列 `Group` 追加（後方互換 / MINOR）**
+  - 同一 `Group` 値の行群を FrexProfile dashboard の Groups バー上の
+    `[Run: <Group>]` ボタンで一括実行できる。実行は AutoPilot 挙動 +
+    `-FinalizeOnComplete:$false`（既存 Frex ルール踏襲、完了フェーズは
+    operator が `[Complete]` で手動）
+  - 列は **末尾追加**（CSV ツールの列順依存リスクを最小化）。空文字列
+    または列自体の欠落は「グループ無所属」を意味する
+  - Linear `[Execute Profile]` は本列を参照しない（旧来挙動維持、
+    Linear から見れば `_Group` 属性が module オブジェクトに増えるだけで
+    無害）
+  - Group 内に `__RESTART__` を含めることは可。Group 跨ぎ間の
+    `__RESTART__`（Group 値が異なる）は当該 Group 実行時には skip
+    される（**literal interpretation**：Group 列が batch を厳密に
+    決定する契約）。Operator が RESTART を含めたい場合は明示的に
+    Group 値を打つ
+- §6 内部実装に Invoke-FrexProfileLoop の "RunGroup" action / Show-
+  FrexDashboard の Groups バー UI / `_Group` モジュール属性を追加
+  （いずれもモジュール側からは不可視）
 
 ### 判定ルール
 

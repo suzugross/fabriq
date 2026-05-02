@@ -27,7 +27,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 57 種、Extended 14 種、計 71 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
+| **モジュールシステム** | Standard 60 種、Extended 14 種、計 74 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は完全自動化 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -48,20 +48,25 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 ```
 fabriq/
 ├── Fabriq.exe              # エントリーポイント（管理者自動昇格、GUI 起動）
+├── Fabriq_IOS.exe          # fabriq_ios サブプロジェクト用ランチャ（独立 SemVer）
 ├── Deploy.bat              # USB から対象 PC へのデプロイツール
 ├── kernel/
 │   ├── main.ps1            # メインスクリプト（Fabriq.exe から呼び出し）
 │   ├── common.ps1          # 共通関数ライブラリ（90+ 関数）
+│   ├── KERNEL_VERSION      # カーネル API SemVer（真のソース）
+│   ├── KERNEL_API.md       # 公開 API サーフェスの明文化
+│   ├── EVIDENCE_MANIFEST.md # evidence manifest 公開契約（外部 consumer 向け）
 │   ├── csv/                # マスタ CSV（categories, hostlist, workers, log_destinations, manifesto）
-│   ├── json/               # ランタイム状態（session, status, resume_state, art_pulse）
+│   ├── json/               # ランタイム状態（session, status, resume_state, art_pulse, async_config）
 │   ├── ps1/                # カーネルサブスクリプト（manifesto, status_monitor, view_report, art_display）
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
-│   ├── standard/           # 標準モジュール群（57）
+│   ├── standard/           # 標準モジュール群（60）
 │   └── extended/           # 拡張モジュール群（14）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
 │   ├── fabriq_operator/    # メインダッシュボード GUI
+│   ├── fabriq_ios/         # Cisco IOS 風シェル（芸術部門サブプロジェクト）
 │   ├── csv_editor/         # CSV 編集 GUI
 │   ├── system_launcher/    # OS 機能ランチャ
 │   ├── bloatware_exporter/ # インストール済みアプリ一覧エクスポート
@@ -72,7 +77,15 @@ fabriq/
 ├── commands/               # ユーティリティコマンド（diag_crypto, get_evidence, gpupdate 等）
 ├── evidence/               # エビデンス（スクリーンショット + HTML チェックリスト）出力先
 ├── logs/                   # ログ出力先（Transcript + 実行履歴 CSV）
-└── dev/                    # 開発用（template, ico, launcher, cert_config_test, odt_config 等）
+└── dev/                    # 開発用ツールチェーン
+    ├── template/           # 新規モジュール用テンプレート（VERSION/REQUIRES_KERNEL 含む）
+    ├── launcher/           # Fabriq.exe / Fabriq_IOS.exe の C# ソース
+    ├── ico/                # ランチャーアイコン素材
+    ├── framework_overlay_rules.json  # 更新オーバーレイ契約（KERNEL_API.md §9）
+    ├── build_framework_patch.ps1     # フレームワーク更新パッチ生成
+    ├── seed_module_versions.ps1      # 全モジュール VERSION/REQUIRES_KERNEL の baseline seed（idempotent）
+    ├── check_version.ps1             # KERNEL_VERSION と版表記の整合チェック
+    └── verify_comments_only.ps1      # スクリプトコメント英語化検証
 ```
 
 ## クイックスタート
@@ -107,7 +120,8 @@ Fabriq Studio を起動し、ワークスペースとして Fabriq フォルダ�
 
 | ボタン | 動作 |
 |---|---|
-| **Execute Profile** | プロファイル CSV を選択して一括実行 |
+| **Execute Profile** | プロファイル CSV を選択して Linear モードで一括実行 |
+| **Execute (Frex)** | 選択中プロファイルを **FrexProfile** ダッシュボードで開く（状態追跡型・部分実行・後述） |
 | **View Details** | 選択中プロファイルの構成モジュールを事前確認 |
 | **Execute** | 個別モジュールをチェック選択して連続実行 |
 | **Open Folder**（Evidence） | エビデンス保存先をエクスプローラで開く |
@@ -129,22 +143,23 @@ Fabriq Studio を起動し、ワークスペースとして Fabriq フォルダ�
 **プロファイル CSV の書式:**
 
 ```csv
-Order,ScriptPath,Enabled,Description,Segment,ErrorMode
-10,__AUTOPILOT__,1,WaitSec=3,,
-20,standard/hostname_config/hostname_config.ps1,1,ホスト名設定,,
-30,standard/ipaddress_config/ipaddress_config.ps1,1,IP アドレス設定,,retry
-40,__RESTART__,1,再起動,,
-50,standard/reg_hklm_config/reg_hklm_config.ps1,1,レジストリ設定,,skip
+Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
+10,__AUTOPILOT__,1,WaitSec=3,,,
+20,standard/hostname_config/hostname_config.ps1,1,ホスト名設定,,,Network
+30,standard/ipaddress_config/ipaddress_config.ps1,1,IP アドレス設定,,retry,Network
+40,__RESTART__,1,再起動,,,
+50,standard/reg_hklm_config/reg_hklm_config.ps1,1,レジストリ設定,,skip,Tweaks
 ```
 
 | 列 | 説明 |
 |---|---|
-| `Order` | 実行順（整数、昇順） |
+| `Order` | 実行順（整数、昇順）。実行履歴の一級識別子 |
 | `ScriptPath` | `standard/<module>/<script>.ps1` 形式。区切りは `/` / `\` どちらも可 |
 | `Enabled` | `1`=実行 / `0`=スキップ |
 | `Description` | プロファイル UI 表示用コメント |
 | `Segment` | 同モジュールを設定値別に呼び分ける際のセグメント名（省略可。`_list.csv` 側の `Segment` 列と厳密マッチ） |
 | `ErrorMode` | AutoPilot 実行時のエラー処理ポリシー（省略=ダイアログ確認 / `skip`=自動スキップ / `retry`=最大 5 回自動リトライ） |
+| `Group` | 任意。FrexProfile ダッシュボードの **Groups バー**で `[Run: <Group>]` ボタンとして集約される名前。Linear `[Execute Profile]` は本列を参照しない（kernel 3.2.0 以降） |
 
 **特殊マーカー:**
 
@@ -156,16 +171,40 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode
 | `__REEXPLORER__` | Explorer を再起動（レジストリ変更の即時反映等） |
 | `__AUTO_to_<User>__` | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを呼び出す（例: `__AUTO_to_admin01__`） |
 
+> kernel 3.0.0 で旧マーカー `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` を破壊的に削除しました。これらを含む旧プロファイルは graceful degradation（"module not found" 警告として降格、他モジュールの実行は継続）で動作します。
+
+### FrexProfile（状態追跡型実行）
+
+**FrexProfile** は kernel 3.1.0 で導入された、プロファイルを **state-aware に部分実行**できる WinForms ダッシュボードです。Linear `Execute Profile` の「先頭から末尾まで一気通貫」モデルに対し、Frex は「現セッションで何が成功／失敗／未実行か」を実行履歴から復元してグリッド表示し、operator が任意の組み合わせで段階的に進める運用を可能にします。
+
+ダッシュボードの **Profiles** タブで対象プロファイルを選択し、`[Execute (Frex)]` ボタンで起動します。
+
+| 機能 | 動作 |
+|---|---|
+| **Status / Verified バッジ** | 各行が `Success` / `Partial` / `Error` / `Skipped` / `Pending` を背景色付きバッジで表示。`Verified` 列は Post-Apply Verification の `PASS` / `FAIL` を緑/赤で表示 |
+| **`[Run]`（行ごと）** | 各行末尾の `[Run]` ボタンで該当モジュール 1 件を即時単発実行（AutoConfirmMode で Y/N プロンプト・Press-Enter 待機をスキップ） |
+| **`[Run Selected (N)]`** | チェックボックスで選択した行を Order 昇順で一括実行（AutoPilot 挙動 + finalize は手動委譲） |
+| **`[Run: <Group>]`（Groups バー）** | プロファイル CSV の `Group` 列で集約された行群を 1 クリックで一括実行。Group 跨ぎの `__RESTART__` は当該 Group 実行時にスキップ（literal interpretation） |
+| **`[Select All]` / `[Clear All]`** | bulk-select。`[Select All]` は CSV `Enabled=1` 行のみチェック |
+| **`[Mark as Pending]`（行右クリック）** | 該当行の Status を Pending にリセット（再実行候補に戻す） |
+| **`[Restart Now]`** | プロファイル外から `__RESTART__` を発火。Frex resume 経由で再起動後に自動でダッシュボードへ復帰 |
+| **`[Complete]`** | finalize phase（HTML チェックリスト生成 + log_uploader）を手動発火。Error / Partial / Pending 行があれば黄色バッジで警告 |
+| **PENDING FINALIZE バッジ** | バッチ実行後 `[Complete]` 未押下のままダッシュボードを離脱しようとすると赤バッジ + 確認ダイアログで警告 |
+
+実行モデルは「**実行 = 常に AutoPilot 挙動 / 完了 = 常に手動**」（kernel 3.1.5 以降）に統一されています。AutoPilot トグルは無く、operator は「どのモジュールを動かすか」だけを意思決定します。完了処理（HTML 生成・log_uploader 発火）は `[Complete]` 押下まで保留されるため、operator が成果物を確認してから明示的に finalize する運用に最適化されています。
+
+Linear 経路（`Execute Profile`）も並走運用しており、従来の「先頭から最後まで自動」フローはそのまま使えます。FrexProfile が安定したのち Linear は撤去予定です。
+
 ## モジュール一覧
 
-### Standard モジュール（57）
+### Standard モジュール（60）
 
 | カテゴリ | モジュール |
 |---|---|
-| **Network** | `hostname_config`, `ipaddress_config`, `domain_join`, `ssid_config` |
+| **Network** | `hostname_config`, `ipaddress_config`, `temp_ipaddress_config`, `domain_join`, `ssid_config` |
 | **Display** | `brightness_config`, `dpi_api_config`, `resolution_api_config` |
 | **Desktop** | `wallpaper_config`, `taskbar_config`, `startlayout_config` |
-| **Security** | `bitlocker_config`, `firewall_config`, `cert_config`, `office_license_config`, `windows_license_config` |
+| **Security** | `bitlocker_config`, `firewall_config`, `firewall_rule_config`, `firewall_rule_make_config`, `cert_config`, `office_license_config`, `windows_license_config` |
 | **User Management** | `local_user_config`, `profile_delete` |
 | **Printer** | `printer_driver_config`, `printer_delete` |
 | **Applications** | `app_config`, `winget_install`, `bloatware_remove`, `bloatware_export`, `storeapp_config`, `odt_config`, `browser_addon_config`, `fabriq_app_launcher` |
