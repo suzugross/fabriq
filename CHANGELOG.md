@@ -15,6 +15,24 @@
 
 ## [Unreleased]
 
+## [3.1.6] - 2026-05-02
+
+### Fixed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: 初期状態（全 Pending /
+  全 unchecked）で `[Complete]` ボタンが緑表示になり、operator が
+  実行ゼロのまま finalize できる misleading な挙動を修正。
+  根本原因: 3.1.4 のルール "Pending は checked のみカウント" が、
+  「初期状態 = 全 unchecked = issue ゼロ = 緑 Complete」を許容して
+  しまっていた。`Select All` 直後は警告に切り替わるが、押さずに
+  Complete を押すと空の HTML チェックリストを finalize 可能だった。
+  修正: `$updateCounters` と `btnComplete.Add_Click` の両方に
+  `$hasExecuted` フラグ判定を追加（「Status が Pending 以外の行が
+  1 つでもあるか」）。`$issueCount=0` でも `$hasExecuted=$false` の
+  場合は黄色 "Complete (nothing executed)" を表示。確認ダイアログも
+  "No modules have been executed in this session yet." を冒頭に
+  含める。`$issueCount>0` と同時発生時は両方の警告を併記。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.5] - 2026-05-02
 
 ### Changed
