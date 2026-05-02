@@ -1,3 +1,2 @@
-﻿Key,Value,Encrypted,Note
-Message,これは fabriq Pianist サンプルから自動生成されたメモです。お疲れさまでした！,0,メモ本文
-SavePath,%USERPROFILE%\Desktop\fabriq_memo.txt,0,デスクトップ保存パス。Notepad の Save As が %USERPROFILE% を自動展開する
+﻿NewPCName,Message,SavePath
+*,これは fabriq Pianist サンプルから自動生成されたメモです。お疲れさまでした！,%USERPROFILE%\Desktop\fabriq_memo.txt

@@ -102,6 +102,28 @@
   operator にブロック理由を可視化。これで Phase スキップが事故で
   起きるのを防ぎ、毎 phase に operator 判定が確実に付く運用に。
   `<` (戻る) は manual に依存せず常に有効。
+- modules/extended/pianist 1.0.0 → **1.1.0**: `values.csv` を **wide
+  format** へ刷新（後方互換あり）。
+    - 旧スキーマ (`Key,Value,Encrypted,Note`) から
+      `NewPCName,<Var1>,<Var2>,...,<VarN>` の hostlist.csv 流横持ち
+      に変更。1 行 = 1 ホスト、列 = 変数名で、案件ごとに必要な変数
+      プールを Studio から自由に増減できる
+    - `NewPCName='*'` (or 空欄) 行が全ホスト共通デフォルト。
+      `$env:SELECTED_NEW_PCNAME` 一致行が列ごとに上書き、空セルは
+      default 行へフォールバック
+    - 暗号化は `ENC:<Base64>` インライン prefix に統一（`Encrypted`
+      列は廃止）。fabriq 全体の暗号化規約 (hostlist.csv /
+      `Unprotect-FabriqValue`) と整合
+    - 列名は `[A-Za-z_][A-Za-z0-9_]*` のみ許可、`NewPCName` は予約
+    - 旧 long format の values.csv も自動判別して読み込み可
+      （`Build-PianistValuesDict` がヘッダーで分岐、Encrypted=1 の
+      旧来挙動を bit-for-bit で保持）。新規 profile は wide format
+      で書く
+    - サンプル profile 2 件 (`notepad_memo_to_desktop` /
+      `example_kintone_admin`) を新スキーマに移行
+    - 公開 API への影響なし（kernel 側は `SELECTED_NEW_PCNAME` /
+      `Unprotect-FabriqValue` / `$global:FabriqMasterPassphrase` の
+      既存契約を消費するのみ）
 
 ### Notes
 - `__PIANIST_to_<profile>__` マーカー追加は不要になった。Pianist は

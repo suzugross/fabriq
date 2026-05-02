@@ -37,11 +37,39 @@ v0.2.x の app 版は廃止され、本モジュールに統合されました�
 modules/extended/pianist/profiles/<profile_name>/
   pianist.json       : メタデータ (label / description / target_app / default_phase)
   procedure.csv      : 操作手続 (Phase x Step マトリクス)
-  values.csv         : 設定値プール ($VarName で procedure から参照)
+  values.csv         : 設定値プール ($VarName で procedure から参照、wide format)
   shortcuts.csv      : 起動先ショートカット集 (v1.0 では参照のみ、UI 側未実装)
   instructions/      : Phase 手順テキスト & 参照画像
     <PhaseID>.txt    : 手順説明 (plain text、画面に表示)
   screenshots/       : procedure.csv の Screenshot Step 用エビデンス置き場
+
+■ values.csv の構造 (since v1.1.0: wide format)
+hostlist.csv と同じ「1 行 = 1 ホスト、列 = 変数」の縦横配置。
+
+  NewPCName,<Var1>,<Var2>,<Var3>,...,<VarN>
+  *,共通値1,共通値2,共通値3,...,共通値N
+  PC-001,個別値1,,個別値3,...,
+  PC-002,,個別値2,,...,個別値N
+
+解決規則:
+  1. 現在のターゲット PC 名 (env: SELECTED_NEW_PCNAME) で行を検索
+  2. 同 Key 列で PC 固有行に値あり -> それを採用
+  3. 空欄 or PC 固有行なし -> NewPCName='*' (or 空欄) の default 行で補完
+  4. どちらも空 -> 変数未定義 ($VarName のまま procedure に残る)
+
+暗号化:
+  - セル単位で値の頭に "ENC:<Base64>" を埋め込むだけで透過復号 (hostlist.csv と同じ規約)。
+  - 別途の Encrypted 列は **不要**。Fabriq Studio 側で行/セル単位の暗号化 UI を提供
+  - master passphrase は fabriq 本体と共有
+
+列名の制約:
+  - 列名は [A-Za-z_][A-Za-z0-9_]* (英字またはアンダースコアで始まる英数字)
+  - "NewPCName" は予約 (行キー専用、変数として参照不可)
+  - 上記以外、列数と列名は profile ごとに自由。案件に応じて Studio で増減
+
+後方互換 (legacy long format):
+  - v1.0.x までの "Key,Value,Encrypted,Note" 形式の values.csv も自動判別して読み込み可
+  - 新規 profile は wide format で書く
 
 ■ procedure.csv の列
   PhaseID     : 同 ID の行群が 1 Phase に集約される (例: P01, P02...)
