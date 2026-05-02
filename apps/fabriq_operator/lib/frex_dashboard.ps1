@@ -308,27 +308,44 @@ function Show-FrexDashboard {
     }
 
     # ----------------------------------------
-    # Status color coding (CellFormatting)
+    # Status / Verified cell badge styling (CellFormatting)
     # ----------------------------------------
+    # 3.1.9: switched from text-color hints to background fill for
+    # at-a-glance visibility. The full Status / Verified cell becomes
+    # a colored badge with bold contrast text. SelectionBackColor /
+    # SelectionForeColor are also set so the badge remains visible
+    # when the row is highlighted by selection.
     $grid.Add_CellFormatting({
         param($s, $e)
         if ($e.RowIndex -lt 0) { return }
         $colName = $grid.Columns[$e.ColumnIndex].Name
+
+        $bg = $null
+        $fg = $null
+
         if ($colName -eq 'Status') {
             switch ($e.Value) {
-                'Success'   { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(34, 139, 34) }
-                'Partial'   { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(184, 134, 11) }
-                'Error'     { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(178, 34, 34) }
-                'Skipped'   { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(105, 105, 105) }
-                'Cancelled' { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(105, 105, 105) }
-                'Pending'   { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(140, 140, 140) }
+                'Success'   { $bg = $script:bgAdd;                                 $fg = $script:fgWhite }
+                'Partial'   { $bg = $script:stripeYellow;                          $fg = $script:fgText }
+                'Error'     { $bg = $script:bgDelete;                              $fg = $script:fgWhite }
+                'Skipped'   { $bg = [System.Drawing.Color]::FromArgb(130,130,130); $fg = $script:fgWhite }
+                'Cancelled' { $bg = [System.Drawing.Color]::FromArgb(130,130,130); $fg = $script:fgWhite }
+                'Pending'   { $bg = [System.Drawing.Color]::FromArgb(200,200,200); $fg = [System.Drawing.Color]::FromArgb(80,80,80) }
             }
         }
         elseif ($colName -eq 'Verified') {
             switch ($e.Value) {
-                'PASS' { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(34, 139, 34) }
-                'FAIL' { $e.CellStyle.ForeColor = [System.Drawing.Color]::FromArgb(178, 34, 34) }
+                'PASS' { $bg = $script:bgAdd;    $fg = $script:fgWhite }
+                'FAIL' { $bg = $script:bgDelete; $fg = $script:fgWhite }
             }
+        }
+
+        if ($null -ne $bg) {
+            $e.CellStyle.BackColor          = $bg
+            $e.CellStyle.SelectionBackColor = $bg
+            $e.CellStyle.ForeColor          = $fg
+            $e.CellStyle.SelectionForeColor = $fg
+            $e.CellStyle.Font               = $script:fontBold
         }
     })
 

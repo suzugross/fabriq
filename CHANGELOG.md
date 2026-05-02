@@ -15,6 +15,28 @@
 
 ## [Unreleased]
 
+## [3.1.9] - 2026-05-02
+
+### Changed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Status / Verified
+  セルの視覚表現を **文字色** から **背景塗りつぶしバッジ** に
+  変更。視認性を大幅に強化。
+    - Success → 緑背景（`$script:bgAdd`）+ 白文字
+    - Partial → 黄背景（`$script:stripeYellow`）+ 暗文字
+    - Error   → 赤背景（`$script:bgDelete`）+ 白文字
+    - Skipped / Cancelled → 中灰背景 + 白文字
+    - Pending → 薄灰背景 + 暗灰文字
+    - PASS / FAIL（Verified 列） → 緑 / 赤 + 白文字
+  実装: `CellFormatting` ハンドラで `$e.CellStyle.BackColor` /
+  `SelectionBackColor` / `ForeColor` / `SelectionForeColor` /
+  `Font = $script:fontBold` を一括設定。`SelectionBackColor` を
+  `BackColor` と同色にすることで行選択時もバッジが消えない。
+  既存テーマ色（`$script:bgAdd` / `$script:bgDelete` /
+  `$script:stripeYellow`）を再利用してテーマ整合性を維持。
+  内部 dispatch / state map / per-Order tracking には影響なし、
+  純粋に視覚改善。
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.1.8] - 2026-05-02
 
 ### Changed
