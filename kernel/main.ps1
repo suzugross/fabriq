@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver3.1 - Manifeste du Surkitinisme -
+# Fabriq ver3.2 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -628,6 +628,40 @@ function Invoke-FrexProfileLoop {
                 } finally {
                     $global:AutoConfirmMode = $false
                 }
+                $pendingFinalize = $true
+                Write-Host ""
+            }
+
+            "RunGroup" {
+                # Group execution: same Invoke-BatchExecution pipeline as
+                # RunBatch, but SelectedOrders comes from the dashboard's
+                # group filter (one-click [Run: <Group>] button) instead
+                # of the checkbox state. Per the literal-Group contract,
+                # rows whose Group value differs from the clicked group
+                # are excluded — including __RESTART__ markers in other
+                # groups (operator must put RESTART in the desired group
+                # to be honored). FinalizeOnComplete:$false keeps
+                # completion as an explicit operator action.
+                $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
+                $batch = @($resolved.ValidModules | Where-Object { [int]$_.Order -in $frex.SelectedOrders } | Sort-Object { [int]$_.Order })
+                if ($batch.Count -eq 0) {
+                    Show-Warning "FrexProfile: no modules matched group '$($frex.TargetGroup)'"
+                    Wait-KeyPress
+                    continue
+                }
+                Show-Info "Running group [$($frex.TargetGroup)] ($($batch.Count) modules)..."
+                Write-Host ""
+
+                Invoke-BatchExecution -SelectedModules $batch `
+                    -AutoPilot:         $true `
+                    -AutoPilotWaitSec   $frex.AutoPilotWaitSec `
+                    -ProfilePath        $ProfilePath `
+                    -ProfileName        $ProfileName `
+                    -FinalizeOnComplete:$false `
+                    -ExecutionMode      'Frex' `
+                    -SelectedOrders     @($frex.SelectedOrders) `
+                    -FullProfileModules $resolved.ValidModules
+
                 $pendingFinalize = $true
                 Write-Host ""
             }

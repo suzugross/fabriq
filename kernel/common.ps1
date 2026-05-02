@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.1.9
+# Easy Kitting Batch - Common Function Library v3.2.0
 # ========================================
 
 # ========================================
@@ -3186,6 +3186,8 @@ function Resolve-ProfileModules {
                 $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
                 $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonUser" -NotePropertyValue $autoLogonUser
                 $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
+                $groupValue = if ($entry.PSObject.Properties.Name -contains 'Group') { "$($entry.Group)".Trim() } else { "" }
+                $moduleWithOrder | Add-Member -NotePropertyName "_Group" -NotePropertyValue $groupValue
                 if ($IncludeDisabled) {
                     $moduleWithOrder | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
                 }
@@ -3214,6 +3216,8 @@ function Resolve-ProfileModules {
                 Order        = [int]$entry.Order
             }
             $obj | Add-Member -NotePropertyName $marker.Flag -NotePropertyValue $true
+            $groupValue = if ($entry.PSObject.Properties.Name -contains 'Group') { "$($entry.Group)".Trim() } else { "" }
+            $obj | Add-Member -NotePropertyName "_Group" -NotePropertyValue $groupValue
             if ($IncludeDisabled) {
                 $obj | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
             }
@@ -3240,6 +3244,12 @@ function Resolve-ProfileModules {
 
             # Async dispatch flag (sticky after __ASYNC__ marker until end of profile)
             $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
+
+            # Group association (FrexProfile Groups bar). Empty / missing
+            # column = "no group", row not surfaced as a [Run: <Group>]
+            # button. Linear path ignores this attribute entirely.
+            $groupValue = if ($entry.PSObject.Properties.Name -contains 'Group') { "$($entry.Group)".Trim() } else { "" }
+            $moduleWithOrder | Add-Member -NotePropertyName "_Group" -NotePropertyValue $groupValue
 
             # Default checkbox state for FrexProfile (only when -IncludeDisabled).
             # Reflects the CSV's original Enabled value at load time.

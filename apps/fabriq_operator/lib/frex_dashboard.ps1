@@ -136,10 +136,14 @@ function Show-FrexDashboard {
     # ----------------------------------------
     # Result hashtable returned to caller
     # ----------------------------------------
+    # Action values:
+    #   Close / RunSingle / RunBatch / RunGroup / Complete /
+    #   RestartNow / ResetState
     $result = @{
         Action           = "Close"
         SelectedOrders   = @()
         TargetOrder      = -1
+        TargetGroup      = ""
         AutoPilot        = $false
         AutoPilotWaitSec = 3
         ResetTargetOrder = -1
@@ -154,10 +158,36 @@ function Show-FrexDashboard {
     $frexState = @{ BulkUpdating = $false }
 
     # ----------------------------------------
+    # Compute unique groups (preserves CSV appearance order)
+    # ----------------------------------------
+    # Groups bar is rendered only when at least one row has a non-empty
+    # _Group value, so old profiles without the Group column have zero
+    # layout impact (form / grid Y stays at the original position).
+    $uniqueGroups = @()
+    $seenGroups   = @{}
+    foreach ($r in $rows) {
+        $g = if ($r.PSObject.Properties.Name -contains '_Group') { "$($r._Group)".Trim() } else { "" }
+        if (-not [string]::IsNullOrWhiteSpace($g) -and -not $seenGroups.ContainsKey($g)) {
+            $seenGroups[$g] = $true
+            $uniqueGroups += $g
+        }
+    }
+    $hasGroups = ($uniqueGroups.Count -gt 0)
+
+    # Layout offsets: with-Groups variants are 40px taller to fit the
+    # Groups bar between header and grid.
+    $groupsBarY = 52
+    $groupsBarH = 40
+    $gridY      = if ($hasGroups) { $groupsBarY + $groupsBarH + 4 } else { 60 }
+    $gridH      = 470
+    $footerY    = $gridY + $gridH + 10
+    $formH      = $footerY + 80 + 20
+
+    # ----------------------------------------
     # Form scaffold
     # ----------------------------------------
     $form = New-Object System.Windows.Forms.Form
-    Set-FormStyle -Form $form -Title "fabriq - FrexProfile: $ProfileName" -Width 900 -Height 660
+    Set-FormStyle -Form $form -Title "fabriq - FrexProfile: $ProfileName" -Width 900 -Height $formH
 
     # Header bar
     $headerPanel = New-StyledPanel -X 0 -Y 0 -Width 900 -Height 50 -BgColor $script:bgPanel
@@ -195,11 +225,66 @@ function Show-FrexDashboard {
     $headerPanel.Controls.Add($hostLbl)
 
     # ----------------------------------------
+    # Groups bar (only when CSV has Group column with values)
+    # ----------------------------------------
+    # One [Run: <Group>] button per unique Group value, dispatched as
+    # the new "RunGroup" action which translates into the same Invoke-
+    # BatchExecution call as RunBatch — just sourced from the group's
+    # Order list rather than the operator's checkbox state. Layout:
+    # single row, ~135px per button. Profiles with 5-6 groups fit in
+    # the 870px panel without clipping; more groups will extend past
+    # the right edge (not auto-wrapped — kept simple per YAGNI).
+    if ($hasGroups) {
+        $groupsPanel = New-StyledPanel -X 10 -Y $groupsBarY -Width 870 -Height $groupsBarH -BgColor $script:bgTabPage
+        $form.Controls.Add($groupsPanel)
+
+        $groupsLbl = New-StyledLabel -Text "Groups:" -X 8 -Y 11 -Width 60 -Height 20 -Font $script:fontBold -FgColor $script:fgText
+        $groupsPanel.Controls.Add($groupsLbl)
+
+        $btnX = 72
+        $btnW = 130
+        foreach ($g in $uniqueGroups) {
+            $btnGroup = New-StyledButton -Text "Run: $g" -X $btnX -Y 6 -Width $btnW -Height 28 -BgColor $script:bgAccent
+            $btnGroup.Font = $script:fontBold
+            $btnGroup.ForeColor = $script:fgWhite
+            $btnGroup.Tag = $g
+
+            $btnGroup.Add_Click({
+                param($s, $e)
+                $clickedGroup = $s.Tag
+                $groupOrders = @()
+                foreach ($row in $grid.Rows) {
+                    if ("$($row.Tag.Group)" -eq "$clickedGroup") {
+                        $groupOrders += [int]$row.Tag.Order
+                    }
+                }
+                if ($groupOrders.Count -eq 0) {
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "No modules in group '$clickedGroup'.",
+                        "FrexProfile",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Information
+                    ) | Out-Null
+                    return
+                }
+                $result.Action = "RunGroup"
+                $result.TargetGroup = $clickedGroup
+                $result.SelectedOrders = $groupOrders
+                $result.AutoPilot = $true
+                $result.AutoPilotWaitSec = [int]$waitInput.Value
+                $form.Close()
+            })
+            $groupsPanel.Controls.Add($btnGroup)
+            $btnX += ($btnW + 5)
+        }
+    }
+
+    # ----------------------------------------
     # Module grid
     # ----------------------------------------
     $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point(10, 60)
-    $grid.Size = New-Object System.Drawing.Size(870, 470)
+    $grid.Location = New-Object System.Drawing.Point(10, $gridY)
+    $grid.Size = New-Object System.Drawing.Size(870, $gridH)
     Set-GridStyle -Grid $grid
 
     # Set-GridStyle sets $grid.ReadOnly = $true, which in WinForms overrides
@@ -286,6 +371,7 @@ function Show-FrexDashboard {
             $verifiedDisplay
         )
         $row = $grid.Rows[$rowIndex]
+        $rowGroup = if ($r.PSObject.Properties.Name -contains '_Group') { "$($r._Group)".Trim() } else { "" }
         $row.Tag = @{
             Order            = $ord
             MenuName         = $r.MenuName
@@ -293,6 +379,7 @@ function Show-FrexDashboard {
             IsRestart        = [bool]$r._IsRestart
             IsReexplorer     = [bool]$r._IsReexplorer
             IsCheckedDefault = [bool]$r._IsCheckedDefault
+            Group            = $rowGroup
             Message          = $st.Message
         }
 
@@ -368,7 +455,7 @@ function Show-FrexDashboard {
     # ----------------------------------------
     # Footer panel
     # ----------------------------------------
-    $footerPanel = New-StyledPanel -X 10 -Y 540 -Width 870 -Height 80 -BgColor $script:bgTabPage
+    $footerPanel = New-StyledPanel -X 10 -Y $footerY -Width 870 -Height 80 -BgColor $script:bgTabPage
     $form.Controls.Add($footerPanel)
 
     # Bulk-select buttons + WaitSec input (left).
