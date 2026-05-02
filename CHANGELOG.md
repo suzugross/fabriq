@@ -15,6 +15,30 @@
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-05-02
+
+### Fixed
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Groups バー追加時に
+  `[Complete]` ボタンが下端で見切れる問題を修正。3.2.0 のフォーム
+  高さ計算式 `$formH = $footerY + 80 + 20` の `+20` がフォーム下部
+  chrome（タイトルバー + 枠）に対して不足していた（元 layout は
+  `+40` 相当）。`+40` に修正してフォーム下端に十分な余白を確保。
+  Groups バー無しの profile も同じ式で 660 高（旧版と同一）に保たれる。
+
+### Added
+- apps/fabriq_operator/lib/frex_dashboard.ps1: Grid に **`Group` 列**
+  を追加。各行が CSV Profile の `Group` 列値を表示し、operator が
+  Groups バーボタンと grid 行の対応関係を一目で把握できる。空欄は
+  「グループ無所属」を意味する。
+    - 列位置: `[Checked][Order][Group][Module][Status][Verified][Run]`
+      （Order 直後）。幅 90px、中央揃え、ReadOnly
+    - `CellFormatting` ハンドラに新分岐を追加: Group 値が非空のセル
+      には薄い水色 (`RGB(210,230,240)`) の背景塗り。Status / Verified
+      の badge 色とは異なる中間色なので視覚的に競合しない
+    - 空 Group のセルは default styling（塗りなし）で「ungrouped 行」
+      が暗黙的に区別可能
+  KERNEL_API.md §6 内部実装、KERNEL_VERSION 影響なし。
+
 ## [3.2.0] - 2026-05-02
 
 ### Added
