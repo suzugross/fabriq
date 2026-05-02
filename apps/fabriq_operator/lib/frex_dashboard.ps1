@@ -175,13 +175,16 @@ function Show-FrexDashboard {
     $hasGroups = ($uniqueGroups.Count -gt 0)
 
     # Layout offsets: with-Groups variants are 40px taller to fit the
-    # Groups bar between header and grid.
+    # Groups bar between header and grid. The +40 below the footer
+    # accounts for the form's title bar + bottom border (chrome) so
+    # the [Complete] button is fully visible. Pre-3.2.1 used +20
+    # which truncated the [Complete] row at the bottom.
     $groupsBarY = 52
     $groupsBarH = 40
     $gridY      = if ($hasGroups) { $groupsBarY + $groupsBarH + 4 } else { 60 }
     $gridH      = 470
     $footerY    = $gridY + $gridH + 10
-    $formH      = $footerY + 80 + 20
+    $formH      = $footerY + 80 + 40
 
     # ----------------------------------------
     # Form scaffold
@@ -309,6 +312,19 @@ function Show-FrexDashboard {
     $colOrder.ReadOnly = $true
     $grid.Columns.Add($colOrder) | Out-Null
 
+    # Group column (3.2.1+) — shows the Profile CSV's Group value per
+    # row so operators can see at a glance which Groups bar button
+    # affects this row. Empty for ungrouped rows. Lightly tinted via
+    # CellFormatting (below) to visually distinguish grouped from
+    # ungrouped rows without competing with Status / Verified badges.
+    $colGroup = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $colGroup.Name = "Group"
+    $colGroup.HeaderText = "Group"
+    $colGroup.Width = 90
+    $colGroup.DefaultCellStyle.Alignment = "MiddleCenter"
+    $colGroup.ReadOnly = $true
+    $grid.Columns.Add($colGroup) | Out-Null
+
     $colMenu = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colMenu.Name = "MenuName"
     $colMenu.HeaderText = "Module"
@@ -363,9 +379,11 @@ function Show-FrexDashboard {
         # captured into row.Tag.IsCheckedDefault so the AutoPilot toggle
         # can bulk-check Enabled=1 rows on demand without losing the
         # CSV-author's intent.
+        $rowGroupValue = if ($r.PSObject.Properties.Name -contains '_Group') { "$($r._Group)".Trim() } else { "" }
         $rowIndex = $grid.Rows.Add(
             $false,
             $ord,
+            $rowGroupValue,
             $r.MenuName,
             $st.Status,
             $verifiedDisplay
@@ -424,6 +442,15 @@ function Show-FrexDashboard {
             switch ($e.Value) {
                 'PASS' { $bg = $script:bgAdd;    $fg = $script:fgWhite }
                 'FAIL' { $bg = $script:bgDelete; $fg = $script:fgWhite }
+            }
+        }
+        elseif ($colName -eq 'Group') {
+            # Light cyan tint marks "this row belongs to a group" without
+            # competing with Status / Verified badge colors. Empty group
+            # cells stay default (no fill, no special styling).
+            if (-not [string]::IsNullOrWhiteSpace("$($e.Value)")) {
+                $bg = [System.Drawing.Color]::FromArgb(210, 230, 240)
+                $fg = $script:fgText
             }
         }
 
