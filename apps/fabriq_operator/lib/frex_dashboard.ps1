@@ -367,10 +367,18 @@ function Show-FrexDashboard {
     $updateCounters = {
         $checkedCount = 0
         $issueCount = 0
+        # "hasExecuted" tracks whether at least one row has a non-Pending
+        # status — i.e., something actually ran in this session. The
+        # initial dashboard state (all rows Pending, none checked) would
+        # otherwise produce $issueCount=0 and a misleading green
+        # "Complete" button, allowing the operator to finalize an empty
+        # checklist with no execution behind it.
+        $hasExecuted = $false
         foreach ($row in $grid.Rows) {
             $isChecked = [bool]$row.Cells['Checked'].Value
             if ($isChecked) { $checkedCount++ }
             $st = "$($row.Cells['Status'].Value)"
+            if ($st -ne 'Pending') { $hasExecuted = $true }
             # Errors and Partials are facts about an actual execution
             # outcome — count regardless of check state (operator cannot
             # mask a real failure by simply unchecking the row).
@@ -385,11 +393,21 @@ function Show-FrexDashboard {
             }
         }
         $btnRunSelected.Text = "Run Selected ($checkedCount)"
+
+        # Warning state: explicit issues OR nothing has been executed.
+        # Two separate labels so the operator can distinguish "rows
+        # have problems" from "you haven't run anything yet".
         if ($issueCount -gt 0) {
             $btnComplete.Text = "Complete with $issueCount issue$(if ($issueCount -eq 1) { '' } else { 's' })"
             $btnComplete.BackColor = $script:stripeYellow
             $btnComplete.ForeColor = $script:fgText
-        } else {
+        }
+        elseif (-not $hasExecuted -and $grid.Rows.Count -gt 0) {
+            $btnComplete.Text = "Complete (nothing executed)"
+            $btnComplete.BackColor = $script:stripeYellow
+            $btnComplete.ForeColor = $script:fgText
+        }
+        else {
             $btnComplete.Text = "Complete"
             $btnComplete.BackColor = $script:bgAdd
             $btnComplete.ForeColor = $script:fgWhite
@@ -515,13 +533,19 @@ function Show-FrexDashboard {
             }
         }
 
-        # Soft warning when issues remain. Same rule as $updateCounters:
-        # Error / Partial = always flagged (real execution outcomes);
-        # Pending = flagged only when checked (operator's declared intent).
+        # Soft warning composition:
+        #   (a) "nothing executed" — all rows still Pending in current
+        #       session (initial state pressing Complete would generate
+        #       an empty checklist, almost certainly a mistake).
+        #   (b) "rows have unresolved status" — Error / Partial always,
+        #       Pending only when checked (operator's declared intent).
+        # Both conditions can fire simultaneously; the dialog combines them.
+        $hasExecuted = $false
         $issueRows = @()
         foreach ($row in $grid.Rows) {
             $isChecked = [bool]$row.Cells['Checked'].Value
             $st = "$($row.Cells['Status'].Value)"
+            if ($st -ne 'Pending') { $hasExecuted = $true }
             $isIssue = $false
             if ($st -eq 'Error' -or $st -eq 'Partial') {
                 $isIssue = $true
@@ -534,8 +558,16 @@ function Show-FrexDashboard {
             }
         }
 
+        $warnSections = @()
+        if (-not $hasExecuted -and $grid.Rows.Count -gt 0) {
+            $warnSections += "No modules have been executed in this session yet."
+        }
         if ($issueRows.Count -gt 0) {
-            $msg = "The following rows have unresolved status:`n`n" + ($issueRows -join "`n") + "`n`nMark this profile complete and export evidence?"
+            $warnSections += "The following rows have unresolved status:`n" + ($issueRows -join "`n")
+        }
+
+        if ($warnSections.Count -gt 0) {
+            $msg = ($warnSections -join "`n`n") + "`n`nMark this profile complete and export evidence?"
             $dlg = [System.Windows.Forms.MessageBox]::Show(
                 $msg,
                 "FrexProfile - Complete with issues",
