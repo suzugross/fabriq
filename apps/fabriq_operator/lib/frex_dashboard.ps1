@@ -247,6 +247,21 @@ function Show-FrexDashboard {
     $colVerified.ReadOnly = $true
     $grid.Columns.Add($colVerified) | Out-Null
 
+    # Per-row Run button. Same dispatch as the legacy footer
+    # [Run This: M] button (RunSingle action) — added at right end of
+    # each row so single-execution becomes a 1-click action without
+    # the "select row -> click footer" two-step. The footer button
+    # was removed in 3.1.8 in favor of this per-row UI.
+    $colRun = New-Object System.Windows.Forms.DataGridViewButtonColumn
+    $colRun.Name = "RunBtn"
+    $colRun.HeaderText = ""
+    $colRun.Text = "Run"
+    $colRun.UseColumnTextForButtonValue = $true
+    $colRun.Width = 56
+    $colRun.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $colRun.DefaultCellStyle.Alignment = "MiddleCenter"
+    $grid.Columns.Add($colRun) | Out-Null
+
     $form.Controls.Add($grid)
 
     # ----------------------------------------
@@ -362,14 +377,14 @@ function Show-FrexDashboard {
     $waitInput.BackColor = $script:bgInput
     $footerPanel.Controls.Add($waitInput)
 
-    # Buttons (right side, two rows)
-    # Row 1: Run Selected / Run This / Restart Now
-    $btnRunSelected = New-StyledButton -Text "Run Selected (0)" -X 320 -Y 6 -Width 160 -Height 30 -BgColor $script:bgAccent
+    # Buttons (right side, two rows). 3.1.8: [Run This: M] removed in
+    # favor of per-row [Run] buttons in the grid. [Run Selected] is
+    # widened to fill the row 1 space and visually match the [Complete]
+    # button in row 2.
+    # Row 1: Run Selected (wide) / Restart Now
+    $btnRunSelected = New-StyledButton -Text "Run Selected (0)" -X 320 -Y 6 -Width 340 -Height 30 -BgColor $script:bgAccent
     $btnRunSelected.Font = $script:fontBold
     $footerPanel.Controls.Add($btnRunSelected)
-
-    $btnRunThis = New-StyledButton -Text "Run This: -" -X 490 -Y 6 -Width 170 -Height 30
-    $footerPanel.Controls.Add($btnRunThis)
 
     $btnRestartNow = New-StyledButton -Text "Restart Now" -X 670 -Y 6 -Width 130 -Height 30
     $footerPanel.Controls.Add($btnRestartNow)
@@ -436,17 +451,6 @@ function Show-FrexDashboard {
         }
     }
 
-    $updateRunThisLabel = {
-        if ($grid.SelectedRows.Count -gt 0) {
-            $tag = $grid.SelectedRows[0].Tag
-            $btnRunThis.Text = "Run This: $($tag.Order)"
-            $btnRunThis.Enabled = $true
-        } else {
-            $btnRunThis.Text = "Run This: -"
-            $btnRunThis.Enabled = $false
-        }
-    }
-
     # ----------------------------------------
     # Events
     # ----------------------------------------
@@ -455,6 +459,21 @@ function Show-FrexDashboard {
         if ($grid.IsCurrentCellDirty) {
             $grid.CommitEdit([System.Windows.Forms.DataGridViewDataErrorContexts]::Commit)
         }
+    })
+
+    # Per-row [Run] button click → dispatch RunSingle for that row.
+    # Same action as the legacy footer [Run This: M] (replaced in 3.1.8).
+    # Filter strictly on column name to avoid interfering with the
+    # checkbox column's own click-and-toggle behavior.
+    $grid.Add_CellContentClick({
+        param($s, $e)
+        if ($e.RowIndex -lt 0) { return }
+        if ($grid.Columns[$e.ColumnIndex].Name -ne 'RunBtn') { return }
+        $tag = $grid.Rows[$e.RowIndex].Tag
+        if ($null -eq $tag) { return }
+        $result.Action = "RunSingle"
+        $result.TargetOrder = [int]$tag.Order
+        $form.Close()
     })
 
     $grid.Add_CellValueChanged({
@@ -466,10 +485,6 @@ function Show-FrexDashboard {
         if ($e.RowIndex -ge 0 -and $grid.Columns[$e.ColumnIndex].Name -eq 'Checked') {
             & $updateCounters
         }
-    })
-
-    $grid.Add_SelectionChanged({
-        & $updateRunThisLabel
     })
 
     # [Select All] bulk-checks Enabled=1 rows (CSV author's default
@@ -527,22 +542,6 @@ function Show-FrexDashboard {
         # the [Complete] button (handled in main.ps1).
         $result.AutoPilot = $true
         $result.AutoPilotWaitSec = [int]$waitInput.Value
-        $form.Close()
-    })
-
-    $btnRunThis.Add_Click({
-        if ($grid.SelectedRows.Count -eq 0) {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Select a row first.",
-                "FrexProfile",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information
-            ) | Out-Null
-            return
-        }
-        $tag = $grid.SelectedRows[0].Tag
-        $result.Action = "RunSingle"
-        $result.TargetOrder = [int]$tag.Order
         $form.Close()
     })
 
@@ -661,7 +660,6 @@ function Show-FrexDashboard {
 
     # Initial counter sync
     & $updateCounters
-    & $updateRunThisLabel
 
     # Show dialog
     $form.Add_Shown({ $form.Activate() })
