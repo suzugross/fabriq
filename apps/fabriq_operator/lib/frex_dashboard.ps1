@@ -444,15 +444,11 @@ function Show-FrexDashboard {
                 'FAIL' { $bg = $script:bgDelete; $fg = $script:fgWhite }
             }
         }
-        elseif ($colName -eq 'Group') {
-            # Light cyan tint marks "this row belongs to a group" without
-            # competing with Status / Verified badge colors. Empty group
-            # cells stay default (no fill, no special styling).
-            if (-not [string]::IsNullOrWhiteSpace("$($e.Value)")) {
-                $bg = [System.Drawing.Color]::FromArgb(210, 230, 240)
-                $fg = $script:fgText
-            }
-        }
+        # Group column intentionally has no per-cell fill — text content
+        # ("Group" header + group name in cell) is sufficient as a
+        # visual marker without competing for attention with the
+        # Status / Verified badge colors. Reverted from the cyan tint
+        # introduced in 3.2.1 per operator feedback.
 
         if ($null -ne $bg) {
             $e.CellStyle.BackColor          = $bg
