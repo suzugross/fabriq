@@ -1,0 +1,7 @@
+P01: 管理コンソールを開く
+
+values.csv の $TenantUrl で指定された管理画面 URL を
+既定ブラウザで開きます。
+
+実運用では Studio で values.csv を編集し、
+$TenantUrl を実テナントの管理画面 URL に書き換えてください。

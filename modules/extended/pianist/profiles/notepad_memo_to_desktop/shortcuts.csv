@@ -1,0 +1,4 @@
+﻿Label,Type,Path,Args,Note
+Run dialog (manual),exe,explorer.exe,shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0},手動で Run ダイアログを開く
+Open Desktop,exe,explorer.exe,%USERPROFILE%\Desktop,デスクトップを開いて保存ファイルを目視確認
+Notepad direct,exe,notepad.exe,,Notepad を直接起動（Run ダイアログ経由しない）

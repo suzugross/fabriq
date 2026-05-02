@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "label": "Notepad Memo to Desktop (sample)",
+  "description": "Win+R 相当の Run ダイアログから notepad を起動し、メモを書いてデスクトップへ保存するサンプル。",
+  "target_app": "Run dialog -> Notepad",
+  "default_phase": "P01",
+  "version": "0.1.0"
+}

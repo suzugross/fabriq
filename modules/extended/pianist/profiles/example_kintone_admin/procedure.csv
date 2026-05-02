@@ -1,0 +1,21 @@
+﻿PhaseID,PhaseLabel,Color,StepNo,Action,Value,Wait,Note,Screenshot
+P01,管理コンソールを開く,Blue,1,Open,$TenantUrl,,既定ブラウザで管理コンソールを起動,p01_01.png
+P01,管理コンソールを開く,Blue,2,WaitWin,Kintone,15000,ブラウザのウィンドウタイトルに "Kintone" を含むまで待機,
+P01,管理コンソールを開く,Blue,3,Wait,1500,,描画安定待ち,
+P02,ログイン,Green,1,AppFocus,Kintone,,ログイン画面にフォーカス,p02_01.png
+P02,ログイン,Green,2,Type,$AdminUser,800,管理者IDを入力,
+P02,ログイン,Green,3,Key,{TAB},300,次フィールドへ,
+P02,ログイン,Green,4,Paste,$AdminPass,500,パスワードはペースト経由（SendKeysで送れない記号対策）,
+P02,ログイン,Green,5,Key,{ENTER},2000,ログイン送信,
+P02,ログイン,Green,6,Screenshot,login_done,,ログイン直後の画面をエビデンス取得,
+P03,初期パスワード変更,Yellow,1,Prompt,初期パスワード変更ダイアログを確認したら [OK] を押してください,,operator 介入ポイント,p03_01.png
+P03,初期パスワード変更,Yellow,2,Paste,$AdminPass,300,旧パスワードをペースト,
+P03,初期パスワード変更,Yellow,3,Key,{TAB},200,,
+P03,初期パスワード変更,Yellow,4,Paste,$NewPass,300,新パスワードをペースト,
+P03,初期パスワード変更,Yellow,5,Key,{TAB},200,,
+P03,初期パスワード変更,Yellow,6,Paste,$NewPass,300,確認用にもう一度,
+P03,初期パスワード変更,Yellow,7,Key,{ENTER},1500,送信,
+P04,テナント設定確認,Cyan,1,Prompt,テナント名「$TenantName」が画面に表示されていることを確認してください,,目視確認のみ,p04_01.png
+P04,テナント設定確認,Cyan,2,Screenshot,tenant_confirmed,,
+P05,ログアウト,Gray,1,AppFocus,Kintone,,,
+P05,ログアウト,Gray,2,Key,%(F4),500,ブラウザを閉じる (Alt+F4),

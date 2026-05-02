@@ -1,0 +1,3 @@
+﻿Enabled,ProfileName,Group,Description,Segment
+1,notepad_memo_to_desktop,Sample,Win+R から notepad を起動してデスクトップにメモを保存するサンプル,notepad_memo
+1,example_kintone_admin,Sample,Kintone 管理画面の初期セットアップ手順サンプル,kintone_admin

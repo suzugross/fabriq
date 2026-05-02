@@ -1,0 +1,5 @@
+P04: テナント設定確認
+
+ログイン後の画面に $TenantName が表示されているかを
+operator が目視確認する Phase です。
+自動操作はせず、Prompt と Screenshot のみ実行。

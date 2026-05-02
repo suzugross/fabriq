@@ -15,6 +15,100 @@
 
 ## [Unreleased]
 
+### Added
+- modules/extended/pianist/ (new): **Pianist** v1.0.0 — autokey_template
+  の進化版として GUI 設定作業を Profile 単位で実行する extended モジュール。
+  業務アプリ等の GUI 操作が必須な設定作業を、Phase x Step マトリクスの
+  procedure と Values / Shortcuts プールに分けて記述し、operator が
+  Phase ごとにマウスクリックで実行・判定する。
+    - **Profile 構造**: `profiles/<profile_name>/` 配下に
+      `pianist.json` (メタデータ) / `procedure.csv` (Phase x Step) /
+      `values.csv` ($VarName 展開・ENC: 対応) / `shortcuts.csv` /
+      `instructions/<PhaseID>.txt` (Phase 手順テキスト) /
+      `screenshots/` (Screenshot Step 用)
+    - **アクション 10 種**: Open / WaitWin / AppFocus / Type / Key /
+      Wait / Copy / Paste / Screenshot / Prompt
+    - **Phase ヘッダー色分け 9 色**: Blue / Green / Yellow / Orange /
+      Red / Purple / Cyan / Pink / Gray
+    - **左右 `<`/`>` ナビゲーション**で Phase 間を行き来。最後の
+      Phase で `>` が緑の `Done` ボタンに変化、押下で確認 → ModuleResult
+      を return
+    - **二軸ステータス**: Auto (Run Phase の自動結果) と Manual
+      (operator が `[Phase Status...]` で記録した OK/Warning/Error/Skip)
+      を独立して保持。Module 終了時に Manual を集計して
+      Status (Success/Partial/Error) と Verified (true/false/null) を
+      決定し `New-ModuleResult` で kernel に返却
+    - **kernel 連携**: ModuleResult を return することで kernel runner が
+      `Write-ExecutionHistory` を呼んで `logs/history/execution_history.csv`
+      へ記録。SessionID / KanriNo / PCName / WorkerName が自動補完
+      される。`Capture-ScreenEvidence` も kernel が前後で auto-capture。
+      → 通常のモジュールと同じく HTML チェックリスト / evidence summary
+        に Pianist 実行結果が並ぶ
+    - **Win32 EnumWindows finder**: ダイアログウィンドウ (Run dialog や
+      Notepad の Save As 等) を `Get-Process | Where MainWindowTitle`
+      では検出できないため、P/Invoke で `EnumWindows` + `GetWindowTextW` +
+      `SetForegroundWindow` を呼んで全トップレベルウィンドウを総当たり
+      する `PianistWin32` クラスを実装
+    - **UI ポリシー: マウス操作のみ**。キーボードショートカットは
+      意図的に持たない。理由は SendKeys との混線防止 / Run 中 race 防止 /
+      迷子キー対策 (memory: `feedback_pianist_mouse_only.md`)
+    - **レイアウト**: `manual_kitting_assistant` 流の **絶対座標 +
+      Anchor** で組む (Dock 入れ子レイアウトの Z-order 問題を回避)
+    - **pianist_list.csv**: 利用可能 profile を `Enabled / ProfileName /
+      Group / Description / Segment` で記述。Profile CSV 経由実行時は
+      Segment フィルタで自動選択、単発実行時は operator が dropdown で
+      選択
+    - master passphrase は fabriq 本体と共有し、`Unprotect-FabriqValue`
+      で values.csv の ENC: 値を透過復号
+    - `instructions/<PhaseID>.txt` の改行は LF / CRLF / 混在いずれも
+      WinForms TextBox 用に CRLF へ正規化
+    - サンプル profile 同梱:
+      - `notepad_memo_to_desktop/`: Win+R 相当の Run ダイアログ
+        (`shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}`) -> notepad
+        起動 -> メモ Paste -> Ctrl+S -> `%USERPROFILE%\Desktop\fabriq_memo.txt`
+        へ保存 -> Alt+F4 終了 の 5 Phase 構成 (動作確認用)
+      - `example_kintone_admin/`: Kintone 管理画面ログイン -> 初期パス
+        ワード変更 -> テナント確認 -> ログアウト の 5 Phase 構成 (ひな形)
+
+### Removed
+- apps/pianist/ : v0.1.0 〜 v0.2.x の app 版を削除。release されない
+  まま module 化に統合された (本 Unreleased 範囲内の作業)。理由:
+    - app から `Write-ExecutionHistory` を呼ぶと PowerShell の動的
+      `$script:` スコープ規則により kernel 側の `$script:HistoryPath`
+      が解決されず履歴記録に失敗
+    - SessionID / WorkerName / KanriNo 等のセッション情報が app scope
+      からは見えず、自前で履歴行を組み立てる必要があり整合性が崩れる
+    - WinForms event handler scope 内で `$PSScriptRoot` が null に
+      なる挙動でパス解決が壊れる
+    - エラーハンドリング (`Invoke-SafeCommand`) や evidence
+      自動取得 (`Capture-ScreenEvidence`) を kernel から受けられない
+  → 「実行に専念する operator-driven GUI」という性格は
+    `manual_kitting_assistant` の延長線上であり、extended モジュール
+    として配置するのが fabriq の設計哲学に整合。
+
+### Changed
+- modules/extended/pianist/pianist.ps1: 最後の Phase で `Done` ボタン
+  のレイアウトが崩れる問題を修正。Anchor=Top,Right,Bottom のボタン
+  に `Width=110` を直接代入しても anchor 計算が右側固定を優先して
+  Width が反映されず 60px のままで、font 14pt bold の "Done" が
+  "Don" / "e" に縦折れしていた。Width=60 を維持して font を 12pt
+  bold に縮める方式に変更。テキストが 1 行に収まる。
+- modules/extended/pianist/pianist.ps1: **Manual ステータスを設定
+  しないと次の Phase へ進めない仕様**を追加。`Update-NavButtons`
+  で current phase の `Manual` が `Unset` の間は `>` / `Done`
+  ボタンを `Enabled = $false` に。Phase Status ダイアログを開いて
+  OK / Warning / Error / Skip のいずれかを選ぶと unlock される。
+  status row に hint label "Set Phase Status to advance" を追加し、
+  operator にブロック理由を可視化。これで Phase スキップが事故で
+  起きるのを防ぎ、毎 phase に operator 判定が確実に付く運用に。
+  `<` (戻る) は manual に依存せず常に有効。
+
+### Notes
+- `__PIANIST_to_<profile>__` マーカー追加は不要になった。Pianist は
+  通常のモジュールとして Profile CSV の `ScriptPath` 列に
+  `extended/pianist/pianist.ps1` を直接書けば呼べる。Segment 列で
+  どの profile を実行するか指定する。
+
 ## [3.2.2] - 2026-05-02
 
 ### Changed
