@@ -203,20 +203,94 @@ function Read-CsvSafe {
     }
 }
 
-function Resolve-EncryptedValue {
-    param([string]$Value, [string]$Encrypted)
-    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
-    if ($Encrypted -ne "1") { return $Value }
-
-    if (-not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase) -and (Get-Command Unprotect-FabriqValue -ErrorAction SilentlyContinue)) {
-        try {
-            return (Unprotect-FabriqValue -EncryptedValue $Value -Passphrase $global:FabriqMasterPassphrase)
-        } catch {
-            Write-PianistLog "Decrypt failed for an encrypted value (using as-is): $_" "WARN"
-            return $Value
-        }
+# Decrypt a single cell. ENC:<Base64> prefix triggers decryption via the
+# kernel's Unprotect-FabriqValue (matches the convention used by hostlist.csv
+# and Import-ModuleCsv). Cells without the prefix pass through unchanged.
+function Resolve-PianistEncryptedCell {
+    param([string]$Cell)
+    if ([string]::IsNullOrEmpty($Cell)) { return "" }
+    if (-not $Cell.StartsWith('ENC:')) { return $Cell }
+    if ([string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) { return $Cell }
+    if (-not (Get-Command Unprotect-FabriqValue -ErrorAction SilentlyContinue)) { return $Cell }
+    try {
+        return (Unprotect-FabriqValue -EncryptedValue $Cell -Passphrase $global:FabriqMasterPassphrase)
+    } catch {
+        Write-PianistLog "Decrypt failed for an encrypted cell (using ciphertext as-is): $_" "WARN"
+        return $Cell
     }
-    return $Value
+}
+
+# Build the resolved $VarName -> value dictionary from values.csv.
+# Two schemas are supported:
+#   1. Wide format (current, since pianist 1.1.0): NewPCName + arbitrary
+#      variable columns. Row with NewPCName='*' (or empty) provides the
+#      defaults; row matching the current selected NewPCName overrides it
+#      column-by-column. Empty cells fall through to the default row.
+#   2. Legacy long format: Key,Value,Encrypted,Note (pianist 1.0.0 shape).
+#      Detected when the first row has no NewPCName column. Encrypted=1
+#      flag triggers decryption; behavior is preserved bit-for-bit.
+# Variable column names must match the [A-Za-z_][A-Za-z0-9_]* pattern that
+# Expand-Variables uses, otherwise procedure.csv cannot reference them.
+function Build-PianistValuesDict {
+    param([array]$Rows)
+    $dict = @{}
+    if ($null -eq $Rows -or $Rows.Count -eq 0) { return $dict }
+
+    $columns = @($Rows[0].PSObject.Properties.Name)
+    $isWideFormat = $columns -contains 'NewPCName'
+
+    if ($isWideFormat) {
+        $currentPC = [string]$env:SELECTED_NEW_PCNAME
+        $valueColumns = @($columns | Where-Object { $_ -ne 'NewPCName' })
+
+        $defaultRow = $Rows | Where-Object {
+            $_.NewPCName -eq '*' -or [string]::IsNullOrWhiteSpace($_.NewPCName)
+        } | Select-Object -First 1
+
+        $pcRow = $null
+        if (-not [string]::IsNullOrWhiteSpace($currentPC)) {
+            $pcRow = $Rows | Where-Object { $_.NewPCName -eq $currentPC } | Select-Object -First 1
+        }
+
+        if ($null -ne $pcRow) {
+            Write-PianistLog "values.csv: matched row for NewPCName='$currentPC' (defaults: $([bool]$defaultRow))"
+        } elseif (-not [string]::IsNullOrWhiteSpace($currentPC)) {
+            Write-PianistLog "values.csv: no row for NewPCName='$currentPC', using defaults only" "WARN"
+        }
+
+        foreach ($col in $valueColumns) {
+            $cell = $null
+            if ($null -ne $pcRow) {
+                $candidate = [string]$pcRow.$col
+                if (-not [string]::IsNullOrEmpty($candidate)) { $cell = $candidate }
+            }
+            if ($null -eq $cell -and $null -ne $defaultRow) {
+                $candidate = [string]$defaultRow.$col
+                if (-not [string]::IsNullOrEmpty($candidate)) { $cell = $candidate }
+            }
+            if ($null -ne $cell) {
+                $dict[$col] = Resolve-PianistEncryptedCell -Cell $cell
+            }
+        }
+        return $dict
+    }
+
+    # Legacy long format (pianist <= 1.0.0)
+    foreach ($r in $Rows) {
+        if ([string]::IsNullOrWhiteSpace($r.Key)) { continue }
+        $val = [string]$r.Value
+        if ($r.Encrypted -eq '1' -and -not [string]::IsNullOrEmpty($val)) {
+            if (-not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase) -and (Get-Command Unprotect-FabriqValue -ErrorAction SilentlyContinue)) {
+                try {
+                    $val = Unprotect-FabriqValue -EncryptedValue $val -Passphrase $global:FabriqMasterPassphrase
+                } catch {
+                    Write-PianistLog "Decrypt failed (legacy values.csv row Key=$($r.Key)): $_" "WARN"
+                }
+            }
+        }
+        $dict[$r.Key] = $val
+    }
+    return $dict
 }
 
 function Load-PianistProfileData {
@@ -249,12 +323,7 @@ function Load-PianistProfileData {
         return $null
     }
 
-    # Build values dict (resolved)
-    $valuesDict = @{}
-    foreach ($v in $valsRaw) {
-        if ([string]::IsNullOrWhiteSpace($v.Key)) { continue }
-        $valuesDict[$v.Key] = Resolve-EncryptedValue -Value $v.Value -Encrypted $v.Encrypted
-    }
+    $valuesDict = Build-PianistValuesDict -Rows $valsRaw
 
     return [PSCustomObject]@{
         Name        = $ProfileName
