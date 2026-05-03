@@ -716,14 +716,28 @@ function Update-StatusBadges {
     $script:lblManualStatus.BackColor = Get-StatusColor $st.Manual
 }
 
+function Set-PianistTextBoxText {
+    param($TextBox, [string]$Text)
+    if ($null -eq $TextBox) { return }
+    if ($null -eq $Text) { $Text = '' }
+    # Normalize line endings to CRLF for WinForms multi-line TextBox display
+    $Text = $Text -replace "`r`n", "`n"
+    $Text = $Text -replace "`r", "`n"
+    $Text = $Text -replace "`n", "`r`n"
+    $TextBox.Text = $Text
+    $TextBox.SelectionStart = 0
+    $TextBox.SelectionLength = 0
+    try { $TextBox.ScrollToCaret() } catch {}
+}
+
 function Update-PhaseView {
     if ($null -eq $script:lblPhaseHeader) { return }
     if ($script:currentPhaseIndex -lt 0 -or $script:currentPhaseIndex -ge $script:phasesOrdered.Count) {
         $script:lblPhaseHeader.Text = "  (no phase loaded)"
         $script:phaseHeaderPanel.BackColor = $bgPanel
         $script:lblPhaseIndex.Text = "- / -"
-        $script:txtInstruction.Text = ""
-        $script:lstSteps.Items.Clear()
+        Set-PianistTextBoxText -TextBox $script:txtRpa -Text ''
+        Set-PianistTextBoxText -TextBox $script:txtManual -Text ''
         Update-NavButtons
         Update-StatusBadges
         return
@@ -736,49 +750,43 @@ function Update-PhaseView {
     $script:phaseHeaderPanel.BackColor = $clr
     $script:lblPhaseIndex.Text = "$($script:currentPhaseIndex + 1) / $($script:phasesOrdered.Count)"
 
-    # Instruction text
+    # Parse the instruction file for this Phase (RPA / Manual / Variables /
+    # Screenshots sections; backward-compat: marker-less file = all Manual).
     $instrPath = Join-Path (Join-Path $script:currentProfile.Path "instructions") "$($phase.ID).txt"
-    if (Test-Path $instrPath) {
-        try {
-            $txt = [System.IO.File]::ReadAllText($instrPath, [System.Text.Encoding]::UTF8)
-            if ($null -eq $txt) { $txt = "" }
-            # Normalize line endings to CRLF for WinForms TextBox
-            $txt = $txt -replace "`r`n", "`n"
-            $txt = $txt -replace "`r", "`n"
-            $txt = $txt -replace "`n", "`r`n"
-            $script:txtInstruction.Text = $txt
-            $script:txtInstruction.SelectionStart = 0
-            $script:txtInstruction.SelectionLength = 0
-            $script:txtInstruction.ScrollToCaret()
-        } catch {
-            $script:txtInstruction.Text = "(failed to read instructions/$($phase.ID).txt: $_)"
-        }
+    $parsed = Parse-PianistInstructionFile -Path $instrPath
+
+    if (-not (Test-Path $instrPath)) {
+        Set-PianistTextBoxText -TextBox $script:txtRpa -Text "(no instruction file at instructions/$($phase.ID).txt)"
+        Set-PianistTextBoxText -TextBox $script:txtManual -Text ''
     } else {
-        $script:txtInstruction.Text = "(no instruction file at instructions/$($phase.ID).txt)"
+        # If the file has [RPA] section, show it. Otherwise show a hint
+        # listing the Steps that will run (so the operator still gets a
+        # preview of what Run Phase does, even without an authored
+        # description).
+        if (-not [string]::IsNullOrEmpty($parsed.RPA)) {
+            Set-PianistTextBoxText -TextBox $script:txtRpa -Text $parsed.RPA
+        } else {
+            $stepLines = @("(No [RPA] section authored. Steps that will run:)")
+            foreach ($s in $phase.Steps) {
+                $line = ("  {0,2}. {1,-10} {2}" -f $s.StepNo, $s.Action, $s.Value)
+                if ($s.Note) { $line += "    -- $($s.Note)" }
+                $stepLines += $line
+            }
+            Set-PianistTextBoxText -TextBox $script:txtRpa -Text ($stepLines -join "`r`n")
+        }
+        Set-PianistTextBoxText -TextBox $script:txtManual -Text $parsed.Manual
     }
 
-    # Steps preview
-    $script:lstSteps.Items.Clear()
-    foreach ($s in $phase.Steps) {
-        $line = ("  {0,2}. {1,-10} {2}" -f $s.StepNo, $s.Action, $s.Value)
-        if ($s.Note) { $line += "    -- $($s.Note)" }
-        $script:lstSteps.Items.Add($line) | Out-Null
+    # Variables tab: refresh phase-referenced + all-vars cache, then
+    # re-render the variables flow panel.
+    $script:_pvd_phaseVars = @(Get-PhaseReferencedVariables -PhaseID $phase.ID)
+    $script:_pvd_allVars   = @(Get-AllProfileVariables)
+    $n = $script:_pvd_phaseVars.Count
+    if ($null -ne $script:tabPhase) {
+        # Tab page text reflects current count for at-a-glance awareness.
+        $tabPhase.TabPages[1].Text = if ($n -eq 0) { "  Values  " } else { "  Values ($n)  " }
     }
-
-    # Copy Values button label reflects how many distinct $VarName
-    # references this phase has. Stays clickable even when zero so the
-    # operator can still open the dialog and toggle "Show all" to access
-    # values not referenced from procedure.csv (since v1.3.0).
-    if ($null -ne $script:btnCopyValues) {
-        $phaseRefs = @(Get-PhaseReferencedVariables -PhaseID $phase.ID)
-        $allVars   = @(Get-AllProfileVariables)
-        $n = $phaseRefs.Count
-        $totalN = $allVars.Count
-        $script:btnCopyValues.Text = if ($n -eq 0) { "Copy Values..." } else { "Copy Values ($n)..." }
-        # Disable only when the entire profile has no resolvable values
-        # for this PC (nothing to show even with Show all on).
-        $script:btnCopyValues.Enabled = ($totalN -gt 0)
-    }
+    Update-PianistVariablesPanel
 
     Update-NavButtons
     Update-StatusBadges
@@ -789,7 +797,6 @@ function Set-AllControlsEnabled {
     if ($null -ne $script:btnRunPhase)    { $script:btnRunPhase.Enabled    = $Enabled }
     if ($null -ne $script:btnScreenshot)  { $script:btnScreenshot.Enabled  = $Enabled }
     if ($null -ne $script:btnPhaseStatus) { $script:btnPhaseStatus.Enabled = $Enabled }
-    if ($null -ne $script:btnCopyValues)  { $script:btnCopyValues.Enabled  = $Enabled }
     if ($null -ne $script:btnPrev)        { $script:btnPrev.Enabled        = $Enabled }
     if ($null -ne $script:btnNext)        { $script:btnNext.Enabled        = $Enabled }
     if ($Enabled) { Update-NavButtons }
@@ -900,10 +907,129 @@ function Show-PhaseStatusDialog {
 }
 
 # ========================================
+# Instruction file parser (since v1.4.0)
+# Parses instructions/<PhaseID>.txt with optional section markers:
+#   [RPA]         - text shown in the "RPA" sub-panel (auto-executed)
+#   [Manual]      - text shown in the "Manual" sub-panel (operator-driven)
+#   [Variables]   - explicit variable names (one per line, or comma/space
+#                   separated); merged with auto-discovered $VarName refs
+#                   from procedure.csv into the Variables tab
+#   [Screenshots] - reference image filenames + optional captions, parsed
+#                   here for forward compat (Phase C will render them)
+#
+# Backward compat: a file with no section markers at all is treated as
+# "all Manual" so existing samples keep working unchanged. Lines before
+# the first marker are appended to Manual leniently.
+# ========================================
+function Parse-PianistInstructionFile {
+    param([string]$Path)
+    $result = [PSCustomObject]@{
+        RPA         = ''
+        Manual      = ''
+        Variables   = @()
+        Screenshots = @()
+    }
+    if (-not (Test-Path $Path)) { return $result }
+
+    $raw = $null
+    try {
+        $raw = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+    } catch {
+        $result.Manual = "(failed to read ${Path}: $_)"
+        return $result
+    }
+    if ($null -eq $raw) { $raw = '' }
+
+    $raw = $raw -replace "`r`n", "`n"
+    $raw = $raw -replace "`r", "`n"
+    $lines = $raw -split "`n"
+
+    $sectionLines = @{}
+    $currentSection = $null
+    $hasAnySection = $false
+
+    foreach ($line in $lines) {
+        $tt = $line.Trim()
+        if ($tt -match '^\[([A-Za-z]+)\]$') {
+            $currentSection = $matches[1]
+            $hasAnySection = $true
+            if (-not $sectionLines.ContainsKey($currentSection)) {
+                $sectionLines[$currentSection] = New-Object System.Collections.Generic.List[string]
+            }
+            continue
+        }
+        $bucket = if ($null -eq $currentSection) { '_Pre' } else { $currentSection }
+        if (-not $sectionLines.ContainsKey($bucket)) {
+            $sectionLines[$bucket] = New-Object System.Collections.Generic.List[string]
+        }
+        $sectionLines[$bucket].Add($line)
+    }
+
+    if (-not $hasAnySection) {
+        $result.Manual = ($lines -join "`r`n").TrimEnd()
+        return $result
+    }
+
+    if ($sectionLines.ContainsKey('RPA')) {
+        $result.RPA = ($sectionLines['RPA'] -join "`r`n").Trim()
+    }
+    if ($sectionLines.ContainsKey('Manual')) {
+        $result.Manual = ($sectionLines['Manual'] -join "`r`n").Trim()
+    }
+    # Pre-section text gets folded into Manual (lenient parsing for
+    # authors who put intro lines before any marker).
+    if ($sectionLines.ContainsKey('_Pre')) {
+        $preText = ($sectionLines['_Pre'] -join "`r`n").Trim()
+        if (-not [string]::IsNullOrEmpty($preText)) {
+            $result.Manual = if ([string]::IsNullOrEmpty($result.Manual)) {
+                $preText
+            } else {
+                $preText + "`r`n`r`n" + $result.Manual
+            }
+        }
+    }
+
+    if ($sectionLines.ContainsKey('Variables')) {
+        $names = New-Object System.Collections.Generic.List[string]
+        foreach ($l in $sectionLines['Variables']) {
+            $t = $l.Trim()
+            if ([string]::IsNullOrWhiteSpace($t)) { continue }
+            if ($t.StartsWith('#')) { continue }
+            $tokens = $t -split '[,\s]+' | Where-Object { $_ }
+            foreach ($tok in $tokens) {
+                if ($tok -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+                    $null = $names.Add($tok)
+                }
+            }
+        }
+        $result.Variables = $names.ToArray()
+    }
+
+    if ($sectionLines.ContainsKey('Screenshots')) {
+        $shots = New-Object System.Collections.Generic.List[PSCustomObject]
+        foreach ($l in $sectionLines['Screenshots']) {
+            $t = $l.Trim()
+            if ([string]::IsNullOrWhiteSpace($t)) { continue }
+            if ($t.StartsWith('#')) { continue }
+            if ($t -match '^(\S+)(\s+(.+))?$') {
+                $cap = if ($matches[3]) { $matches[3] } else { '' }
+                $shots.Add([PSCustomObject]@{
+                    File    = $matches[1]
+                    Caption = $cap
+                }) | Out-Null
+            }
+        }
+        $result.Screenshots = $shots.ToArray()
+    }
+
+    return $result
+}
+
+# ========================================
 # Copy Values: per-Phase variable picker (since v1.2.0)
 # Auto-discovers $VarName references in this phase's procedure rows and
-# offers a per-row [Copy] button that places the resolved value (decrypted
-# if ENC:) onto the clipboard.
+# (since v1.4.0) unions with explicit declarations in the [Variables]
+# section of instructions/<PhaseID>.txt.
 # ========================================
 function Get-PhaseReferencedVariables {
     param([string]$PhaseID)
@@ -920,6 +1046,11 @@ function Get-PhaseReferencedVariables {
             }
         }
     }
+
+    # Union with explicit [Variables] declarations from instruction file
+    $instrPath = Join-Path (Join-Path $script:currentProfile.Path "instructions") "$PhaseID.txt"
+    $parsed = Parse-PianistInstructionFile -Path $instrPath
+    foreach ($n in $parsed.Variables) { $null = $names.Add($n) }
 
     $dict = $script:currentProfile.ValuesDict
     $result = @()
@@ -1059,85 +1190,10 @@ function Update-PianistVariablesPanel {
     $script:_pvd_panel.PerformLayout()
 }
 
-function Show-PianistVariablesDialog {
-    param([string]$PhaseID, [string]$PhaseLabel)
-    # @() wrap forces array semantics regardless of element count
-    # (PowerShell auto-unwraps single-element arrays at pipeline boundary).
-    $script:_pvd_phaseVars = @(Get-PhaseReferencedVariables -PhaseID $PhaseID)
-    $script:_pvd_allVars   = @(Get-AllProfileVariables)
-
-    $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Pianist - Copy Values"
-    $dlg.ClientSize = New-Object System.Drawing.Size(600, 460)
-    $dlg.StartPosition = "CenterParent"
-    $dlg.BackColor = $bgPanel
-    $dlg.ForeColor = $fgText
-    $dlg.FormBorderStyle = "FixedDialog"
-    $dlg.MaximizeBox = $false
-    $dlg.MinimizeBox = $false
-    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-
-    $lbl = New-Object System.Windows.Forms.Label
-    $lbl.AutoSize = $false
-    $lbl.Text = "$PhaseID    $PhaseLabel"
-    $lbl.Location = New-Object System.Drawing.Point(16, 12)
-    $lbl.Size = New-Object System.Drawing.Size(560, 24)
-    $lbl.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
-    $lbl.ForeColor = $fgHeader
-    $null = $dlg.Controls.Add($lbl)
-
-    $lbl2 = New-Object System.Windows.Forms.Label
-    $lbl2.AutoSize = $false
-    $lbl2.Text = "Click [Copy] to place the value on the clipboard."
-    $lbl2.Location = New-Object System.Drawing.Point(16, 40)
-    $lbl2.Size = New-Object System.Drawing.Size(560, 20)
-    $lbl2.ForeColor = $fgDim
-    $null = $dlg.Controls.Add($lbl2)
-
-    # Show-all toggle: OFF (default) shows only $VarName references in the
-    # current phase's procedure rows. ON shows every variable in values.csv
-    # resolved for this PC (handy for read-aloud or paste into tools outside
-    # Pianist's automation scope).
-    $cb = New-Object System.Windows.Forms.CheckBox
-    $cb.Text = "Show all values for this PC"
-    $cb.Location = New-Object System.Drawing.Point(16, 66)
-    $cb.Size = New-Object System.Drawing.Size(560, 22)
-    $cb.ForeColor = $fgText
-    $cb.BackColor = $bgPanel
-    $cb.FlatStyle = "Flat"
-    $cb.Checked = $false
-    $null = $dlg.Controls.Add($cb)
-    $script:_pvd_cb = $cb
-
-    # FlowLayoutPanel TopDown so we don't have to manage row Y coordinates.
-    # Each row is a self-contained Panel (built by New-PianistVariableRow)
-    # which avoids Label AutoSize quirks that previously made later rows'
-    # name labels invisible.
-    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
-    $panel.Location = New-Object System.Drawing.Point(16, 92)
-    $panel.Size = New-Object System.Drawing.Size(568, 320)
-    $panel.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
-    $panel.WrapContents = $false
-    $panel.AutoScroll = $true
-    $panel.BackColor = $bgGrid
-    $panel.BorderStyle = "FixedSingle"
-    $null = $dlg.Controls.Add($panel)
-    $script:_pvd_panel = $panel
-
-    $cb.Add_CheckedChanged({ Update-PianistVariablesPanel })
-    Update-PianistVariablesPanel  # initial render
-
-    $btnClose = New-PianistButton -Text "Close" -X 504 -Y 420 -Width 80 -Height 30
-    $script:_pvd_dlg = $dlg
-    $btnClose.Add_Click({ $script:_pvd_dlg.Close() })
-    $null = $dlg.Controls.Add($btnClose)
-
-    [void]$dlg.ShowDialog()
-    $dlg.Dispose()
-    $script:_pvd_panel = $null
-    $script:_pvd_cb    = $null
-    $script:_pvd_dlg   = $null
-}
+# Note: Show-PianistVariablesDialog removed in v1.4.0 — variables are now
+# rendered inline in the Phase view's [Values] tab. Update-PianistVariablesPanel
+# above still drives the rendering, but $script:_pvd_panel and _pvd_cb now
+# point to the tab's controls (set up at form construction time).
 
 # ========================================
 # Profile selection dialog (used when multiple candidates)
@@ -1419,43 +1475,108 @@ $lblPhaseHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $null = $phaseHeaderPanel.Controls.Add($lblPhaseHeader)
 $script:lblPhaseHeader = $lblPhaseHeader
 
-# ---- Instruction text (grows on resize) ----
-$txtInstruction = New-Object System.Windows.Forms.TextBox
-$txtInstruction.Location = New-Object System.Drawing.Point(60, 124)
-$txtInstruction.Size = New-Object System.Drawing.Size(960, 220)
-$txtInstruction.Anchor = "Top,Left,Right,Bottom"
-$txtInstruction.Multiline = $true
-$txtInstruction.ReadOnly = $true
-$txtInstruction.ScrollBars = "Vertical"
-$txtInstruction.WordWrap = $true
-$txtInstruction.BackColor = $bgGrid
-$txtInstruction.ForeColor = $fgText
-$txtInstruction.Font = New-Object System.Drawing.Font("Segoe UI", 11)
-$txtInstruction.BorderStyle = "FixedSingle"
-$null = $form.Controls.Add($txtInstruction)
-$script:txtInstruction = $txtInstruction
+# ---- TabControl: Procedure / Variables (since v1.4.0) ----
+# Replaces the single instruction TextBox + Steps preview ListBox with
+# two tabs: [Procedure] (RPA + Manual sections) and [Values] (Copy values inline).
+$tabPhase = New-Object System.Windows.Forms.TabControl
+$tabPhase.Location = New-Object System.Drawing.Point(60, 124)
+$tabPhase.Size = New-Object System.Drawing.Size(960, 354)
+$tabPhase.Anchor = "Top,Left,Right,Bottom"
+$tabPhase.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$null = $form.Controls.Add($tabPhase)
+$script:tabPhase = $tabPhase
 
-# ---- Steps preview list ----
-$lblStepsHdr = New-Object System.Windows.Forms.Label
-$lblStepsHdr.Text = "Steps in this phase (preview)"
-$lblStepsHdr.Location = New-Object System.Drawing.Point(60, 350)
-$lblStepsHdr.Size = New-Object System.Drawing.Size(400, 18)
-$lblStepsHdr.Anchor = "Bottom,Left"
-$lblStepsHdr.ForeColor = $fgDim
-$null = $form.Controls.Add($lblStepsHdr)
+# === Tab 1: Procedure (RPA + Manual sections) ===
+$tabProc = New-Object System.Windows.Forms.TabPage
+$tabProc.Text = "  Procedure  "
+$tabProc.BackColor = $bgPanel
+$tabProc.UseVisualStyleBackColor = $false
+$tabProc.Padding = New-Object System.Windows.Forms.Padding(8)
+$null = $tabPhase.TabPages.Add($tabProc)
 
-$lstSteps = New-Object System.Windows.Forms.ListBox
-$lstSteps.Location = New-Object System.Drawing.Point(60, 370)
-$lstSteps.Size = New-Object System.Drawing.Size(960, 108)
-$lstSteps.Anchor = "Bottom,Left,Right"
-$lstSteps.BackColor = $bgGrid
-$lstSteps.ForeColor = $fgText
-$lstSteps.Font = New-Object System.Drawing.Font("Consolas", 9)
-$lstSteps.BorderStyle = "FixedSingle"
-$lstSteps.IntegralHeight = $false
-$lstSteps.SelectionMode = "One"
-$null = $form.Controls.Add($lstSteps)
-$script:lstSteps = $lstSteps
+$lblRpaHdr = New-Object System.Windows.Forms.Label
+$lblRpaHdr.AutoSize = $false
+$lblRpaHdr.Text = "  - RPA (auto-executed by Run Phase)"
+$lblRpaHdr.Location = New-Object System.Drawing.Point(0, 0)
+$lblRpaHdr.Size = New-Object System.Drawing.Size(940, 22)
+$lblRpaHdr.Anchor = "Top,Left,Right"
+$lblRpaHdr.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$lblRpaHdr.ForeColor = $fgHeader
+$lblRpaHdr.BackColor = $bgPanel
+$null = $tabProc.Controls.Add($lblRpaHdr)
+
+$txtRpa = New-Object System.Windows.Forms.TextBox
+$txtRpa.Location = New-Object System.Drawing.Point(0, 24)
+$txtRpa.Size = New-Object System.Drawing.Size(940, 130)
+$txtRpa.Anchor = "Top,Left,Right"
+$txtRpa.Multiline = $true
+$txtRpa.ReadOnly = $true
+$txtRpa.ScrollBars = "Vertical"
+$txtRpa.WordWrap = $true
+$txtRpa.BackColor = $bgGrid
+$txtRpa.ForeColor = $fgText
+$txtRpa.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+$txtRpa.BorderStyle = "FixedSingle"
+$null = $tabProc.Controls.Add($txtRpa)
+$script:txtRpa = $txtRpa
+
+$lblManualHdr = New-Object System.Windows.Forms.Label
+$lblManualHdr.AutoSize = $false
+$lblManualHdr.Text = "  - Manual (performed by operator)"
+$lblManualHdr.Location = New-Object System.Drawing.Point(0, 162)
+$lblManualHdr.Size = New-Object System.Drawing.Size(940, 22)
+$lblManualHdr.Anchor = "Top,Left,Right"
+$lblManualHdr.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$lblManualHdr.ForeColor = $fgHeader
+$lblManualHdr.BackColor = $bgPanel
+$null = $tabProc.Controls.Add($lblManualHdr)
+
+$txtManual = New-Object System.Windows.Forms.TextBox
+$txtManual.Location = New-Object System.Drawing.Point(0, 186)
+$txtManual.Size = New-Object System.Drawing.Size(940, 140)
+$txtManual.Anchor = "Top,Left,Right,Bottom"
+$txtManual.Multiline = $true
+$txtManual.ReadOnly = $true
+$txtManual.ScrollBars = "Vertical"
+$txtManual.WordWrap = $true
+$txtManual.BackColor = $bgGrid
+$txtManual.ForeColor = $fgText
+$txtManual.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+$txtManual.BorderStyle = "FixedSingle"
+$null = $tabProc.Controls.Add($txtManual)
+$script:txtManual = $txtManual
+
+# === Tab 2: Values (Variables - Copy Values inline) ===
+$tabVars = New-Object System.Windows.Forms.TabPage
+$tabVars.Text = "  Values  "
+$tabVars.BackColor = $bgPanel
+$tabVars.UseVisualStyleBackColor = $false
+$tabVars.Padding = New-Object System.Windows.Forms.Padding(8)
+$null = $tabPhase.TabPages.Add($tabVars)
+
+$cbShowAll = New-Object System.Windows.Forms.CheckBox
+$cbShowAll.Text = "Show all values for this PC (include vars not referenced by any step)"
+$cbShowAll.Location = New-Object System.Drawing.Point(0, 0)
+$cbShowAll.Size = New-Object System.Drawing.Size(940, 22)
+$cbShowAll.Anchor = "Top,Left,Right"
+$cbShowAll.ForeColor = $fgText
+$cbShowAll.BackColor = $bgPanel
+$cbShowAll.FlatStyle = "Flat"
+$cbShowAll.Checked = $false
+$null = $tabVars.Controls.Add($cbShowAll)
+$script:_pvd_cb = $cbShowAll
+
+$varsFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+$varsFlow.Location = New-Object System.Drawing.Point(0, 28)
+$varsFlow.Size = New-Object System.Drawing.Size(940, 298)
+$varsFlow.Anchor = "Top,Left,Right,Bottom"
+$varsFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+$varsFlow.WrapContents = $false
+$varsFlow.AutoScroll = $true
+$varsFlow.BackColor = $bgGrid
+$varsFlow.BorderStyle = "FixedSingle"
+$null = $tabVars.Controls.Add($varsFlow)
+$script:_pvd_panel = $varsFlow
 
 # ---- Action buttons row ----
 $btnRunPhase = New-PianistButton -Text "Run Phase" -X 72 -Y 492 -Width 180 -Height 36 -BgColor $bgRun -FgColor ([System.Drawing.Color]::White) `
@@ -1476,14 +1597,9 @@ $btnPhaseStatus.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnPhaseStatus)
 $script:btnPhaseStatus = $btnPhaseStatus
 
-# Copy Values: opens a per-Phase variable picker with [Copy] buttons.
-# Label suffix "(N)" reflects how many $VarName references the current
-# phase has - updated in Update-PhaseView.
-$btnCopyValues = New-PianistButton -Text "Copy Values..." -X 608 -Y 492 -Width 160 -Height 36 `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
-$btnCopyValues.Anchor = "Bottom,Left"
-$null = $form.Controls.Add($btnCopyValues)
-$script:btnCopyValues = $btnCopyValues
+# Note: Copy Values button removed in v1.4.0 — variables are now an
+# inline tab in the Phase view ([Values] tab) so there's no need for a
+# button-triggered modal. Keep the action row at 3 buttons for cleaner UX.
 
 # ---- Status badges ----
 $lblAutoStatus = New-Object System.Windows.Forms.Label
@@ -1586,11 +1702,9 @@ $btnPhaseStatus.Add_Click({
     Show-PhaseStatusDialog -PhaseID $phase.ID -PhaseLabel $phase.Label
 })
 
-$btnCopyValues.Add_Click({
-    if ($script:currentPhaseIndex -lt 0 -or $script:currentPhaseIndex -ge $script:phasesOrdered.Count) { return }
-    $phase = $script:phasesOrdered[$script:currentPhaseIndex]
-    Show-PianistVariablesDialog -PhaseID $phase.ID -PhaseLabel $phase.Label
-})
+# Variables tab: refresh on Show-all toggle. Operator's checkbox state
+# persists across Phase navigation (intentional — preference sticks).
+$cbShowAll.Add_CheckedChanged({ Update-PianistVariablesPanel })
 
 $form.Add_FormClosing({
     param($sender, $e)

@@ -16,6 +16,36 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/pianist 1.3.0 → **1.4.0**: 「簡易 RPA + 手順書ハイブリッド」
+  進化計画の **Phase B**。Pianist を業務手順書ビューア + 部分的 RPA
+  ランナーへ進化させる主要刷新。
+    - **instructions/<PhaseID>.txt の section marker** 導入:
+      - `[RPA]` Run Phase で自動実行される操作の説明
+      - `[Manual]` operator が目視 / クリック / 確認で実施する手順
+      - `[Variables]` この Phase で Copy Values に出したい変数を明示宣言
+        (procedure.csv の `$VarName` 自動抽出と union される)
+      - `[Screenshots]` 見本画像参照 (parser のみ実装、表示は次版で)
+      - 後方互換: marker のないプレーンテキストファイルは全文を Manual として表示
+      - `[RPA]` が無い場合は procedure.csv の Step 一覧を fallback 表示
+    - **Phase view を TabControl 化** ([Procedure] / [Values] の 2 タブ):
+      - [Procedure] タブ: 上段 "RPA" (auto-executed by Run Phase) +
+        下段 "Manual" (performed by operator) の 2 段組テキスト表示
+      - [Values] タブ: Show-all トグル + Copy Values 行の inline 表示。
+        v1.3.0 のモーダルダイアログを廃し、Phase view 内で完結
+      - タブ見出し "Values (N)" の N は参照変数の数を反映
+    - **アクションボタン行から `[Copy Values...]` を撤去**: Values タブが
+      代替するため不要に
+    - **Steps preview ListBox を撤去**: [RPA] section の operator 視点
+      テキストが代替し、技術的な Step 列挙は不要に。Step 一覧の確認は
+      [RPA] section 未記載時の fallback 表示として保持
+    - **Show-PianistVariablesDialog 削除**: Values タブで完全代替
+    - **`Parse-PianistInstructionFile` 新設**: section marker 対応の
+      パーサ。lenient parsing (section marker 前の text は Manual に
+      append、未知 section は無視)
+    - **Get-PhaseReferencedVariables 拡張**: `[Variables]` section 由来
+      の宣言と auto-discovered の union を返す
+    - サンプル profile 2 件 (notepad / kintone) を新形式に移行
+    - 公開 API への影響なし、kernel 改修不要
 - modules/extended/pianist 1.2.0 → **1.3.0**: Copy Values ダイアログに
   **Show all values トグル**を追加（Phase A 拡張）。
     - ダイアログ上部の `[Show all values for this PC]` チェックボックス

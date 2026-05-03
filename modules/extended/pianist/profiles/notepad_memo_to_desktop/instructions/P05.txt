@@ -1,14 +1,13 @@
-P05: Notepad を終了
-
+[RPA]
 Alt+F4 で notepad ウィンドウを閉じます。
 P04 で保存済みなので未保存ダイアログは出ない想定。
 
-[Run Phase] を押すと:
+実行内容:
   1. メモ帳にフォーカス
   2. Alt+F4 を送信
 
-期待される結果:
-notepad ウィンドウが閉じる。Pianist 自身は引き続き動作。
+[Manual]
+notepad ウィンドウが閉じることを確認します。Pianist 自身は引き続き動作。
 
 すべての Phase が OK であれば、[Phase Status...] で
 各 Phase に OK マークを残し、セッション終了。

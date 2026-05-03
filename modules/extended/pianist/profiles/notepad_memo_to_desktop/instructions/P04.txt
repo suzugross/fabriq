@@ -1,5 +1,4 @@
-P04: デスクトップへ保存
-
+[RPA]
 Ctrl+S で「名前を付けて保存」ダイアログを開き、
 $SavePath ("%USERPROFILE%\Desktop\fabriq_memo.txt") を
 ファイル名フィールドに貼り付けて保存します。
@@ -10,17 +9,16 @@ $SavePath ("%USERPROFILE%\Desktop\fabriq_memo.txt") を
 - 既に同名ファイルがあると上書き確認ダイアログが出る
   → Phase は Alt+Y を送って "はい" を選ぶ
 - ダイアログが出ない初回保存時、Alt+Y は notepad のメニューに
-  当たることがあるが副作用は通常無し（メニュー閉じるだけ）
+  当たることがあるが副作用は通常無し (メニュー閉じるだけ)
 
-[Run Phase] を押すと:
-  1. メモ帳にフォーカス（Pianist 起動時のフォーカス奪い対策）
+実行内容:
+  1. メモ帳にフォーカス (Pianist 起動時のフォーカス奪い対策)
   2. Ctrl+S
   3. 名前を付けて保存ダイアログを最大 5 秒待機
   4. $SavePath を Paste、Enter
   5. 上書き確認に Alt+Y
   6. エビデンス Screenshot
 
-期待される結果:
-%USERPROFILE%\Desktop\fabriq_memo.txt が作成される。
+[Manual]
+%USERPROFILE%\Desktop\fabriq_memo.txt が作成されていることを確認します。
 完了後はエクスプローラで Desktop を開いて目視確認するのが安全。
-（Tools > Shortcuts > Open Desktop からも開ける）

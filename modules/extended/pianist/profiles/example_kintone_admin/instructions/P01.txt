@@ -1,7 +1,17 @@
-P01: 管理コンソールを開く
-
+[RPA]
 values.csv の $TenantUrl で指定された管理画面 URL を
 既定ブラウザで開きます。
 
-実運用では Studio で values.csv を編集し、
-$TenantUrl を実テナントの管理画面 URL に書き換えてください。
+実行内容:
+  1. $TenantUrl を Open (既定ブラウザに引き渡し)
+  2. ブラウザのウィンドウタイトルに "Kintone" を含むまで最大 15 秒待機
+  3. 描画安定のため 1.5 秒待機
+
+[Manual]
+ブラウザに kintone のログイン画面が表示されることを確認します。
+
+実運用では Studio で values.csv を編集し、$TenantUrl を実テナントの
+管理画面 URL に書き換えてください。
+
+[Variables]
+TenantUrl
