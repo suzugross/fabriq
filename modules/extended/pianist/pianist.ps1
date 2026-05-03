@@ -777,14 +777,26 @@ function Update-PhaseView {
         Set-PianistTextBoxText -TextBox $script:txtManual -Text $parsed.Manual
     }
 
-    # Variables tab: refresh phase-referenced + all-vars cache, then
+    # Samples tab: reflect parsed [Samples] section count and rebuild
+    # thumbnails (since v1.5.0). Named "Samples" rather than "Screenshots"
+    # to avoid confusion with operator-captured screenshots (procedure.csv
+    # Screenshot column / Capture-ScreenEvidence output) — these are
+    # author-supplied reference images.
+    $script:_ssh_currentShots = @($parsed.Samples)
+    $shotN = $script:_ssh_currentShots.Count
+    if ($null -ne $script:tabPhase) {
+        $tabPhase.TabPages[1].Text = if ($shotN -eq 0) { "  Samples  " } else { "  Samples ($shotN)  " }
+    }
+    Update-PianistScreenshotsPanel
+
+    # Values tab: refresh phase-referenced + all-vars cache, then
     # re-render the variables flow panel.
     $script:_pvd_phaseVars = @(Get-PhaseReferencedVariables -PhaseID $phase.ID)
     $script:_pvd_allVars   = @(Get-AllProfileVariables)
     $n = $script:_pvd_phaseVars.Count
     if ($null -ne $script:tabPhase) {
         # Tab page text reflects current count for at-a-glance awareness.
-        $tabPhase.TabPages[1].Text = if ($n -eq 0) { "  Values  " } else { "  Values ($n)  " }
+        $tabPhase.TabPages[2].Text = if ($n -eq 0) { "  Values  " } else { "  Values ($n)  " }
     }
     Update-PianistVariablesPanel
 
@@ -914,8 +926,9 @@ function Show-PhaseStatusDialog {
 #   [Variables]   - explicit variable names (one per line, or comma/space
 #                   separated); merged with auto-discovered $VarName refs
 #                   from procedure.csv into the Variables tab
-#   [Screenshots] - reference image filenames + optional captions, parsed
-#                   here for forward compat (Phase C will render them)
+#   [Samples]     - reference image filenames + optional captions for the
+#                   Samples tab (author-supplied visuals, distinct from
+#                   operator-captured screenshots)
 #
 # Backward compat: a file with no section markers at all is treated as
 # "all Manual" so existing samples keep working unchanged. Lines before
@@ -927,7 +940,7 @@ function Parse-PianistInstructionFile {
         RPA         = ''
         Manual      = ''
         Variables   = @()
-        Screenshots = @()
+        Samples     = @()
     }
     if (-not (Test-Path $Path)) { return $result }
 
@@ -1005,9 +1018,9 @@ function Parse-PianistInstructionFile {
         $result.Variables = $names.ToArray()
     }
 
-    if ($sectionLines.ContainsKey('Screenshots')) {
+    if ($sectionLines.ContainsKey('Samples')) {
         $shots = New-Object System.Collections.Generic.List[PSCustomObject]
-        foreach ($l in $sectionLines['Screenshots']) {
+        foreach ($l in $sectionLines['Samples']) {
             $t = $l.Trim()
             if ([string]::IsNullOrWhiteSpace($t)) { continue }
             if ($t.StartsWith('#')) { continue }
@@ -1019,7 +1032,7 @@ function Parse-PianistInstructionFile {
                 }) | Out-Null
             }
         }
-        $result.Screenshots = $shots.ToArray()
+        $result.Samples = $shots.ToArray()
     }
 
     return $result
@@ -1194,6 +1207,167 @@ function Update-PianistVariablesPanel {
 # rendered inline in the Phase view's [Values] tab. Update-PianistVariablesPanel
 # above still drives the rendering, but $script:_pvd_panel and _pvd_cb now
 # point to the tab's controls (set up at form construction time).
+
+# ========================================
+# Screenshots tab (since v1.5.0 / Phase C)
+# Renders reference images listed in instructions/<PhaseID>.txt's
+# [Samples] section as thumbnails. Click any thumbnail to open a
+# zoomed modal viewer. Images are loaded from <profile>/screenshots/.
+# Missing files render as a "(missing)" placeholder so authors notice.
+# ========================================
+function Show-PianistImageViewer {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+
+    $img = $null
+    try {
+        # Stream-then-clone so the viewer doesn't keep the source file
+        # locked for the lifetime of the window.
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        $ms    = New-Object System.IO.MemoryStream(,$bytes)
+        $img   = [System.Drawing.Image]::FromStream($ms)
+    } catch {
+        Write-PianistLog "Image load failed: $Path - $_" "ERROR"
+        return
+    }
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Pianist - " + [System.IO.Path]::GetFileName($Path)
+    $dlg.ClientSize = New-Object System.Drawing.Size(960, 720)
+    $dlg.MinimumSize = New-Object System.Drawing.Size(400, 300)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.BackColor = $bgDark
+    $dlg.ForeColor = $fgText
+    $dlg.FormBorderStyle = "Sizable"
+    $dlg.MaximizeBox = $true
+    # Owner relationship keeps the viewer floating above the main Pianist
+    # form AND tying its lifecycle to the parent (auto-closed when Pianist
+    # exits), without blocking the parent like ShowDialog would.
+    if ($null -ne $script:_pianistMainForm) {
+        $dlg.Owner = $script:_pianistMainForm
+    }
+
+    $pb = New-Object System.Windows.Forms.PictureBox
+    $pb.Dock = "Fill"
+    $pb.SizeMode = "Zoom"
+    $pb.Image = $img
+    $pb.BackColor = $bgDark
+    $null = $dlg.Controls.Add($pb)
+
+    # Modeless: dispose image + form on close so the operator can keep
+    # Pianist usable (Run Phase, navigate, etc.) while reviewing the
+    # screenshot side-by-side.
+    $dlg.Add_FormClosed({
+        param($s, $e)
+        try {
+            foreach ($c in $s.Controls) {
+                if ($c -is [System.Windows.Forms.PictureBox] -and $null -ne $c.Image) {
+                    $tmp = $c.Image
+                    $c.Image = $null
+                    $tmp.Dispose()
+                }
+            }
+        } catch {}
+        try { $s.Dispose() } catch {}
+    })
+
+    $dlg.Show()
+}
+
+function New-PianistScreenshotThumbnail {
+    param(
+        [PSCustomObject]$Shot,
+        [string]$ProfilePath
+    )
+
+    $card = New-Object System.Windows.Forms.Panel
+    $card.Size = New-Object System.Drawing.Size(300, 220)
+    $card.Margin = New-Object System.Windows.Forms.Padding(6)
+    $card.BackColor = $bgGrid
+    $card.BorderStyle = "FixedSingle"
+
+    $imagePath = Join-Path (Join-Path $ProfilePath "screenshots") $Shot.File
+    $imageExists = Test-Path $imagePath
+
+    $pb = New-Object System.Windows.Forms.PictureBox
+    $pb.Size = New-Object System.Drawing.Size(296, 170)
+    $pb.Location = New-Object System.Drawing.Point(0, 0)
+    $pb.SizeMode = "Zoom"
+    $pb.BackColor = $bgDark
+    if ($imageExists) {
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($imagePath)
+            $ms    = New-Object System.IO.MemoryStream(,$bytes)
+            $pb.Image = [System.Drawing.Image]::FromStream($ms)
+            $pb.Cursor = [System.Windows.Forms.Cursors]::Hand
+        } catch {
+            $imageExists = $false
+        }
+    }
+    if ($imageExists) {
+        $pb.Tag = $imagePath
+        $pb.Add_Click({ Show-PianistImageViewer -Path $this.Tag })
+    }
+    $null = $card.Controls.Add($pb)
+
+    $cap = New-Object System.Windows.Forms.Label
+    $cap.AutoSize = $false
+    $cap.Size = New-Object System.Drawing.Size(296, 46)
+    $cap.Location = New-Object System.Drawing.Point(0, 172)
+    $cap.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $cap.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    $cap.BackColor = $bgGrid
+    if ($imageExists) {
+        $cap.ForeColor = $fgText
+        if ($Shot.Caption) {
+            $cap.Text = $Shot.File + "`r`n" + $Shot.Caption
+        } else {
+            $cap.Text = $Shot.File
+        }
+    } else {
+        $cap.ForeColor = $fgDim
+        $cap.Text = "(missing) " + $Shot.File
+    }
+    $null = $card.Controls.Add($cap)
+
+    return $card
+}
+
+function Update-PianistScreenshotsPanel {
+    if ($null -eq $script:_ssh_panel) { return }
+    $script:_ssh_panel.SuspendLayout()
+
+    # Dispose old thumbnail images so files don't stay locked.
+    foreach ($card in @($script:_ssh_panel.Controls)) {
+        foreach ($child in @($card.Controls)) {
+            if ($child -is [System.Windows.Forms.PictureBox] -and $null -ne $child.Image) {
+                $img = $child.Image
+                $child.Image = $null
+                try { $img.Dispose() } catch {}
+            }
+        }
+    }
+    $script:_ssh_panel.Controls.Clear()
+
+    $shots = $script:_ssh_currentShots
+    if ($null -eq $shots -or @($shots).Count -eq 0) {
+        $emptyLbl = New-Object System.Windows.Forms.Label
+        $emptyLbl.AutoSize = $false
+        $emptyLbl.Text = "(No [Samples] entries in this phase's instruction file. Add a [Samples] section listing reference images, and drop the image files into <profile>/screenshots/.)"
+        $emptyLbl.Margin = New-Object System.Windows.Forms.Padding(8)
+        $emptyLbl.Size = New-Object System.Drawing.Size(900, 60)
+        $emptyLbl.ForeColor = $fgDim
+        $null = $script:_ssh_panel.Controls.Add($emptyLbl)
+    } else {
+        foreach ($s in $shots) {
+            $thumb = New-PianistScreenshotThumbnail -Shot $s -ProfilePath $script:currentProfile.Path
+            $null = $script:_ssh_panel.Controls.Add($thumb)
+        }
+    }
+
+    $script:_ssh_panel.ResumeLayout($true)
+    $script:_ssh_panel.PerformLayout()
+}
 
 # ========================================
 # Profile selection dialog (used when multiple candidates)
@@ -1380,6 +1554,10 @@ $form.StartPosition = "CenterScreen"
 $form.BackColor = $bgDark
 $form.ForeColor = $fgText
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+# Tracked at script scope so Show-PianistImageViewer can set the
+# modeless viewer's Owner = main form (auto-close on Pianist exit,
+# floats above without blocking).
+$script:_pianistMainForm = $form
 
 # ---- Top bar (Y=0, H=64) ----
 $topBar = New-Object System.Windows.Forms.Panel
@@ -1546,7 +1724,41 @@ $txtManual.BorderStyle = "FixedSingle"
 $null = $tabProc.Controls.Add($txtManual)
 $script:txtManual = $txtManual
 
-# === Tab 2: Values (Variables - Copy Values inline) ===
+# === Tab 2: Samples (since v1.5.0 / Phase C) ===
+# Renders thumbnails for the [Samples] section of the current phase's
+# instruction file. Click any thumbnail to open a zoomed modeless viewer.
+# Named "Samples" to distinguish author-supplied reference images from
+# operator-captured evidence screenshots.
+$tabShots = New-Object System.Windows.Forms.TabPage
+$tabShots.Text = "  Samples  "
+$tabShots.BackColor = $bgPanel
+$tabShots.UseVisualStyleBackColor = $false
+$tabShots.Padding = New-Object System.Windows.Forms.Padding(8)
+$null = $tabPhase.TabPages.Add($tabShots)
+
+$lblShotsHint = New-Object System.Windows.Forms.Label
+$lblShotsHint.AutoSize = $false
+$lblShotsHint.Text = "Reference images for this phase (click a thumbnail to enlarge)."
+$lblShotsHint.Location = New-Object System.Drawing.Point(0, 0)
+$lblShotsHint.Size = New-Object System.Drawing.Size(940, 22)
+$lblShotsHint.Anchor = "Top,Left,Right"
+$lblShotsHint.ForeColor = $fgDim
+$lblShotsHint.BackColor = $bgPanel
+$null = $tabShots.Controls.Add($lblShotsHint)
+
+$shotsFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+$shotsFlow.Location = New-Object System.Drawing.Point(0, 28)
+$shotsFlow.Size = New-Object System.Drawing.Size(940, 298)
+$shotsFlow.Anchor = "Top,Left,Right,Bottom"
+$shotsFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$shotsFlow.WrapContents = $true
+$shotsFlow.AutoScroll = $true
+$shotsFlow.BackColor = $bgGrid
+$shotsFlow.BorderStyle = "FixedSingle"
+$null = $tabShots.Controls.Add($shotsFlow)
+$script:_ssh_panel = $shotsFlow
+
+# === Tab 3: Values (Variables - Copy Values inline) ===
 $tabVars = New-Object System.Windows.Forms.TabPage
 $tabVars.Text = "  Values  "
 $tabVars.BackColor = $bgPanel

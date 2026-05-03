@@ -1,21 +1,21 @@
-﻿PhaseID,PhaseLabel,Color,StepNo,Action,Value,Wait,Note,Screenshot
-P01,Open Run dialog,Blue,1,Open,shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0},,Open Run dialog (Win+R equivalent via shell namespace),
-P01,Open Run dialog,Blue,2,WaitWin,ファイル名を指定して実行,5000,Wait until the Run dialog is visible,
-P01,Open Run dialog,Blue,3,Wait,300,,Settle,
-P02,Launch notepad,Green,1,AppFocus,ファイル名を指定して実行,300,Focus the Run dialog (steal focus back from Pianist),
-P02,Launch notepad,Green,2,Type,notepad,400,Type the program name,
-P02,Launch notepad,Green,3,Key,{ENTER},,Submit Run,
-P02,Launch notepad,Green,4,WaitWin,メモ帳,8000,Wait for Notepad window,
-P02,Launch notepad,Green,5,Wait,500,,Settle,
-P03,Write memo,Yellow,1,AppFocus,メモ帳,400,Focus Notepad (steal focus back from Pianist),
-P03,Write memo,Yellow,2,Paste,$Message,500,Insert message via clipboard (Japanese-safe),
-P03,Write memo,Yellow,3,Screenshot,memo_written,,Capture evidence after writing memo,
-P04,Save to Desktop,Cyan,1,AppFocus,メモ帳,300,Focus Notepad (steal focus back from Pianist - REQUIRED),
-P04,Save to Desktop,Cyan,2,Key,^s,800,Open Save As dialog (Ctrl+S),
-P04,Save to Desktop,Cyan,3,WaitWin,名前を付けて保存,5000,Wait for Save As dialog,
-P04,Save to Desktop,Cyan,4,Paste,$SavePath,500,Paste full path - Notepad expands %USERPROFILE%,
-P04,Save to Desktop,Cyan,5,Key,{ENTER},1500,Submit save,
-P04,Save to Desktop,Cyan,6,Key,%y,500,Confirm overwrite if prompted (Alt+Y - harmless if no dialog),
-P04,Save to Desktop,Cyan,7,Screenshot,memo_saved,,Capture evidence after save,
-P05,Close notepad,Gray,1,AppFocus,メモ帳,300,Focus Notepad (steal focus back from Pianist),
-P05,Close notepad,Gray,2,Key,%{F4},,Close Notepad with Alt+F4,
+﻿PhaseID,PhaseLabel,Color,StepNo,Action,Value,Wait,Note
+P01,Open Run dialog,Blue,1,Open,shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0},,Open Run dialog (Win+R equivalent via shell namespace)
+P01,Open Run dialog,Blue,2,WaitWin,ファイル名を指定して実行,5000,Wait until the Run dialog is visible
+P01,Open Run dialog,Blue,3,Wait,300,,Settle
+P02,Launch notepad,Green,1,AppFocus,ファイル名を指定して実行,300,Focus the Run dialog (steal focus back from Pianist)
+P02,Launch notepad,Green,2,Type,notepad,400,Type the program name
+P02,Launch notepad,Green,3,Key,{ENTER},,Submit Run
+P02,Launch notepad,Green,4,WaitWin,メモ帳,8000,Wait for Notepad window
+P02,Launch notepad,Green,5,Wait,500,,Settle
+P03,Write memo,Yellow,1,AppFocus,メモ帳,400,Focus Notepad (steal focus back from Pianist)
+P03,Write memo,Yellow,2,Paste,$Message,500,Insert message via clipboard (Japanese-safe)
+P03,Write memo,Yellow,3,Screenshot,memo_written,,Capture evidence after writing memo
+P04,Save to Desktop,Cyan,1,AppFocus,メモ帳,300,Focus Notepad (steal focus back from Pianist - REQUIRED)
+P04,Save to Desktop,Cyan,2,Key,^s,800,Open Save As dialog (Ctrl+S)
+P04,Save to Desktop,Cyan,3,WaitWin,名前を付けて保存,5000,Wait for Save As dialog
+P04,Save to Desktop,Cyan,4,Paste,$SavePath,500,Paste full path - Notepad expands %USERPROFILE%
+P04,Save to Desktop,Cyan,5,Key,{ENTER},1500,Submit save
+P04,Save to Desktop,Cyan,6,Key,%y,500,Confirm overwrite if prompted (Alt+Y - harmless if no dialog)
+P04,Save to Desktop,Cyan,7,Screenshot,memo_saved,,Capture evidence after save
+P05,Close notepad,Gray,1,AppFocus,メモ帳,300,Focus Notepad (steal focus back from Pianist)
+P05,Close notepad,Gray,2,Key,%{F4},,Close Notepad with Alt+F4

@@ -41,7 +41,9 @@ modules/extended/pianist/profiles/<profile_name>/
   shortcuts.csv      : 起動先ショートカット集 (v1.0 では参照のみ、UI 側未実装)
   instructions/      : Phase 手順テキスト
     <PhaseID>.txt    : 手順説明 (since v1.4.0 section marker 対応)
-  screenshots/       : procedure.csv の Screenshot Step 用エビデンス置き場
+  screenshots/       : [Samples] section が参照する見本画像置き場
+                       (Screenshot アクションのエビデンス出力先ではなく、
+                        author 提供の参照画像用)
 
 ■ instructions/<PhaseID>.txt の section format (since v1.4.0)
 各 Phase の手順テキストを section marker で区切れる:
@@ -60,9 +62,13 @@ modules/extended/pianist/profiles/<profile_name>/
   AdminUser, AdminPass
   LicenseKey
 
-  [Screenshots]
-  # 見本画像ファイル名 (空白区切りで任意のキャプション)
-  # 表示は v1.5.0 以降で実装予定 (v1.4.0 では parser のみ)
+  [Samples]
+  # author 提供の見本画像ファイル名 (空白区切りで任意のキャプション)
+  # since v1.5.0: [Samples] タブにサムネイル表示、クリックで拡大ビューワ
+  # 画像ファイルは <profile>/screenshots/ 配下に配置すること
+  # ※ Screenshot アクション (operator 実行時のエビデンス自動撮影) や
+  #    Capture-ScreenEvidence 出力とは別概念。author 側で事前に置く
+  #    「こういう画面が出たら成功」「ここをクリック」等の参考画像。
   before.png  パスワード変更画面の初期状態
   after.png   変更完了後の画面
 
@@ -115,7 +121,9 @@ hostlist.csv と同じ「1 行 = 1 ホスト、列 = 変数」の縦横配置。
   Value       : アクション引数 ($VarName で values.csv の値に展開)
   Wait        : Step 完了後の追加待機 (ms)。WaitWin では timeout
   Note        : Step preview とログに表示するメモ
-  Screenshot  : screenshots/ 配下の参照画像ファイル名 (任意)
+  ※ v1.0 にあった `Screenshot` 列は v1.5.0 で撤去 (vestigial、コードから
+    一度も参照されなかったため)。Phase 単位の見本画像参照は
+    instructions/<PhaseID>.txt の [Samples] section を使う
 
 ■ アクション 10 種
   Open         : URL / exe / ms-settings: などを既定で起動
@@ -155,15 +163,24 @@ AppFocus を置いてください。
      - [Run Phase]      : Phase の全 Step を順次実行
      - [Screenshot]     : 手動でエビデンスを取得
      - [Phase Status]   : OK / Warning / Error / Skip + Note を記録
-     画面中央の TabControl (since v1.4.0):
-     - [Procedure] タブ : RPA (上段、auto-executed by Run Phase) +
-                          Manual (下段、performed by operator) の 2 段組表示。
-                          instructions/<PhaseID>.txt の [RPA] / [Manual]
-                          section を解釈して section ごとに描画
-     - [Values] タブ    : この Phase の参照変数 + [Show all] トグル時は
-                          全変数。各行の [Copy] ボタンで値 (ENC: 復号後) を
-                          クリップボードへ転送。タブ見出し "Values (N)" の
-                          N は参照変数の数
+     画面中央の TabControl (since v1.4.0、3 タブ構成 since v1.5.0):
+     - [Procedure]   タブ: RPA (上段、auto-executed by Run Phase) +
+                           Manual (下段、performed by operator) の 2 段組表示。
+                           instructions/<PhaseID>.txt の [RPA] / [Manual]
+                           section を解釈して section ごとに描画
+     - [Samples] タブ    : author 提供の見本画像サムネイル一覧 (since v1.5.0)。
+                           クリックで原寸ズーム表示ビューワをモードレス
+                           で開く (Pianist 本体は引き続き操作可能)。
+                           画像ソースは <profile>/screenshots/ フォルダ、
+                           参照は instructions/<PhaseID>.txt の [Samples]
+                           section。タブ見出し "Samples (N)" の N は当該
+                           Phase の見本画像数。画像欠損時は
+                           "(missing) <filename>" の placeholder で表示。
+                           operator が撮るエビデンスとは別概念
+     - [Values]      タブ: この Phase の参照変数 + [Show all] トグル時は
+                           全変数。各行の [Copy] ボタンで値 (ENC: 復号後) を
+                           クリップボードへ転送。タブ見出し "Values (N)" の
+                           N は参照変数の数
   6. 最後の Phase で > が "Done" ボタンに変化
   7. Done を押すと kernel に ModuleResult を返却
      -> 通常モジュールと同じく実行履歴 / HTML チェックリスト /
