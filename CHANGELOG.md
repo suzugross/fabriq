@@ -16,6 +16,43 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/pianist 1.4.0 → **1.5.0**: 「簡易 RPA + 手順書ハイブリッド」
+  進化計画の **Phase C**。見本画像表示機能を追加し、3 タブ構成
+  (Procedure / Samples / Values) が完成。
+    - Phase view に **[Samples] タブ**を新設 (Procedure と Values の間)。
+      タブ名は "Screenshots" を避けて **Samples** とすることで、author
+      提供の見本画像と operator が撮るエビデンス (procedure.csv の
+      Screenshot 列 / Capture-ScreenEvidence 出力) を意味的に分離
+    - instructions/<PhaseID>.txt の `[Samples]` section に列挙された
+      画像ファイルを `<profile>/screenshots/` から読み込み、サムネイル
+      (300×220 のカード型 Panel、PictureBox + caption Label) を
+      `FlowLayoutPanel` LeftToRight + WrapContents で並べる
+    - サムネイルクリックで `Show-PianistImageViewer` を起動。
+      `PictureBox.SizeMode=Zoom` で原寸ズーム表示、リサイズ可。
+      **モードレス**で開くため、ビューワを開いたまま Pianist 本体の
+      Run Phase / Phase 移動 / Copy Values 等が継続操作可能。
+      `Owner = main form` 関係で main form の上に常時 float +
+      Pianist 終了時に自動 close
+    - 複数枚の見本画像を同時に開いて並べて参照する運用も可
+    - 画像読込は `[System.IO.File]::ReadAllBytes` → `MemoryStream` →
+      `Image.FromStream` 経由でファイルロックを残さない方式
+    - 画像欠損時は `(missing) <filename>` placeholder + dim 色で表示
+    - `[Samples]` セクションが空または無い場合は "no entries"
+      ヒントメッセージで誘導
+    - タブ見出し "Samples (N)" の N は当該 Phase の見本画像数
+    - パネル更新時に古い PictureBox.Image を Dispose() してから Clear、
+      ファイルハンドルリーク防止
+    - `Show-PianistImageViewer` / `New-PianistScreenshotThumbnail` /
+      `Update-PianistScreenshotsPanel` 新設
+    - サンプル profile の screenshots/ 配下バイナリは非含 (各案件で
+      画像を配置する想定)
+    - **procedure.csv の `Screenshot` 列を撤去** (v1.0 設計で実装が
+      間に合わず vestigial 化していた optional 列、コードからの参照
+      ゼロ)。Phase 単位の見本画像参照は新設の `[Samples]` section に
+      統一。サンプル profile 2 件の procedure.csv を 9 列 → 8 列へ
+      更新。後方互換シムは設けないが、既存 profile に Screenshot 列
+      が残っていても Pianist は無視するため runtime での実害なし
+    - 公開 API への影響なし、kernel 改修不要
 - modules/extended/pianist 1.3.0 → **1.4.0**: 「簡易 RPA + 手順書ハイブリッド」
   進化計画の **Phase B**。Pianist を業務手順書ビューア + 部分的 RPA
   ランナーへ進化させる主要刷新。
@@ -24,7 +61,7 @@
       - `[Manual]` operator が目視 / クリック / 確認で実施する手順
       - `[Variables]` この Phase で Copy Values に出したい変数を明示宣言
         (procedure.csv の `$VarName` 自動抽出と union される)
-      - `[Screenshots]` 見本画像参照 (parser のみ実装、表示は次版で)
+      - `[Samples]` 見本画像参照 (parser のみ実装、表示は次版で)
       - 後方互換: marker のないプレーンテキストファイルは全文を Manual として表示
       - `[RPA]` が無い場合は procedure.csv の Step 一覧を fallback 表示
     - **Phase view を TabControl 化** ([Procedure] / [Values] の 2 タブ):
