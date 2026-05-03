@@ -765,6 +765,21 @@ function Update-PhaseView {
         $script:lstSteps.Items.Add($line) | Out-Null
     }
 
+    # Copy Values button label reflects how many distinct $VarName
+    # references this phase has. Stays clickable even when zero so the
+    # operator can still open the dialog and toggle "Show all" to access
+    # values not referenced from procedure.csv (since v1.3.0).
+    if ($null -ne $script:btnCopyValues) {
+        $phaseRefs = @(Get-PhaseReferencedVariables -PhaseID $phase.ID)
+        $allVars   = @(Get-AllProfileVariables)
+        $n = $phaseRefs.Count
+        $totalN = $allVars.Count
+        $script:btnCopyValues.Text = if ($n -eq 0) { "Copy Values..." } else { "Copy Values ($n)..." }
+        # Disable only when the entire profile has no resolvable values
+        # for this PC (nothing to show even with Show all on).
+        $script:btnCopyValues.Enabled = ($totalN -gt 0)
+    }
+
     Update-NavButtons
     Update-StatusBadges
 }
@@ -774,6 +789,7 @@ function Set-AllControlsEnabled {
     if ($null -ne $script:btnRunPhase)    { $script:btnRunPhase.Enabled    = $Enabled }
     if ($null -ne $script:btnScreenshot)  { $script:btnScreenshot.Enabled  = $Enabled }
     if ($null -ne $script:btnPhaseStatus) { $script:btnPhaseStatus.Enabled = $Enabled }
+    if ($null -ne $script:btnCopyValues)  { $script:btnCopyValues.Enabled  = $Enabled }
     if ($null -ne $script:btnPrev)        { $script:btnPrev.Enabled        = $Enabled }
     if ($null -ne $script:btnNext)        { $script:btnNext.Enabled        = $Enabled }
     if ($Enabled) { Update-NavButtons }
@@ -881,6 +897,246 @@ function Show-PhaseStatusDialog {
     Update-StatusBadges
     # Manual change may unlock the > / Done button
     Update-NavButtons
+}
+
+# ========================================
+# Copy Values: per-Phase variable picker (since v1.2.0)
+# Auto-discovers $VarName references in this phase's procedure rows and
+# offers a per-row [Copy] button that places the resolved value (decrypted
+# if ENC:) onto the clipboard.
+# ========================================
+function Get-PhaseReferencedVariables {
+    param([string]$PhaseID)
+    if ($null -eq $script:currentProfile) { return @() }
+
+    $names = New-Object System.Collections.Generic.HashSet[string]
+    $regex = [regex]'\$([A-Za-z_][A-Za-z0-9_]*)'
+    foreach ($step in $script:currentProfile.Procedure) {
+        if ($step.PhaseID -ne $PhaseID) { continue }
+        foreach ($field in @($step.Value, $step.Note)) {
+            if ([string]::IsNullOrEmpty($field)) { continue }
+            foreach ($m in $regex.Matches($field)) {
+                $null = $names.Add($m.Groups[1].Value)
+            }
+        }
+    }
+
+    $dict = $script:currentProfile.ValuesDict
+    $result = @()
+    foreach ($n in ($names | Sort-Object)) {
+        $resolved = $dict.ContainsKey($n)
+        $val      = if ($resolved) { [string]$dict[$n] } else { '' }
+        $result  += [PSCustomObject]@{
+            Name     = $n
+            Value    = $val
+            Resolved = $resolved
+        }
+    }
+    # Plain return - callers must wrap with @() if they need guaranteed
+    # array semantics for 1-element results. The ,$result trick was
+    # avoided because it interacts poorly with @() at the call site
+    # (collapses N-element results to a single outer wrap).
+    return $result
+}
+
+# Returns every variable in values.csv that resolves to a value for the
+# current PC (including * fallback). Used by the "Show all" toggle in the
+# Copy Values dialog so operators can grab values that aren't referenced
+# from procedure.csv (e.g. read-aloud serials, side info to paste into
+# tools outside Pianist's automation scope).
+function Get-AllProfileVariables {
+    if ($null -eq $script:currentProfile) { return @() }
+    $dict = $script:currentProfile.ValuesDict
+    if ($null -eq $dict -or $dict.Count -eq 0) { return @() }
+
+    $result = @()
+    foreach ($name in ($dict.Keys | Sort-Object)) {
+        $result += [PSCustomObject]@{
+            Name     = $name
+            Value    = [string]$dict[$name]
+            Resolved = $true
+        }
+    }
+    return $result
+}
+
+# Builds the variable rows inside the dialog's scrolling panel.
+# Called both at initial render and on Show-all toggle changes.
+# Build a single variable row as a self-contained Panel. Using a container
+# Panel per row (rather than absolute-positioning labels onto the outer
+# scrollable Panel) avoids Label AutoSize / repaint quirks that caused
+# 2nd-and-later name labels to disappear in absolute-positioned rendering.
+function New-PianistVariableRow {
+    param([PSCustomObject]$Var)
+
+    $row = New-Object System.Windows.Forms.Panel
+    $row.Size = New-Object System.Drawing.Size(548, 36)
+    $row.Margin = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+    $row.BackColor = $bgGrid
+
+    $nameLbl = New-Object System.Windows.Forms.Label
+    $nameLbl.AutoSize = $false
+    $nameLbl.Size = New-Object System.Drawing.Size(140, 28)
+    $nameLbl.Location = New-Object System.Drawing.Point(4, 4)
+    $nameLbl.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+    $nameLbl.ForeColor = $fgHeader
+    $nameLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    $nameLbl.Text = '$' + $Var.Name
+    $null = $row.Controls.Add($nameLbl)
+
+    $valLbl = New-Object System.Windows.Forms.Label
+    $valLbl.AutoSize = $false
+    $valLbl.Size = New-Object System.Drawing.Size(320, 28)
+    $valLbl.Location = New-Object System.Drawing.Point(148, 4)
+    $valLbl.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $valLbl.AutoEllipsis = $true
+    $valLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    if ($Var.Resolved) {
+        $valLbl.ForeColor = $fgText
+        $valLbl.Text = $Var.Value
+    } else {
+        $valLbl.ForeColor = $fgDim
+        $valLbl.Text = "(undefined - not in values.csv)"
+    }
+    $null = $row.Controls.Add($valLbl)
+
+    $copyBtn = New-PianistButton -Text "Copy" -X 472 -Y 4 -Width 70 -Height 28
+    if (-not $Var.Resolved) { $copyBtn.Enabled = $false }
+    # Bind the row's data via Tag so each button reads from itself
+    # (PowerShell closures capture by ref otherwise -> all buttons would
+    # copy the last loop iteration's value).
+    $copyBtn.Tag = [PSCustomObject]@{ Name = $Var.Name; Value = $Var.Value }
+    $copyBtn.Add_Click({
+        $tag = $this.Tag
+        try {
+            if ([string]::IsNullOrEmpty($tag.Value)) {
+                [System.Windows.Forms.Clipboard]::Clear()
+            } else {
+                [System.Windows.Forms.Clipboard]::SetText($tag.Value)
+            }
+            Write-PianistLog ("Copied `${0} to clipboard" -f $tag.Name) "OK"
+        } catch {
+            Write-PianistLog ("Copy failed for `${0}: {1}" -f $tag.Name, $_) "ERROR"
+        }
+    })
+    $null = $row.Controls.Add($copyBtn)
+
+    return $row
+}
+
+function Update-PianistVariablesPanel {
+    if ($null -eq $script:_pvd_panel) { return }
+    $script:_pvd_panel.SuspendLayout()
+    $script:_pvd_panel.Controls.Clear()
+
+    $vars = if ($script:_pvd_cb.Checked) {
+        $script:_pvd_allVars
+    } else {
+        $script:_pvd_phaseVars
+    }
+    $emptyMsg = if ($script:_pvd_cb.Checked) {
+        "(No values defined for this PC in values.csv)"
+    } else {
+        "(No `$VarName references in this phase's procedure rows. Toggle 'Show all' to see every value defined for this PC.)"
+    }
+
+    if (@($vars).Count -eq 0) {
+        $emptyLbl = New-Object System.Windows.Forms.Label
+        $emptyLbl.AutoSize = $false
+        $emptyLbl.Text = $emptyMsg
+        $emptyLbl.Margin = New-Object System.Windows.Forms.Padding(8, 8, 8, 8)
+        $emptyLbl.Size = New-Object System.Drawing.Size(540, 60)
+        $emptyLbl.ForeColor = $fgDim
+        $null = $script:_pvd_panel.Controls.Add($emptyLbl)
+    } else {
+        foreach ($v in $vars) {
+            $row = New-PianistVariableRow -Var $v
+            $null = $script:_pvd_panel.Controls.Add($row)
+        }
+    }
+
+    $script:_pvd_panel.ResumeLayout($true)
+    $script:_pvd_panel.PerformLayout()
+}
+
+function Show-PianistVariablesDialog {
+    param([string]$PhaseID, [string]$PhaseLabel)
+    # @() wrap forces array semantics regardless of element count
+    # (PowerShell auto-unwraps single-element arrays at pipeline boundary).
+    $script:_pvd_phaseVars = @(Get-PhaseReferencedVariables -PhaseID $PhaseID)
+    $script:_pvd_allVars   = @(Get-AllProfileVariables)
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Pianist - Copy Values"
+    $dlg.ClientSize = New-Object System.Drawing.Size(600, 460)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.BackColor = $bgPanel
+    $dlg.ForeColor = $fgText
+    $dlg.FormBorderStyle = "FixedDialog"
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.AutoSize = $false
+    $lbl.Text = "$PhaseID    $PhaseLabel"
+    $lbl.Location = New-Object System.Drawing.Point(16, 12)
+    $lbl.Size = New-Object System.Drawing.Size(560, 24)
+    $lbl.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $lbl.ForeColor = $fgHeader
+    $null = $dlg.Controls.Add($lbl)
+
+    $lbl2 = New-Object System.Windows.Forms.Label
+    $lbl2.AutoSize = $false
+    $lbl2.Text = "Click [Copy] to place the value on the clipboard."
+    $lbl2.Location = New-Object System.Drawing.Point(16, 40)
+    $lbl2.Size = New-Object System.Drawing.Size(560, 20)
+    $lbl2.ForeColor = $fgDim
+    $null = $dlg.Controls.Add($lbl2)
+
+    # Show-all toggle: OFF (default) shows only $VarName references in the
+    # current phase's procedure rows. ON shows every variable in values.csv
+    # resolved for this PC (handy for read-aloud or paste into tools outside
+    # Pianist's automation scope).
+    $cb = New-Object System.Windows.Forms.CheckBox
+    $cb.Text = "Show all values for this PC"
+    $cb.Location = New-Object System.Drawing.Point(16, 66)
+    $cb.Size = New-Object System.Drawing.Size(560, 22)
+    $cb.ForeColor = $fgText
+    $cb.BackColor = $bgPanel
+    $cb.FlatStyle = "Flat"
+    $cb.Checked = $false
+    $null = $dlg.Controls.Add($cb)
+    $script:_pvd_cb = $cb
+
+    # FlowLayoutPanel TopDown so we don't have to manage row Y coordinates.
+    # Each row is a self-contained Panel (built by New-PianistVariableRow)
+    # which avoids Label AutoSize quirks that previously made later rows'
+    # name labels invisible.
+    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $panel.Location = New-Object System.Drawing.Point(16, 92)
+    $panel.Size = New-Object System.Drawing.Size(568, 320)
+    $panel.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+    $panel.WrapContents = $false
+    $panel.AutoScroll = $true
+    $panel.BackColor = $bgGrid
+    $panel.BorderStyle = "FixedSingle"
+    $null = $dlg.Controls.Add($panel)
+    $script:_pvd_panel = $panel
+
+    $cb.Add_CheckedChanged({ Update-PianistVariablesPanel })
+    Update-PianistVariablesPanel  # initial render
+
+    $btnClose = New-PianistButton -Text "Close" -X 504 -Y 420 -Width 80 -Height 30
+    $script:_pvd_dlg = $dlg
+    $btnClose.Add_Click({ $script:_pvd_dlg.Close() })
+    $null = $dlg.Controls.Add($btnClose)
+
+    [void]$dlg.ShowDialog()
+    $dlg.Dispose()
+    $script:_pvd_panel = $null
+    $script:_pvd_cb    = $null
+    $script:_pvd_dlg   = $null
 }
 
 # ========================================
@@ -1220,6 +1476,15 @@ $btnPhaseStatus.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnPhaseStatus)
 $script:btnPhaseStatus = $btnPhaseStatus
 
+# Copy Values: opens a per-Phase variable picker with [Copy] buttons.
+# Label suffix "(N)" reflects how many $VarName references the current
+# phase has - updated in Update-PhaseView.
+$btnCopyValues = New-PianistButton -Text "Copy Values..." -X 608 -Y 492 -Width 160 -Height 36 `
+    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
+$btnCopyValues.Anchor = "Bottom,Left"
+$null = $form.Controls.Add($btnCopyValues)
+$script:btnCopyValues = $btnCopyValues
+
 # ---- Status badges ----
 $lblAutoStatus = New-Object System.Windows.Forms.Label
 $lblAutoStatus.Text = "  Auto: -"
@@ -1319,6 +1584,12 @@ $btnPhaseStatus.Add_Click({
     if ($script:currentPhaseIndex -lt 0 -or $script:currentPhaseIndex -ge $script:phasesOrdered.Count) { return }
     $phase = $script:phasesOrdered[$script:currentPhaseIndex]
     Show-PhaseStatusDialog -PhaseID $phase.ID -PhaseLabel $phase.Label
+})
+
+$btnCopyValues.Add_Click({
+    if ($script:currentPhaseIndex -lt 0 -or $script:currentPhaseIndex -ge $script:phasesOrdered.Count) { return }
+    $phase = $script:phasesOrdered[$script:currentPhaseIndex]
+    Show-PianistVariablesDialog -PhaseID $phase.ID -PhaseLabel $phase.Label
 })
 
 $form.Add_FormClosing({

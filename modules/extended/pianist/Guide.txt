@@ -118,9 +118,18 @@ AppFocus を置いてください。
   3. fabriq の確認ダイアログで [Y] を押して GUI を開く
   4. 左右の <, > ボタンで Phase を行き来する
   5. 各 Phase 画面で:
-     - [Run Phase]    : Phase の全 Step を順次実行
-     - [Screenshot]   : 手動でエビデンスを取得
-     - [Phase Status] : OK / Warning / Error / Skip + Note を記録
+     - [Run Phase]      : Phase の全 Step を順次実行
+     - [Screenshot]     : 手動でエビデンスを取得
+     - [Phase Status]   : OK / Warning / Error / Skip + Note を記録
+     - [Copy Values...] : (since v1.2.0) この Phase で参照される変数を一覧表示。
+                          各行の [Copy] ボタンで値（ENC: は復号後）を
+                          クリップボードへ転送、target アプリへ paste 可能。
+                          ボタンラベルの (N) は参照変数の数。0 件でも開ける
+                          (since v1.3.0)
+                          ダイアログ上部の [Show all values for this PC]
+                          チェックボックスを ON にすると、Step で参照
+                          されていない値（読み上げ用シリアル / 別アプリで
+                          paste したい設定値など）も含めた全変数を表示
   6. 最後の Phase で > が "Done" ボタンに変化
   7. Done を押すと kernel に ModuleResult を返却
      -> 通常モジュールと同じく実行履歴 / HTML チェックリスト /
