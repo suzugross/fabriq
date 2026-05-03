@@ -361,28 +361,70 @@ function Expand-Variables {
 # Action Executors (10 actions: Open / WaitWin / AppFocus / Type /
 # Key / Wait / Copy / Paste / Screenshot / Prompt)
 # ========================================
+# Invoke an Open step. Three input shapes are supported:
+#   1. URL / shell scheme (https://, ms-settings:, shell:)        - Start-Process direct
+#   2. Quoted path: "C:\path\with space\app.exe" [args...]        - explicit split on closing quote
+#   3. Unquoted path: works for both no-space (legacy) and space-in-path
+#      with no args (resolved via Test-Path -LiteralPath). Unquoted path
+#      with space PLUS args still requires quoting (Windows convention).
 function Invoke-PianistOpen {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    $v = $Value.Trim()
+
+    if ($v -match '^(https?://|ms-settings:|shell:)') {
+        try { $null = Start-Process $v -ErrorAction Stop; return $true }
+        catch { Write-PianistLog "Open failed: $v - $_" "ERROR"; return $false }
+    }
+
+    $filePath  = $null
+    $arguments = ''
+
+    if ($v.StartsWith('"')) {
+        $end = $v.IndexOf('"', 1)
+        if ($end -gt 0) {
+            $filePath  = $v.Substring(1, $end - 1)
+            $arguments = $v.Substring($end + 1).TrimStart()
+        }
+    }
+
+    if ($null -eq $filePath) {
+        if (Test-Path -LiteralPath $v -PathType Leaf) {
+            $filePath  = $v
+            $arguments = ''
+        }
+        elseif ($v -match ' ') {
+            $parts     = $v -split ' ', 2
+            $filePath  = $parts[0]
+            $arguments = $parts[1]
+        }
+        else {
+            $filePath  = $v
+            $arguments = ''
+        }
+    }
+
     try {
-        if ($Value -match "^https?://" -or $Value -match "^ms-settings:" -or $Value -match "^shell:") {
-            $null = Start-Process $Value -ErrorAction Stop
-            return $true
+        if ([string]::IsNullOrEmpty($arguments)) {
+            $null = Start-Process -FilePath $filePath -ErrorAction Stop
+        } else {
+            $null = Start-Process -FilePath $filePath -ArgumentList $arguments -ErrorAction Stop
         }
-        if ($Value -match " ") {
-            $parts = $Value -split " ", 2
-            try {
-                $null = Start-Process -FilePath $parts[0] -ArgumentList $parts[1] -ErrorAction Stop
-            } catch {
-                $null = Start-Process -FilePath "cmd" -ArgumentList "/c start `"`" $($parts[0]) $($parts[1])" -WindowStyle Hidden
-            }
-            return $true
-        }
-        $null = Start-Process $Value -ErrorAction Stop
         return $true
     } catch {
-        Write-PianistLog "Open failed: $Value - $_" "ERROR"
-        return $false
+        # Fallback via cmd /c start (rescues PATH-resolved targets, env vars, etc.)
+        try {
+            $cmdArgs = if ([string]::IsNullOrEmpty($arguments)) {
+                "/c start `"`" `"$filePath`""
+            } else {
+                "/c start `"`" `"$filePath`" $arguments"
+            }
+            $null = Start-Process -FilePath "cmd" -ArgumentList $cmdArgs -WindowStyle Hidden
+            return $true
+        } catch {
+            Write-PianistLog "Open failed: $v - $_" "ERROR"
+            return $false
+        }
     }
 }
 

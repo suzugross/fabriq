@@ -125,6 +125,25 @@
       `Unprotect-FabriqValue` / `$global:FabriqMasterPassphrase` の
       既存契約を消費するのみ）
 
+### Fixed
+- modules/extended/pianist 1.1.0 → **1.1.1**: `Invoke-PianistOpen` が
+  引用符なしでスペースを含む実行ファイルパス（例: `C:\Program Files\
+  Foo\bar.exe`）を渡されると、先頭スペースで split して `C:\Program`
+  を起動しようとし失敗していた問題を修正。
+    - 修正後は `Test-Path -LiteralPath $Value -PathType Leaf` で全体が
+      実在ファイルを指す場合に full path として扱い、引用符なしのスペース
+      入りパスを引数なしで起動できるようになった
+    - 引用符付き（`"path" args` 形式）の解析も明示化（先頭 `"` から対応
+      する閉じ `"` までを FilePath、残りを ArgumentList として剥がす）
+    - **引用符なしパス + 引数あり** のケース（例:
+      `C:\Program Files\app.exe /flag1`）は引き続き Windows 標準慣習
+      どおり引用符必須（破壊的変更を避けるため意図的にスコープ外）
+    - URL / `ms-settings:` / `shell:` 系の分岐は従来通り維持
+    - 既存の `cmd /c start` フォールバックも維持（PATH 解決・環境変数
+      展開の救済として）
+    - Guide.txt の Open アクション節に引用符ルールを追記
+    - 公開 API への影響なし、後方互換完全維持
+
 ### Notes
 - `__PIANIST_to_<profile>__` マーカー追加は不要になった。Pianist は
   通常のモジュールとして Profile CSV の `ScriptPath` 列に

@@ -85,6 +85,12 @@ hostlist.csv と同じ「1 行 = 1 ホスト、列 = 変数」の縦横配置。
 
 ■ アクション 10 種
   Open         : URL / exe / ms-settings: などを既定で起動
+                 (since v1.1.1) パス内のスペースを自動判定し、引数なしで
+                 あれば引用符不要で渡せる:
+                     Open  C:\Program Files\Foo\bar.exe
+                 引数を渡したい場合は Windows 標準慣習どおりパスを引用符
+                 で囲むこと:
+                     Open  "C:\Program Files\Foo\bar.exe" /flag1 /flag2
   WaitWin      : ウィンドウタイトル <Value> を含むものが現れるまで待機
   AppFocus     : ウィンドウタイトル <Value> にフォーカス (必須パターン)
   Type         : SendKeys でテキスト送信 ($VarName 展開)
