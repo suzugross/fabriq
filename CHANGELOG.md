@@ -16,6 +16,43 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/pianist 1.2.0 → **1.3.0**: Copy Values ダイアログに
+  **Show all values トグル**を追加（Phase A 拡張）。
+    - ダイアログ上部の `[Show all values for this PC]` チェックボックス
+      を ON にすると、procedure.csv で参照されていない values.csv 全列も
+      含めて全変数を列挙
+    - Step では使わないが「電話で読み上げる」「別アプリで paste したい」
+      といった用途のコピペ専用変数も values.csv に列を追加するだけで
+      ダイアログから取り出せる
+    - Default OFF（既存挙動：Phase 参照変数のみ）
+    - 副次修正: 2 行目以降の名前ラベルが描画されない問題を修正。原因は
+      Label の AutoSize（default $true）と絶対座標 Panel の組合わせ。
+      defensive な AutoSize=$false 指定でも一部環境で再現したため、
+      ダイアログ内側を **FlowLayoutPanel + 行 Panel container 方式** に
+      refactor（`New-PianistVariableRow` ヘルパ新設、各行を self-contained
+      Panel として構築）。絶対 Y 座標管理を撤廃し、FlowLayoutPanel が
+      自動 stack するので AutoSize / 描画タイミングの影響を受けない
+    - `[Copy Values...]` ボタンは N=0 でも openable に変更（Show all
+      使用のため）。プロファイルが values.csv に何も持たない場合のみ
+      disabled
+    - `Get-AllProfileVariables` / `Update-PianistVariablesPanel` 新設
+- modules/extended/pianist 1.1.1 → **1.2.0**: 各 Phase に **Copy Values
+  ダイアログ**を追加（Phase A: 「簡易 RPA + 手順書ハイブリッド」進化計画
+  の第 1 段階）。
+    - Phase view のアクションボタン行に `[Copy Values (N)...]` ボタンを
+      新設。N は当該 Phase の procedure 行で参照されている `$VarName` の
+      数（自動抽出、0 件なら disabled）
+    - クリックで Copy Values ダイアログがモーダル表示。各変数行に変数名 +
+      解決値（`ENC:` セルは透過復号済み平文）+ `[Copy]` ボタン
+    - `[Copy]` 押下で `[System.Windows.Forms.Clipboard]::SetText()` に
+      値を転送。operator は target アプリへそのまま paste できる
+    - 変数の収集は procedure.csv の現 Phase 行の `Value` / `Note` 列から
+      regex `\$([A-Za-z_][A-Za-z0-9_]*)` で抽出 → values.csv 由来の
+      ValuesDict から解決
+    - values.csv に存在しない変数は `(undefined - not in values.csv)`
+      で表示し Copy ボタン disabled
+    - `Get-PhaseReferencedVariables` / `Show-PianistVariablesDialog` 新設
+    - 既存 profile / Studio / kernel API への影響なし
 - modules/extended/pianist/ (new): **Pianist** v1.0.0 — autokey_template
   の進化版として GUI 設定作業を Profile 単位で実行する extended モジュール。
   業務アプリ等の GUI 操作が必須な設定作業を、Phase x Step マトリクスの
