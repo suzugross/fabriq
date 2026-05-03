@@ -39,9 +39,43 @@ modules/extended/pianist/profiles/<profile_name>/
   procedure.csv      : 操作手続 (Phase x Step マトリクス)
   values.csv         : 設定値プール ($VarName で procedure から参照、wide format)
   shortcuts.csv      : 起動先ショートカット集 (v1.0 では参照のみ、UI 側未実装)
-  instructions/      : Phase 手順テキスト & 参照画像
-    <PhaseID>.txt    : 手順説明 (plain text、画面に表示)
+  instructions/      : Phase 手順テキスト
+    <PhaseID>.txt    : 手順説明 (since v1.4.0 section marker 対応)
   screenshots/       : procedure.csv の Screenshot Step 用エビデンス置き場
+
+■ instructions/<PhaseID>.txt の section format (since v1.4.0)
+各 Phase の手順テキストを section marker で区切れる:
+
+  [RPA]
+  Run Phase で自動実行される操作の説明。
+  手順タブ上段「RPA でやること」に表示される。
+
+  [Manual]
+  operator が目視 / クリック / 確認で実施する手順。
+  手順タブ下段「手動でやること」に表示される。
+
+  [Variables]
+  # この Phase の Copy Values で表示したい変数を明示宣言。
+  # 1 行 1 変数 or 空白 / カンマ区切りで複数列挙可。# はコメント。
+  AdminUser, AdminPass
+  LicenseKey
+
+  [Screenshots]
+  # 見本画像ファイル名 (空白区切りで任意のキャプション)
+  # 表示は v1.5.0 以降で実装予定 (v1.4.0 では parser のみ)
+  before.png  パスワード変更画面の初期状態
+  after.png   変更完了後の画面
+
+後方互換: section marker が **1 つもない** プレーンテキストファイルは
+全文を [Manual] として表示する (v1.3.x 以前のサンプルは無修正で動作)。
+
+[RPA] が無い場合は procedure.csv の Step 一覧を fallback 表示する
+(operator が「Run Phase で何が起きるか」を最低限把握できる)。
+
+[Variables] で宣言された変数は procedure.csv の $VarName 自動抽出と
+union され、Step で使わないが Copy Values で出したい変数 (操作者が
+読み上げる license key、別アプリへ paste する社内連絡先など) を
+明示的に Phase ごとに紐づけられる。
 
 ■ values.csv の構造 (since v1.1.0: wide format)
 hostlist.csv と同じ「1 行 = 1 ホスト、列 = 変数」の縦横配置。
@@ -121,15 +155,15 @@ AppFocus を置いてください。
      - [Run Phase]      : Phase の全 Step を順次実行
      - [Screenshot]     : 手動でエビデンスを取得
      - [Phase Status]   : OK / Warning / Error / Skip + Note を記録
-     - [Copy Values...] : (since v1.2.0) この Phase で参照される変数を一覧表示。
-                          各行の [Copy] ボタンで値（ENC: は復号後）を
-                          クリップボードへ転送、target アプリへ paste 可能。
-                          ボタンラベルの (N) は参照変数の数。0 件でも開ける
-                          (since v1.3.0)
-                          ダイアログ上部の [Show all values for this PC]
-                          チェックボックスを ON にすると、Step で参照
-                          されていない値（読み上げ用シリアル / 別アプリで
-                          paste したい設定値など）も含めた全変数を表示
+     画面中央の TabControl (since v1.4.0):
+     - [Procedure] タブ : RPA (上段、auto-executed by Run Phase) +
+                          Manual (下段、performed by operator) の 2 段組表示。
+                          instructions/<PhaseID>.txt の [RPA] / [Manual]
+                          section を解釈して section ごとに描画
+     - [Values] タブ    : この Phase の参照変数 + [Show all] トグル時は
+                          全変数。各行の [Copy] ボタンで値 (ENC: 復号後) を
+                          クリップボードへ転送。タブ見出し "Values (N)" の
+                          N は参照変数の数
   6. 最後の Phase で > が "Done" ボタンに変化
   7. Done を押すと kernel に ModuleResult を返却
      -> 通常モジュールと同じく実行履歴 / HTML チェックリスト /
