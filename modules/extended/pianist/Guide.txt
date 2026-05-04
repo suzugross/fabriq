@@ -1,7 +1,7 @@
 ■ 概要
 Pianist は、業務アプリ等の GUI 操作が必須な設定作業を、Profile 単位で
 実行する Extended モジュールです。autokey_template の進化版で、
-FrexProfile / Linear 両方のプロファイル経由での実行と、Script Menu
+FlexProfile / Linear 両方のプロファイル経由での実行と、Script Menu
 からの単発実行に対応します。
 
 v0.2.x の app 版は廃止され、本モジュールに統合されました。Profile の

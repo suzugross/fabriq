@@ -57,7 +57,7 @@
 | `$global:FabriqMasterPassphrase` | `string` | マスターパスフレーズ（`Unprotect-FabriqValue` に渡す際などに使用） |
 | `$global:AutoPilotMode` | `bool` | AutoPilot 実行中か |
 | `$global:AutoPilotWaitSec` | `int` | AutoPilot モジュール間ウェイト秒 |
-| `$global:AutoConfirmMode` | `bool` | FrexProfile 単発実行中か（`Confirm-Execution` / `Wait-KeyPress` を短絡。AutoPilot のサブセット動作） |
+| `$global:AutoConfirmMode` | `bool` | FlexProfile 単発実行中か（`Confirm-Execution` / `Wait-KeyPress` を短絡。AutoPilot のサブセット動作） |
 | `$global:FabriqEvidenceBasePath` | `string` | エビデンス保存先ベースパス（サブディレクトリを作る基点） |
 
 **書き込み**: 公開 API として書き込み可能なグローバル変数は `$global:_LastModuleResult`（`New-ModuleResult` 内部で自動更新）のみ。それ以外は読み取り専用。
@@ -93,7 +93,7 @@
 | `Description` | 任意 | 表示・メモ |
 | `Segment` | 任意 | `Import-ModuleCsv` の Segment フィルタ値として渡される |
 | `ErrorMode` | 任意 | AutoPilot 時のエラー処理（空 / `skip` / `retry`） |
-| `Group` | 任意 | FrexProfile dashboard の Groups バーボタンに集約される名前。空文字列はグループ無所属。同一 Group 値の行群を `[Run: <Group>]` ボタンの 1 クリックで `Invoke-BatchExecution` できる。同一 Group 内の Order 順序は保たれる。Linear `[Execute Profile]` は本列を参照しない（無視） |
+| `Group` | 任意 | FlexProfile dashboard の Groups バーボタンに集約される名前。空文字列はグループ無所属。同一 Group 値の行群を `[Run: <Group>]` ボタンの 1 クリックで `Invoke-BatchExecution` できる。同一 Group 内の Order 順序は保たれる。Linear `[Execute Profile]` は本列を参照しない（無視） |
 
 ### 4.2 特殊マーカー
 | マーカー | 動作 |
@@ -207,34 +207,34 @@ formal SemVer の出発点。以下すべて利用可能:
 ### 3.1.0
 
 - **§2 公開グローバル変数に `$global:AutoConfirmMode` 追加**
-  - FrexProfile dashboard の単発実行（`[Run This]`）で `Confirm-Execution` /
+  - FlexProfile dashboard の単発実行（`[Run This]`）で `Confirm-Execution` /
     `Wait-KeyPress` を短絡し、Y/N プロンプトと Press-Enter 待機をスキップする
     flag。AutoPilot のサブセット動作で、AutoPilot の inter-module wait /
     ErrorMode 分岐 / `Show-AutoPilotErrorDialog` は発火しない
   - 通常モジュールスクリプトは本グローバルを参照しない（fabriq 本体が
-    FrexProfile sub-loop 内でのみ立てる、モジュールから見れば読み取り
+    FlexProfile sub-loop 内でのみ立てる、モジュールから見れば読み取り
     専用 flag）。本値を読むモジュールスクリプトを書く場合のみこの版を要求する
-- FrexProfile 機能群の追加: profile CSV を state-aware に部分実行できる
-  GUI（`apps/fabriq_operator/lib/frex_dashboard.ps1`）と関連 sub-loop。
+- FlexProfile 機能群の追加: profile CSV を state-aware に部分実行できる
+  GUI（`apps/fabriq_operator/lib/flex_dashboard.ps1`）と関連 sub-loop。
   公開 API としてはモジュール側に影響なし — Profile CSV スキーマも特殊
-  マーカーも不変。Linear `Execute Profile` 経路は並走運用で従来通り（FrexProfile
+  マーカーも不変。Linear `Execute Profile` 経路は並走運用で従来通り（FlexProfile
   安定後に Linear 撤去予定）
 - 内部実装整理:
   - `resume_state.json` に optional `schemaVersion=2` フィールドを追加
-    （FrexProfile resume が `SelectedOrders` / `ModuleStates` を保持）。
+    （FlexProfile resume が `SelectedOrders` / `ModuleStates` を保持）。
     Linear が書いた v1 ファイルは引き続き読み書き両方で動作（後方互換）
   - `Complete-ProfileExecution` 関数で post-profile pipeline を集約
     （`Invoke-BatchExecution` 末尾と `[cl]` 再生成の重複を解消）
-  - `Invoke-FrexProfileLoop` ヘルパーで FrexProfile sub-loop を一元化
-    （main loop "FrexProfile" action と Frex resume bootstrap の単一の
+  - `Invoke-FlexProfileLoop` ヘルパーで FlexProfile sub-loop を一元化
+    （main loop "FlexProfile" action と Flex resume bootstrap の単一の
     真実の源）
 
 ### 3.2.0
 
 - **§4.1 Profile CSV スキーマに任意列 `Group` 追加（後方互換 / MINOR）**
-  - 同一 `Group` 値の行群を FrexProfile dashboard の Groups バー上の
+  - 同一 `Group` 値の行群を FlexProfile dashboard の Groups バー上の
     `[Run: <Group>]` ボタンで一括実行できる。実行は AutoPilot 挙動 +
-    `-FinalizeOnComplete:$false`（既存 Frex ルール踏襲、完了フェーズは
+    `-FinalizeOnComplete:$false`（既存 Flex ルール踏襲、完了フェーズは
     operator が `[Complete]` で手動）
   - 列は **末尾追加**（CSV ツールの列順依存リスクを最小化）。空文字列
     または列自体の欠落は「グループ無所属」を意味する
@@ -246,8 +246,8 @@ formal SemVer の出発点。以下すべて利用可能:
     される（**literal interpretation**：Group 列が batch を厳密に
     決定する契約）。Operator が RESTART を含めたい場合は明示的に
     Group 値を打つ
-- §6 内部実装に Invoke-FrexProfileLoop の "RunGroup" action / Show-
-  FrexDashboard の Groups バー UI / `_Group` モジュール属性を追加
+- §6 内部実装に Invoke-FlexProfileLoop の "RunGroup" action / Show-
+  FlexDashboard の Groups バー UI / `_Group` モジュール属性を追加
   （いずれもモジュール側からは不可視）
 
 ### 判定ルール
