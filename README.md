@@ -121,7 +121,7 @@ Fabriq Studio を起動し、ワークスペースとして Fabriq フォルダ�
 | ボタン | 動作 |
 |---|---|
 | **Execute Profile** | プロファイル CSV を選択して Linear モードで一括実行 |
-| **Execute (Frex)** | 選択中プロファイルを **FrexProfile** ダッシュボードで開く（状態追跡型・部分実行・後述） |
+| **Execute (Flex)** | 選択中プロファイルを **FlexProfile** ダッシュボードで開く（状態追跡型・部分実行・後述） |
 | **View Details** | 選択中プロファイルの構成モジュールを事前確認 |
 | **Execute** | 個別モジュールをチェック選択して連続実行 |
 | **Open Folder**（Evidence） | エビデンス保存先をエクスプローラで開く |
@@ -159,7 +159,7 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 | `Description` | プロファイル UI 表示用コメント |
 | `Segment` | 同モジュールを設定値別に呼び分ける際のセグメント名（省略可。`_list.csv` 側の `Segment` 列と厳密マッチ） |
 | `ErrorMode` | AutoPilot 実行時のエラー処理ポリシー（省略=ダイアログ確認 / `skip`=自動スキップ / `retry`=最大 5 回自動リトライ） |
-| `Group` | 任意。FrexProfile ダッシュボードの **Groups バー**で `[Run: <Group>]` ボタンとして集約される名前。Linear `[Execute Profile]` は本列を参照しない（kernel 3.2.0 以降） |
+| `Group` | 任意。FlexProfile ダッシュボードの **Groups バー**で `[Run: <Group>]` ボタンとして集約される名前。Linear `[Execute Profile]` は本列を参照しない（kernel 3.2.0 以降） |
 
 **特殊マーカー:**
 
@@ -173,11 +173,11 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 
 > kernel 3.0.0 で旧マーカー `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` を破壊的に削除しました。これらを含む旧プロファイルは graceful degradation（"module not found" 警告として降格、他モジュールの実行は継続）で動作します。
 
-### FrexProfile（状態追跡型実行）
+### FlexProfile（状態追跡型実行）
 
-**FrexProfile** は kernel 3.1.0 で導入された、プロファイルを **state-aware に部分実行**できる WinForms ダッシュボードです。Linear `Execute Profile` の「先頭から末尾まで一気通貫」モデルに対し、Frex は「現セッションで何が成功／失敗／未実行か」を実行履歴から復元してグリッド表示し、operator が任意の組み合わせで段階的に進める運用を可能にします。
+**FlexProfile** は kernel 3.1.0 で導入された、プロファイルを **state-aware に部分実行**できる WinForms ダッシュボードです。Linear `Execute Profile` の「先頭から末尾まで一気通貫」モデルに対し、Flex は「現セッションで何が成功／失敗／未実行か」を実行履歴から復元してグリッド表示し、operator が任意の組み合わせで段階的に進める運用を可能にします。
 
-ダッシュボードの **Profiles** タブで対象プロファイルを選択し、`[Execute (Frex)]` ボタンで起動します。
+ダッシュボードの **Profiles** タブで対象プロファイルを選択し、`[Execute (Flex)]` ボタンで起動します。
 
 | 機能 | 動作 |
 |---|---|
@@ -187,13 +187,13 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 | **`[Run: <Group>]`（Groups バー）** | プロファイル CSV の `Group` 列で集約された行群を 1 クリックで一括実行。Group 跨ぎの `__RESTART__` は当該 Group 実行時にスキップ（literal interpretation） |
 | **`[Select All]` / `[Clear All]`** | bulk-select。`[Select All]` は CSV `Enabled=1` 行のみチェック |
 | **`[Mark as Pending]`（行右クリック）** | 該当行の Status を Pending にリセット（再実行候補に戻す） |
-| **`[Restart Now]`** | プロファイル外から `__RESTART__` を発火。Frex resume 経由で再起動後に自動でダッシュボードへ復帰 |
+| **`[Restart Now]`** | プロファイル外から `__RESTART__` を発火。Flex resume 経由で再起動後に自動でダッシュボードへ復帰 |
 | **`[Complete]`** | finalize phase（HTML チェックリスト生成 + log_uploader）を手動発火。Error / Partial / Pending 行があれば黄色バッジで警告 |
 | **PENDING FINALIZE バッジ** | バッチ実行後 `[Complete]` 未押下のままダッシュボードを離脱しようとすると赤バッジ + 確認ダイアログで警告 |
 
 実行モデルは「**実行 = 常に AutoPilot 挙動 / 完了 = 常に手動**」（kernel 3.1.5 以降）に統一されています。AutoPilot トグルは無く、operator は「どのモジュールを動かすか」だけを意思決定します。完了処理（HTML 生成・log_uploader 発火）は `[Complete]` 押下まで保留されるため、operator が成果物を確認してから明示的に finalize する運用に最適化されています。
 
-Linear 経路（`Execute Profile`）も並走運用しており、従来の「先頭から最後まで自動」フローはそのまま使えます。FrexProfile が安定したのち Linear は撤去予定です。
+Linear 経路（`Execute Profile`）も並走運用しており、従来の「先頭から最後まで自動」フローはそのまま使えます。FlexProfile が安定したのち Linear は撤去予定です。
 
 ## モジュール一覧
 

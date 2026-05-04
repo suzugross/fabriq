@@ -15,7 +15,7 @@ $script:ExecutionResults = @()
 #   Status   : string  - Success / Error / Skipped / Cancelled / Partial
 #   Verified : Nullable[bool] - Post-Apply Verification result, or $null
 #   Message  : string  - module-reported message
-# Consumed by FrexProfile dashboard to flash post-execution state without
+# Consumed by FlexProfile dashboard to flash post-execution state without
 # re-importing execution_history.csv. Reset by Reset-FabriqState.
 $script:LastBatchResults = @()
 
@@ -37,12 +37,12 @@ $script:SessionInfo = $null
 $global:AutoPilotMode = $false
 $global:AutoPilotWaitSec = 3
 
-# AutoConfirm Mode (FrexProfile single-execution only).
+# AutoConfirm Mode (FlexProfile single-execution only).
 # Suppresses Y/N prompts and Wait-KeyPress so a one-click Run-This run
 # completes without blocking. Strictly a subset of AutoPilot: does NOT
 # enable inter-module wait, ErrorMode dispatch, or the
 # Show-AutoPilotErrorDialog retry loop. Set $true only for the duration
-# of one Frex single-module run; reset in finally.
+# of one Flex single-module run; reset in finally.
 $global:AutoConfirmMode = $false
 
 # ========================================
@@ -633,7 +633,7 @@ function Confirm-Execution {
         return $true
     }
 
-    # AutoConfirm: Frex single-execution short-circuit. Mirrors AutoPilot's
+    # AutoConfirm: Flex single-execution short-circuit. Mirrors AutoPilot's
     # Y/N suppression but stays out of AutoPilot's other paths (no
     # inter-module wait, no ErrorMode retry dialog).
     if ($global:AutoConfirmMode) {
@@ -1235,7 +1235,7 @@ function Add-ExecutionResult {
         [Nullable[bool]]$Verified = $null,
         # Profile CSV row Order this result corresponds to. 0 means
         # "no Profile row" (e.g., [RESTART NOW], log uploader, ad-hoc
-        # module runs). Used by FrexProfile dashboard / HTML checklist
+        # module runs). Used by FlexProfile dashboard / HTML checklist
         # for per-row state tracking when multiple Profile rows share
         # the same MenuName.
         [int]$Order = 0
@@ -2041,7 +2041,7 @@ function Export-HtmlChecklist {
                 "Cancelled" { $statusLabel = "Cancel";  $statusClass = "skip";    $skipTotal++ }
                 "Warning"   { $statusLabel = "Warn";    $statusClass = "partial"; $successTotal++ }
                 "Error"     { $statusLabel = "NG";      $statusClass = "ng";      $errorTotal++ }
-                # Pending: explicit status set by FrexProfile [Mark as Pending]
+                # Pending: explicit status set by FlexProfile [Mark as Pending]
                 # action. Counts toward notRunTotal so HTML totals reconcile
                 # with $DefinedModules.Count (otherwise Pending fell into the
                 # default branch with no counter increment, leaving a gap).
@@ -2346,7 +2346,7 @@ $rowsHtml      </tbody>
 }
 
 # ========================================
-# Profile Completion Pipeline (Linear auto-finalize / [cl] regen / Frex Complete)
+# Profile Completion Pipeline (Linear auto-finalize / [cl] regen / Flex Complete)
 # ========================================
 # Single source of truth for the post-profile pipeline:
 #   1. Export execution history CSV into the evidence directory
@@ -2363,7 +2363,7 @@ $rowsHtml      </tbody>
 #              Log upload recorded as ExecutionResult / history entry
 #              ("Log Upload (cl)"), viewer launched BEFORE upload,
 #              "Regenerating..." wording.
-# Frex [Complete] (P5/P7) will use 'Manual'.
+# Flex [Complete] (P5/P7) will use 'Manual'.
 # ========================================
 function Complete-ProfileExecution {
     param(
@@ -2685,14 +2685,14 @@ function Save-ResumeState {
         [int]$ResumeAfterOrder,
         [array]$CompletedModules,
         [datetime]$ProfileStartTime = (Get-Date),
-        # ----- v2 schema fields (FrexProfile) -----
-        # Set ExecutionMode='Frex' (and optionally pass SelectedOrders /
-        # ModuleStates) to emit schemaVersion=2 with Frex-specific fields.
+        # ----- v2 schema fields (FlexProfile) -----
+        # Set ExecutionMode='Flex' (and optionally pass SelectedOrders /
+        # ModuleStates) to emit schemaVersion=2 with Flex-specific fields.
         # Linear callers omit these and the output is byte-for-byte
         # compatible with pre-P4 v1 format (no schemaVersion field).
-        # The reading path (Load-ResumeState) is unchanged in P4 — Frex
+        # The reading path (Load-ResumeState) is unchanged in P4 — Flex
         # resume detection lands in P6.
-        [ValidateSet('Linear','Frex')][string]$ExecutionMode = 'Linear',
+        [ValidateSet('Linear','Flex')][string]$ExecutionMode = 'Linear',
         [int[]]$SelectedOrders = @(),
         [hashtable]$ModuleStates = @{}
     )
@@ -2749,13 +2749,13 @@ function Save-ResumeState {
         }
     }
 
-    # v2 schema additions: only emit when caller declared Frex mode.
+    # v2 schema additions: only emit when caller declared Flex mode.
     # When ExecutionMode='Linear' (default) the output is byte-for-byte
     # compatible with pre-P4 v1 format (no schemaVersion / ExecutionMode
     # / SelectedOrders / ModuleStates fields are written).
-    if ($ExecutionMode -eq 'Frex') {
+    if ($ExecutionMode -eq 'Flex') {
         $state['schemaVersion']  = 2
-        $state['ExecutionMode']  = 'Frex'
+        $state['ExecutionMode']  = 'Flex'
         $state['SelectedOrders'] = @($SelectedOrders)
         $state['ModuleStates']   = $ModuleStates
     }
@@ -3110,7 +3110,7 @@ function Resolve-ProfileModules {
         # _IsCheckedDefault reflecting the original CSV Enabled value.
         # __AUTOPILOT__ / __ASYNC__ markers still require Enabled=1 to
         # take effect, so disabled marker rows do not flip global state.
-        # Consumed by FrexProfile to populate the dashboard with all
+        # Consumed by FlexProfile to populate the dashboard with all
         # rows while preserving CSV-driven default checkbox state.
         [switch]$IncludeDisabled
     )
@@ -3245,13 +3245,13 @@ function Resolve-ProfileModules {
             # Async dispatch flag (sticky after __ASYNC__ marker until end of profile)
             $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
 
-            # Group association (FrexProfile Groups bar). Empty / missing
+            # Group association (FlexProfile Groups bar). Empty / missing
             # column = "no group", row not surfaced as a [Run: <Group>]
             # button. Linear path ignores this attribute entirely.
             $groupValue = if ($entry.PSObject.Properties.Name -contains 'Group') { "$($entry.Group)".Trim() } else { "" }
             $moduleWithOrder | Add-Member -NotePropertyName "_Group" -NotePropertyValue $groupValue
 
-            # Default checkbox state for FrexProfile (only when -IncludeDisabled).
+            # Default checkbox state for FlexProfile (only when -IncludeDisabled).
             # Reflects the CSV's original Enabled value at load time.
             if ($IncludeDisabled) {
                 $moduleWithOrder | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")

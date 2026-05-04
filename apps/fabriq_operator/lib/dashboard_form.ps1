@@ -16,7 +16,7 @@ function Show-OperatorDashboard {
     )
 
     $result = @{
-        Action             = "Quit"          # ExecuteProfile, FrexProfile, ExecuteModules, NewSession, OpenCsvEditor, OpenEvidence, WindowsUpdate, Restart, Refabriq, HistoryExport, RegenerateChecklist, Manifesto, LaunchApp, AppsMode, Quit
+        Action             = "Quit"          # ExecuteProfile, FlexProfile, ExecuteModules, NewSession, OpenCsvEditor, OpenEvidence, WindowsUpdate, Restart, Refabriq, HistoryExport, RegenerateChecklist, Manifesto, LaunchApp, AppsMode, Quit
         ProfilePath        = ""
         ProfileName        = ""
         SelectedModules    = @()
@@ -136,22 +136,22 @@ function Show-OperatorDashboard {
     $tabProfiles.Controls.Add($chkAutoPilot)
 
     # Execute Profile button (Linear path; preserved at original
-    # position for operator muscle memory until the FrexProfile path
+    # position for operator muscle memory until the FlexProfile path
     # is fully validated and Linear is sunset).
     $btnExecProfile = New-StyledButton -Text "Execute Profile" -X 498 -Y 278 -Width 150 -Height 32 -BgColor $script:bgAccent
     $btnExecProfile.Font = $script:fontBold
     $tabProfiles.Controls.Add($btnExecProfile)
 
-    # Execute (Frex) button — FrexProfile state-aware execution.
+    # Execute (Flex) button — FlexProfile state-aware execution.
     # Placed between [View Details] and [Execute Profile] with the
     # success-green accent so the new flexible path is visually
     # distinguishable from the traditional Linear button.
-    $btnExecFrex = New-StyledButton -Text "Execute (Frex)" -X 300 -Y 278 -Width 190 -Height 32 -BgColor $script:bgAdd
-    $btnExecFrex.Font = $script:fontBold
-    $btnExecFrex.ForeColor = $script:fgWhite
-    $tabProfiles.Controls.Add($btnExecFrex)
+    $btnExecFlex = New-StyledButton -Text "Execute (Flex)" -X 300 -Y 278 -Width 190 -Height 32 -BgColor $script:bgAdd
+    $btnExecFlex.Font = $script:fontBold
+    $btnExecFlex.ForeColor = $script:fgWhite
+    $tabProfiles.Controls.Add($btnExecFlex)
 
-    # View Details button (shifted left to make room for Execute (Frex))
+    # View Details button (shifted left to make room for Execute (Flex))
     $btnViewDetails = New-StyledButton -Text "View Details" -X 200 -Y 278 -Width 92 -Height 32
     $tabProfiles.Controls.Add($btnViewDetails)
 
@@ -418,18 +418,18 @@ function Show-OperatorDashboard {
         $form.Close()
     })
 
-    # Execute (Frex) button — opens the FrexProfile state-aware dashboard.
+    # Execute (Flex) button — opens the FlexProfile state-aware dashboard.
     # AutoPilot intentionally does NOT propagate from this dashboard's
-    # checkbox; FrexProfile dashboard has its own AutoPilot toggle that
-    # defaults OFF (per design). main.ps1's "FrexProfile" handler ignores
+    # checkbox; FlexProfile dashboard has its own AutoPilot toggle that
+    # defaults OFF (per design). main.ps1's "FlexProfile" handler ignores
     # $result.AutoPilot.
-    $btnExecFrex.Add_Click({
+    $btnExecFlex.Add_Click({
         if ($profileGrid.SelectedRows.Count -eq 0) {
             [System.Windows.Forms.MessageBox]::Show("Please select a profile.", "fabriq operator", "OK", "Warning") | Out-Null
             return
         }
         $idx = $profileGrid.SelectedRows[0].Index
-        $result.Action = "FrexProfile"
+        $result.Action = "FlexProfile"
         $result.ProfilePath = $profileGrid.Rows[$idx].Cells["FilePath"].Value
         $result.ProfileName = $profileGrid.Rows[$idx].Cells["ProfileName"].Value
         $form.Close()

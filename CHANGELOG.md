@@ -191,6 +191,30 @@
     として配置するのが fabriq の設計哲学に整合。
 
 ### Changed
+- kernel + apps/fabriq_operator: **`FrexProfile` → `FlexProfile` 改名**
+  （コードネーム誤記訂正、由来は "Flexible Profile"）。後方互換は意図的に
+  非対応（"後方互換は不要" との明示指示）。公開 API サーフェス（KERNEL_API.md
+  §1〜§5）への影響はゼロ。touched は内部実装（§6）に区分される識別子・
+  値・UI 文字列のみ:
+    - apps/fabriq_operator/lib/`frex_dashboard.ps1` → `flex_dashboard.ps1`
+      （ファイルリネーム、`fabriq_operator.ps1` の dot-source も追従）
+    - 関数: `Show-FrexDashboard` → `Show-FlexDashboard`,
+      `Invoke-FrexProfileLoop` → `Invoke-FlexProfileLoop`
+    - 文字列値: dashboard 戻り `Action="FrexProfile"` → `"FlexProfile"`,
+      `ValidateSet('Linear','Frex')` → `ValidateSet('Linear','Flex')`,
+      `resume_state.json` の `ExecutionMode='Frex'` → `'Flex'`
+    - 変数: `$isFrexResuming` / `$frexAutoContinue` / `$btnExecFrex` /
+      `$frex` / `$frexState` / `$frexResolved` / `$frexRemaining` 等の
+      内部ローカル変数すべて
+    - UI: フォームタイトル "FrexProfile: ..." → "FlexProfile: ..."、
+      Profiles タブのボタン "Execute (Frex)" → "Execute (Flex)"、
+      MessageBox タイトル群、console 出力 "FrexProfile Resume Detected"
+      等すべて
+    - ドキュメント: README.md / KERNEL_API.md (§2 / §4 / §8 内の解説文)、
+      modules/extended/pianist/Guide.txt の言及
+  CHANGELOG の過去エントリ（kernel 3.1.0〜3.2.2 の "FrexProfile" 表記）は
+  歴史記録としてそのまま保持（Keep a Changelog の精神に沿い、過去事実は
+  改変しない）。
 - modules/extended/pianist/pianist.ps1: 最後の Phase で `Done` ボタン
   のレイアウトが崩れる問題を修正。Anchor=Top,Right,Bottom のボタン
   に `Width=110` を直接代入しても anchor 計算が右側固定を優先して

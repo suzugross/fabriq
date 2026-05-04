@@ -1,5 +1,5 @@
 # ========================================
-# Fabriq Operator - FrexProfile Dashboard
+# Fabriq Operator - FlexProfile Dashboard
 # ========================================
 # Per-module state-aware execution dashboard. Lets the operator
 # selectively re-run modules from a profile while preserving the
@@ -10,7 +10,7 @@
 # Actual execution dispatch happens in main.ps1 (P6 wiring).
 # ========================================
 
-function Show-FrexDashboard {
+function Show-FlexDashboard {
     param(
         [Parameter(Mandatory)][string]$ProfilePath,
         [Parameter(Mandatory)][string]$ProfileName,
@@ -24,7 +24,7 @@ function Show-FrexDashboard {
         [string]$LastFinalizedAt = "",
         # When $true, the header shows a red "PENDING FINALIZE" badge in
         # place of the "Last finalized" line, and [Back] / X-button close
-        # asks for confirmation. Caller (Invoke-FrexProfileLoop) tracks
+        # asks for confirmation. Caller (Invoke-FlexProfileLoop) tracks
         # this flag across dashboard reopens so it persists from batch
         # completion to operator's [Complete] press.
         [bool]$PendingFinalize = $false,
@@ -155,7 +155,7 @@ function Show-FrexDashboard {
     # short-circuit its updateCounters call (which would otherwise fire
     # N times for N rows during a bulk operation). Hashtable is used so
     # event handler scriptblocks can mutate the value via reference.
-    $frexState = @{ BulkUpdating = $false }
+    $flexState = @{ BulkUpdating = $false }
 
     # ----------------------------------------
     # Compute unique groups (preserves CSV appearance order)
@@ -190,13 +190,13 @@ function Show-FrexDashboard {
     # Form scaffold
     # ----------------------------------------
     $form = New-Object System.Windows.Forms.Form
-    Set-FormStyle -Form $form -Title "fabriq - FrexProfile: $ProfileName" -Width 900 -Height $formH
+    Set-FormStyle -Form $form -Title "fabriq - FlexProfile: $ProfileName" -Width 900 -Height $formH
 
     # Header bar
     $headerPanel = New-StyledPanel -X 0 -Y 0 -Width 900 -Height 50 -BgColor $script:bgPanel
     $form.Controls.Add($headerPanel)
 
-    $titleLbl = New-StyledLabel -Text "FrexProfile: $ProfileName" -X 16 -Y 6 -Width 600 -Height 22 -Font $script:fontLarge -FgColor $script:fgWhite
+    $titleLbl = New-StyledLabel -Text "FlexProfile: $ProfileName" -X 16 -Y 6 -Width 600 -Height 22 -Font $script:fontLarge -FgColor $script:fgWhite
     $headerPanel.Controls.Add($titleLbl)
 
     # Header sub-line: Pending Finalize badge (warning) takes precedence
@@ -264,7 +264,7 @@ function Show-FrexDashboard {
                 if ($groupOrders.Count -eq 0) {
                     [System.Windows.Forms.MessageBox]::Show(
                         "No modules in group '$clickedGroup'.",
-                        "FrexProfile",
+                        "FlexProfile",
                         [System.Windows.Forms.MessageBoxButtons]::OK,
                         [System.Windows.Forms.MessageBoxIcon]::Information
                     ) | Out-Null
@@ -374,7 +374,7 @@ function Show-FrexDashboard {
         $verifiedDisplay = if ($null -eq $st.Verified) { "-" }
                            elseif ($st.Verified)      { "PASS" }
                            else                       { "FAIL" }
-        # Initial checkbox state is always unchecked (Frex philosophy:
+        # Initial checkbox state is always unchecked (Flex philosophy:
         # default mode = pick from blank). The CSV's Enabled value is
         # captured into row.Tag.IsCheckedDefault so the AutoPilot toggle
         # can bulk-check Enabled=1 rows on demand without losing the
@@ -608,7 +608,7 @@ function Show-FrexDashboard {
         # During AutoPilot bulk update, suppress per-row counter recompute
         # to avoid N redundant updateCounters firings. The bulk handler
         # calls updateCounters once at its end.
-        if ($frexState.BulkUpdating) { return }
+        if ($flexState.BulkUpdating) { return }
         if ($e.RowIndex -ge 0 -and $grid.Columns[$e.ColumnIndex].Name -eq 'Checked') {
             & $updateCounters
         }
@@ -619,28 +619,28 @@ function Show-FrexDashboard {
     # exclude. Enabled=0 rows stay unchecked unless the operator
     # explicitly checks them.
     $btnSelectAll.Add_Click({
-        $frexState.BulkUpdating = $true
+        $flexState.BulkUpdating = $true
         try {
             foreach ($row in $grid.Rows) {
                 $row.Cells['Checked'].Value = [bool]$row.Tag.IsCheckedDefault
             }
         }
         finally {
-            $frexState.BulkUpdating = $false
+            $flexState.BulkUpdating = $false
         }
         & $updateCounters
     })
 
     # [Clear All] unchecks every row.
     $btnClearAll.Add_Click({
-        $frexState.BulkUpdating = $true
+        $flexState.BulkUpdating = $true
         try {
             foreach ($row in $grid.Rows) {
                 $row.Cells['Checked'].Value = $false
             }
         }
         finally {
-            $frexState.BulkUpdating = $false
+            $flexState.BulkUpdating = $false
         }
         & $updateCounters
     })
@@ -655,7 +655,7 @@ function Show-FrexDashboard {
         if ($checkedOrders.Count -eq 0) {
             [System.Windows.Forms.MessageBox]::Show(
                 "No modules are checked.",
-                "FrexProfile",
+                "FlexProfile",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information
             ) | Out-Null
@@ -718,7 +718,7 @@ function Show-FrexDashboard {
             $msg = ($warnSections -join "`n`n") + "`n`nMark this profile complete and export evidence?"
             $dlg = [System.Windows.Forms.MessageBox]::Show(
                 $msg,
-                "FrexProfile - Complete with issues",
+                "FlexProfile - Complete with issues",
                 [System.Windows.Forms.MessageBoxButtons]::YesNo,
                 [System.Windows.Forms.MessageBoxIcon]::Warning
             )
@@ -732,8 +732,8 @@ function Show-FrexDashboard {
 
     $btnRestartNow.Add_Click({
         $dlg = [System.Windows.Forms.MessageBox]::Show(
-            "Restart the computer now?`n`nFrexProfile state (checkboxes / module status) will be saved and the dashboard will be restored after reboot.",
-            "FrexProfile - Restart Now",
+            "Restart the computer now?`n`nFlexProfile state (checkboxes / module status) will be saved and the dashboard will be restored after reboot.",
+            "FlexProfile - Restart Now",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Question
         )
@@ -768,10 +768,10 @@ function Show-FrexDashboard {
         param($s, $e)
         $isCloseIntent = [string]::IsNullOrEmpty($result.Action) -or $result.Action -eq 'Close'
         if ($isCloseIntent -and $PendingFinalize) {
-            $msg = "Batch results are pending finalize.`n`nPress [Complete] to generate the HTML checklist and upload evidence to log destinations.`n`nLeave the FrexProfile dashboard without finalizing anyway?"
+            $msg = "Batch results are pending finalize.`n`nPress [Complete] to generate the HTML checklist and upload evidence to log destinations.`n`nLeave the FlexProfile dashboard without finalizing anyway?"
             $dlg = [System.Windows.Forms.MessageBox]::Show(
                 $msg,
-                "FrexProfile - Pending Finalize",
+                "FlexProfile - Pending Finalize",
                 [System.Windows.Forms.MessageBoxButtons]::YesNo,
                 [System.Windows.Forms.MessageBoxIcon]::Warning
             )
