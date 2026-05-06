@@ -1,2 +1,0 @@
-﻿NewPCName,TenantUrl,TenantName,AdminUser,AdminPass,NewPass
-*,https://example.cybozu.com/admin,Example Tenant,admin01,changeme-initial,Set-Strong-Password-Here

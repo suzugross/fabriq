@@ -1,5 +1,0 @@
-﻿Label,Type,Path,Args,Note
-管理コンソール,url,https://example.cybozu.com/admin,,Kintone admin console
-ヘルプドキュメント,url,https://jp.cybozu.help/k/ja/admin/,,公式ヘルプ
-Edge を起動,exe,msedge.exe,,空の Edge ウィンドウ
-ネットワーク設定,uri,ms-settings:network-status,,キッティング中のNW確認用
