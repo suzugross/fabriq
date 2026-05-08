@@ -16,6 +16,20 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/evidence_config **1.7.0**: 新規 `evidence_list.csv` で
+  各セクション (§01〜§31 + §8b、計 32 種) の取捨選択が可能に。default-on
+  policy: CSV 不在 / 該当 Id 行不在 / Enabled 不正値はすべて「有効」扱い
+  となり、CSV を編集しない限り従来通り全 32 セクションを収集する非破壊
+  設計。無効化されたセクションは manifest.json で
+  `status="Skipped"` / `reason="Disabled by configuration (evidence_list.csv)"`
+  として記録され、外部 evidence consumer は intrinsic skip (Server-only /
+  バッテリ非搭載 等) と区別可能。EVIDENCE_MANIFEST.md schemaVersion=1
+  維持 (新 enum 値・新必須フィールドなし)。master log には
+  `[Section XX] Title : Skipped (disabled by configuration)` が 1 行
+  グレーで残る。preset.csv 新規追加で Studio 側 `Enabled` 列がドロップ
+  ダウン編集 UI に。`Test-SectionEnabled` / `Write-DisabledSection` の 2
+  ヘルパーをモジュール内に新設 (kernel 改修不要、`REQUIRES_KERNEL=2.0.0`
+  維持)。
 - modules/extended/server_feature_config 新規 **0.1.0**: Windows Server の
   役割・役割サービス・機能 (ServerManager `Install-WindowsFeature`) の
   インストールを CSV マニフェストから一括制御するモジュール。online

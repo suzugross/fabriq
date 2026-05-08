@@ -2,7 +2,23 @@
 PCのシステム情報を収集し、エビデンスとしてテキストファイルおよびCSVに保存します。
 
 ■ 設定ファイル
-設定CSVはありません。
+evidence_list.csv（v1.7.0 以降）
+  各セクションを収集対象とするか個別に有効/無効を切り替えられます。
+  列: Id / Title / Enabled
+  Enabled = 1 で収集、0 で当該セクションをスキップします。
+  default-on policy: CSV不在 / 該当 Id 行が無い / Enabled が空または不正値 の
+  いずれの場合も「有効」として扱います。これにより、CSV を全く編集せずに
+  使う限り従来通り全 32 セクション（§01〜§31 + §8b）が収集されます。
+
+  無効化されたセクションは manifest.json 上で
+    status = "Skipped"
+    reason = "Disabled by configuration (evidence_list.csv)"
+  として記録されるため、外部 evidence consumer はこれを intrinsic skip
+  （Server-only / バッテリ非搭載 等）と区別できます。
+  master log には "[Section XX] Title : Skipped (disabled by configuration)"
+  が 1 行グレーで残ります。
+
+  Studio 側では preset.csv により Enabled 列がドロップダウン編集 UI になります。
 
 ■ 収集される情報
 1. システム基本情報
