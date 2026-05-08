@@ -5,7 +5,7 @@
 #
 # [NOTES]
 # - Requires administrator privileges
-# - Export-WindowsDriver only exports third-party drivers
+# - dism.exe /export-driver only exports third-party drivers
 # - Existing folders are cleared and re-exported
 # ========================================
 
@@ -151,9 +151,17 @@ foreach ($item in $enabledItems) {
         # Create the folder
         New-Item -Path $destPath -ItemType Directory -Force | Out-Null
 
-        # Export drivers
-        Show-Info "Running Export-WindowsDriver..."
-        $null = Export-WindowsDriver -Online -Destination $destPath
+        # Export-WindowsDriver cmdlet fails with SafeHandle null on Server 2022;
+        # dism.exe wraps the same DismApi and produces identical output
+        Show-Info "Running dism.exe /online /export-driver..."
+        $dismOutput = & dism.exe /online /export-driver /destination:"$destPath" 2>&1
+        $dismExitCode = $LASTEXITCODE
+        if ($dismExitCode -ne 0) {
+            $lastMeaningful = $dismOutput |
+                Where-Object { $_ -and ($_.ToString().Trim().Length -gt 0) } |
+                Select-Object -Last 1
+            throw "dism.exe /export-driver exited with code $dismExitCode : $lastMeaningful"
+        }
 
         # Verify the export result
         $infCount = @(Get-ChildItem -Path $destPath -Filter "*.inf" -Recurse -File).Count

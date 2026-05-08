@@ -402,6 +402,28 @@
     - 公開 API への影響なし、後方互換完全維持
 
 ### Fixed
+- modules/standard/driver_config **1.0.0 → 1.0.1**: Windows Server 2022 上で
+  `Export-WindowsDriver -Online` cmdlet が「SafeHandle を Null にすることは
+  できません」エラーで失敗していた問題を修正。
+    - 根本原因: DISM の PowerShell ラッパー (`Microsoft.Dism.Powershell`)
+      が Server 2022 / 2025 SKU で online image の SafeHandle 取得に失敗する
+      既知の不具合（Microsoft 側未修正）。Windows 10 / 11 / Server 2019 では
+      再現しない
+    - 修正方針: cmdlet を `dism.exe /online /export-driver
+      /destination:"<path>"` の直接呼び出しに置換。両者は同一の `DismApi.dll`
+      を経由するため出力フォルダ構造 (`oem<N>.inf_<arch>_<hash>/`) は
+      byte-for-byte 等価。Windows 10 / 11 / Server 2019 環境でのリグレッション
+      なし
+    - エラー検知: `$LASTEXITCODE -ne 0` で throw、既存 try/catch に流入する
+      既存パターンを維持。dism.exe 出力の最終非空行を例外メッセージに含めて
+      ログ追跡性を確保。import 側 (`pnputil` 直叩き) と同じ native exe 直接
+      呼び出しスタイルで揃った
+    - import 側 (`driver_import_config.ps1`) は `pnputil /add-driver
+      "<path>\*.inf" /subdirs /install` で `oem*.inf_*/` を再帰スキャン
+      するため、出力構造が cmdlet 版と等価である本修正の影響をゼロで吸収
+    - Guide.txt の「使用コマンド」「前提条件」「Post-Apply Verification」節を
+      更新。Server 2022 互換性に関する注記を追記
+    - 公開 API への影響なし、後方互換完全維持
 - modules/standard/local_user_config **1.0.0 → 1.1.0**: Profile で
   Segment 別運用（例: `actio.csv` で Order=90 が `Segment=create`、
   Order=130 が `Segment=delete`）を行ったとき、`local_user_list.csv`
