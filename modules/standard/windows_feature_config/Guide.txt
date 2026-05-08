@@ -1,0 +1,195 @@
+﻿■ 概要
+Windows のオプション機能 (Optional Features) を CSV マニフェストに従って
+有効化／無効化するモジュールです。DISM の PowerShell ラッパー
+(Enable-WindowsOptionalFeature / Disable-WindowsOptionalFeature) を内部で
+使用し、稼働中 OS に対するオンライン操作のみを行います。
+
+ユースケース例:
+  ・.NET Framework 3.5 (NetFx3) を業務アプリ用に有効化
+  ・SMB1Protocol / 旧 IE / Windows Media Player の無効化 (官公庁ハードニング)
+  ・TelnetClient / TFTP / Hyper-V / IIS など運用機能の有効化
+
+(オフライン WIM への注入は本モジュールのスコープ外です。tonebender 等の
+イメージ事前準備ツール側で対応してください。)
+
+
+■ 設定ファイル
+
+[windows_feature_list.csv]
+  Enabled               : 有効フラグ (1=実行, 0=スキップ)
+  Action                : Enable / Disable のいずれか
+  FeatureName           : DISM 上の機能名 (例: NetFx3, SMB1Protocol)
+                           列挙: Get-WindowsOptionalFeature -Online
+  IncludeAllSubFeatures : 1 で -All を付与 (Enable 時のみ意味あり、子機能を一括有効化)
+  Source                : sxs パス (NetFx3 等 payload-removed 機能用、5 形式受容)
+  LimitAccess           : Source 設定時のみ意味あり。1 で WU フォールバック禁止
+                           (閉域安全側)、0 で許可。空欄時は 1 (default) 扱い
+  Description           : 表示用説明 (任意)
+  Segment               : Segment フィルタ (任意)
+
+  [記載例]
+  Enabled,Action,FeatureName,IncludeAllSubFeatures,Source,LimitAccess,Description,Segment
+  1,Enable,NetFx3,1,/payload/dotnetfx35,1,Enable .NET 3.5 (module-bundled),closed
+  1,Enable,NetFx3,1,D:\sources\sxs,1,Enable .NET 3.5 (ISO-mounted),
+  1,Enable,NetFx3,1,,,Enable .NET 3.5 via WU,open
+  1,Disable,SMB1Protocol,,,,Disable SMB1,
+  1,Enable,TelnetClient,,,,Telnet client,
+
+
+■ Source パスの 5 形式
+
+CSV の Source 列は以下のいずれかの書式で指定できます。
+
+  形式                       | 解釈                                     | 例
+  ---------------------------|------------------------------------------|-------------------------
+  ドライブレター絶対         | そのまま使用                             | D:\sources\sxs
+  UNC 絶対                   | そのまま使用                             | \\nas\share\sxs
+  /payload/...               | モジュール内 payload/ 以下                | /payload/dotnetfx35
+  \payload\...               | 同上 (Windows 流の \ 起点も許容)         | \payload\dotnetfx35
+  payload\...                | 同上 (leading separator なしも許容)      | payload\dotnetfx35
+  (空欄)                     | -Source を渡さない (Windows Update 経路) | (空)
+
+
+■ payload/ ディレクトリ構造
+
+  windows_feature_config/
+    windows_feature_config.ps1
+    windows_feature_list.csv
+    payload/
+      dotnetfx35/        ← /payload/dotnetfx35 で参照される sxs 配置先
+        (ここに *.cab ファイルを配置)
+
+site 側で sxs を配置する場所です。fabriq 配布時は空フォルダのみ。
+robocopy /E によるオーバーレイ更新では空 template が site の cab を上書き
+削除しないため、operator が staging した payload は更新後も保持されます。
+
+
+■ NetFx3 用 sxs の取得手順 (補助教材)
+
+NetFx3 は default で payload removed 状態のため、有効化には sxs が必要です。
+
+  手順:
+    1. キッティング対象の Windows と同じバージョン・build の Windows ISO を入手
+    2. ISO をマウントもしくは展開
+    3. <マウントドライブ>\sources\sxs\ の中身全体を、本モジュール配下の
+       payload\dotnetfx35\ にコピー (cab ファイルが直下に並ぶ形になる)
+    4. windows_feature_list.csv の Source 列に /payload/dotnetfx35 を指定
+
+  build の確認方法:
+    (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuildNumber
+    ↑ この build 番号と概ね一致する ISO を選ぶ (跨ぐと NG)
+    Win10 / Win11 メジャー違いは確実に NG。
+    同メジャー内で build 違いは多くの場合 OK だが、稀に LCU 段差で fail。
+
+  staging の置き方 2 通り:
+    (a) site 単独で配置 (推奨)
+        operator がインストール media から手で payload\dotnetfx35\ にコピー
+    (b) 配布パッケージに同梱
+        USB / 配布 ISO の時点で payload\dotnetfx35\ に cab を入れて出荷
+        site PC へ展開された時点で常時利用可能になる
+
+  payload を持たない選択肢:
+    Source 列を空欄にすると Windows Update から FoD payload を取得します。
+    開放網サイトでは最も簡便。閉域 (WSUS) サイトでは GPO に阻まれて失敗する
+    のが通常で、その場合は WSUS を一時的にバイパスする運用 (下記) が必要。
+
+
+■ WSUS 環境で WU 経路を許可したい場合 (補助教材)
+
+WSUS が GPO で構成されている環境では、Source 空欄での WU 経由 FoD 取得が
+0x800F0954 でブロックされます。バイパスにはレジストリ設定が必要です。
+
+  HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Servicing
+    RepairContentServerSource = 2 (DWORD)
+    意味: FoD と修復コンテンツのみ WSUS をバイパスして WU から直接取得
+
+本モジュールはこのレジストリを触りません。必要な場合は reg_hklm_config に
+行追加して事前適用してください (関心の分離)。
+
+
+■ 動作の流れ (7 ステップ)
+
+  Step 1   : windows_feature_list.csv 読み込み (Enabled=1 のみ対象)
+  Step 2   : 管理者権限チェック (Test-AdminPrivilege)
+  Step 3   : ドライラン表示 (現在の State + Source パス事前検証)
+             ・[APPLY]               : 変更予定
+             ・[Current]             : 既に目標 state、Step 5 で skip
+             ・[NOT FOUND]           : DISM が認識しない FeatureName
+             ・[NEEDS SOURCE OR WU]  : payload removed + Source 未指定
+             ・[BAD SOURCE]          : Source パスが存在しない or *.cab 不在
+             ・[INVALID]             : Action が Enable/Disable 以外
+  Step 4   : 実行確認 (Y/N、AutoPilot は自動 Y)
+  Step 5   : 各行に DISM cmdlet を呼び出し
+             ・Enable: Enable-WindowsOptionalFeature -Online -NoRestart
+                       [-All] [-Source <path>] [-LimitAccess]
+             ・Disable: Disable-WindowsOptionalFeature -Online -NoRestart
+             ・RestartNeeded=True 戻り値はログのみ (再起動は profile 側責務)
+  Step 5.5 : 適用後の State を読み戻して期待値と比較 (Post-Apply Verification)
+             ・Enable: State ∈ {Enabled, EnablePending} で PASS
+             ・Disable: State ∈ {Disabled, DisablePending,
+                                 DisabledWithPayloadRemoved} で PASS
+             ・全行 PASS なら -Verified $true で New-BatchResult 返却
+  Step 6   : New-BatchResult で集計返却
+
+
+■ 再起動の扱い
+
+本モジュールは常に -NoRestart を付与し、自身で再起動はしません。
+RestartNeeded=True が返った場合はログに記録するのみで、実際の再起動は
+profile 側の __RESTART__ マーカーで明示制御してください。
+NetFx3 のみは通常 RestartNeeded=False (再起動不要)、IIS 系・Hyper-V 系は
+True を返すことが多いです。
+
+
+■ AutoPilot
+
+AutoPilot モードでは Step 4 の確認が自動 Y になります。
+[NEEDS SOURCE OR WU] / [BAD SOURCE] の行も警告表示のまま実行段階に進むため、
+AutoPilot 運用では payload を事前 staging するか、Source 空欄 + WU 経路を
+意図的に選ぶか、いずれかを CSV 設計時点で確定してください。
+
+
+■ Post-Apply Verification
+
+DISM cmdlet 成功後に Get-WindowsOptionalFeature を再実行し、State が
+目標値に到達しているかを 1 行ごとに検証します。
+
+  検証対象: Enabled=1 かつ Action ∈ {Enable, Disable} の全行
+  pending 状態は「適用が受理されたが再起動待ち」として PASS 扱い
+  (hostname_config と同じ方針)
+
+verifyFail=0 かつ verifyPass>0 のとき New-BatchResult に -Verified $true を
+渡し、実行履歴の Verified 列に PASS が記録されます。
+
+
+■ 冪等性
+
+各行の dry-run と実行ループの両方で、現在の State が既に目標値である場合は
+[Current] / Show-Skip 扱いとなります。再実行しても DISM 呼び出しは発生
+しません。
+
+
+■ エラー時のヒント
+
+DISM が "source files could not be found" / 0x800F081F / 0x800F0954 系の
+エラーを返した場合、本モジュールは追加で以下の警告を表示します。
+
+  "For payload-removed features (e.g. NetFx3), point Source to a sources/sxs
+   folder from a Windows ISO matching the running OS build, or clear Source
+   to use Windows Update."
+
+operator はこのヒントを起点に、Source パスの再確認 / build の整合 /
+WSUS バイパス設定 (RepairContentServerSource=2) の判断を行ってください。
+
+
+■ 注意事項
+
+・本モジュールは online (稼働中 OS) のみ対応。offline WIM はスコープ外
+・FeatureName は大文字小文字を区別します (DISM の表記に厳密に一致させる)
+・複数行で同じ FeatureName を指定することは可能ですが、Step 5.5 検証は
+  最後に評価された state を使うため、結果が紛らわしくなります。重複は避ける
+・Source 列のパスはモジュール相対形式を強く推奨 (USB / NAS のドライブ
+  レターはキッティング環境ごとに変わるため、移植性のために /payload/...
+  形式が安全)
+・LimitAccess の default は 1 (閉域安全側)。開放網で WU フォールバックを
+  許容するときは明示的に 0 を書くこと

@@ -1,0 +1,9 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+Action,Enable,有効化
+Action,Disable,無効化
+IncludeAllSubFeatures,1,サブフィーチャ含む
+IncludeAllSubFeatures,0,このフィーチャのみ
+LimitAccess,1,WUフォールバック禁止 (閉域)
+LimitAccess,0,WUフォールバック許可 (開放網)

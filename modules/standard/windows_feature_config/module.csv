@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Windows Feature Config,System,windows_feature_config.ps1,60,1

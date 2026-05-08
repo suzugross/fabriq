@@ -1,0 +1,7 @@
+Enabled,Action,FeatureName,IncludeAllSubFeatures,Source,LimitAccess,Description,Segment
+0,Enable,NetFx3,1,/payload/dotnetfx35,1,Enable .NET Framework 3.5 (module-bundled sxs),
+0,Enable,NetFx3,1,D:\sources\sxs,1,Enable .NET Framework 3.5 (mounted Windows ISO),
+0,Enable,NetFx3,1,,,Enable .NET Framework 3.5 (Windows Update),
+0,Disable,SMB1Protocol,,,,Disable SMB1 protocol (security hardening),
+0,Disable,WindowsMediaPlayer,,,,Remove legacy Windows Media Player,
+0,Enable,TelnetClient,,,,Telnet client for network operations,
