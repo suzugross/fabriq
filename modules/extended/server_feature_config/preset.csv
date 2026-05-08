@@ -1,0 +1,39 @@
+﻿Column,Value,Label
+Enabled,1,有効
+Enabled,0,無効
+IncludeAllSubFeature,1,サブ機能を含める
+IncludeAllSubFeature,0,メイン機能のみ
+IncludeManagementTools,1,管理ツールを含める
+IncludeManagementTools,0,管理ツールを含めない
+Name,AD-Domain-Services,Active Directory ドメイン サービス (AD DS)
+Name,ADCS-Cert-Authority,Active Directory 証明書サービス (AD CS)
+Name,DNS,DNS サーバー
+Name,DHCP,DHCP サーバー
+Name,FS-FileServer,ファイル サーバー
+Name,FS-DFS-Namespace,DFS 名前空間
+Name,FS-DFS-Replication,DFS レプリケーション
+Name,FS-Resource-Manager,ファイル サーバー リソース マネージャー (FSRM)
+Name,FS-iSCSITarget-Server,iSCSI ターゲット サーバー
+Name,FS-NFS-Service,NFS サーバー
+Name,Print-Services,印刷とドキュメント サービス
+Name,Web-Server,Web サーバー (IIS)
+Name,Hyper-V,Hyper-V
+Name,WDS,Windows 配置サービス
+Name,RDS-RD-Server,リモート デスクトップ セッション ホスト
+Name,UpdateServices,Windows Server Update Services (WSUS)
+Name,Windows-Server-Backup,Windows Server バックアップ
+Name,BitLocker,BitLocker ドライブ暗号化
+Name,Failover-Clustering,フェールオーバー クラスタリング
+Name,SNMP-Service,SNMP サービス
+Name,Telnet-Client,Telnet クライアント
+Name,NET-Framework-Features,.NET Framework 3.5 機能
+Name,NET-Framework-45-Features,.NET Framework 4.x 機能
+Name,Multipath-IO,マルチパス I/O (MPIO)
+Name,RSAT-AD-Tools,RSAT - Active Directory 管理ツール
+Name,RSAT-DNS-Server,RSAT - DNS サーバー
+Name,RSAT-DHCP,RSAT - DHCP サーバー
+Name,RSAT-File-Services,RSAT - ファイル サービス管理ツール
+Name,RSAT-Hyper-V-Tools,RSAT - Hyper-V 管理ツール
+Name,RSAT-Clustering,RSAT - フェールオーバー クラスタリング管理
+Name,RSAT-Bitlocker,RSAT - BitLocker パスワード回復ツール
+Name,GPMC,グループ ポリシー管理コンソール

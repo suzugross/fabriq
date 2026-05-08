@@ -1,0 +1,6 @@
+﻿Enabled,Name,IncludeAllSubFeature,IncludeManagementTools,Source,Description,Segment
+0,Web-Server,1,1,,Web サーバー (IIS) 全サブ機能 + 管理ツール,
+0,DNS,0,1,,DNS サーバー + 管理ツール,
+0,Windows-Server-Backup,0,1,,Windows Server バックアップ,
+0,RSAT-AD-Tools,0,1,,RSAT - Active Directory 管理ツール,
+0,DHCP,0,1,\\fileserver\sources\sxs,DHCP サーバー (オフライン媒体使用例),
