@@ -11,8 +11,12 @@ Write-Host ""
 $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
 $userList = Import-ModuleCsv -Path $csvPath
-if ($null -eq $userList -or $userList.Count -eq 0) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
+if ($null -eq $userList) {
+    # PowerShell auto-unwraps @() returned for "Segment 0 match" into $null; treat as empty so host CSV merge can still supply users.
+    if (-not (Test-Path $csvPath)) {
+        return (New-ModuleResult -Status "Error" -Message "local_user_list.csv not found")
+    }
+    $userList = @()
 }
 
 # ========================================
@@ -29,6 +33,12 @@ if ((Test-Path $hostCsvPath) -and -not [string]::IsNullOrWhiteSpace($env:SELECTE
             $userList = @($userList) + @($pcUsers)
         }
     }
+}
+
+if ($userList.Count -eq 0) {
+    Show-Info "No users to delete"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No users to delete")
 }
 
 Show-Info "Loaded $($userList.Count) user definitions"

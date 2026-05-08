@@ -387,6 +387,31 @@
     - Guide.txt の Open アクション節に引用符ルールを追記
     - 公開 API への影響なし、後方互換完全維持
 
+### Fixed
+- modules/standard/local_user_config **1.0.0 → 1.1.0**: Profile で
+  Segment 別運用（例: `actio.csv` で Order=90 が `Segment=create`、
+  Order=130 が `Segment=delete`）を行ったとき、`local_user_list.csv`
+  に該当 Segment 行が無いと `Failed to load local_user_list.csv` で
+  Error 終了していた問題を修正。
+    - 根本原因: `Import-ModuleCsv` は Segment フィルタで 0 件になった
+      場合 `@()` を返すが、PowerShell の collection auto-unwrap により
+      呼び出し側スカラ変数では `$null` に縮退する。これを既存ロジック
+      では「ファイル/列ロード失敗」と区別できず一律 Error 終了していた
+    - 修正方針: `local_user_list.csv` のロードが `$null` でも、ファイル
+      が存在すれば空集合として継続し、`local_user_host_list.csv` 側の
+      合成結果で実行内容を決める。ファイル不在のみ Error 終了
+    - 影響対象: `local_user_config.ps1` (Create) と
+      `local_user_delete.ps1` (Delete) の両方
+    - 副次効果: 「PC 固有単独モード」（base CSV を空にして host_list
+      側だけで作成/削除する運用）が事実上有効化される。Guide.txt の
+      動作モード節に第 3 モードとして追記
+    - エラーステータス挙動の変化: 必須列タイポ等の本質的な CSV 破損は
+      従来 Error 返却 → 修正後は kernel 側 `Show-Error` ログ出力のうえ
+      Skipped 返却に降格。Profile の `ErrorMode=Stop` で停止していた
+      ケースで停止しなくなる点に注意（コンソール/ログでは引き続き赤字
+      で Error メッセージが表示される）
+    - 公開 API への影響なし。kernel 側は無変更
+
 ### Notes
 - `__PIANIST_to_<profile>__` マーカー追加は不要になった。Pianist は
   通常のモジュールとして Profile CSV の `ScriptPath` 列に

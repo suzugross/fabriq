@@ -59,6 +59,16 @@
   local_user_host_list.csv が存在し、かつ SELECTED_NEW_PCNAME と一致する
   行があれば、それらを共通ユーザー一覧に追加して処理します。
 
+  [PC 固有単独モード]
+  local_user_list.csv が空 (ヘッダのみ) または Segment フィルタで全行が
+  対象外となった場合でも、local_user_host_list.csv 側にマッチする行が
+  あればそれだけで処理を続行します。逆に、両側とも 0 行になった場合は
+  Skipped で正常終了します (ファイルそのものが見つからない場合のみ
+  Error 終了)。
+  Profile で create / delete などの Segment 別運用を行うときに、
+  共通ユーザーを置かず PC 個別ユーザーのみを host_list.csv 側で
+  Segment 区別する運用をサポートします。
+
 ■ 動作の流れ
 
   [Create Local Users]
