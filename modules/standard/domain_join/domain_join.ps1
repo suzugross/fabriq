@@ -2,9 +2,6 @@
 # Domain Join Script
 # ========================================
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-
 Show-Info "Executing domain join process..."
 Write-Host ""
 
@@ -30,124 +27,57 @@ $PASS = $domainEntry.'pass'
 $DNS = $domainEntry.'dns'
 
 # ========================================
-# Helper: Show error dialog with input box
-# Returns the text entered in the input box
+# DNS Connectivity Pre-Check (bounded, fail-fast)
 # ========================================
-function Show-ErrorDialog {
-    param(
-        [string]$Title,
-        [string]$Message
-    )
-
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = $Title
-    $form.Size = New-Object System.Drawing.Size(520, 380)
-    $form.StartPosition = "CenterScreen"
-    $form.FormBorderStyle = "FixedDialog"
-    $form.MaximizeBox = $false
-    $form.MinimizeBox = $false
-    $form.TopMost = $true
-
-    $label = New-Object System.Windows.Forms.Label
-    $label.Location = New-Object System.Drawing.Point(20, 20)
-    $label.Size = New-Object System.Drawing.Size(460, 230)
-    $label.Text = $Message
-    $label.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $form.Controls.Add($label)
-
-    $textBox = New-Object System.Windows.Forms.TextBox
-    $textBox.Location = New-Object System.Drawing.Point(20, 260)
-    $textBox.Size = New-Object System.Drawing.Size(340, 25)
-    $form.Controls.Add($textBox)
-
-    $okButton = New-Object System.Windows.Forms.Button
-    $okButton.Location = New-Object System.Drawing.Point(380, 258)
-    $okButton.Size = New-Object System.Drawing.Size(100, 30)
-    $okButton.Text = "Retry"
-    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $form.AcceptButton = $okButton
-    $form.Controls.Add($okButton)
-
-    $form.Add_Shown({ $form.Activate() })
-    $null = $form.ShowDialog()
-
-    return $textBox.Text
-}
-
-# ========================================
-# DNS Connection Check
-# ========================================
+# Single bounded probe instead of Wait-NetworkReady (which blocks
+# indefinitely). On failure we return Error so the FlexProfile dashboard
+# / AutoPilot ErrorMode dispatcher can decide what to do next (retry,
+# skip, or operator dialog).
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host "DNS Connection Check" -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
-Wait-NetworkReady -Target $DNS -PingCount 2
-
+$dnsReachable = Test-Connection -ComputerName $DNS -Count 2 -Quiet -ErrorAction SilentlyContinue
+if (-not $dnsReachable) {
+    Show-Error "DNS unreachable: $DNS"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "DNS unreachable: $DNS")
+}
+Show-Success "DNS reachable: $DNS"
 Write-Host ""
 
 # ========================================
-# Domain Join Loop
+# Domain Join
 # ========================================
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host "Domain Join Process" -ForegroundColor Cyan
+Write-Host "----------------------------------------" -ForegroundColor White
+Write-Host ""
+
+Write-Host "Executing domain join: $DOMAIN / $USER" -ForegroundColor Yellow
+Write-Host ""
+
+# Local Stop preference so Add-Computer's non-terminating errors
+# (DNS resolution failure, auth failure, DC unreachable, etc.) are
+# routed into the catch block.
 $ErrorActionPreference = 'Stop'
 
-while ($true) {
+try {
+    $securePassword = ConvertTo-SecureString $PASS -AsPlainText -Force
+    $credential = New-Object System.Management.Automation.PSCredential($USER, $securePassword)
 
-    # ========================================
-    # Domain Join Process
-    # ========================================
-    Write-Host "----------------------------------------" -ForegroundColor White
-    Write-Host "Domain Join Process" -ForegroundColor Cyan
-    Write-Host "----------------------------------------" -ForegroundColor White
+    Add-Computer -DomainName $DOMAIN -Credential $credential -Force
+
     Write-Host ""
-
-    Write-Host "Executing domain join: $DOMAIN / $USER" -ForegroundColor Yellow
+    Show-Success "Domain join completed"
     Write-Host ""
-
-    try {
-        # Create credentials
-        $securePassword = ConvertTo-SecureString $PASS -AsPlainText -Force
-        $credential = New-Object System.Management.Automation.PSCredential($USER, $securePassword)
-
-        # Join domain
-        Add-Computer -DomainName $DOMAIN -Credential $credential -Force
-
-        Write-Host ""
-        Show-Success "Domain join completed"
-        Write-Host ""
-        return (New-ModuleResult -Status "Success" -Message "Domain join completed")
-    }
-    catch {
-        $errorMsg = $_.Exception.Message
-        Write-Host ""
-        Show-Error "Domain join failed: $errorMsg"
-        Write-Host ""
-
-        $inputText = Show-ErrorDialog -Title "Domain Join Failed" -Message @"
-Domain join failed:
-$errorMsg
-
-Possible causes:
-  - System clock is out of sync with the domain
-  - Computer name already exists in Active Directory
-  - DNS name resolution failure (SRV / A record)
-  - Domain controller is unreachable
-  - Invalid credentials (username / password)
-  - Insufficient permissions to join the domain
-  - Network connectivity issue
-
-Type 'adminstop' to abort and return to main menu.
-"@
-
-        if ($inputText -eq "adminstop") {
-            Show-Info "Aborted by administrator (adminstop)"
-            return (New-ModuleResult -Status "Error" -Message "Domain join failed (aborted by admin): $errorMsg")
-        }
-
-        Show-Info "Rechecking DNS connectivity before retry..."
-        Write-Host ""
-        Wait-NetworkReady -Target $DNS -PingCount 2
-        Write-Host ""
-        continue
-    }
+    return (New-ModuleResult -Status "Success" -Message "Domain join completed")
+}
+catch {
+    $errorMsg = $_.Exception.Message
+    Write-Host ""
+    Show-Error "Domain join failed: $errorMsg"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Domain join failed: $errorMsg")
 }

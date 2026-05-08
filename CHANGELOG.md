@@ -15,6 +15,32 @@
 
 ## [Unreleased]
 
+### Changed
+- modules/standard/domain_join **2.0.0** (MAJOR): 失敗時の振る舞いを
+  fabriq 標準 ErrorMode 機構へ完全集約。FlexProfile 導入後 (kernel 3.1.x
+  以降)、本モジュール内部の無限リトライループは外側の AutoPilot ErrorMode
+  分岐 (retry / skip / Show-AutoPilotErrorDialog) を dead path 化させる
+  だけで FlexProfile dashboard への戻り契約も踏み越えていたため撤去。
+    - `while ($true) { try {...} catch { Show-ErrorDialog; continue } }`
+      ループを削除。`Add-Computer` 例外時は `New-ModuleResult Error` を
+      即返却するよう変更。失敗時のリトライ・スキップ・ダイアログ提示は
+      profile CSV `ErrorMode` 列および FlexProfile dashboard
+      (`[Run]` 単発再実行 / Status バッジ視認) に委譲
+    - 自前の WinForms `Show-ErrorDialog` 関数および「adminstop」文字列
+      入力による中断 UX を撤去 (他モジュールに無いローカル方言、
+      無人運用との相性も悪い)
+    - `Add-Type System.Windows.Forms / System.Drawing` 不要化により削除
+    - DNS 事前チェックを `Wait-NetworkReady` (kernel API、無限ループ)
+      から `Test-Connection -Count 2 -Quiet` の bounded local probe に
+      置き換え。不到達時は `New-ModuleResult Error -Message "DNS unreachable: <ip>"`
+      を即返却し、FlexProfile dashboard の Status バッジで視認可能に
+    - `domain.csv` スキーマ・`module.csv`・公開呼び出し契約は不変
+      (profile 側参照ゼロ、外部呼び出し影響なし)
+    - 推奨 profile 設定: 一過性 DNS 障害向けに `ErrorMode=retry` を併記
+      (kernel 既定 AutoPilotMaxRetry=5)
+    - Guide.txt も新挙動に合わせて改訂 (リトライダイアログ・adminstop
+      記述削除、AutoPilot/FlexProfile 節を新設)
+
 ### Added
 - modules/standard/evidence_config **1.7.0**: 新規 `evidence_list.csv` で
   各セクション (§01〜§31 + §8b、計 32 種) の取捨選択が可能に。default-on

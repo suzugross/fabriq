@@ -21,23 +21,33 @@ PCをActive Directoryドメインに参加させます。
 ・ENC: パスワードを使う場合は Fabriq 起動時のマスターパスフレーズ入力が必要
 
 ■ 注意事項
-・参加失敗時はGUIダイアログでエラー内容が表示され、リトライできます
-・ダイアログに「adminstop」と入力すると中断できます
+・参加失敗時は即座に Error ステータスで返却します（無限リトライしません）
+・リトライ・スキップ・ダイアログ表示の制御は profile CSV の
+  ErrorMode 列および FlexProfile dashboard に委譲します
+・DNS サーバが Ping 不到達の場合、Add-Computer を試みずに即 Error 返却します
+  （診断メッセージ "DNS unreachable: <ip>" が dashboard に表示されます）
 
 ■ 動作の流れ
 1. domain.csv から有効なエントリを読み込み
-2. DNS サーバへの Ping 接続を確認
-3. 実行確認（Y/N、AutoPilot モードは自動 Y）
-4. ドメイン参加を実行（失敗時はリトライループ）
+2. DNS サーバへの Ping 接続を 2 回プローブ（不到達なら即 Error）
+3. ドメイン参加を実行（成功なら Success、Add-Computer 例外なら即 Error）
 
-■ AutoPilot
+■ AutoPilot / FlexProfile
 AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
-ドメイン参加失敗時のリトライダイアログは、無人運用では手動介入が
-必要になるため AutoPilot+ErrorMode=retry と組合せる運用が典型的です。
+失敗時の挙動は profile CSV の ErrorMode 列で宣言してください。
+
+  ErrorMode=retry : 失敗時に最大 5 回まで自動再試行（DNS 復旧待ち等の
+                    一過性障害向け、kernel 既定 AutoPilotMaxRetry=5）
+  ErrorMode=skip  : 失敗をログに残して次モジュールへ自動継続
+  ErrorMode=空白  : Show-AutoPilotErrorDialog で operator が
+                    Retry/Skip を意思決定
+
+FlexProfile では失敗しても dashboard に戻り、Status バッジで Error が
+視認できるため、[Run] ボタンで domain_join のみ単発再試行することも可能です。
 
 ■ Post-Apply Verification
 本モジュールは現在 Post-Apply Verification を実装していません。
 New-ModuleResult に -Verified は渡していないため、実行履歴の Verified 列は
-空欄になります。Add-Computer の成否とリトライダイアログでの到達可否で
-結果判定しています。ドメイン参加状態は再起動後に
+空欄になります。Add-Computer の戻り値（throw 有無）で結果判定しています。
+ドメイン参加状態は再起動後に
 `(Get-WmiObject Win32_ComputerSystem).PartOfDomain` 等で手動確認してください。
