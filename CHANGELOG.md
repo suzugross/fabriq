@@ -16,6 +16,52 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/pianist 1.5.0 → **1.6.0**: Run 中の制御ボタン 3 種を追加
+  (Stop / Pause / Speed)。既存の実行モデル (Run Phase = 全 Step を順次
+  実行) はそのまま維持し、走行中に operator が介入できる手段を増やす。
+    - **Stop**: 緊急停止。次の安全な境界 (Step 終了 / Wait 中 / WaitWin
+      polling 中) で `Invoke-PianistPhase` の foreach を break。走行中の
+      SendKeys / Open は完了させてから停止する (PowerShell からは中断
+      不可のため意図的にこの仕様)。停止後の Phase は Auto=Error、log に
+      "Stopped by operator before Step N/M" が残り、Manual 判定は通常
+      通り operator が `[Phase Status...]` で記録
+    - **Pause**: 一時停止/再開の toggle。走行中の Step / Wait が完了
+      した時点で hold、もう一度押すと続きから再開。Pause 中は Auto
+      バッジが "Paused" 表示 (orange) に切替 — 内部 enum (`Running`)
+      は変えず、表示専用の上書き
+    - **Speed**: 1.0x ⇔ 1.5x の toggle。`procedure.csv` の Wait 値・
+      WaitWin の timeout・Step 後 Wait の 3 箇所に倍率を掛ける。
+      `Invoke-PianistAppFocus` / `Invoke-PianistPaste` 内の固定
+      settle delay (200-300ms) は機能上の最小値なので scale 対象外
+    - 新設 `Wait-PianistResponsive`: blocking `Start-Sleep` を 50ms
+      chunk + DoEvents + flag check に置換した chunked sleep。Stop/Pause
+      flag が立っていない時の挙動は元の `Start-Sleep` と等価 (50ms
+      granularity だけが差分、人間が知覚しない)
+    - 新設 `Get-ScaledWaitMs`: `[int]([Math]::Round($Ms * $slowFactor))`
+      の薄いラッパー。slowFactor=1.0 の時は no-op
+    - 新設 `Update-RunControlButtons`: Stop/Pause は `$script:isRunning`
+      の時だけ enable、Speed は常時 enable。Pause ボタンのテキスト/色は
+      `pauseRequested` flag に応じて Pause(orange) ⇔ Resume(blue) を切替
+    - `Set-AllControlsEnabled` のスコープを既存 5 ボタン (RunPhase /
+      Screenshot / PhaseStatus / Prev / Next) に限定し、新 3 ボタンは
+      独立した enable rule に分離。これにより「実行中は触らせない」現行
+      モデルを維持しつつ、Stop/Pause だけは実行中に押せる
+    - `Invoke-PianistPhase` 冒頭で stopRequested/pauseRequested を
+      `$false` にリセット (前回 abort 時の flag が漏れないよう defensive)
+    - `Invoke-PianistWaitWin`: polling ループ冒頭で stop/pause check、
+      pause 中は timeout 消費しない (intuitive: pause 中の経過時間は
+      operator の都合なのでカウントしない)
+    - 新規モジュール状態: `$script:stopRequested` / `$script:pauseRequested`
+      / `$script:slowFactor` (デフォルトはすべて no-op 値)
+    - UI レイアウト: action button row (Y=492) の右側に 3 ボタンを追加
+      (X=620 / X=740 / X=860、各 Anchor=Bottom,Left)。フォーム本体
+      サイズ・既存ボタン位置は変更なし
+    - mouse-only ポリシー厳守 (memory: feedback_pianist_mouse_only.md)、
+      キーボード accel は持たせない
+    - 既存 profile (procedure.csv / values.csv / instructions/) は
+      バイト一致で動作。flag=false / slowFactor=1.0 のデフォルト経路は
+      v1.5.0 と挙動同一
+    - 公開 API への影響なし、kernel 改修不要
 - modules/extended/pianist 1.4.0 → **1.5.0**: 「簡易 RPA + 手順書ハイブリッド」
   進化計画の **Phase C**。見本画像表示機能を追加し、3 タブ構成
   (Procedure / Samples / Values) が完成。

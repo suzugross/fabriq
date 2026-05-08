@@ -131,6 +131,49 @@ $script:phaseStatus         = @{}
 $script:UserAction          = $null   # "done" | "cancel" | $null
 $script:profilesRoot        = Join-Path $PSScriptRoot "profiles"
 
+# Run-time control flags (since v1.6.0). Defaults are no-ops so the
+# untouched execution path stays bit-for-bit identical to v1.5.0.
+$script:stopRequested       = $false  # operator pressed Stop -> bail at next safe boundary
+$script:pauseRequested      = $false  # operator pressed Pause -> hold at next safe boundary
+$script:slowFactor          = 1.0     # 1.0 = normal, 1.5 = slow motion (scales user-authored Wait values only)
+
+# ========================================
+# Run-time control helpers (since v1.6.0)
+# ----------------------------------------
+# Wait-PianistResponsive replaces blocking Start-Sleep inside the run
+# path so Stop/Pause can be honored mid-wait. Sleeps in 50ms chunks,
+# pumps DoEvents each chunk, and short-circuits when stopRequested fires.
+# 50ms is below human perception for kitting tasks but coarse enough
+# that the polling cost is negligible.
+# ========================================
+function Wait-PianistResponsive {
+    param([int]$Ms)
+    if ($Ms -le 0) { return }
+    $remaining = $Ms
+    while ($remaining -gt 0) {
+        if ($script:stopRequested) { return }
+        while ($script:pauseRequested -and -not $script:stopRequested) {
+            Start-Sleep -Milliseconds 50
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        if ($script:stopRequested) { return }
+        $chunk = [Math]::Min(50, $remaining)
+        Start-Sleep -Milliseconds $chunk
+        $remaining -= $chunk
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+}
+
+# Scope of slowFactor: only user-authored Wait values from procedure.csv
+# (Wait action body, post-step Wait column, WaitWin timeout). Internal
+# settle delays inside Invoke-PianistAppFocus / Invoke-PianistPaste are
+# functional minimums and are NOT scaled.
+function Get-ScaledWaitMs {
+    param([int]$Ms)
+    if ($Ms -le 0) { return 0 }
+    return [int]([Math]::Round($Ms * $script:slowFactor))
+}
+
 # ========================================
 # Logging helper - mirror to console (Show-Info) and the in-form log
 # ========================================
@@ -432,9 +475,26 @@ function Invoke-PianistWaitWin {
     param([string]$Title, [int]$TimeoutMs)
     if ($TimeoutMs -le 0) { $TimeoutMs = 10000 }
     if ([string]::IsNullOrWhiteSpace($Title)) { return $false }
+    # Scale only the user-authored value (default 10000 also scales —
+    # operator's slow-motion intent applies regardless of source).
+    $TimeoutMs = Get-ScaledWaitMs $TimeoutMs
     $elapsed = 0
     Write-PianistLog "Waiting for window matching '$Title' (max $($TimeoutMs/1000)s)..."
     while ($elapsed -lt $TimeoutMs) {
+        if ($script:stopRequested) {
+            Write-PianistLog "WaitWin aborted by stop request" "WARN"
+            return $false
+        }
+        # Pause holds without consuming the timeout budget (intuitive:
+        # operator pauses to inspect, doesn't want spurious timeouts).
+        while ($script:pauseRequested -and -not $script:stopRequested) {
+            Start-Sleep -Milliseconds 50
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        if ($script:stopRequested) {
+            Write-PianistLog "WaitWin aborted by stop request" "WARN"
+            return $false
+        }
         $hwnd = [PianistWin32]::FindByTitleContains($Title)
         if ($hwnd -ne [IntPtr]::Zero) {
             [void][PianistWin32]::Focus($hwnd)
@@ -543,7 +603,7 @@ function Invoke-PianistStep {
             $ms = 0
             [int]::TryParse($value, [ref]$ms) | Out-Null
             if ($ms -le 0) { $ms = $waitMs }
-            if ($ms -gt 0) { Start-Sleep -Milliseconds $ms }
+            if ($ms -gt 0) { Wait-PianistResponsive -Ms (Get-ScaledWaitMs $ms) }
             $ok = $true
         }
         "Copy"       { $ok = Invoke-PianistCopy -Value $value }
@@ -556,7 +616,7 @@ function Invoke-PianistStep {
     if ($ok) { Write-PianistLog "  -> OK" "OK" } else { Write-PianistLog "  -> FAILED" "ERROR" }
 
     if ($action -ne "Wait" -and $action -ne "WaitWin" -and $waitMs -gt 0) {
-        Start-Sleep -Milliseconds $waitMs
+        Wait-PianistResponsive -Ms (Get-ScaledWaitMs $waitMs)
     }
     [System.Windows.Forms.Application]::DoEvents()
     return $ok
@@ -571,6 +631,10 @@ function Invoke-PianistPhase {
     if ($steps.Count -eq 0) { Write-PianistLog "Phase '$PhaseID' has no steps" "WARN"; return }
 
     $phaseLabel = $steps[0].PhaseLabel
+    # Reset run-time flags at start so a stale Pause/Stop from a prior
+    # aborted run doesn't bleed into this one.
+    $script:stopRequested  = $false
+    $script:pauseRequested = $false
     $script:isRunning = $true
     Set-AllControlsEnabled $false
 
@@ -582,20 +646,38 @@ function Invoke-PianistPhase {
     Write-PianistLog "===== Phase $PhaseID '$phaseLabel' ($($steps.Count) steps) ====="
 
     $ok = 0; $fail = 0
-    foreach ($s in $steps) {
-        if (Invoke-PianistStep -Step $s) { $ok++ } else { $fail++ }
+    $stoppedAt = -1
+    for ($i = 0; $i -lt $steps.Count; $i++) {
+        # Honor Pause at the step boundary (in addition to inside waits)
+        # so a Pause click that lands between steps still holds.
+        while ($script:pauseRequested -and -not $script:stopRequested) {
+            Start-Sleep -Milliseconds 50
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        if ($script:stopRequested) {
+            $stoppedAt = $i + 1
+            Write-PianistLog "===== Stopped by operator before Step $stoppedAt/$($steps.Count) =====" "WARN"
+            break
+        }
+        if (Invoke-PianistStep -Step $steps[$i]) { $ok++ } else { $fail++ }
     }
 
-    $autoStatus = if ($fail -eq 0) { "Success" }
-                  elseif ($ok -eq 0) { "Error" }
-                  else { "Partial" }
+    $autoStatus = if ($script:stopRequested) { "Error" }
+                  elseif ($fail -eq 0)       { "Success" }
+                  elseif ($ok -eq 0)         { "Error" }
+                  else                       { "Partial" }
     if ($null -ne $script:phaseStatus -and $script:phaseStatus.ContainsKey($PhaseID)) {
         $script:phaseStatus[$PhaseID].Auto = $autoStatus
     }
+
+    # Clear flags before re-enabling UI so badges/buttons reflect idle state.
+    $script:stopRequested  = $false
+    $script:pauseRequested = $false
+    $script:isRunning = $false
     Update-StatusBadges
 
-    Write-PianistLog "===== Phase $PhaseID done: $ok OK / $fail FAIL (Auto=$autoStatus) ====="
-    $script:isRunning = $false
+    $tail = if ($stoppedAt -gt 0) { " (stopped at Step $stoppedAt)" } else { "" }
+    Write-PianistLog "===== Phase $PhaseID done: $ok OK / $fail FAIL (Auto=$autoStatus)$tail ====="
     Set-AllControlsEnabled $true
 }
 
@@ -710,8 +792,16 @@ function Update-StatusBadges {
     }
     $phase = $script:phasesOrdered[$script:currentPhaseIndex]
     $st = $script:phaseStatus[$phase.ID]
-    $script:lblAutoStatus.Text = "  Auto:  $($st.Auto)  "
-    $script:lblAutoStatus.BackColor = Get-StatusColor $st.Auto
+    # Pause overlays the Auto badge while a run is held — purely visual,
+    # the underlying $st.Auto enum stays "Running" so aggregation logic
+    # is untouched.
+    if ($script:isRunning -and $script:pauseRequested) {
+        $script:lblAutoStatus.Text      = "  Auto:  Paused  "
+        $script:lblAutoStatus.BackColor = $bgWarn
+    } else {
+        $script:lblAutoStatus.Text      = "  Auto:  $($st.Auto)  "
+        $script:lblAutoStatus.BackColor = Get-StatusColor $st.Auto
+    }
     $script:lblManualStatus.Text = "  Manual:  $($st.Manual)  "
     $script:lblManualStatus.BackColor = Get-StatusColor $st.Manual
 }
@@ -806,12 +896,41 @@ function Update-PhaseView {
 
 function Set-AllControlsEnabled {
     param([bool]$Enabled)
+    # Scope intentionally limited to the original 5 buttons. Run-control
+    # buttons (Stop/Pause/Speed) follow an independent enable rule
+    # (Update-RunControlButtons) because they MUST stay clickable while a
+    # phase is running.
     if ($null -ne $script:btnRunPhase)    { $script:btnRunPhase.Enabled    = $Enabled }
     if ($null -ne $script:btnScreenshot)  { $script:btnScreenshot.Enabled  = $Enabled }
     if ($null -ne $script:btnPhaseStatus) { $script:btnPhaseStatus.Enabled = $Enabled }
     if ($null -ne $script:btnPrev)        { $script:btnPrev.Enabled        = $Enabled }
     if ($null -ne $script:btnNext)        { $script:btnNext.Enabled        = $Enabled }
     if ($Enabled) { Update-NavButtons }
+    Update-RunControlButtons
+}
+
+# Enable rule for Stop / Pause / Speed (since v1.6.0):
+# - Stop / Pause: clickable only while a phase is running
+# - Speed:       always clickable (operator may toggle between phases too)
+# Pause text/color reflects the current pauseRequested flag so operator
+# sees the toggle state. Speed text shows the current factor.
+function Update-RunControlButtons {
+    if ($null -ne $script:btnStop) {
+        $script:btnStop.Enabled = $script:isRunning
+    }
+    if ($null -ne $script:btnPause) {
+        $script:btnPause.Enabled = $script:isRunning
+        if ($script:pauseRequested) {
+            $script:btnPause.Text      = "Resume"
+            $script:btnPause.BackColor = $bgAccent
+        } else {
+            $script:btnPause.Text      = "Pause"
+            $script:btnPause.BackColor = $bgWarn
+        }
+    }
+    if ($null -ne $script:btnSpeed) {
+        $script:btnSpeed.Text = "Speed: $($script:slowFactor)x"
+    }
 }
 
 # ========================================
@@ -1813,6 +1932,30 @@ $script:btnPhaseStatus = $btnPhaseStatus
 # inline tab in the Phase view ([Values] tab) so there's no need for a
 # button-triggered modal. Keep the action row at 3 buttons for cleaner UX.
 
+# ---- Run-control buttons (since v1.6.0) ----
+# Pause / Stop are enabled only while a phase is running. Speed is always
+# enabled (toggling between phases is a valid use case). All three are
+# mouse-only — no keyboard accelerators (Pianist UI policy).
+$btnPause = New-PianistButton -Text "Pause" -X 620 -Y 492 -Width 110 -Height 36 -BgColor $bgWarn -FgColor ([System.Drawing.Color]::White) `
+    -Font (New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold))
+$btnPause.Anchor = "Bottom,Left"
+$btnPause.Enabled = $false
+$null = $form.Controls.Add($btnPause)
+$script:btnPause = $btnPause
+
+$btnStop = New-PianistButton -Text "Stop" -X 740 -Y 492 -Width 110 -Height 36 -BgColor $bgError -FgColor ([System.Drawing.Color]::White) `
+    -Font (New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold))
+$btnStop.Anchor = "Bottom,Left"
+$btnStop.Enabled = $false
+$null = $form.Controls.Add($btnStop)
+$script:btnStop = $btnStop
+
+$btnSpeed = New-PianistButton -Text "Speed: 1.0x" -X 860 -Y 492 -Width 140 -Height 36 `
+    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
+$btnSpeed.Anchor = "Bottom,Left"
+$null = $form.Controls.Add($btnSpeed)
+$script:btnSpeed = $btnSpeed
+
 # ---- Status badges ----
 $lblAutoStatus = New-Object System.Windows.Forms.Label
 $lblAutoStatus.Text = "  Auto: -"
@@ -1918,6 +2061,37 @@ $btnPhaseStatus.Add_Click({
 # persists across Phase navigation (intentional — preference sticks).
 $cbShowAll.Add_CheckedChanged({ Update-PianistVariablesPanel })
 
+# Run-control button handlers (since v1.6.0). Stop sets a flag the run
+# loop checks at the next safe boundary — actual interruption happens in
+# Wait-PianistResponsive / Invoke-PianistWaitWin / the foreach top-of-loop.
+$btnStop.Add_Click({
+    if (-not $script:isRunning) { return }
+    $script:stopRequested = $true
+    Write-PianistLog "Stop requested by operator (will halt at next safe boundary)" "WARN"
+})
+
+# Pause toggles the flag. Run loops poll it and hold while it's true.
+# Resuming clears the flag so the next chunk continues.
+$btnPause.Add_Click({
+    if (-not $script:isRunning) { return }
+    $script:pauseRequested = -not $script:pauseRequested
+    if ($script:pauseRequested) {
+        Write-PianistLog "Pause requested (run will hold after the current step / wait completes)" "WARN"
+    } else {
+        Write-PianistLog "Resumed" "OK"
+    }
+    Update-RunControlButtons
+    Update-StatusBadges
+})
+
+# Speed toggle: 1.0x <-> 1.5x (memory: keep simple per agreed scope).
+# Takes effect at the next scaled wait — no impact on already-started sleeps.
+$btnSpeed.Add_Click({
+    if ($script:slowFactor -eq 1.0) { $script:slowFactor = 1.5 } else { $script:slowFactor = 1.0 }
+    Write-PianistLog "Speed factor set to $($script:slowFactor)x" "OK"
+    Update-RunControlButtons
+})
+
 $form.Add_FormClosing({
     param($sender, $e)
     if ($script:UserAction -ne "done" -and $script:UserAction -ne "cancel") {
@@ -1951,7 +2125,8 @@ if ($defaultPhase) {
     }
 }
 Set-CurrentPhase $initialIdx
-Write-PianistLog "Pianist v1.0.0 ready. Profile [$($script:currentProfile.Name)] - $($script:phasesOrdered.Count) phases."
+Update-RunControlButtons
+Write-PianistLog "Pianist v1.6.0 ready. Profile [$($script:currentProfile.Name)] - $($script:phasesOrdered.Count) phases."
 
 # Main wait loop - DoEvents polling until UserAction set
 $script:UserAction = $null
