@@ -39,8 +39,13 @@ model 列が空欄の場合、以下のコマンドでモデル名を動的取�
   - 80文字上限
 
 ■ 使用コマンド
-エクスポート: Export-WindowsDriver -Online -Destination <保存先パス>
+エクスポート: dism.exe /online /export-driver /destination:"<保存先パス>"
 インポート:   pnputil.exe /add-driver "<パス>\*.inf" /subdirs /install
+
+※ Export-WindowsDriver PowerShell cmdlet は Windows Server 2022 で
+  「SafeHandle を Null にすることはできません」エラーが発生する
+  既知の不具合があるため、同一の DismApi を直接呼ぶ dism.exe を
+  使用しています。出力フォルダ構造は cmdlet 版と等価です。
 
 ■ 注意事項
 - 管理者権限が必要です。
@@ -49,7 +54,7 @@ model 列が空欄の場合、以下のコマンドでモデル名を動的取�
 - インポート後に再起動が必要な場合があります（pnputil 終了コード 3010）。
 
 ■ 前提条件
-- 管理者権限で実行すること（Export-WindowsDriver / pnputil はいずれも
+- 管理者権限で実行すること（dism.exe / pnputil はいずれも
   管理者権限必須）
 - driver/ フォルダ配下にインポート対象モデルのサブフォルダが存在する
   こと（インポート時）
@@ -61,7 +66,7 @@ AutoPilot モードでは確認をスキップして CSV の設定を自動適�
 ■ Post-Apply Verification
 本モジュールは厳密な Post-Apply Verification を実装しておらず、
 検証は限定的です。
-- エクスポート: Export-WindowsDriver 完了後、出力先フォルダの
+- エクスポート: dism.exe /export-driver 完了後、出力先フォルダの
   *.inf ファイル数をカウントして表示します（0 件ならエラー扱い）。
 - インポート: pnputil 実行前後で対象フォルダの *.inf 数を参照し、
   pnputil の終了コード（0/3010 成功）を判定しますが、OS 側に実際に
