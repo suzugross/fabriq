@@ -16,6 +16,38 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/windows_feature_config 新規 **0.1.0**: Windows Optional
+  Features (DISM `*-WindowsOptionalFeature` 系) の有効化／無効化を CSV
+  マニフェストから一括制御するモジュール。online (稼働中 OS) のみを
+  扱い、offline WIM 注入は scope 外 (tonebender 側責務として分離)。
+    - CSV スキーマ: `Enabled` / `Action` (Enable/Disable) / `FeatureName`
+      / `IncludeAllSubFeatures` / `Source` / `LimitAccess` /
+      `Description` / `Segment`
+    - **NetFx3 (DisabledWithPayloadRemoved default) 対応**: `Source` 列で
+      sxs パスを指定。`LimitAccess=1` (default) で WU フォールバック禁止
+      (閉域安全側)、`LimitAccess=0` で WSUS / WU フォールバック許可
+    - `Source` 列は **5 形式受容**: ドライブレター絶対 (`D:\sources\sxs`)
+      / UNC (`\\nas\share\sxs`) / leading `/` モジュール相対
+      (`/payload/dotnetfx35`) / leading `\` (`\payload\dotnetfx35`) /
+      separator なし (`payload\dotnetfx35`)。空欄は `-Source` 不渡し =
+      Windows Update 経路
+    - **module 内 `payload/dotnetfx35/` を fabriq 標準 staging 先として
+      推奨**。robocopy /E オーバーレイは site staging を保護
+      (`framework_overlay_rules.json` 不変 / `KERNEL_API.md §9` 不変)
+    - Step 3 dry-run で `Test-Path` + `*.cab` 存在チェックを行い、
+      `[NEEDS SOURCE OR WU]` / `[BAD SOURCE]` / `[NOT FOUND]` /
+      `[Current]` / `[APPLY]` / `[INVALID]` の 6 マーカーで状態を可視化
+    - Step 5.5 Post-Apply Verification: `Get-WindowsOptionalFeature` で
+      State 読み戻し。Enable は `{Enabled, EnablePending}`、Disable は
+      `{Disabled, DisablePending, DisabledWithPayloadRemoved}` を PASS
+      とし、`-Verified` 付きで `New-BatchResult` を返却 (hostname_config と
+      同じ pending=受理済み方針)
+    - 再起動は profile 側 `__RESTART__` の責務。本モジュールは常に
+      `-NoRestart` を付与し、`RestartNeeded=True` 戻り値はログ表示のみ
+    - Source 不存在 / payload removed + Source 空のとき DISM の
+      `0x800F081F` / `0x800F0954` 系エラーを検出して、build 整合と
+      WSUS バイパス (`RepairContentServerSource=2`) のヒントを表示
+    - 公開 API への影響なし、kernel 改修不要 (`REQUIRES_KERNEL=2.0.0`)
 - modules/extended/pianist 1.5.0 → **1.6.0**: Run 中の制御ボタン 3 種を追加
   (Stop / Pause / Speed)。既存の実行モデル (Run Phase = 全 Step を順次
   実行) はそのまま維持し、走行中に operator が介入できる手段を増やす。
