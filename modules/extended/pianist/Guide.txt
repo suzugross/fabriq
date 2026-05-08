@@ -163,6 +163,18 @@ AppFocus を置いてください。
      - [Run Phase]      : Phase の全 Step を順次実行
      - [Screenshot]     : 手動でエビデンスを取得
      - [Phase Status]   : OK / Warning / Error / Skip + Note を記録
+     - [Pause] / [Stop] / [Speed: Nx] (since v1.6.0): Run 中の制御
+       Pause   : 走っている Step / Wait が完了した時点で一時停止。
+                 もう一度押すと続きから再開。Pause 中は Run Phase /
+                 Screenshot / Phase Status / 矢印 nav は disable のまま
+                 (現行の "実行中は触らせない" 方針を維持)
+       Stop    : 次の安全な境界 (Step 境界 / Wait 中 / WaitWin polling)
+                 で実行を中断。走行中の SendKeys や Open は完了させる。
+                 中断後の Phase は Auto=Error が記録される
+       Speed   : 1.0x ⇔ 1.5x の toggle。procedure.csv の Wait 値・
+                 WaitWin の timeout・Step 後 Wait に倍率を掛ける。
+                 内部 settle delay (AppFocus / Paste の 200-300ms 等)
+                 は scale 対象外。次の wait から反映
      画面中央の TabControl (since v1.4.0、3 タブ構成 since v1.5.0):
      - [Procedure]   タブ: RPA (上段、auto-executed by Run Phase) +
                            Manual (下段、performed by operator) の 2 段組表示。
@@ -217,7 +229,7 @@ AppFocus を置いてください。
   - instructions/<PhaseID>.txt に operator が読む手順を記述
   - 重要な分岐点で Prompt アクションを置き、operator に目視確認させる
 
-■ 制限・既知事項 (v1.0.0)
+■ 制限・既知事項
   - UIA / AutomationId 操作は非対応 (将来検討)
   - 録画機能なし
   - IF / LOOP 等の制御構文なし。線形シーケンスのみ
@@ -227,6 +239,9 @@ AppFocus を置いてください。
   - Tools (Values の ad-hoc Copy/Type, Shortcuts ランチャ) は v1.0 で非搭載。
     必要なら values.csv を Studio で開いて手動コピー、ショートカットは
     System Launcher 等で代替。
+  - Stop / Pause は **Step の途中** (走っている SendKeys / Open /
+    Screenshot) では効かない。次の境界 (Step 終了 / Wait / WaitWin
+    polling) で初めて応答する。"即時 kill" ではない
 
 ■ デバッグのコツ
   - 下部 Log に各 Step の実行結果が時系列で出る
