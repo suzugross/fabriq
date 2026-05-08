@@ -1,0 +1,33 @@
+﻿Id,Title,Enabled
+01,System Basic Info,1
+02,Local Users,1
+03,Local Groups,1
+04,Local Group Members,1
+05,Domain / Azure AD Status + User Profiles,1
+06,Network Settings,1
+07,Printers / Ports List,1
+08,BitLocker Status,1
+8b,Disk & Partition Info,1
+09,MAC Address List,1
+10,PC Serial Number,1
+11,Installed Software List,1
+12,Firewall Status,1
+13,Windows Optional Features,1
+14,Server Roles & Features,1
+15,Power Settings,1
+16,WiFi Profiles,1
+17,Restore Points,1
+18,Windows Defender Status,1
+19,Windows Update History,1
+20,System TEMP Text-Log Backup,1
+21,Windows License,1
+22,Office License,1
+23,Security Baseline,1
+24,Group Policy Report,1
+25,Certificates,1
+26,Battery Report,1
+27,Environment Variables,1
+28,Startup Items,1
+29,Memory Slots,1
+30,PnP Devices,1
+31,Hardware Identifiers,1

@@ -254,6 +254,52 @@ function Invoke-CScriptCapture {
 }
 
 # ========================================
+# Helper: Section enable/disable lookup
+# ========================================
+# Loaded once at startup from evidence_list.csv (Id, Title, Enabled).
+# Default-on policy: missing CSV / missing row / non-0 value -> enabled.
+# This preserves existing behavior when the CSV is absent and ensures
+# that adding a new section in code without updating the CSV does not
+# accidentally disable it.
+function Test-SectionEnabled {
+    param([Parameter(Mandatory=$true)][string]$Id)
+    if ($null -eq $script:sectionEnabled) { return $true }
+    if (-not $script:sectionEnabled.ContainsKey($Id)) { return $true }
+    return [bool]$script:sectionEnabled[$Id]
+}
+
+# ========================================
+# Helper: Emit Skipped manifest entry for a disabled section
+# ========================================
+# Used in place of Start-Section/Close-Section when a section is disabled
+# via evidence_list.csv. Writes one gray master-log line and appends a
+# Skipped manifest entry with files=[] and a stable reason prefix so that
+# external consumers can distinguish user-disabled skips from intrinsic
+# skips (Server-only on client OS, no-battery, Defender absent, etc.).
+function Write-DisabledSection {
+    param(
+        [Parameter(Mandatory=$true)][string]$Id,
+        [Parameter(Mandatory=$true)][string]$Title
+    )
+    # Reset split-file routing before logging the skip notice. Close-Section
+    # does NOT reset $script:currentSplitFile (only Start-Section does), so
+    # without this reset the gray skip line would bleed into the previous
+    # section's split log file (e.g. a "Section 02 disabled" notice ending
+    # up appended to 01_SystemInfo.txt).
+    $script:currentSplitFile = $null
+    Out-Log ""
+    Out-Log "[Section $Id] $Title : Skipped (disabled by configuration)" -Color DarkGray
+    $script:ManifestSections += [PSCustomObject]@{
+        id        = $Id
+        title     = $Title
+        files     = @()
+        status    = 'Skipped'
+        reason    = 'Disabled by configuration (evidence_list.csv)'
+        elapsedMs = 0
+    }
+}
+
+# ========================================
 # Display Settings
 # ========================================
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -318,6 +364,28 @@ $failCount = 0
 $script:ManifestSections = @()
 $script:CollectedAt = Get-Date
 
+# Load section enable/disable map from evidence_list.csv (default-on policy:
+# absent CSV / missing row / non-0 Enabled -> enabled, preserving prior
+# behavior when the CSV is not provided).
+$script:sectionEnabled = @{}
+$_evListPath = Join-Path $PSScriptRoot 'evidence_list.csv'
+if (Test-Path $_evListPath) {
+    try {
+        $_evRows = Import-ModuleCsv -Path $_evListPath
+        if ($_evRows) {
+            foreach ($_evRow in $_evRows) {
+                $_evId = "$($_evRow.Id)".Trim()
+                if ([string]::IsNullOrEmpty($_evId)) { continue }
+                $script:sectionEnabled[$_evId] = ("$($_evRow.Enabled)".Trim() -ne '0')
+            }
+        }
+    }
+    catch {
+        Out-Log "[WARN] Failed to load evidence_list.csv (all sections will run): $_" -Color Yellow
+        $script:sectionEnabled = @{}
+    }
+}
+
 $now = Get-Date -Format "yyyy/MM/dd HH:mm:ss.ff"
 $currentSplitFile = $null
 Out-Log "==== Evidence Log ====" -Color Cyan
@@ -328,6 +396,7 @@ Out-Log "Save Location: $targetDir"
 # ----------------------------------------
 # 1. Basic Info (Hostname / OS / Specs)
 # ----------------------------------------
+if (Test-SectionEnabled "01") {
 Start-Section -Id "01" -Title "System Basic Info" -FileName "01_SystemInfo.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -361,10 +430,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "01" -Title "System Basic Info"
+}
 
 # ----------------------------------------
 # 2. Local Users (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "02") {
 Start-Section -Id "02" -Title "Local Users (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -390,10 +463,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "02" -Title "Local Users (CSV)"
+}
 
 # ----------------------------------------
 # 3. Local Groups (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "03") {
 Start-Section -Id "03" -Title "Local Groups (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -416,10 +493,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "03" -Title "Local Groups (CSV)"
+}
 
 # ----------------------------------------
 # 4. Local Group Members (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "04") {
 Start-Section -Id "04" -Title "Local Group Members (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -481,10 +562,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "04" -Title "Local Group Members (CSV)"
+}
 
 # ----------------------------------------
 # 5. Domain / Azure AD Status
 # ----------------------------------------
+if (Test-SectionEnabled "05") {
 Start-Section -Id "05" -Title "Domain / Azure AD Status" -FileName "05_DomainStatus.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -550,10 +635,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "05" -Title "Domain / Azure AD Status"
+}
 
 # ----------------------------------------
 # 6. IP / DNS Settings (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "06") {
 Start-Section -Id "06" -Title "Network Settings (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -608,10 +697,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "06" -Title "Network Settings (CSV)"
+}
 
 # ----------------------------------------
 # 7. Printers / Ports List (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "07") {
 Start-Section -Id "07" -Title "Printers / Ports List (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -641,10 +734,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "07" -Title "Printers / Ports List (CSV)"
+}
 
 # ----------------------------------------
 # 8. BitLocker Status
 # ----------------------------------------
+if (Test-SectionEnabled "08") {
 Start-Section -Id "08" -Title "BitLocker Status" -FileName "08_BitLocker.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -675,10 +772,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "08" -Title "BitLocker Status"
+}
 
 # ----------------------------------------
 # 8b. Disk & Partition Info (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "8b") {
 Start-Section -Id "8b" -Title "Disk & Partition Info (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -715,10 +816,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "8b" -Title "Disk & Partition Info (CSV)"
+}
 
 # ----------------------------------------
 # 9. MAC Address List (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "09") {
 Start-Section -Id "09" -Title "MAC Address List (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -741,6 +846,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "09" -Title "MAC Address List (CSV)"
+}
 
 # ----------------------------------------
 # 10. PC Serial Number (multi-source collection)
@@ -758,6 +866,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # also frequently ship with the placeholder "Default string", which
 # this section explicitly rejects.
 # ----------------------------------------
+if (Test-SectionEnabled "10") {
 Start-Section -Id "10" -Title "PC Serial Number" -FileName "10_SerialNumber.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -936,10 +1045,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "10" -Title "PC Serial Number"
+}
 
 # ----------------------------------------
 # 11. Installed Software List (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "11") {
 Start-Section -Id "11" -Title "Installed Software List (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -988,6 +1101,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "11" -Title "Installed Software List (CSV)"
+}
 
 # OS type detection for server-only sections
 $osProductType = (Get-CimInstance Win32_OperatingSystem).ProductType
@@ -996,6 +1112,7 @@ $isServer = ($osProductType -ne 1)
 # ----------------------------------------
 # 12. Firewall Status (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "12") {
 Start-Section -Id "12" -Title "Firewall Status (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1031,10 +1148,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "12" -Title "Firewall Status (CSV)"
+}
 
 # ----------------------------------------
 # 13. Windows Optional Features (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "13") {
 Start-Section -Id "13" -Title "Windows Optional Features (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1059,10 +1180,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "13" -Title "Windows Optional Features (CSV)"
+}
 
 # ----------------------------------------
 # 14. Server Roles & Features (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "14") {
 Start-Section -Id "14" -Title "Server Roles & Features (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1095,10 +1220,14 @@ else {
     $sectionReason = 'Client OS detected (Server-only section)'
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "14" -Title "Server Roles & Features (CSV)"
+}
 
 # ----------------------------------------
 # 15. Power Settings
 # ----------------------------------------
+if (Test-SectionEnabled "15") {
 Start-Section -Id "15" -Title "Power Settings" -FileName "15_PowerSettings.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1129,10 +1258,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "15" -Title "Power Settings"
+}
 
 # ----------------------------------------
 # 16. WiFi Profiles
 # ----------------------------------------
+if (Test-SectionEnabled "16") {
 Start-Section -Id "16" -Title "WiFi Profiles" -FileName "16_WiFiProfiles.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1160,10 +1293,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "16" -Title "WiFi Profiles"
+}
 
 # ----------------------------------------
 # 17. Restore Points (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "17") {
 Start-Section -Id "17" -Title "Restore Points (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1188,10 +1325,14 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "17" -Title "Restore Points (CSV)"
+}
 
 # ----------------------------------------
 # 18. Windows Defender / Antivirus Status
 # ----------------------------------------
+if (Test-SectionEnabled "18") {
 Start-Section -Id "18" -Title "Windows Defender Status" -FileName "18_DefenderStatus.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1225,10 +1366,14 @@ catch {
     $sectionReason = "Defender unavailable (may be replaced by 3rd-party AV): $($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "18" -Title "Windows Defender Status"
+}
 
 # ----------------------------------------
 # 19. Windows Update History (CSV Export)
 # ----------------------------------------
+if (Test-SectionEnabled "19") {
 Start-Section -Id "19" -Title "Windows Update History (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1253,6 +1398,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "19" -Title "Windows Update History (CSV)"
+}
 
 # ----------------------------------------
 # 20. System TEMP Text-Log Backup (safety net)
@@ -1263,6 +1411,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # Locked files are skipped silently since TEMP often holds files
 # opened by active processes.
 # ----------------------------------------
+if (Test-SectionEnabled "20") {
 Start-Section -Id "20" -Title "System TEMP Text-Log Backup" -FileName "20_TempBackup.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1315,6 +1464,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "20" -Title "System TEMP Text-Log Backup"
+}
 
 # ----------------------------------------
 # 21. Windows License / Activation Status
@@ -1326,6 +1478,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # slmgr /dlv can take 5-30s because it queries SLS; this is acceptable for
 # evidence collection (non-interactive snapshot).
 # ----------------------------------------
+if (Test-SectionEnabled "21") {
 Start-Section -Id "21" -Title "Windows License / Activation Status" -FileName "21_WindowsLicense.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1413,6 +1566,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "21" -Title "Windows License / Activation Status"
+}
 
 # ----------------------------------------
 # 22. Office License / Activation Status
@@ -1447,6 +1603,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 #   - VL/buy-once + OSPP Licensed                       -> Success
 #   - Office not installed                              -> Success (text only)
 # ----------------------------------------
+if (Test-SectionEnabled "22") {
 Start-Section -Id "22" -Title "Office License / Activation Status" -FileName "22_OfficeLicense.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1709,6 +1866,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "22" -Title "Office License / Activation Status"
+}
 
 # ----------------------------------------
 # 23. Security Baseline (TPM / Secure Boot / VBS / LSA / BIOS)
@@ -1719,6 +1879,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # section status stays Success as long as the dispatcher itself does not
 # throw — partial probe data is still useful evidence.
 # ----------------------------------------
+if (Test-SectionEnabled "23") {
 Start-Section -Id "23" -Title "Security Baseline" -FileName "23_SecurityBaseline.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1851,6 +2012,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "23" -Title "Security Baseline"
+}
 
 # ----------------------------------------
 # 24. Group Policy Report (gpresult /h)
@@ -1862,6 +2026,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # GPO state which is the audit-relevant portion. This caveat is documented
 # in Guide.txt.
 # ----------------------------------------
+if (Test-SectionEnabled "24") {
 Start-Section -Id "24" -Title "Group Policy Report" -FileName "24_GroupPolicySummary.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -1941,6 +2106,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "24" -Title "Group Policy Report"
+}
 
 # ----------------------------------------
 # 25. Certificates (LocalMachine\My + \Root + \CA + CurrentUser\My)
@@ -1952,6 +2120,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # Per-store enumeration failures are logged as warnings and do not fail
 # the section as long as Export-Csv itself succeeds.
 # ----------------------------------------
+if (Test-SectionEnabled "25") {
 Start-Section -Id "25" -Title "Certificates (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2016,6 +2185,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "25" -Title "Certificates (CSV)"
+}
 
 # ----------------------------------------
 # 26. Battery Report (laptop only)
@@ -2025,6 +2197,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # acceptance inspection (e.g. contract clause "battery initial capacity
 # >= 95% of design"). Skipped when no battery is present (desktop PC).
 # ----------------------------------------
+if (Test-SectionEnabled "26") {
 Start-Section -Id "26" -Title "Battery Report" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2066,6 +2239,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "26" -Title "Battery Report"
+}
 
 # ----------------------------------------
 # 27. Environment Variables (Machine + User scopes)
@@ -2075,6 +2251,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # evidentiary noise. Values are recorded raw — masking is intentionally
 # avoided because evidence must capture what was actually configured.
 # ----------------------------------------
+if (Test-SectionEnabled "27") {
 Start-Section -Id "27" -Title "Environment Variables (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2113,6 +2290,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "27" -Title "Environment Variables (CSV)"
+}
 
 # ----------------------------------------
 # 28. Startup Items (Win32_StartupCommand + logon-triggered ScheduledTask)
@@ -2124,6 +2304,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 #     excluding Microsoft\Windows\* OS internals (audit noise reduction)
 # Disabled tasks are dropped to keep the CSV evidence-relevant.
 # ----------------------------------------
+if (Test-SectionEnabled "28") {
 Start-Section -Id "28" -Title "Startup Items (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2195,6 +2376,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "28" -Title "Startup Items (CSV)"
+}
 
 # ----------------------------------------
 # 29. Memory Slots (per-slot detail) + 29b. Memory Array Summary
@@ -2206,6 +2390,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # per the WMI schema (FormFactor 8=DIMM / 12=SODIMM, SMBIOSMemoryType
 # 24=DDR3 / 26=DDR4 / 30=LPDDR4 / 34=DDR5 / 35=LPDDR5).
 # ----------------------------------------
+if (Test-SectionEnabled "29") {
 Start-Section -Id "29" -Title "Memory Slots (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2299,6 +2484,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "29" -Title "Memory Slots (CSV)"
+}
 
 # ----------------------------------------
 # 30. PnP Devices (full enumeration with driver version/date)
@@ -2309,6 +2497,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # on a typical client). Per-device query failures fall back to blank cells
 # without failing the section.
 # ----------------------------------------
+if (Test-SectionEnabled "30") {
 Start-Section -Id "30" -Title "PnP Devices (CSV)" -FileName $null
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2369,6 +2558,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "30" -Title "PnP Devices (CSV)"
+}
 
 # ----------------------------------------
 # 31. Hardware Identifiers (System / BaseBoard / Enclosure)
@@ -2383,6 +2575,7 @@ Close-Section -Status $sectionStatus -Reason $sectionReason
 # This complements §10 (PC serial number) and §23 (BIOS / TPM) without
 # duplication.
 # ----------------------------------------
+if (Test-SectionEnabled "31") {
 Start-Section -Id "31" -Title "Hardware Identifiers" -FileName "31_HardwareIdentifiers.txt"
 $sectionStatus = 'Success'
 $sectionReason = $null
@@ -2481,6 +2674,9 @@ catch {
     $sectionReason = "$($_.Exception.Message)"
 }
 Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "31" -Title "Hardware Identifiers"
+}
 
 # ----------------------------------------
 # Completion
