@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Server Feature Install,System,server_feature_config.ps1,61,1

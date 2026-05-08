@@ -16,6 +16,43 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/server_feature_config 新規 **0.1.0**: Windows Server の
+  役割・役割サービス・機能 (ServerManager `Install-WindowsFeature`) の
+  インストールを CSV マニフェストから一括制御するモジュール。online
+  (稼働中 Windows Server) のみを扱い、offline VHD / ConfigurationFilePath
+  経路は scope 外。クライアント OS 用の windows_feature_config と pair。
+    - 配置: `modules/extended/`。クライアント SKU では ServerManager 非搭載
+      のため、ProductType=1 検出で Status=Skipped 返却 (混在フリート profile
+      でも安全に通過)
+    - CSV スキーマ: `Enabled` / `Name` / `IncludeAllSubFeature` /
+      `IncludeManagementTools` / `Source` / `Description` / `Segment`
+    - **`-IncludeManagementTools` 明示制御**: `Install-WindowsFeature` cmdlet
+      は default では管理ツール非導入 (Server Manager GUI と挙動異)、CSV で
+      明示的に 1 を指定する運用を推奨
+    - `Source` 列は windows_feature_config と同形式の 5 形式受容: ドライブ
+      レター絶対 / UNC / leading `/` モジュール相対 / leading `\` /
+      separator なし。空欄は `-Source` 不渡し = ローカルストア + WU 経路
+    - Step 3 dry-run で `Get-WindowsFeature` による InstallState 読み + Source
+      事前解決を行い、`[INSTALL]` / `[ALREADY-INSTALLED]` /
+      `[PENDING-RESTART]` / `[NEEDS SOURCE OR WU]` / `[NOT FOUND]` の
+      5 マーカーで状態を可視化
+    - Step 5.5 Post-Apply Verification: `Get-WindowsFeature` で InstallState
+      読み戻し、`{Installed, InstallPending}` を PASS、それ以外を FAIL と
+      して `-Verified` 付きで `New-BatchResult` を返却 (hostname_config /
+      windows_feature_config と同じ pending=受理済み方針)
+    - 再起動は profile 側 `__RESTART__` の責務。本モジュールは
+      `Install-WindowsFeature` に `-Restart` を渡さず、`RestartNeeded=Yes`
+      戻り値は `Show-Info` ログ + 集計サマリの `MessageSuffix` で通知
+    - cmdlet 戻り値の `.Success=$false` も failure 扱いで集計 (cmdlet 自体は
+      throw せず失敗を返すケースに対応)
+    - source-not-found 系エラー (`0x800F081F` / `0x800F0954` /
+      "source files could not be found") を検出して、Server ISO build 整合
+      ヒントを表示 (英語 + 日本語両方の文言にマッチ)
+    - preset.csv で `Name` 列を curated 32 機能 (役割 16 + 機能 8 + RSAT 8) +
+      日本語ラベルでドロップダウン化、`Enabled` /
+      `IncludeAllSubFeature` / `IncludeManagementTools` も列挙化。Studio 側で
+      operator が機能名を暗記しなくても選択可能
+    - 公開 API への影響なし、kernel 改修不要 (`REQUIRES_KERNEL=2.0.0`)
 - modules/standard/windows_feature_config 新規 **0.1.0**: Windows Optional
   Features (DISM `*-WindowsOptionalFeature` 系) の有効化／無効化を CSV
   マニフェストから一括制御するモジュール。online (稼働中 OS) のみを

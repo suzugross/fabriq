@@ -1,0 +1,194 @@
+﻿■ 概要
+Windows Server の役割・役割サービス・機能を CSV マニフェストに従って
+インストールするモジュールです。ServerManager の PowerShell ラッパー
+(Install-WindowsFeature) を内部で使用し、稼働中 Windows Server に対する
+オンライン操作のみを行います。
+
+ユースケース例:
+  ・ファイル サーバーへの FS-FileServer / FS-DFS-Namespace 追加
+  ・ドメイン コントローラ昇格前の AD-Domain-Services + DNS インストール
+  ・メンバー サーバー / 管理用ホストへの RSAT-AD-Tools / GPMC 投入
+  ・IIS Web サーバー (Web-Server) 一式 + 管理ツール
+
+(オフライン VHD への注入や ConfigurationFilePath ベースのウィザード
+取り込みは本モジュールのスコープ外です。tonebender 等のイメージ
+事前準備ツール側で対応してください。)
+
+
+■ クライアント OS では Skipped 返却
+
+本モジュールは Windows Server (ProductType=2 ドメインコントローラ /
+ProductType=3 メンバーサーバー) でのみ動作します。クライアント SKU
+(ProductType=1) で実行された場合は ServerManager モジュールが
+非搭載のため、何もせず Status=Skipped を返します。混在フリート向けの
+共通プロファイルに本モジュールを含めても、クライアントでは安全に
+スキップされる設計です。
+
+クライアント OS の機能 (NetFx3 / SMB1Protocol / TelnetClient 等) は
+姉妹モジュール modules/standard/windows_feature_config を使用してください。
+
+
+■ 設定ファイル
+
+[server_feature_list.csv]
+  Enabled                : 有効フラグ (1=実行, 0=スキップ)
+  Name                   : ServerManager 上の機能名 (例: Web-Server, DNS)
+                            列挙: Get-WindowsFeature
+  IncludeAllSubFeature   : 1 で -IncludeAllSubFeature を付与 (子役割サービス・
+                            子機能を一括インストール)
+  IncludeManagementTools : 1 で -IncludeManagementTools を付与
+                            Install-WindowsFeature は default では管理ツールを
+                            導入しないため、明示的に 1 を指定する運用を推奨
+  Source                 : feature files が見つからない場合の媒体パス (任意)
+                            空欄 = ローカルストア → WU フォールバック
+  Description            : 表示用説明 (任意)
+  Segment                : Segment フィルタ (任意、Profile 側からの呼び分け)
+
+  [記載例]
+  Enabled,Name,IncludeAllSubFeature,IncludeManagementTools,Source,Description,Segment
+  1,Web-Server,1,1,,Web サーバー (IIS) 全サブ機能 + 管理ツール,
+  1,DNS,0,1,,DNS サーバー + 管理ツール,
+  1,RSAT-AD-Tools,0,1,,RSAT - Active Directory 管理ツール,
+  1,DHCP,0,1,\\fileserver\sources\sxs,DHCP (オフライン媒体使用),
+  1,Windows-Server-Backup,0,1,,Windows Server Backup,member
+
+
+■ Source パスの形式
+
+CSV の Source 列は以下のいずれかの書式で指定できます。
+
+  形式                       | 解釈                                     | 例
+  ---------------------------|------------------------------------------|-------------------------
+  ドライブレター絶対         | そのまま使用                             | D:\sources\sxs
+  UNC 絶対                   | そのまま使用                             | \\server\sources\sxs
+  /relative/...              | モジュール相対パス                       | /payload/winsxs
+  \relative\...              | 同上 (Windows 流の \ 起点も許容)         | \payload\winsxs
+  relative\...               | 同上 (leading separator なしも許容)      | payload\winsxs
+  (空欄)                     | -Source を渡さない (ローカルストア + WU) | (空)
+
+Server feature の -Source は通常、対応する Windows Server インストール
+メディア の sources\sxs フォルダ、または UNC 共有上の同等パスを指します。
+クライアント OS の DISM とは異なり cab 単位の運用ではないため、
+本モジュールはディレクトリ存在チェックのみ行い、ファイル列挙の
+バリデーションは省略しています。
+
+
+■ 再起動の扱い
+
+本モジュールは -Restart を Install-WindowsFeature に渡しません。
+RestartNeeded=Yes が返った機能は Show-Info で記録され、最後に
+restart required (N item(s)) サマリ警告を出します。
+
+実際の再起動は profile 側の __RESTART__ マーカーで明示制御してください。
+これは fabriq 全体方針 (個別モジュールが勝手に再起動しない / 再起動は
+profile レベルで orchestrate) に従うものです。
+
+
+■ AutoPilot
+
+AutoPilot モードでは Step 4 の確認が自動 Y になります。
+[NEEDS SOURCE OR WU] 行も警告表示のまま実行段階に進むため、
+AutoPilot 運用では Source パスの事前検証 (UNC 到達性など)、または
+意図的に Source 空欄 + WU 経路を採るかを CSV 設計時点で確定してください。
+
+
+■ 動作の流れ (6 ステップ)
+
+  Step 1   : server_feature_list.csv 読み込み (Enabled=1 のみ対象)
+  Step 2   : 前提条件チェック
+             ・管理者権限 (Test-AdminPrivilege)
+             ・OS が Windows Server (ProductType ∈ {2, 3})
+             ・ServerManager モジュール load 可
+             いずれか不成立で Skipped または Error 返却
+  Step 3   : ドライラン表示 (現在の InstallState + Source パス事前解決)
+             ・[INSTALL]            : 新規インストール予定
+             ・[ALREADY-INSTALLED]  : 既に Installed、Step 5 で skip
+             ・[PENDING-RESTART]    : 既に InstallPending (再起動待ち)、skip
+             ・[NOT FOUND]          : ServerManager が認識しない Name
+             ・[NEEDS SOURCE OR WU] : Removed 状態 + Source 未指定
+  Step 4   : 実行確認 (Y/N、AutoPilot は自動 Y)
+  Step 5   : 各行に Install-WindowsFeature 呼び出し
+             ・Name, IncludeAllSubFeature, IncludeManagementTools, Source
+               を CSV から組み立て
+             ・-Restart は付与しない (profile __RESTART__ で制御)
+             ・cmdlet 戻り値 .Success=$false も failure 扱いで集計
+             ・RestartNeeded=Yes をログ + サマリで通知
+  Step 5.5 : 適用後の InstallState を Get-WindowsFeature で読み戻して検証
+             ・State ∈ {Installed, InstallPending} で PASS
+               (pending = 受理済みで再起動待ち、hostname_config と同方針)
+             ・全行 PASS なら -Verified $true で New-BatchResult 返却
+  Step 6   : New-BatchResult で集計返却 (restart required 件数を MessageSuffix)
+
+
+■ Post-Apply Verification
+
+Install-WindowsFeature 成功後に Get-WindowsFeature を再実行し、
+InstallState が Installed または InstallPending に到達しているかを
+1 行ごとに検証します。
+
+  検証対象: Enabled=1 の全行
+  pending 状態は「適用が受理されたが再起動待ち」として PASS 扱い
+  (windows_feature_config / hostname_config と同じ方針)
+
+verifyFail=0 かつ verifyPass>0 のとき New-BatchResult に -Verified $true を
+渡し、実行履歴の Verified 列に PASS が記録されます。
+
+
+■ 冪等性
+
+各行の dry-run と実行ループの両方で、現在の InstallState が既に
+Installed / InstallPending である場合は [ALREADY-INSTALLED] /
+[PENDING-RESTART] / Show-Skip 扱いとなります。再実行しても
+Install-WindowsFeature 呼び出しは発生しません。
+
+
+■ エラー時のヒント
+
+cmdlet が "source files could not be found" / 0x800F081F / 0x800F0954 系
+のエラーを返した場合、本モジュールは追加で以下の警告を表示します。
+
+  "For payload-removed features, point Source to a sources/sxs folder
+   from a Windows Server ISO matching the running OS build, or clear
+   Source to use Windows Update."
+
+operator はこのヒントを起点に、Source パスの再確認 / Windows Server
+build の整合 / WSUS バイパス設定 (RepairContentServerSource=2) の
+判断を行ってください。WSUS バイパスの詳細は windows_feature_config の
+Guide.txt を参照してください (同じレジストリ設定で対応可能)。
+
+
+■ Studio での編集 UX
+
+preset.csv により Studio の _list.csv 編集 UI で以下がドロップダウン化
+されます。
+
+  Enabled                : 有効 / 無効
+  IncludeAllSubFeature   : サブ機能を含める / メイン機能のみ
+  IncludeManagementTools : 管理ツールを含める / 管理ツールを含めない
+  Name                   : 主要 32 機能の curated 一覧 (役割 16 + 機能 8 +
+                            RSAT 8) + ラベル
+
+curated 一覧に含まれない機能名 (Web-Mgmt-Console / Web-Asp-Net45 等の
+IIS 子役割サービス、Storage-Replica 等のニッチ機能) は Studio 側で
+直接タイプ入力するか、preset.csv に追記してください (preset.csv の
+encoding は UTF-8 BOM + CRLF)。
+
+正確な機能名一覧は対象 Server で次のコマンドを実行して確認できます。
+
+  Get-WindowsFeature | Where-Object Installed -eq $false | Select Name, DisplayName
+
+
+■ 注意事項
+
+・本モジュールは online (稼働中 Windows Server) のみ対応。
+  offline VHD はスコープ外
+・Name は ServerManager の表記に厳密に一致させる必要があります
+  (大文字小文字を含む)
+・複数行で同じ Name を指定することは可能ですが、Step 5.5 検証は
+  最後に評価された state を使うため、結果が紛らわしくなります。重複は避ける
+・Source 列のパスはキッティング環境ごとに UNC 到達性が変わるため、
+  AutoPilot 運用では事前 staging 状態を確認しておくこと
+・IncludeManagementTools は default で 0 のため、運用後に GUI 管理ツールを
+  使いたい役割では明示的に 1 を指定すること (これは Install-WindowsFeature
+  cmdlet 自体の仕様: Server Manager GUI からの追加と異なり、PowerShell
+  経由では管理ツールが default では入らない)
