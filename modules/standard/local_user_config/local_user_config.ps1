@@ -12,7 +12,11 @@ $csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
 
 $userList = Import-ModuleCsv -Path $csvPath -RequiredColumns @("Enabled", "UserName", "Password")
 if ($null -eq $userList) {
-    return (New-ModuleResult -Status "Error" -Message "Failed to load local_user_list.csv")
+    # PowerShell auto-unwraps @() returned for "Segment 0 match" into $null; treat as empty so host CSV merge can still supply users.
+    if (-not (Test-Path $csvPath)) {
+        return (New-ModuleResult -Status "Error" -Message "local_user_list.csv not found")
+    }
+    $userList = @()
 }
 
 # ========================================
@@ -35,7 +39,7 @@ $enabledUsers = @($userList | Where-Object { $_.Enabled -eq "1" })
 $disabledUsers = @($userList | Where-Object { $_.Enabled -ne "1" })
 
 if ($enabledUsers.Count -eq 0) {
-    Show-Info "No enabled users in local_user_list.csv"
+    Show-Info "No enabled users to create"
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" -Message "No enabled users")
 }
