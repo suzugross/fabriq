@@ -15,7 +15,46 @@
 
 ## [Unreleased]
 
+## [3.2.3] - 2026-05-09
+
 ### Added
+- kernel/common.ps1 (PATCH): Telemetry Layer 追加。AI 開発コーパス
+  生成のためのモジュール内部挙動の構造化ログ機構。
+    - `Show-Info` / `Show-Success` / `Show-Warning` / `Show-Error` /
+      `Show-Skip` 5 関数に副次的副作用を追加（既存の戻り値 / 出力ストリーム
+      / コンソール表示は不変）。各呼び出しが `logs/telemetry/{SessionID}/
+      modules/{seq:0000}_{module}.jsonl` に show.* イベントとして
+      append される
+    - `Invoke-SafeCommand` / `Invoke-SafeCommandAsync` の entry / exit
+      に envelope hook 追加（`Start-ModuleTelemetry` /
+      `Complete-ModuleTelemetry`）。envelope.start / envelope.end
+      イベント + 累積した `$Error` を error イベントとして flush
+    - 新規関数: `Get-TelemetrySalt`, `New-TelemetryRedactMap`,
+      `Invoke-TelemetryRedact`, `Write-TelemetryEvent`,
+      `Start-ModuleTelemetry`, `Complete-ModuleTelemetry`,
+      `_GetShowTag`, `_TrackShowEvent`, `_HashTelemetryValue`
+    - プライバシ契約: `$env:SELECTED_*` / `FABRIQ_WORKER_NAME` /
+      `COMPUTERNAME` / `$global:FabriqUniqueId` を salt 付き
+      SHA-256 (12 hex) に hash 化、`SELECTED_PIN` は `[REDACTED]`
+      固定。Salt は `kernel/json/telemetry_salt.txt` (256 bit、初回
+      自動生成、site-specific、`.gitignore`)
+    - 公開 API には未昇格。`KERNEL_API.md` 不変。設計は
+      `dev/TELEMETRY_INTERNAL.md` (新規、非公開) に集約。
+      schemaVersion=1 はファイル内フィールドで管理し、将来公開契約へ
+      promote する場合に §11 新設で MINOR 昇格予定
+    - 子 runspace（`__ASYNC__`）でも envelope 共有: 親が立てた
+      `$global:_CurrentModuleTelemetry` を inject hashtable 経由で
+      子に渡し、Show-* / ShowCounts は同じ hashtable を共有
+- dev/TELEMETRY_INTERNAL.md (新規): Telemetry 設計メモ。schemaVersion 1 の
+  ファイル配置・redact 方針・JSONL イベント書式・実装サーフェス・
+  reentrancy / 失敗隔離契約を明文化
+- modules/extended/log_uploader v1.0.0 → v1.1.0 (MINOR):
+  robocopy `logs/` 転送に `/XD logs\telemetry` 除外を追加。Telemetry
+  は AI 開発専用の内部コーパスでありキッティング PC 外への持ち出し禁止
+  契約（`dev/TELEMETRY_INTERNAL.md` §4）を実装で担保
+- .gitignore: `kernel/json/telemetry_salt.txt` 追加（site-specific salt、
+  環境ごとに自動生成、commit 禁止）
+
 - modules/standard/sysprep_config v1.0.0 → v1.1.0 (MINOR):
   unattend.xml の generalize パス `Microsoft-Windows-PnpSysprep` 配下
   にハードコードされていた `DoNotCleanUpNonPresentDevices` /
