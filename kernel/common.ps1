@@ -3779,38 +3779,185 @@ function Remove-StatusFile {
 # ========================================
 # Status Monitor Lifecycle
 # ========================================
+
+# Show a modal warning so the operator gets a clear acknowledgment that
+# Status Monitor is unavailable for this session, even if conhost has
+# already been hidden by the dashboard. Best-effort — if MessageBox
+# itself is blocked by the same host policy, we silently fall back to
+# the console warning that will already have been written.
+function Show-MonitorFailureDialog {
+    param(
+        [string]$Title = "Fabriq - Status Monitor disabled",
+        [Parameter(Mandatory)][string]$Body
+    )
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        [System.Windows.Forms.MessageBox]::Show(
+            $Body,
+            $Title,
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+    } catch {
+        # Dialog blocked too — console warning is the only fallback.
+    }
+}
+
 function Start-StatusMonitor {
     Write-StatusFile -Phase "idle"
     $monitorProcess = $null
     try {
         $monitorScript = ".\kernel\ps1\status_monitor.ps1"
-        if (Test-Path $monitorScript) {
-            $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-            $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
-            $sentenceFile = ".\kernel\txt\art_sentences.txt"
-            $sentenceFileFullPath = if (Test-Path $sentenceFile) {
-                (Resolve-Path $sentenceFile).Path
-            } else { "" }
-            $silenceFlagFullPath = (Join-Path (Get-Location) ".\kernel\txt\silence.flag")
-
-            $argList = @(
-                "-NoProfile", "-ExecutionPolicy", "Unrestricted",
-                "-File", $monitorScript,
-                "-StatusFilePath", $statusFileFullPath,
-                "-PulseFilePath", $pulseFileFullPath,
-                "-SilenceFlagPath", $silenceFlagFullPath
-            )
-            if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
-                $argList += @("-SentenceFilePath", $sentenceFileFullPath)
-            }
-
-            $monitorProcess = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -PassThru
-            Show-Info "Status Monitor started (PID: $($monitorProcess.Id))"
+        if (-not (Test-Path $monitorScript)) {
+            Show-Warning "Status Monitor script not found: $monitorScript"
             Write-Host ""
-
-            Start-Sleep -Milliseconds 1200
-            Set-ConsoleForeground
+            return $null
         }
+
+        $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
+        $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
+        $sentenceFile = ".\kernel\txt\art_sentences.txt"
+        $sentenceFileFullPath = if (Test-Path $sentenceFile) {
+            (Resolve-Path $sentenceFile).Path
+        } else { "" }
+        $silenceFlagFullPath = (Join-Path (Get-Location) ".\kernel\txt\silence.flag")
+
+        # Per-session diagnostic log so child startup failures can be triaged
+        # post-mortem. -WindowStyle Hidden eats every uncaught exception in
+        # the child, so without a file-backed log the only symptom is "no
+        # taskbar entry, no monitor window".
+        $logsDir = Join-Path (Get-Location) "logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -Path $logsDir -ItemType Directory -Force | Out-Null
+        }
+        $diagLogPath = Join-Path $logsDir ("status_monitor_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".log")
+
+        $argList = @(
+            "-NoProfile", "-ExecutionPolicy", "Unrestricted",
+            "-File", $monitorScript,
+            "-StatusFilePath", $statusFileFullPath,
+            "-PulseFilePath", $pulseFileFullPath,
+            "-SilenceFlagPath", $silenceFlagFullPath,
+            "-DiagLogPath", $diagLogPath
+        )
+        if (-not [string]::IsNullOrWhiteSpace($sentenceFileFullPath)) {
+            $argList += @("-SentenceFilePath", $sentenceFileFullPath)
+        }
+
+        $monitorProcess = Start-Process powershell.exe -ArgumentList $argList -WindowStyle Hidden -PassThru
+
+        Show-Info "Status Monitor spawn: PID=$($monitorProcess.Id)"
+        Show-Info "  Diagnostic log: $diagLogPath"
+        Write-Host ""
+
+        # ----------------------------------------------------------------
+        # Outcome detection: poll for window existence rather than trust
+        # HasExited timing alone.
+        #
+        # HasExited timing is unreliable on hardened hosts: WDAC / AppLocker
+        # / Defender ASR can kill the child anywhere between 500ms and
+        # several seconds, *or* leave it alive but silently neutered so the
+        # form never shows. The only ground truth is "did a window titled
+        # 'Fabriq' actually appear under our PID".
+        #
+        # We poll up to 4 seconds (every 200ms). Three exit conditions:
+        #   1. MainWindowTitle matches "Fabriq" → success, return process
+        #   2. Process HasExited           → failure (early death)
+        #   3. Timeout, still alive, no window → failure (hung in startup)
+        # ----------------------------------------------------------------
+        $pollDeadline = (Get-Date).AddMilliseconds(4000)
+        $windowFound = $false
+        $earlyExit = $false
+        while ((Get-Date) -lt $pollDeadline) {
+            if ($null -eq $monitorProcess) { break }
+            if ($monitorProcess.HasExited) {
+                $earlyExit = $true
+                break
+            }
+            try {
+                $monitorProcess.Refresh()
+                $title = $monitorProcess.MainWindowTitle
+                if (-not [string]::IsNullOrWhiteSpace($title) -and $title -match "Fabriq") {
+                    $windowFound = $true
+                    break
+                }
+            } catch { }
+            Start-Sleep -Milliseconds 200
+        }
+
+        if ($windowFound) {
+            Show-Success "Status Monitor window confirmed."
+            Write-Host ""
+            Set-ConsoleForeground
+            return $monitorProcess
+        }
+
+        # ----- Failure path -----
+
+        $logExists = Test-Path $diagLogPath
+        $logSize = if ($logExists) { (Get-Item $diagLogPath -ErrorAction SilentlyContinue).Length } else { 0 }
+        $exitCode = if ($monitorProcess.HasExited) {
+            try { $monitorProcess.ExitCode } catch { "n/a" }
+        } else { "(still alive, will be terminated)" }
+
+        # Shared message header so console + modal stay in sync.
+        $headerLines = @()
+        $causeLine = ""
+
+        if ($earlyExit -and ($logSize -eq 0)) {
+            # Process died without writing a single log line — strong signal
+            # of host security policy denying script execution / file I/O.
+            $causeLine = "Likely cause: host security policy is blocking the child PowerShell process (WDAC / AppLocker / Defender ASR / equivalent)."
+            $headerLines += "Status Monitor exited without writing any diagnostic log (ExitCode=$exitCode)."
+        }
+        elseif ($earlyExit) {
+            # Child wrote something then died. Show last log entry to point
+            # operator to the failure point.
+            $lastLine = ""
+            try {
+                $lastLine = (Get-Content $diagLogPath -Tail 1 -ErrorAction SilentlyContinue) -join ""
+            } catch { }
+            $causeLine = "Cause: child PowerShell process exited mid-startup."
+            $headerLines += "Status Monitor exited mid-startup (ExitCode=$exitCode)."
+            if (-not [string]::IsNullOrWhiteSpace($lastLine)) {
+                $headerLines += "Last diagnostic log entry: $lastLine"
+            }
+        }
+        else {
+            # Process is alive but window never appeared. Either hung in
+            # Add-Type compilation, or stuck before reaching Application.Run.
+            # Kill it so we do not leave an orphan eating CPU.
+            $causeLine = "Cause: child process is alive but no window appeared within 4 seconds (likely hung during startup, possibly under host security inspection)."
+            $headerLines += "Status Monitor window did not appear within 4 seconds."
+            try {
+                if (-not $monitorProcess.HasExited) {
+                    $monitorProcess.Kill()
+                    $headerLines += "Hung child process terminated (PID=$($monitorProcess.Id))."
+                }
+            } catch {
+                $headerLines += "Failed to terminate hung child: $($_.Exception.Message)"
+            }
+        }
+
+        # Console output (visible if conhost is still on screen)
+        foreach ($line in $headerLines) {
+            Show-Warning $line
+        }
+        Show-Warning $causeLine
+        Show-Warning "  Diagnostic log: $diagLogPath"
+        Show-Warning "  Kitting will continue normally without the Status Monitor."
+        Write-Host ""
+
+        # Modal dialog so the operator gets the message even if conhost
+        # has been hidden by a transient dashboard switch.
+        $body = ($headerLines -join "`r`n") + "`r`n`r`n" + $causeLine + "`r`n`r`n" +
+                "Kitting will continue normally without the Status Monitor. " +
+                "All other fabriq features (profile execution, evidence capture, " +
+                "HTML checklist) operate independently.`r`n`r`n" +
+                "Diagnostic log:`r`n$diagLogPath"
+        Show-MonitorFailureDialog -Body $body
+
+        return $null
     }
     catch {
         Show-Warning "Failed to start Status Monitor: $_"
