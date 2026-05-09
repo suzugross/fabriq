@@ -9,8 +9,31 @@ param(
     [string]$StatusFilePath = ".\kernel\json\status.json",
     [string]$PulseFilePath = ".\kernel\json\art_pulse.txt",
     [string]$SentenceFilePath = ".\kernel\txt\art_sentences.txt",
-    [string]$SilenceFlagPath = ".\kernel\txt\silence.flag"
+    [string]$SilenceFlagPath = ".\kernel\txt\silence.flag",
+    [string]$DiagLogPath = ""
 )
+
+# ========================================
+# Diagnostic logging (best-effort)
+# ========================================
+# -WindowStyle Hidden eats every uncaught exception, so without a
+# file-backed log the only symptom on a failing host is "no taskbar
+# entry, no monitor window". Append-only, swallow all errors so the
+# logger itself can never crash the monitor.
+$script:DiagLogPath = $DiagLogPath
+function Write-DiagLog {
+    param([string]$Message)
+    if ([string]::IsNullOrWhiteSpace($script:DiagLogPath)) { return }
+    try {
+        $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        Add-Content -Path $script:DiagLogPath -Value "$ts $Message" -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch { }
+}
+Write-DiagLog "[init] status_monitor.ps1 starting. PID=$PID, CWD=$((Get-Location).Path), PSVersion=$($PSVersionTable.PSVersion)"
+Write-DiagLog "[init] StatusFilePath='$StatusFilePath'"
+Write-DiagLog "[init] PulseFilePath='$PulseFilePath'"
+Write-DiagLog "[init] SilenceFlagPath='$SilenceFlagPath'"
+Write-DiagLog "[init] SentenceFilePath='$SentenceFilePath'"
 
 # ========================================
 # DPI Awareness (must be set BEFORE any Forms/Drawing operations)
@@ -18,36 +41,83 @@ param(
 # SetProcessDPIAware() makes Screen.Bounds return physical pixels,
 # preventing screenshot cropping on scaled displays.
 # Form dimensions are then scaled by the DPI factor below.
-Add-Type -AssemblyName System.Drawing
-Add-Type -TypeDefinition @"
+try {
+    Add-Type -AssemblyName System.Drawing
+    Write-DiagLog "[asm] System.Drawing loaded"
+} catch {
+    Write-DiagLog "[asm] FATAL System.Drawing load failed: $($_.Exception.Message)"
+    exit 11
+}
+
+try {
+    Add-Type -TypeDefinition @"
     using System.Runtime.InteropServices;
     public class DPIUtil {
         [DllImport("user32.dll")]
         public static extern bool SetProcessDPIAware();
     }
-"@ -ErrorAction SilentlyContinue
-$null = [DPIUtil]::SetProcessDPIAware()
+"@
+    $null = [DPIUtil]::SetProcessDPIAware()
+    Write-DiagLog "[dpi] SetProcessDPIAware succeeded"
+} catch {
+    # Non-fatal: monitor can still render at logical DPI, just with
+    # potentially blurry text on scaled displays.
+    Write-DiagLog "[dpi] SetProcessDPIAware path failed (non-fatal): $($_.Exception.Message)"
+}
 
 # Get DPI scale factor (96 DPI = 100% = scale 1.0)
-$tmpG = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
-$script:dpiScale = $tmpG.DpiX / 96.0
-$tmpG.Dispose()
+$script:dpiScale = 1.0
+try {
+    $tmpG = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+    $rawDpi = $tmpG.DpiX
+    $tmpG.Dispose()
+    if ($rawDpi -le 0) {
+        Write-DiagLog "[dpi] DpiX returned $rawDpi; falling back to 96"
+        $rawDpi = 96.0
+    }
+    $script:dpiScale = $rawDpi / 96.0
+    if ($script:dpiScale -le 0) {
+        Write-DiagLog "[dpi] dpiScale<=0 after compute; clamping to 1.0"
+        $script:dpiScale = 1.0
+    }
+    Write-DiagLog "[dpi] dpiScale=$($script:dpiScale) (raw DpiX=$rawDpi)"
+} catch {
+    Write-DiagLog "[dpi] DPI scale calc failed: $($_.Exception.Message); using 1.0"
+    $script:dpiScale = 1.0
+}
 
-Add-Type -AssemblyName System.Windows.Forms
+try {
+    Add-Type -AssemblyName System.Windows.Forms
+    Write-DiagLog "[asm] System.Windows.Forms loaded"
+} catch {
+    Write-DiagLog "[asm] FATAL System.Windows.Forms load failed: $($_.Exception.Message)"
+    exit 12
+}
 
 # Hide the PowerShell console window (keep only the Forms window visible)
-Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
+try {
+    Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 '@
+    Write-DiagLog "[console] Native.Win32 type defined"
+} catch {
+    # Non-fatal: monitor still works, console just stays visible.
+    Write-DiagLog "[console] Native.Win32 Add-Type failed (non-fatal): $($_.Exception.Message)"
+}
 
-# NoActivateForm: Form subclass that does not steal focus on show
+# NoActivateForm: Form subclass that does not steal focus on show.
 # WndProc override returns MA_NOACTIVATE for WM_MOUSEACTIVATE so that
 # clicks on ToolStrip buttons work on the first click without requiring
 # the form to be activated first.
-Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+# Inline C# Add-Type compilation can fail under hardened environments
+# (csc.exe path issues, AMSI blocks, locked %TEMP%). Fall back to a
+# plain Form so the monitor at least appears.
+$script:useFallbackForm = $false
+try {
+    Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
 using System;
 using System.Windows.Forms;
 public class NoActivateForm : Form {
@@ -82,9 +152,22 @@ public class ClickThroughStatusStrip : StatusStrip {
     }
 }
 '@
-$consoleHwnd = [Native.Win32]::GetConsoleWindow()
-if ($consoleHwnd -ne [IntPtr]::Zero) {
-    [Native.Win32]::ShowWindow($consoleHwnd, 0) | Out-Null  # SW_HIDE = 0
+    Write-DiagLog "[forms] NoActivateForm Add-Type succeeded"
+} catch {
+    Write-DiagLog "[forms] NoActivateForm Add-Type failed: $($_.Exception.Message). Falling back to plain Form / StatusStrip."
+    $script:useFallbackForm = $true
+}
+
+try {
+    $consoleHwnd = [Native.Win32]::GetConsoleWindow()
+    if ($consoleHwnd -ne [IntPtr]::Zero) {
+        [Native.Win32]::ShowWindow($consoleHwnd, 0) | Out-Null  # SW_HIDE = 0
+        Write-DiagLog "[console] Console hidden"
+    } else {
+        Write-DiagLog "[console] GetConsoleWindow returned 0 (no console attached)"
+    }
+} catch {
+    Write-DiagLog "[console] Console hide failed (non-fatal): $($_.Exception.Message)"
 }
 
 # ========================================
@@ -94,11 +177,19 @@ if ($consoleHwnd -ne [IntPtr]::Zero) {
 # common.ps1 overwrites $script:StatusFilePath with a relative path.
 $script:fabriqRoot = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $StatusFilePath) "..\.."))
 $script:gyotakuDir = Join-Path $script:fabriqRoot "evidence\gyotaku"
+Write-DiagLog "[paths] fabriqRoot='$($script:fabriqRoot)'"
 
 # ========================================
 # Load common.ps1 (for Save-Screenshot)
 # ========================================
-. (Join-Path $PSScriptRoot "..\common.ps1")
+try {
+    . (Join-Path $PSScriptRoot "..\common.ps1")
+    Write-DiagLog "[common] common.ps1 dot-source succeeded"
+} catch {
+    Write-DiagLog "[common] FATAL common.ps1 dot-source failed: $($_.Exception.Message)"
+    Write-DiagLog $_.ScriptStackTrace
+    exit 13
+}
 
 # ========================================
 # Evidence base path (from parent process via env var)
@@ -220,23 +311,29 @@ if ($script:artBySentence.Count -eq 0) {
 # ========================================
 # Form Setup
 # ========================================
-$form = New-Object NoActivateForm
+if ($script:useFallbackForm) {
+    Write-DiagLog "[form] Using fallback System.Windows.Forms.Form (NoActivateForm Add-Type unavailable)"
+    $form = New-Object System.Windows.Forms.Form
+} else {
+    $form = New-Object NoActivateForm
+}
 $form.Text = "Fabriq - Status Monitor"
 # Scale form dimensions by DPI factor (designed at 96 DPI / 100%)
-$form.Size = New-Object System.Drawing.Size(
-    [int](750 * $script:dpiScale),
-    [int](800 * $script:dpiScale)
-)
+$formW = [int](750 * $script:dpiScale)
+$formH = [int](800 * $script:dpiScale)
+$form.Size = New-Object System.Drawing.Size($formW, $formH)
 $form.StartPosition = "Manual"
-$form.Location = New-Object System.Drawing.Point(
-    ([System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Right - [int](770 * $script:dpiScale)),
-    [int](50 * $script:dpiScale)
-)
+$workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$formX = $workingArea.Right - [int](770 * $script:dpiScale)
+$formY = [int](50 * $script:dpiScale)
+$form.Location = New-Object System.Drawing.Point($formX, $formY)
 $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox = $false
 $form.BackColor = $darkBg
 $form.ForeColor = $textWhite
 $form.Font = $fontNormal
+Write-DiagLog "[form] Form built. Size=($formW, $formH) Location=($formX, $formY)"
+Write-DiagLog "[form] PrimaryScreen.WorkingArea: L=$($workingArea.Left) T=$($workingArea.Top) R=$($workingArea.Right) B=$($workingArea.Bottom)"
 
 # ========================================
 # Main Layout (TableLayoutPanel: 2 rows, 2 columns)
@@ -313,7 +410,11 @@ $artGroup.Controls.Add($artCanvas)
 # ========================================
 # Status Bar
 # ========================================
-$statusBar = New-Object ClickThroughStatusStrip
+if ($script:useFallbackForm) {
+    $statusBar = New-Object System.Windows.Forms.StatusStrip
+} else {
+    $statusBar = New-Object ClickThroughStatusStrip
+}
 $statusBar.BackColor = [System.Drawing.Color]::FromArgb(25, 25, 25)
 # Screenshot button (leftmost item)
 $btnScreenshot = New-Object System.Windows.Forms.ToolStripButton
@@ -1243,4 +1344,12 @@ $btnSkipAsync.Add_Click({
 # Initial update and run
 # ========================================
 Update-StatusDisplay
-[System.Windows.Forms.Application]::Run($form)
+Write-DiagLog "[run] Calling Application.Run"
+try {
+    [System.Windows.Forms.Application]::Run($form)
+    Write-DiagLog "[run] Application.Run returned cleanly (form closed)"
+} catch {
+    Write-DiagLog "[run] FATAL Application.Run threw: $($_.Exception.Message)"
+    Write-DiagLog $_.ScriptStackTrace
+    exit 14
+}

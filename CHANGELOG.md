@@ -15,6 +15,75 @@
 
 ## [Unreleased]
 
+### Added
+- kernel/common.ps1 + kernel/ps1/status_monitor.ps1 (PATCH): Status
+  Monitor の起動診断ログと子側 defensive try/catch を全段に追加。
+  端末によって Status Monitor が立ち上がってこない事象 (子プロセスが
+  silently 即死) の根本原因特定が可能になった。
+    - **親側 (`Start-StatusMonitor`)**: 子プロセス spawn 直後に 500ms
+      sleep + `HasExited` 即死検知。即死時は ExitCode と診断ログ
+      パスを Show-Warning で surface。`Test-Path $monitorScript`
+      false で明示警告 (従来は無言で `$null` 返却)。`logs\status_monitor_<ts>.log`
+      を 1 セッション 1 ファイル生成し、`-DiagLogPath` 引数で子に渡す
+    - **子側 (`status_monitor.ps1`)**: `[string]$DiagLogPath = ""`
+      param 追加。`Write-DiagLog` ヘルパ (`Add-Content` best-effort、
+      throw しない設計) を導入し、起動チェーン全段にログを残す:
+      DPIUtil Add-Type / SetProcessDPIAware / `Graphics.FromHwnd` の
+      DpiX 取得 / `System.Windows.Forms` ロード / `Native.Win32`
+      type 定義 / `NoActivateForm` Add-Type / Console hide /
+      common.ps1 dot-source / Form 生成と配置 / `Application.Run`。
+      失敗箇所は exit code 11-14 で識別 (System.Drawing / WinForms /
+      common.ps1 / Application.Run)
+    - **DpiX ゼロ・負値ガード**: `Graphics.FromHwnd([IntPtr]::Zero).DpiX`
+      が病的に 0 や負を返す環境で Form Size が `(0,0)` になり「実行
+      しているのに不可視」となる経路を遮断 (96 fallback、`dpiScale<=0`
+      は 1.0 にクランプ)
+    - **`NoActivateForm` Add-Type 失敗時の fallback**: 動的 C# コンパイル
+      が AMSI ブロック / `csc.exe` パス問題 / `%TEMP%` 書込権限欠如等で
+      失敗した場合に通常の `System.Windows.Forms.Form` および
+      `System.Windows.Forms.StatusStrip` で代用。フォーカスを奪わない
+      挙動 (`WS_EX_NOACTIVATE`) は失うが、**Form が画面に出る** ことを
+      優先。`$script:useFallbackForm` flag で分岐し、失敗理由は
+      診断ログに記録
+    - **`Application.Run` を try/catch でラップ**: 例外時は
+      `ScriptStackTrace` を診断ログに残して exit 14
+    - **ウィンドウ存在ポーリングによる成否判定**: 当初は spawn 後
+      `HasExited` の 500ms / 2 秒チェックで判定していたが、App Control
+      配備済端末では子が 2 秒以内には死なず後段で死亡 / hung するケース
+      があり取りこぼしが発生 (2026-05-09 NG 端末再現で確認)。判定の
+      主シグナルを **「Fabriq タイトルのメインウィンドウが
+      `$monitorProcess.MainWindowTitle` に現れたか」** に変更。最大
+      4 秒間 200ms 間隔でポーリングし、(1) ウィンドウ検出 = 成功、
+      (2) `HasExited` = 早期死亡、(3) timeout でウィンドウ無し =
+      hung と分類 (hung の場合は orphan を防ぐため `Kill()`)。
+      ウィンドウ検出時は poll を即座に抜けるため正常時の起動オーバー
+      ヘッドは ~1 秒程度
+    - **失敗時の WinForms `MessageBox.Show` 通知**: console の
+      Show-Warning だけでは dashboard 表示直後に conhost が hide
+      されて operator が見落とすため、`Show-MonitorFailureDialog`
+      ヘルパで modal ダイアログを表示。`MessageBox` 自体も policy で
+      ブロックされる可能性があるため try/catch で best-effort、失敗
+      時は console warning のみが残る。OK ボタン押下まで kitting フロー
+      は停止 = 「明示的にあきらめる」UX
+    - 失敗分類:
+        - **早期死亡 + ログ無し**: "host security policy is blocking
+          the child PowerShell process (WDAC / AppLocker / Defender
+          ASR / equivalent)"
+        - **早期死亡 + ログあり**: "exited mid-startup", 最終ログ行
+          を modal/console に表示
+        - **window 未出現 + alive**: "no window within 4 seconds
+          (likely hung)", 子プロセスを `Kill()` で終了
+    - 挙動仕様の変更ゼロ (正常時): 既存 OK 端末では window 検出で
+      poll を即座に抜けるため挙動・タイミング共に従来と同等。TopMost
+      化や Form 位置クランプは見送り (Form が出ないケースに対しては
+      Z-order 系の対処は効かないと判定)
+    - 副作用: `logs\status_monitor_*.log` が 1 セッション 1 ファイル
+      増える (各段ログのみ、数 KB〜十数 KB)。`Reset-FabriqState` の
+      logs/*.log clear 対象に自動的に含まれる。失敗時の起動時間が
+      最大 +4 秒 (poll timeout)、正常時は概ね +1 秒程度
+    - 公開 API への影響なし (KERNEL_API.md §6 で Status Monitor の
+      内部実装は PATCH 可と明示済み)、KERNEL_API.md 更新不要
+
 ### Changed
 - modules/standard/domain_join **2.0.0** (MAJOR): 失敗時の振る舞いを
   fabriq 標準 ErrorMode 機構へ完全集約。FlexProfile 導入後 (kernel 3.1.x
