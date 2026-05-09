@@ -158,11 +158,20 @@ foreach ($dest in $destinations) {
         $null = New-Item -ItemType Directory -Path $destBase -Force -ErrorAction Stop
 
         # Copy logs/
+        # /XD logs\telemetry: AI-development-only internal corpus that
+        # MUST NOT leave the kitting PC (privacy contract; see
+        # dev/TELEMETRY_INTERNAL.md §4). Excluded by absolute path so
+        # robocopy applies it consistently regardless of CWD.
         if ($hasLogs) {
             $destLogs = Join-Path $destBase "logs"
             $null = New-Item -ItemType Directory -Path $destLogs -Force
-            $copyResult = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
-            Show-Success "logs/ copied"
+            $telemetryAbs = (Resolve-Path (Join-Path $logsDir "telemetry") -ErrorAction SilentlyContinue).Path
+            if ($telemetryAbs) {
+                $null = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 /XD $telemetryAbs 2>&1
+            } else {
+                $null = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+            }
+            Show-Success "logs/ copied (telemetry excluded)"
         }
 
         # Copy evidence/

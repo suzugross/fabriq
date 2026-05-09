@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.2.2
+# Easy Kitting Batch - Common Function Library v3.2.3
 # ========================================
 
 # ========================================
@@ -250,6 +250,386 @@ function Disable-SleepSuppression {
 }
 
 # ========================================
+# Telemetry Layer (internal — see dev/TELEMETRY_INTERNAL.md)
+# ========================================
+# AI development corpus: capture per-module envelope + Show-* events
+# + full ErrorRecord into JSONL under logs/telemetry/{SessionID}/.
+# Module side stays untouched — instrumentation lives entirely in the
+# Show-* family + Invoke-SafeCommand[Async] envelope hooks.
+#
+# CRITICAL invariants:
+#   1. Telemetry never affects kitting outcomes. Every write path is
+#      wrapped in try/catch with no fallback surface to operator.
+#   2. Reentrancy: Show-* called from inside a telemetry write must NOT
+#      recurse back into telemetry. Guarded by $script:_TelemetryWriting.
+#   3. Privacy: every emitted string passes through the redact map built
+#      at envelope start from $env:SELECTED_*, $env:FABRIQ_WORKER_NAME,
+#      $env:COMPUTERNAME, $global:FabriqUniqueId.
+# ========================================
+
+# Reentrancy guard. Set true while Write-TelemetryEvent is appending.
+$script:_TelemetryWriting = $false
+
+# Cached salt (loaded lazily from kernel/json/telemetry_salt.txt).
+$script:_TelemetrySalt = $null
+$script:_TelemetrySaltDigest = $null
+
+# Chronological sequence counter within current session (1-based).
+$script:_TelemetryModuleSeq = 0
+
+# Active per-module envelope. Show-* reads this; Start/Complete write it.
+# Schema: @{ Path; RedactMap; Module; Order; Sequence; StartTime;
+#            ShowCounts = @{info,success,warning,error,skip} }
+$global:_CurrentModuleTelemetry = $null
+
+# UTF-8 without BOM (PSv5 [System.Text.Encoding]::UTF8 includes BOM).
+$script:_TelemetryUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function Get-TelemetrySalt {
+    if ($null -ne $script:_TelemetrySalt) { return $script:_TelemetrySalt }
+
+    $saltPath = ".\kernel\json\telemetry_salt.txt"
+    try {
+        $saltDir = Split-Path $saltPath -Parent
+        if (-not (Test-Path $saltDir)) {
+            New-Item -ItemType Directory -Path $saltDir -Force | Out-Null
+        }
+
+        if (Test-Path $saltPath) {
+            $salt = (Get-Content $saltPath -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
+        }
+        else {
+            # Generate fresh 32-byte (256-bit) salt
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $bytes = New-Object byte[] 32
+            $rng.GetBytes($bytes)
+            $rng.Dispose()
+            $salt = [Convert]::ToBase64String($bytes)
+            [System.IO.File]::WriteAllText($saltPath, $salt, $script:_TelemetryUtf8NoBom)
+        }
+
+        if ([string]::IsNullOrWhiteSpace($salt)) { return $null }
+
+        # Salt digest (non-secret correlation indicator across sessions).
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $digestBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($salt))
+        $sha.Dispose()
+        $digestHex = -join ($digestBytes[0..3] | ForEach-Object { $_.ToString('x2') })
+
+        $script:_TelemetrySalt = $salt
+        $script:_TelemetrySaltDigest = "sha256:$digestHex"
+        return $salt
+    }
+    catch {
+        # Salt machinery broken — disable hashing (every value will become
+        # [REDACTED] in the map; safe-by-default).
+        $script:_TelemetrySalt = $null
+        return $null
+    }
+}
+
+function _HashTelemetryValue {
+    param([string]$Value, [string]$Prefix)
+    if ([string]::IsNullOrEmpty($Value)) { return $Value }
+    $salt = Get-TelemetrySalt
+    if ($null -eq $salt) { return "[REDACTED]" }
+
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes("$salt|$Value")
+        $hash = $sha.ComputeHash($bytes)
+        $sha.Dispose()
+        # 6 bytes = 12 hex chars = ~10^14 collision space, plenty for
+        # cross-session correlation within one site.
+        $hex = -join ($hash[0..5] | ForEach-Object { $_.ToString('x2') })
+        return "${Prefix}:$hex"
+    }
+    catch { return "[REDACTED]" }
+}
+
+function New-TelemetryRedactMap {
+    # Snapshot all known sensitive values from current env. Map key =
+    # literal value, map value = redacted token. Applied longest-first
+    # at redact time to avoid partial overlap.
+    $map = @{}
+
+    $hashSpec = @(
+        @{ Var = $env:SELECTED_KANRI_NO     ; Pre = "KANRI"  }
+        @{ Var = $env:SELECTED_OLD_PCNAME   ; Pre = "PC"     }
+        @{ Var = $env:SELECTED_NEW_PCNAME   ; Pre = "PC"     }
+        @{ Var = $env:SELECTED_ETH_IP       ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_ETH_SUBNET   ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_ETH_GATEWAY  ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_WIFI_IP      ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_WIFI_SUBNET  ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_WIFI_GATEWAY ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_DNS1         ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_DNS2         ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_DNS3         ; Pre = "IP"     }
+        @{ Var = $env:SELECTED_DNS4         ; Pre = "IP"     }
+        @{ Var = $env:FABRIQ_WORKER_NAME    ; Pre = "WORKER" }
+        @{ Var = $env:COMPUTERNAME          ; Pre = "HOST"   }
+        @{ Var = $global:FabriqUniqueId     ; Pre = "HW"     }
+    )
+
+    for ($i = 1; $i -le 10; $i++) {
+        foreach ($suffix in @('NAME','DRIVER','PORT')) {
+            $envName = "SELECTED_PRINTER_${i}_${suffix}"
+            $val = [Environment]::GetEnvironmentVariable($envName)
+            if (-not [string]::IsNullOrWhiteSpace($val)) {
+                $hashSpec += @{ Var = $val; Pre = "PRINTER" }
+            }
+        }
+    }
+
+    foreach ($s in $hashSpec) {
+        $v = $s.Var
+        # Skip empty / very short values (1-2 chars cause false positives
+        # on common substrings like "01", "OK", etc.).
+        if ([string]::IsNullOrWhiteSpace($v)) { continue }
+        if ($v.Length -lt 3) { continue }
+        if (-not $map.ContainsKey($v)) {
+            $map[$v] = (_HashTelemetryValue -Value $v -Prefix $s.Pre)
+        }
+    }
+
+    # Hard-redacted (PIN — never stored even as hash).
+    if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_PIN)) {
+        $map[$env:SELECTED_PIN] = "[REDACTED]"
+    }
+
+    return $map
+}
+
+function Invoke-TelemetryRedact {
+    param([string]$Text, [hashtable]$Map)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    if ($null -eq $Map -or $Map.Count -eq 0) { return $Text }
+
+    # Longest-first replacement avoids partial-match bleed (e.g. a short
+    # value being a substring of a longer sensitive value).
+    $keys = @($Map.Keys | Sort-Object { $_.Length } -Descending)
+    $out = $Text
+    foreach ($k in $keys) {
+        if ([string]::IsNullOrEmpty($k)) { continue }
+        $out = $out.Replace($k, [string]$Map[$k])
+    }
+    return $out
+}
+
+function Write-TelemetryEvent {
+    param(
+        [Parameter(Mandatory)][string]$Type,
+        [hashtable]$Data = @{}
+    )
+
+    if ($script:_TelemetryWriting) { return }
+
+    $env_ = $global:_CurrentModuleTelemetry
+    if ($null -eq $env_) { return }
+    if ([string]::IsNullOrWhiteSpace($env_.Path)) { return }
+
+    $script:_TelemetryWriting = $true
+    try {
+        $line = [ordered]@{
+            ts   = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+            type = $Type
+        }
+        foreach ($k in $Data.Keys) { $line[$k] = $Data[$k] }
+
+        $json = ([PSCustomObject]$line | ConvertTo-Json -Depth 6 -Compress)
+        # AppendAllText auto-creates the file on first call; subsequent
+        # calls append. Encoding without BOM (already created by salt /
+        # _meta.json or here on first write).
+        [System.IO.File]::AppendAllText($env_.Path, $json + "`n", $script:_TelemetryUtf8NoBom)
+    }
+    catch {
+        # Telemetry must never bubble. Swallow.
+    }
+    finally {
+        $script:_TelemetryWriting = $false
+    }
+}
+
+function _GetShowTag {
+    param([string]$Function, [string]$Message)
+    if ([string]::IsNullOrEmpty($Message)) { return $Function }
+    # Trim leading whitespace: many modules indent prefix tags for visual
+    # alignment ("  [APPLY] foo") and we want them tagged consistently.
+    $m = $Message.TrimStart()
+    if ($m.StartsWith('[APPLY]'))         { return 'apply' }
+    if ($m.StartsWith('[SKIP]'))          { return 'skip' }
+    if ($m.StartsWith('[NOT FOUND]'))     { return 'notFound' }
+    if ($m.StartsWith('[VERIFIED]'))      { return 'verifyPass' }
+    if ($m.StartsWith('[VERIFY FAILED]')) { return 'verifyFail' }
+    if ($m.StartsWith('[AUTOPILOT]'))     { return 'autopilot' }
+    if ($m.StartsWith('[ASYNC]'))         { return 'async' }
+    if ($m.StartsWith('[RESTART]'))       { return 'restart' }
+    return $Function
+}
+
+function _TrackShowEvent {
+    param([string]$Function, [string]$Message)
+    $env_ = $global:_CurrentModuleTelemetry
+    if ($null -eq $env_) { return }
+
+    try {
+        if ($env_.ShowCounts.ContainsKey($Function)) {
+            $env_.ShowCounts[$Function]++
+        }
+
+        $tag = _GetShowTag -Function $Function -Message $Message
+        $redacted = Invoke-TelemetryRedact -Text $Message -Map $env_.RedactMap
+
+        Write-TelemetryEvent -Type "show.$Function" -Data @{
+            tag = $tag
+            msg = $redacted
+        }
+    }
+    catch { }
+}
+
+function Start-ModuleTelemetry {
+    param(
+        [Parameter(Mandatory)][string]$ModuleName,
+        [int]$Order = 0,
+        [string]$Segment = "",
+        [string]$ErrorMode = "",
+        [string]$Group = "",
+        [bool]$IsAsync = $false
+    )
+
+    # Defensive: if a prior envelope leaked (caller forgot finally), close it.
+    if ($null -ne $global:_CurrentModuleTelemetry) {
+        try { Complete-ModuleTelemetry -Status 'Cancelled' -Message 'envelope superseded' } catch { }
+    }
+
+    $sessionId = $script:SessionID
+    if ([string]::IsNullOrWhiteSpace($sessionId)) { return }
+
+    $sessionDir = Join-Path ".\logs\telemetry" $sessionId
+    $modulesDir = Join-Path $sessionDir "modules"
+
+    try {
+        if (-not (Test-Path $modulesDir)) {
+            New-Item -ItemType Directory -Path $modulesDir -Force | Out-Null
+        }
+
+        # Session-level _meta.json (write once per session)
+        $metaPath = Join-Path $sessionDir "_meta.json"
+        if (-not (Test-Path $metaPath)) {
+            $null = Get-TelemetrySalt
+            $kernelVer = ""
+            try { $kernelVer = (Get-Content ".\kernel\KERNEL_VERSION" -Raw -ErrorAction Stop).Trim() } catch { }
+            $meta = [ordered]@{
+                telemetrySchemaVersion = 1
+                sessionId       = $sessionId
+                kernelVersion   = $kernelVer
+                startedAt       = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+                redactionPolicy = "hash-and-redact-v1"
+                saltDigest      = $script:_TelemetrySaltDigest
+            }
+            $metaJson = ([PSCustomObject]$meta | ConvertTo-Json -Depth 4)
+            [System.IO.File]::WriteAllText($metaPath, $metaJson, $script:_TelemetryUtf8NoBom)
+        }
+    }
+    catch {
+        # Cannot prepare directory: telemetry disabled for this envelope.
+        $global:_CurrentModuleTelemetry = $null
+        return
+    }
+
+    $script:_TelemetryModuleSeq++
+    $seq = $script:_TelemetryModuleSeq
+    $safeName = ($ModuleName -replace '[^A-Za-z0-9_\-\.]', '_')
+    if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = 'unknown' }
+    $seqStr = "{0:D4}" -f $seq
+    $jsonlPath = Join-Path $modulesDir "${seqStr}_${safeName}.jsonl"
+
+    $envelope = @{
+        Path       = $jsonlPath
+        RedactMap  = (New-TelemetryRedactMap)
+        Module     = $ModuleName
+        Order      = $Order
+        Sequence   = $seq
+        StartTime  = (Get-Date)
+        ShowCounts = @{ info=0; success=0; warning=0; error=0; skip=0 }
+    }
+    $global:_CurrentModuleTelemetry = $envelope
+
+    # Scope $Error to this envelope so envelope.end captures only its own
+    # entries (catch-and-swallowed exceptions included).
+    try { $global:Error.Clear() } catch { }
+
+    Write-TelemetryEvent -Type "envelope.start" -Data ([ordered]@{
+        module    = $ModuleName
+        sequence  = $seq
+        order     = $Order
+        segment   = $Segment
+        errorMode = $ErrorMode
+        group     = $Group
+        isAsync   = $IsAsync
+    })
+}
+
+function Complete-ModuleTelemetry {
+    param(
+        [string]$Status = "",
+        $Verified = $null,
+        [string]$Message = ""
+    )
+
+    $env_ = $global:_CurrentModuleTelemetry
+    if ($null -eq $env_) { return }
+
+    try {
+        # Capture every $Error entry that accumulated during this envelope.
+        $errorRecords = @()
+        try { $errorRecords = @($global:Error) } catch { }
+        foreach ($er in $errorRecords) {
+            if ($null -eq $er) { continue }
+            try {
+                $msg = ""
+                $stack = ""
+                $cat = ""
+                $tgt = ""
+                $errType = ""
+                $hr = $null
+                try { $msg     = Invoke-TelemetryRedact -Text $er.Exception.Message  -Map $env_.RedactMap } catch { }
+                try { $stack   = Invoke-TelemetryRedact -Text $er.ScriptStackTrace   -Map $env_.RedactMap } catch { }
+                try { $cat     = Invoke-TelemetryRedact -Text "$($er.CategoryInfo)"  -Map $env_.RedactMap } catch { }
+                try { $tgt     = Invoke-TelemetryRedact -Text "$($er.TargetObject)"  -Map $env_.RedactMap } catch { }
+                try { $errType = $er.Exception.GetType().FullName } catch { }
+                try { $hr      = $er.Exception.HResult } catch { }
+
+                Write-TelemetryEvent -Type "error" -Data ([ordered]@{
+                    errorType    = $errType
+                    hresult      = $hr
+                    msg          = $msg
+                    scriptStack  = $stack
+                    categoryInfo = $cat
+                    targetObject = $tgt
+                })
+            } catch { }
+        }
+
+        $duration = (Get-Date) - $env_.StartTime
+        Write-TelemetryEvent -Type "envelope.end" -Data ([ordered]@{
+            status      = $Status
+            verified    = $Verified
+            message     = (Invoke-TelemetryRedact -Text $Message -Map $env_.RedactMap)
+            duration_ms = [int]$duration.TotalMilliseconds
+            errorCount  = $errorRecords.Count
+            showCounts  = $env_.ShowCounts
+        })
+    }
+    catch { }
+    finally {
+        $global:_CurrentModuleTelemetry = $null
+    }
+}
+
+# ========================================
 # Display Functions
 # ========================================
 
@@ -279,30 +659,35 @@ function Show-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
     Write-ArtPulse
+    _TrackShowEvent -Function 'info' -Message $Message
 }
 
 function Show-Success {
     param([string]$Message)
     Write-Host "[SUCCESS] $Message" -ForegroundColor Green
     Write-ArtPulse
+    _TrackShowEvent -Function 'success' -Message $Message
 }
 
 function Show-Warning {
     param([string]$Message)
     Write-Host "[WARNING] $Message" -ForegroundColor Yellow
     Write-ArtPulse
+    _TrackShowEvent -Function 'warning' -Message $Message
 }
 
 function Show-Error {
     param([string]$Message)
     Write-Host "[ERROR] $Message" -ForegroundColor Red
     Write-ArtPulse
+    _TrackShowEvent -Function 'error' -Message $Message
 }
 
 function Show-Skip {
     param([string]$Message)
     Write-Host "[SKIP] $Message" -ForegroundColor DarkGray
     Write-ArtPulse
+    _TrackShowEvent -Function 'skip' -Message $Message
 }
 
 # ========================================
@@ -916,6 +1301,9 @@ function Invoke-SafeCommand {
         Verified  = $null
     }
 
+    # Telemetry envelope (best-effort; never affects outcome)
+    try { Start-ModuleTelemetry -ModuleName $OperationName -IsAsync $false } catch { }
+
     try {
         # Clear the global fallback before invocation
         $global:_LastModuleResult = $null
@@ -965,6 +1353,8 @@ function Invoke-SafeCommand {
     }
     finally {
         $result.Duration = (Get-Date) - $startTime
+        # Close telemetry envelope (best-effort)
+        try { Complete-ModuleTelemetry -Status $result.Status -Verified $result.Verified -Message $result.Message } catch { }
     }
 
     return $result
@@ -1024,6 +1414,12 @@ function Invoke-SafeCommandAsync {
         Verified  = $null
     }
 
+    # Telemetry envelope (best-effort; never affects outcome).
+    # Envelope hashtable is referenced (not copied) when injected into
+    # the child runspace, so ShowCounts increments and writes from the
+    # child are visible to Complete-ModuleTelemetry in the parent.
+    try { Start-ModuleTelemetry -ModuleName $OperationName -IsAsync $true } catch { }
+
     # Resolve config
     $cfg = Get-FabriqAsyncConfig
     $skipFlagPath = $cfg.SkipFlagPath
@@ -1067,6 +1463,10 @@ function Invoke-SafeCommandAsync {
         FabriqSessionTimestamp = $global:FabriqSessionTimestamp
         FabriqEvidenceBasePath = $global:FabriqEvidenceBasePath
         FabriqEvidenceRootPath = $global:FabriqEvidenceRootPath
+        # Telemetry envelope: child runspace's Show-* writes to the same
+        # JSONL file via this reference. Hashtable is reference-typed so
+        # ShowCounts increments are visible to the parent on EndInvoke.
+        _CurrentModuleTelemetry = $global:_CurrentModuleTelemetry
     }
 
     $runspace = $null
@@ -1222,6 +1622,10 @@ function Invoke-SafeCommandAsync {
             try { $runspace.Close() } catch { }
             try { $runspace.Dispose() } catch { }
         }
+        # Close telemetry envelope. The child runspace's Show-* events
+        # have already been appended to the JSONL by reference; we only
+        # write envelope.end + accumulated $Error here.
+        try { Complete-ModuleTelemetry -Status $result.Status -Verified $result.Verified -Message $result.Message } catch { }
     }
 
     return $result

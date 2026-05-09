@@ -65,3 +65,8 @@
 # ランタイム生成物（Fabriq 実行中に書き出される状態ファイル）
 /kernel/json/art_pulse.txt
 /kernel/json/skip_request.flag
+
+# Telemetry (AI 開発コーパス、site-specific salt)
+# logs/telemetry/ 自体は /logs/* で既に追跡対象外。
+# salt は環境ごとに自動生成され、commit してはいけない。
+/kernel/json/telemetry_salt.txt
