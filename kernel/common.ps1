@@ -27,8 +27,8 @@ $script:ResumeStatePath = ".\kernel\json\resume_state.json"
 $script:SessionFilePath = ".\kernel\json\session.json"
 $script:SourceMediaIdPath = ".\kernel\source_media.id"
 $script:WorkersCsvPath = ".\kernel\csv\workers.csv"
-$script:ArtPulseFilePath = ".\kernel\json\art_pulse.txt"
-$script:ArtPulseCounter = 0
+$global:ArtPulseFilePath = ".\kernel\json\art_pulse.txt"
+$global:ArtPulseCounter = 0
 
 # Session info (populated by Initialize-Session)
 $script:SessionInfo = $null
@@ -261,21 +261,21 @@ function Disable-SleepSuppression {
 #   1. Telemetry never affects kitting outcomes. Every write path is
 #      wrapped in try/catch with no fallback surface to operator.
 #   2. Reentrancy: Show-* called from inside a telemetry write must NOT
-#      recurse back into telemetry. Guarded by $script:_TelemetryWriting.
+#      recurse back into telemetry. Guarded by $global:_TelemetryWriting.
 #   3. Privacy: every emitted string passes through the redact map built
 #      at envelope start from $env:SELECTED_*, $env:FABRIQ_WORKER_NAME,
 #      $env:COMPUTERNAME, $global:FabriqUniqueId.
 # ========================================
 
 # Reentrancy guard. Set true while Write-TelemetryEvent is appending.
-$script:_TelemetryWriting = $false
+$global:_TelemetryWriting = $false
 
 # Cached salt (loaded lazily from kernel/json/telemetry_salt.txt).
-$script:_TelemetrySalt = $null
-$script:_TelemetrySaltDigest = $null
+$global:_TelemetrySalt = $null
+$global:_TelemetrySaltDigest = $null
 
 # Chronological sequence counter within current session (1-based).
-$script:_TelemetryModuleSeq = 0
+$global:_TelemetryModuleSeq = 0
 
 # Active per-module envelope. Show-* reads this; Start/Complete write it.
 # Schema: @{ Path; RedactMap; Module; Order; Sequence; StartTime;
@@ -283,10 +283,10 @@ $script:_TelemetryModuleSeq = 0
 $global:_CurrentModuleTelemetry = $null
 
 # UTF-8 without BOM (PSv5 [System.Text.Encoding]::UTF8 includes BOM).
-$script:_TelemetryUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$global:_TelemetryUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Get-TelemetrySalt {
-    if ($null -ne $script:_TelemetrySalt) { return $script:_TelemetrySalt }
+    if ($null -ne $global:_TelemetrySalt) { return $global:_TelemetrySalt }
 
     $saltPath = ".\kernel\json\telemetry_salt.txt"
     try {
@@ -305,7 +305,7 @@ function Get-TelemetrySalt {
             $rng.GetBytes($bytes)
             $rng.Dispose()
             $salt = [Convert]::ToBase64String($bytes)
-            [System.IO.File]::WriteAllText($saltPath, $salt, $script:_TelemetryUtf8NoBom)
+            [System.IO.File]::WriteAllText($saltPath, $salt, $global:_TelemetryUtf8NoBom)
         }
 
         if ([string]::IsNullOrWhiteSpace($salt)) { return $null }
@@ -316,14 +316,14 @@ function Get-TelemetrySalt {
         $sha.Dispose()
         $digestHex = -join ($digestBytes[0..3] | ForEach-Object { $_.ToString('x2') })
 
-        $script:_TelemetrySalt = $salt
-        $script:_TelemetrySaltDigest = "sha256:$digestHex"
+        $global:_TelemetrySalt = $salt
+        $global:_TelemetrySaltDigest = "sha256:$digestHex"
         return $salt
     }
     catch {
         # Salt machinery broken — disable hashing (every value will become
         # [REDACTED] in the map; safe-by-default).
-        $script:_TelemetrySalt = $null
+        $global:_TelemetrySalt = $null
         return $null
     }
 }
@@ -423,13 +423,13 @@ function Write-TelemetryEvent {
         [hashtable]$Data = @{}
     )
 
-    if ($script:_TelemetryWriting) { return }
+    if ($global:_TelemetryWriting) { return }
 
     $env_ = $global:_CurrentModuleTelemetry
     if ($null -eq $env_) { return }
     if ([string]::IsNullOrWhiteSpace($env_.Path)) { return }
 
-    $script:_TelemetryWriting = $true
+    $global:_TelemetryWriting = $true
     try {
         $line = [ordered]@{
             ts   = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
@@ -441,13 +441,13 @@ function Write-TelemetryEvent {
         # AppendAllText auto-creates the file on first call; subsequent
         # calls append. Encoding without BOM (already created by salt /
         # _meta.json or here on first write).
-        [System.IO.File]::AppendAllText($env_.Path, $json + "`n", $script:_TelemetryUtf8NoBom)
+        [System.IO.File]::AppendAllText($env_.Path, $json + "`n", $global:_TelemetryUtf8NoBom)
     }
     catch {
         # Telemetry must never bubble. Swallow.
     }
     finally {
-        $script:_TelemetryWriting = $false
+        $global:_TelemetryWriting = $false
     }
 }
 
@@ -527,10 +527,10 @@ function Start-ModuleTelemetry {
                 kernelVersion   = $kernelVer
                 startedAt       = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
                 redactionPolicy = "hash-and-redact-v1"
-                saltDigest      = $script:_TelemetrySaltDigest
+                saltDigest      = $global:_TelemetrySaltDigest
             }
             $metaJson = ([PSCustomObject]$meta | ConvertTo-Json -Depth 4)
-            [System.IO.File]::WriteAllText($metaPath, $metaJson, $script:_TelemetryUtf8NoBom)
+            [System.IO.File]::WriteAllText($metaPath, $metaJson, $global:_TelemetryUtf8NoBom)
         }
     }
     catch {
@@ -539,8 +539,8 @@ function Start-ModuleTelemetry {
         return
     }
 
-    $script:_TelemetryModuleSeq++
-    $seq = $script:_TelemetryModuleSeq
+    $global:_TelemetryModuleSeq++
+    $seq = $global:_TelemetryModuleSeq
     $safeName = ($ModuleName -replace '[^A-Za-z0-9_\-\.]', '_')
     if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = 'unknown' }
     $seqStr = "{0:D4}" -f $seq
@@ -645,11 +645,11 @@ function Show-CategorySeparator {
 }
 
 function Write-ArtPulse {
-    $script:ArtPulseCounter++
+    $global:ArtPulseCounter++
     try {
         [System.IO.File]::WriteAllText(
-            (Join-Path (Get-Location) $script:ArtPulseFilePath),
-            $script:ArtPulseCounter.ToString()
+            (Join-Path (Get-Location) $global:ArtPulseFilePath),
+            $global:ArtPulseCounter.ToString()
         )
     }
     catch { }
@@ -4173,8 +4173,8 @@ function Remove-StatusFile {
         if (Test-Path $tempPath) {
             Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
         }
-        if (Test-Path $script:ArtPulseFilePath) {
-            Remove-Item $script:ArtPulseFilePath -Force -ErrorAction SilentlyContinue
+        if (Test-Path $global:ArtPulseFilePath) {
+            Remove-Item $global:ArtPulseFilePath -Force -ErrorAction SilentlyContinue
         }
     }
     catch { }
@@ -4219,7 +4219,7 @@ function Start-StatusMonitor {
         }
 
         $statusFileFullPath = (Resolve-Path $script:StatusFilePath).Path
-        $pulseFileFullPath = (Join-Path (Get-Location) $script:ArtPulseFilePath)
+        $pulseFileFullPath = (Join-Path (Get-Location) $global:ArtPulseFilePath)
         $sentenceFile = ".\kernel\txt\art_sentences.txt"
         $sentenceFileFullPath = if (Test-Path $sentenceFile) {
             (Resolve-Path $sentenceFile).Path
