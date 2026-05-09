@@ -41,6 +41,18 @@ sysprep.exe を実行するモジュールです。
 
   [対応 SettingName]
 
+  --- generalize パス（ドライバ保持） ---
+    DoNotCleanUpNonPresentDevices  非接続デバイスのドライバ情報を保持
+                                   （true / false、デフォルト true）
+    PersistAllDeviceInstalls       全デバイスインストール情報を generalize 後も保持
+                                   （true / false、デフォルト true）
+
+    ※ これら 2 項目は他の SettingName と異なり、行が無い場合・
+      Enabled=0 の場合でも「要素省略」ではなく「デフォルト true を出力」
+      として扱われます（v1.0.x のハードコード挙動を保持するため）。
+      明示的に false にしたい場合は Enabled=1, Value=false を指定して
+      ください。
+
   --- specialize パス ---
     ComputerName             コンピュータ名（* = 自動生成）
     CopyProfile              プロファイルコピー（true / false）

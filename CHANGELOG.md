@@ -16,6 +16,22 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/sysprep_config v1.0.0 → v1.1.0 (MINOR):
+  unattend.xml の generalize パス `Microsoft-Windows-PnpSysprep` 配下
+  にハードコードされていた `DoNotCleanUpNonPresentDevices` /
+  `PersistAllDeviceInstalls` を `unattend_list.csv` から制御可能に。
+    - 新規 SettingName: `DoNotCleanUpNonPresentDevices`,
+      `PersistAllDeviceInstalls` (Value: true / false)
+    - 既存挙動の完全互換のため、行が無い場合・Enabled=0 の場合は
+      他の SettingName と異なり「要素省略」ではなく「デフォルト true
+      を出力」する非対称セマンティクスを採用 (v1.0.x の固定挙動を
+      バイト一致で保持)。明示的に false にする場合は Enabled=1,
+      Value=false を指定
+    - テンプレートに `{{GENERALIZE_DRIVER_BLOCK}}` プレースホルダ追加
+    - `unattend_list.csv` に 2 行 seed (どちらも Enabled=1, Value=true)
+    - Guide.txt の `[対応 SettingName]` に新カテゴリ
+      「generalize パス（ドライバ保持）」を追加し、非対称セマンティクス
+      を明記
 - kernel/common.ps1 + kernel/ps1/status_monitor.ps1 (PATCH): Status
   Monitor の起動診断ログと子側 defensive try/catch を全段に追加。
   端末によって Status Monitor が立ち上がってこない事象 (子プロセスが
