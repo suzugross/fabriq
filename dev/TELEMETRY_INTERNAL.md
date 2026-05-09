@@ -76,6 +76,7 @@ overlap.
 logs/telemetry/
 └── {SessionID}/                              # e.g. 20260509_143000
     ├── _meta.json                            # session-level metadata (written once)
+    ├── _kernel.jsonl                         # session-lifecycle events (profile/restart/finalize)
     └── modules/
         ├── 0001_hostname_config.jsonl        # NN = sequence (1-based, zero-padded 4)
         ├── 0002_ipaddress_config.jsonl
@@ -99,28 +100,74 @@ kitting PC) and excluded from `.gitignore` (whole `logs/*` already covered).
   "kernelVersion": "3.2.3",
   "startedAt": "2026-05-09T14:30:00.123+09:00",
   "redactionPolicy": "hash-and-redact-v1",
-  "saltDigest": "sha256:a3f2c891"
+  "saltDigest": "sha256:a3f2c891",
+  "host": {
+    "os":       { "caption": "Microsoft Windows 11 Pro", "version": "10.0.26200", "build": "26200" },
+    "hardware": { "manufacturer": "LENOVO", "model": "ThinkCentre M75q Gen 2", "ram_gb": 16 },
+    "powershell": "5.1.26200.0"
+  }
 }
 ```
 
-Written once per session by the first envelope of that session.
-`saltDigest` is the first 4 bytes (8 hex) of `sha256(salt)` — non-secret
-indicator that two sessions share a salt (and thus their hashes correlate).
+Written once per session by the first telemetry-relevant event (module envelope
+or kernel event, whichever fires first). `saltDigest` is the first 4 bytes
+(8 hex) of `sha256(salt)` — non-secret indicator that two sessions share a salt
+(and thus their hashes correlate).
+
+`host.hardware.manufacturer` / `host.hardware.model` are fleet-level identifiers
+(e.g. ThinkCentre / Latitude / OptiPlex) and intentionally NOT redacted —
+they enable cross-session correlation of "this PC model has X-class issues".
+PC-individual identifiers (serial number, MAC, hostname) are still redacted
+elsewhere and never appear in `_meta.json`.
 
 ## 6. JSONL events (one event per line)
 
 ### 6.1 `envelope.start`
 
 ```json
-{"ts":"...","type":"envelope.start","module":"hostname_config","sequence":1,"order":10,"segment":"","errorMode":"","group":"","isAsync":false}
+{
+  "ts":"...","type":"envelope.start",
+  "module":"hostname_config","sequence":1,"order":10,
+  "segment":"","errorMode":"retry","group":"Network","isAsync":false,
+  "profileName":"Master_Config01","profileOrder":10,"executionMode":"Linear",
+  "prevModuleName":"windows_license_install","prevModuleStatus":"Success"
+}
 ```
 
+**Module-intrinsic fields** (always present):
 - `sequence`: 1-based chronological index within the session
 - `order` / `segment` / `errorMode` / `group`: passed by caller when known;
   empty/0 otherwise (e.g. single-module GUI execution)
 - `isAsync`: `true` when running through `Invoke-SafeCommandAsync`
 
-### 6.2 `show.<function>`
+**Profile context fields** (present when fired from `Invoke-BatchExecution`,
+i.e., a profile or batch run; absent for single-module GUI clicks):
+- `profileName`: name of the profile being executed (Master_Config01 etc.)
+- `profileOrder`: row Order in the profile CSV (often equal to top-level `order`)
+- `executionMode`: `"Linear"` (Execute Profile) or `"Flex"` (FlexProfile)
+- `prevModuleName` / `prevModuleStatus`: the previous module in the same batch
+  and its outcome. Cross-module dependency analysis ("module X failed when
+  prev was Skipped"). Absent for the first module of a batch.
+
+### 6.2 `csv.load`
+
+Emitted by `Import-ModuleCsv` after a successful CSV load. Captures only
+**structural metadata** (no row values). Decision-trace value:
+"module reg_hklm_config loaded reg_hklm_list.csv with 14 total / 1 enabled rows
+under segment 'success_verified'".
+
+```json
+{
+  "ts":"...","type":"csv.load",
+  "fileName":"reg_hklm_list.csv",
+  "path":"e:\\fabriq\\modules\\standard\\reg_hklm_config\\reg_hklm_list.csv",
+  "totalRows":14,"returnedRows":1,
+  "filterEnabled":true,"segment":"success_verified",
+  "columns":["Enabled","TargetName","Description","Segment"]
+}
+```
+
+### 6.3 `show.<function>`
 
 One event per `Show-Info` / `Show-Success` / `Show-Warning` / `Show-Error`
 / `Show-Skip` call inside the module envelope.
@@ -142,7 +189,7 @@ One event per `Show-Info` / `Show-Success` / `Show-Warning` / `Show-Error`
 | `[RESTART]` | `restart` |
 | (none of the above) | function name (`info` / `success` / etc.) |
 
-### 6.3 `error`
+### 6.4 `error`
 
 Emitted at `envelope.end` time, **one event per `$Error` entry** captured
 during the envelope (catch-and-swallowed entries included — `$Error.Clear()`
@@ -163,7 +210,7 @@ runs at envelope start to scope the capture).
 `scriptStack` is preserved as-is (fabriq paths are not sensitive). Message
 content is run through the redact map.
 
-### 6.4 `envelope.end`
+### 6.5 `envelope.end`
 
 ```json
 {
@@ -180,14 +227,100 @@ content is run through the redact map.
 `verified` is `null` when the module did not implement Post-Apply
 Verification.
 
+## 6.6 Kernel events channel (`_kernel.jsonl`)
+
+Session-lifecycle events are written to a **separate JSONL file** at the session
+root (parallel to `modules/`). Same line format (one event per line) as module
+envelopes but no envelope-scoped state. Emitted by `Write-KernelTelemetryEvent`
+helper hooked into kernel control points.
+
+```
+logs/telemetry/{SessionID}/_kernel.jsonl
+```
+
+### 6.6.1 `profile.start`
+
+Fired by `Invoke-BatchExecution` after the user confirms the batch.
+
+```json
+{
+  "ts":"...","type":"profile.start",
+  "profileName":"Master_Config01","profilePath":"profiles/Master_Config01.csv",
+  "executionMode":"Linear","moduleCount":17,"autoPilot":true,
+  "selectedOrders":[]
+}
+```
+
+`selectedOrders` is populated only for FlexProfile group/batch runs.
+
+### 6.6.2 `profile.end`
+
+Fired at natural completion of `Invoke-BatchExecution` (after the foreach loop,
+before `Complete-ProfileExecution`). NOT fired when `__RESTART__` early-exits
+the loop — telemetry consumers should pair `profile.start` with the next
+`resume.consumed` to span a restart cycle.
+
+```json
+{
+  "ts":"...","type":"profile.end",
+  "profileName":"Master_Config01","executionMode":"Linear",
+  "modulesRun":17,"successCount":15,"errorCount":1,"skippedCount":1,
+  "partialCount":0,"cancelledCount":0,"outcome":"WithErrors"
+}
+```
+
+`outcome` enum: `"Success"` / `"WithErrors"` / `"Partial"`.
+
+### 6.6.3 `restart.invoked`
+
+Fired inside `Save-ResumeState` — the canonical "we are about to reboot"
+boundary. Covers both `__RESTART__` markers (Profile-internal) and FlexProfile
+[Restart Now] (`resumeAfterOrder=-1` sentinel).
+
+```json
+{
+  "ts":"...","type":"restart.invoked",
+  "profileName":"Master_Config01","executionMode":"Linear",
+  "resumeAfterOrder":40,"completedCount":4,"schemaVersion":1
+}
+```
+
+### 6.6.4 `resume.consumed`
+
+Fired inside `Load-ResumeState` whenever `resume_state.json` is read into memory.
+May fire multiple times per session (defensive callers re-read).
+
+```json
+{
+  "ts":"...","type":"resume.consumed",
+  "profileName":"Master_Config01","schemaVersion":1,
+  "executionMode":"Linear","resumeAfterOrder":40,"completedCount":4
+}
+```
+
+### 6.6.5 `finalize.start` / `finalize.end`
+
+Wraps `Complete-ProfileExecution` (HTML checklist + log_uploader pipeline).
+`mode` echoes the function's `Auto` / `Manual` flag (Auto = Linear auto-finalize,
+Manual = `[cl]` regenerate or Flex `[Complete]`).
+
+```json
+{"ts":"...","type":"finalize.start","profileName":"...","mode":"Auto","elapsedMs":482300,"definedModules":17}
+{"ts":"...","type":"finalize.end","profileName":"...","mode":"Auto","durationMs":3120,"checklistGenerated":true}
+```
+
 ## 7. Implementation surface
 
 | File | Change |
 |---|---|
-| `kernel/common.ps1` | `Telemetry Layer` section (~250 lines): `Get-TelemetrySalt`, `New-TelemetryRedactMap`, `Invoke-TelemetryRedact`, `Write-TelemetryEvent`, `Start-ModuleTelemetry`, `Complete-ModuleTelemetry`, `_Get-ShowTag`, `_Track-ShowEvent` |
-| `kernel/common.ps1` | Show-* family: 1 line added (call to `_Track-ShowEvent`) |
-| `kernel/common.ps1` | `Invoke-SafeCommand`: wrap `& $ScriptBlock` with `Start-ModuleTelemetry` + `Complete-ModuleTelemetry` |
+| `kernel/common.ps1` | `Telemetry Layer` section: `Get-TelemetrySalt`, `New-TelemetryRedactMap`, `Invoke-TelemetryRedact`, `Write-TelemetryEvent`, `Start-ModuleTelemetry`, `Complete-ModuleTelemetry`, `_GetShowTag`, `_TrackShowEvent`, `Get-TelemetryHostInfo`, `_WriteTelemetryMeta`, `Write-KernelTelemetryEvent` |
+| `kernel/common.ps1` | Show-* family: 1 line added per fn (call to `_TrackShowEvent`) |
+| `kernel/common.ps1` | `Invoke-SafeCommand`: wrap with `Start-ModuleTelemetry` + `Complete-ModuleTelemetry` |
 | `kernel/common.ps1` | `Invoke-SafeCommandAsync`: same + inject envelope into runspace |
+| `kernel/common.ps1` | `Import-ModuleCsv`: emit `csv.load` event before successful return |
+| `kernel/common.ps1` | `Save-ResumeState` / `Load-ResumeState`: emit `restart.invoked` / `resume.consumed` |
+| `kernel/common.ps1` | `Complete-ProfileExecution`: wrap with `finalize.start` / `finalize.end` |
+| `kernel/main.ps1` | `Invoke-BatchExecution`: set `$global:_FabriqCurrentProfileContext` per module + emit `profile.start` / `profile.end` |
 | `modules/extended/log_uploader/log_uploader.ps1` | robocopy `logs/` invocation gets `/XD` switch for `logs\telemetry` |
 | `modules/extended/log_uploader/VERSION` | `1.0.0` → `1.1.0` (MINOR: new exclusion behavior) |
 | `.gitignore` | Add `kernel/json/telemetry_salt.txt` (explicit; `/logs/*` already covers `logs/telemetry/`) |

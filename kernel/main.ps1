@@ -292,11 +292,38 @@ function Invoke-BatchExecution {
     # cross-session entries from leaking in.
     Restore-ExecutionHistory -SessionIDFilter $script:SessionID
 
+    # Telemetry kernel event: profile/batch start
+    try {
+        Write-KernelTelemetryEvent -Type "profile.start" -Data ([ordered]@{
+            profileName    = $ProfileName
+            profilePath    = $ProfilePath
+            executionMode  = $ExecutionMode
+            moduleCount    = $SelectedModules.Count
+            autoPilot      = [bool]$AutoPilot
+            selectedOrders = @($SelectedOrders)
+        })
+    } catch { }
+
     $total = $SelectedModules.Count
     $current = 0
 
+    # Cross-module dependency tracking for envelope.start enrichment.
+    $prevModuleName   = ""
+    $prevModuleStatus = ""
+
     foreach ($module in $SelectedModules) {
         $current++
+
+        # Set per-module profile context (consumed by Start-ModuleTelemetry).
+        # Cleared in finally below so a finished/failed module doesn't leak
+        # context into the next batch.
+        $global:_FabriqCurrentProfileContext = @{
+            ProfileName      = $ProfileName
+            ProfileOrder     = [int]$module.Order
+            ExecutionMode    = $ExecutionMode
+            PrevModuleName   = $prevModuleName
+            PrevModuleStatus = $prevModuleStatus
+        }
 
         # __RESTART__ marker handling
         if ($module._IsRestart) {
@@ -496,10 +523,36 @@ function Invoke-BatchExecution {
             Verified = $result.Verified
             Message  = $result.Message
         }
+
+        # Update cross-module dependency tracker for next iteration's
+        # envelope.start (consumed via $global:_FabriqCurrentProfileContext).
+        $prevModuleName   = $module.MenuName
+        $prevModuleStatus = $result.Status
     }
 
     # All modules completed (no restart, or all restarts done)
     Remove-ResumeState
+
+    # Telemetry kernel event: profile/batch end (natural completion only;
+    # __RESTART__ early-exit takes a different path before this point).
+    try {
+        $okCnt   = @($completedResults | Where-Object { $_.Status -eq 'Success'   }).Count
+        $errCnt  = @($completedResults | Where-Object { $_.Status -eq 'Error'     }).Count
+        $skipCnt = @($completedResults | Where-Object { $_.Status -eq 'Skipped'   }).Count
+        $partCnt = @($completedResults | Where-Object { $_.Status -eq 'Partial'   }).Count
+        $cancCnt = @($completedResults | Where-Object { $_.Status -eq 'Cancelled' }).Count
+        Write-KernelTelemetryEvent -Type "profile.end" -Data ([ordered]@{
+            profileName    = $ProfileName
+            executionMode  = $ExecutionMode
+            modulesRun     = $completedResults.Count
+            successCount   = $okCnt
+            errorCount     = $errCnt
+            skippedCount   = $skipCnt
+            partialCount   = $partCnt
+            cancelledCount = $cancCnt
+            outcome        = if ($errCnt -gt 0) { 'WithErrors' } elseif ($partCnt -gt 0) { 'Partial' } else { 'Success' }
+        })
+    } catch { }
 
     # Calculate elapsed time as a single subtraction from the absolute
     # profile start timestamp. Naturally includes reboot/login/startup
@@ -536,6 +589,9 @@ function Invoke-BatchExecution {
         # runs; the post-restart resume call rewrites this with the
         # post-restart segment only, which is the intended semantic.
         $script:LastBatchResults = $completedResults
+        # Clear telemetry profile context so it doesn't leak into ad-hoc
+        # module runs invoked outside Invoke-BatchExecution.
+        $global:_FabriqCurrentProfileContext = $null
     }
 }
 

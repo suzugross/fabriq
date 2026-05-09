@@ -15,6 +15,56 @@
 
 ## [Unreleased]
 
+### Added
+- kernel/common.ps1 + kernel/main.ps1 (PATCH 予定): Telemetry Layer の
+  カバレッジ拡張（v3.2.3 で導入された AI 開発コーパス機構の機能追加。
+  公開 API §1〜§5 不変、KERNEL_API.md 不変、`dev/TELEMETRY_INTERNAL.md`
+  schemaVersion=1 内での後方互換追加）。
+    - **(A) `csv.load` イベント追加**: `Import-ModuleCsv` の正常 return
+      時に `{fileName, path, totalRows, returnedRows, filterEnabled,
+      segment, columns}` を発行。CSV 値そのものは含まない構造メタのみ。
+      AI が「reg_hklm_config が KeyPath=... の場合に失敗しがち」のような
+      decision-trace パターンを追跡可能に
+    - **(B) Profile 実行コンテキストの envelope.start 追加フィールド**:
+      `Invoke-BatchExecution` (main.ps1) が `$global:_FabriqCurrentProfileContext`
+      を per-module で立て、`Start-ModuleTelemetry` (common.ps1) が読み取って
+      envelope.start に `profileName`, `profileOrder`, `executionMode`
+      (Linear/Flex), `prevModuleName`, `prevModuleStatus` を追加。
+      cross-module 依存検出（「IP 設定が Skipped の後で domain_join が
+      失敗する」パターン）が AI から見えるように
+    - **(C) `_meta.json` に host info 追加**: `Get-TelemetryHostInfo`
+      (Win32_OperatingSystem + Win32_ComputerSystem from CIM、1 セッション
+      1 回キャッシュ) で `os: {caption, version, build}`, `hardware:
+      {manufacturer, model, ram_gb}`, `powershell` を記録。manufacturer /
+      model はフリート単位の識別子（ThinkCentre / OptiPlex 等）で
+      顧客個体ではないため hash 化せず raw で保存。PC モデル横断で
+      "this hardware class has X-class issues" を AI が分析可能に
+    - **(D) Kernel events channel `_kernel.jsonl` 新設**: 各セッション
+      ルートに module envelope と並列の session-lifecycle イベント
+      ファイル。新規 helper `Write-KernelTelemetryEvent` が以下イベントを
+      発行:
+        - `profile.start` / `profile.end`: `Invoke-BatchExecution`
+          (main.ps1) entry/exit。outcome enum (`Success` / `WithErrors` /
+          `Partial`) + per-status counts
+        - `restart.invoked`: `Save-ResumeState` (common.ps1)。`__RESTART__`
+          マーカーと FlexProfile [Restart Now] の両者を捕捉
+          (resumeAfterOrder=-1 が後者の sentinel)
+        - `resume.consumed`: `Load-ResumeState`。post-reboot session の
+          先頭で発火
+        - `finalize.start` / `finalize.end`: `Complete-ProfileExecution`
+          (common.ps1) wrap。Auto / Manual モード別の HTML+log_uploader
+          パイプライン計時
+    - 内部実装関数 1 件追加: `_WriteTelemetryMeta` (`_meta.json` 書き込み
+      ロジックを `Start-ModuleTelemetry` から抽出、Write-KernelTelemetryEvent
+      も使う共通化)
+    - **モジュール無変更**: 74 モジュール touched ゼロ。Import-ModuleCsv 経由
+      で 73 モジュールが csv.load イベントを自動的に出力（副次的副作用）
+- dev/TELEMETRY_INTERNAL.md (更新): §6 イベント仕様の追記
+  (csv.load §6.2、kernel events channel §6.6 に profile.start/end /
+  restart.invoked / resume.consumed / finalize.start/end 各イベントの
+  schema を明文化)。`_meta.json` schema (§5) に host フィールドの仕様
+  と redaction rationale を追加
+
 ## [3.2.3] - 2026-05-09
 
 ### Added

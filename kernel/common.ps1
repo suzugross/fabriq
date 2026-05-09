@@ -489,6 +489,111 @@ function _TrackShowEvent {
     catch { }
 }
 
+function Get-TelemetryHostInfo {
+    # Cached host info for _meta.json. WMI calls take ~50-100ms each so we
+    # only compute once per session. Manufacturer/model are fleet-level
+    # (e.g. "ThinkCentre M75q") not customer-identifying, OK to record raw.
+    if ($null -ne $global:_TelemetryHostInfo) { return $global:_TelemetryHostInfo }
+
+    $info = [ordered]@{
+        os         = [ordered]@{ caption = ""; version = ""; build = "" }
+        hardware   = [ordered]@{ manufacturer = ""; model = ""; ram_gb = 0 }
+        powershell = ""
+    }
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($os) {
+            $info.os.caption = "$($os.Caption)".Trim()
+            $info.os.version = "$($os.Version)".Trim()
+            $info.os.build   = "$($os.BuildNumber)".Trim()
+        }
+    } catch { }
+    try {
+        $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cs) {
+            $info.hardware.manufacturer = "$($cs.Manufacturer)".Trim()
+            $info.hardware.model        = "$($cs.Model)".Trim()
+            if ($cs.TotalPhysicalMemory) {
+                $info.hardware.ram_gb = [int]([math]::Round([double]$cs.TotalPhysicalMemory / 1GB))
+            }
+        }
+    } catch { }
+    try { $info.powershell = "$($PSVersionTable.PSVersion)" } catch { }
+
+    $global:_TelemetryHostInfo = $info
+    return $info
+}
+
+function _WriteTelemetryMeta {
+    # Idempotent: writes _meta.json for current SessionID if not yet present.
+    # Called by Start-ModuleTelemetry and Write-KernelTelemetryEvent so the
+    # session-level metadata is written by whichever telemetry write fires
+    # first.
+    $sessionId = $script:SessionID
+    if ([string]::IsNullOrWhiteSpace($sessionId)) { return }
+
+    $sessionDir = Join-Path ".\logs\telemetry" $sessionId
+    try {
+        if (-not (Test-Path $sessionDir)) {
+            New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
+        }
+        $metaPath = Join-Path $sessionDir "_meta.json"
+        if (Test-Path $metaPath) { return }
+
+        $null = Get-TelemetrySalt
+        $kernelVer = ""
+        try { $kernelVer = (Get-Content ".\kernel\KERNEL_VERSION" -Raw -ErrorAction Stop).Trim() } catch { }
+
+        $meta = [ordered]@{
+            telemetrySchemaVersion = 1
+            sessionId       = $sessionId
+            kernelVersion   = $kernelVer
+            startedAt       = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+            redactionPolicy = "hash-and-redact-v1"
+            saltDigest      = $global:_TelemetrySaltDigest
+            host            = (Get-TelemetryHostInfo)
+        }
+        $metaJson = ([PSCustomObject]$meta | ConvertTo-Json -Depth 6)
+        [System.IO.File]::WriteAllText($metaPath, $metaJson, $global:_TelemetryUtf8NoBom)
+    } catch { }
+}
+
+function Write-KernelTelemetryEvent {
+    # Session-level event channel (parallel to per-module envelopes).
+    # Emits to logs/telemetry/{SessionID}/_kernel.jsonl. Used for
+    # session-lifecycle events (profile.start/end, restart.invoked,
+    # resume.consumed, finalize.start/end). Best-effort, never affects
+    # kernel behavior.
+    param(
+        [Parameter(Mandatory)][string]$Type,
+        [hashtable]$Data = @{}
+    )
+
+    if ($global:_TelemetryWriting) { return }
+
+    $sessionId = $script:SessionID
+    if ([string]::IsNullOrWhiteSpace($sessionId)) { return }
+
+    _WriteTelemetryMeta
+
+    $sessionDir = Join-Path ".\logs\telemetry" $sessionId
+    $kernelPath = Join-Path $sessionDir "_kernel.jsonl"
+
+    $global:_TelemetryWriting = $true
+    try {
+        $line = [ordered]@{
+            ts   = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+            type = $Type
+        }
+        foreach ($k in $Data.Keys) { $line[$k] = $Data[$k] }
+        $json = ([PSCustomObject]$line | ConvertTo-Json -Depth 6 -Compress)
+        [System.IO.File]::AppendAllText($kernelPath, $json + "`n", $global:_TelemetryUtf8NoBom)
+    } catch { }
+    finally {
+        $global:_TelemetryWriting = $false
+    }
+}
+
 function Start-ModuleTelemetry {
     param(
         [Parameter(Mandatory)][string]$ModuleName,
@@ -514,24 +619,7 @@ function Start-ModuleTelemetry {
         if (-not (Test-Path $modulesDir)) {
             New-Item -ItemType Directory -Path $modulesDir -Force | Out-Null
         }
-
-        # Session-level _meta.json (write once per session)
-        $metaPath = Join-Path $sessionDir "_meta.json"
-        if (-not (Test-Path $metaPath)) {
-            $null = Get-TelemetrySalt
-            $kernelVer = ""
-            try { $kernelVer = (Get-Content ".\kernel\KERNEL_VERSION" -Raw -ErrorAction Stop).Trim() } catch { }
-            $meta = [ordered]@{
-                telemetrySchemaVersion = 1
-                sessionId       = $sessionId
-                kernelVersion   = $kernelVer
-                startedAt       = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
-                redactionPolicy = "hash-and-redact-v1"
-                saltDigest      = $global:_TelemetrySaltDigest
-            }
-            $metaJson = ([PSCustomObject]$meta | ConvertTo-Json -Depth 4)
-            [System.IO.File]::WriteAllText($metaPath, $metaJson, $global:_TelemetryUtf8NoBom)
-        }
+        _WriteTelemetryMeta
     }
     catch {
         # Cannot prepare directory: telemetry disabled for this envelope.
@@ -561,7 +649,10 @@ function Start-ModuleTelemetry {
     # entries (catch-and-swallowed exceptions included).
     try { $global:Error.Clear() } catch { }
 
-    Write-TelemetryEvent -Type "envelope.start" -Data ([ordered]@{
+    # Profile execution context (set by Invoke-BatchExecution per module).
+    # Cross-module dependency analysis: AI can see "module X failed when
+    # prevModule was Skipped" patterns.
+    $envFields = [ordered]@{
         module    = $ModuleName
         sequence  = $seq
         order     = $Order
@@ -569,7 +660,19 @@ function Start-ModuleTelemetry {
         errorMode = $ErrorMode
         group     = $Group
         isAsync   = $IsAsync
-    })
+    }
+    $ctx = $global:_FabriqCurrentProfileContext
+    if ($null -ne $ctx) {
+        if (-not [string]::IsNullOrWhiteSpace($ctx.ProfileName))   { $envFields.profileName    = $ctx.ProfileName }
+        if ($null -ne $ctx.ProfileOrder -and $ctx.ProfileOrder -gt 0) { $envFields.profileOrder = [int]$ctx.ProfileOrder }
+        if (-not [string]::IsNullOrWhiteSpace($ctx.ExecutionMode)) { $envFields.executionMode  = $ctx.ExecutionMode }
+        if (-not [string]::IsNullOrWhiteSpace($ctx.PrevModuleName)) {
+            $envFields.prevModuleName   = $ctx.PrevModuleName
+            $envFields.prevModuleStatus = $ctx.PrevModuleStatus
+        }
+    }
+
+    Write-TelemetryEvent -Type "envelope.start" -Data $envFields
 }
 
 function Complete-ModuleTelemetry {
@@ -979,6 +1082,23 @@ function Import-ModuleCsv {
     if ($FilterEnabled) {
         Show-Info "Loaded $($allItems.Count) enabled entries (total: $totalCount)"
     }
+
+    # Telemetry: structured csv.load event for AI corpus (decision-trace).
+    # Captures file structural metadata only (no row values). Best-effort,
+    # never affects load outcome.
+    try {
+        if ($null -ne $global:_CurrentModuleTelemetry) {
+            Write-TelemetryEvent -Type "csv.load" -Data ([ordered]@{
+                fileName      = [System.IO.Path]::GetFileName($Path)
+                path          = $Path
+                totalRows     = $totalCount
+                returnedRows  = @($allItems).Count
+                filterEnabled = [bool]$FilterEnabled
+                segment       = $Segment
+                columns       = @($csvColumns)
+            })
+        }
+    } catch { }
 
     return $allItems
 }
@@ -2778,6 +2898,16 @@ function Complete-ProfileExecution {
         [ValidateSet('Auto','Manual')][string]$Mode = 'Auto'
     )
 
+    $finalizeStart = Get-Date
+    try {
+        Write-KernelTelemetryEvent -Type "finalize.start" -Data ([ordered]@{
+            profileName    = $ProfileName
+            mode           = $Mode
+            elapsedMs      = [int]$ElapsedTime.TotalMilliseconds
+            definedModules = @($DefinedModules).Count
+        })
+    } catch { }
+
     Write-Host ""
 
     # Step 1: Export execution history CSV → evidence directory
@@ -2863,6 +2993,15 @@ function Complete-ProfileExecution {
             }
         }
     }
+
+    try {
+        Write-KernelTelemetryEvent -Type "finalize.end" -Data ([ordered]@{
+            profileName        = $ProfileName
+            mode               = $Mode
+            durationMs         = [int]((Get-Date) - $finalizeStart).TotalMilliseconds
+            checklistGenerated = (-not [string]::IsNullOrEmpty($checklistPath)) -and (Test-Path $checklistPath)
+        })
+    } catch { }
 
     return $checklistPath
 }
@@ -3165,13 +3304,42 @@ function Save-ResumeState {
     }
 
     $state | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResumeStatePath -Encoding UTF8 -Force
+
+    # Telemetry kernel event: restart-invoked record. Save-ResumeState
+    # is the canonical "we are about to reboot" boundary for both
+    # __RESTART__ markers and FlexProfile [Restart Now]; ResumeAfterOrder=-1
+    # signals the [Restart Now] sentinel path.
+    try {
+        Write-KernelTelemetryEvent -Type "restart.invoked" -Data ([ordered]@{
+            profileName       = $ProfileName
+            executionMode     = $ExecutionMode
+            resumeAfterOrder  = [int]$ResumeAfterOrder
+            completedCount    = @($CompletedModules).Count
+            schemaVersion     = if ($ExecutionMode -eq 'Flex') { 2 } else { 1 }
+        })
+    } catch { }
 }
 
 function Load-ResumeState {
     if (-not (Test-Path $script:ResumeStatePath)) { return $null }
     try {
         $json = Get-Content $script:ResumeStatePath -Raw -Encoding UTF8
-        return ($json | ConvertFrom-Json)
+        $loaded = $json | ConvertFrom-Json
+        # Telemetry kernel event: resume-consumed. Note that Load-ResumeState
+        # may be called multiple times; we accept potential duplicates rather
+        # than tracking "first call" state. SessionID at load time may be
+        # pre-resume; downstream callers reset it after Restore-HostEnvironment.
+        try {
+            $sv = if ($null -ne $loaded.schemaVersion) { [int]$loaded.schemaVersion } else { 1 }
+            Write-KernelTelemetryEvent -Type "resume.consumed" -Data ([ordered]@{
+                profileName      = "$($loaded.ProfileName)"
+                schemaVersion    = $sv
+                executionMode    = if ($null -ne $loaded.ExecutionMode) { "$($loaded.ExecutionMode)" } else { 'Linear' }
+                resumeAfterOrder = if ($null -ne $loaded.ResumeAfterOrder) { [int]$loaded.ResumeAfterOrder } else { 0 }
+                completedCount   = @($loaded.CompletedModules).Count
+            })
+        } catch { }
+        return $loaded
     }
     catch { return $null }
 }
