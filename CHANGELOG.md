@@ -45,6 +45,13 @@
     - 子 runspace（`__ASYNC__`）でも envelope 共有: 親が立てた
       `$global:_CurrentModuleTelemetry` を inject hashtable 経由で
       子に渡し、Show-* / ShowCounts は同じ hashtable を共有
+    - **Scope 設計**: telemetry の内部状態変数 (`_TelemetryWriting`,
+      `_TelemetrySalt`, `_TelemetrySaltDigest`, `_TelemetryModuleSeq`,
+      `_TelemetryUtf8NoBom`) は `$global:` で保持。`$script:` だと
+      Show-* が `& module.ps1` 内から呼ばれた瞬間にモジュール側の
+      script scope（変数未定義）を参照してしまう PowerShell の
+      動的 scope 仕様に対応するための設計判断（test_harness 検証で
+      surfacing）
 - dev/TELEMETRY_INTERNAL.md (新規): Telemetry 設計メモ。schemaVersion 1 の
   ファイル配置・redact 方針・JSONL イベント書式・実装サーフェス・
   reentrancy / 失敗隔離契約を明文化
@@ -138,6 +145,15 @@
       最大 +4 秒 (poll timeout)、正常時は概ね +1 秒程度
     - 公開 API への影響なし (KERNEL_API.md §6 で Status Monitor の
       内部実装は PATCH 可と明示済み)、KERNEL_API.md 更新不要
+
+### Fixed
+- kernel/common.ps1 (PATCH): `$script:ArtPulseFilePath` /
+  `$script:ArtPulseCounter` を `$global:` に変更。`$script:` の動的 scope
+  仕様により `Write-ArtPulse` が `& module.ps1` 内から呼ばれた際に変数 null
+  → `WriteAllText` 例外を silent 発生していた長期バグを修正。telemetry
+  追加で初めて surfacing。修正後はカウンタが全 Show-* 呼び出しで正しく
+  累積し、Status Monitor のアート pulse animation が一貫して反応する
+  ようになる（pre-existing バグの副次的修正、公開 API 不変）
 
 ### Changed
 - modules/standard/domain_join **2.0.0** (MAJOR): 失敗時の振る舞いを
