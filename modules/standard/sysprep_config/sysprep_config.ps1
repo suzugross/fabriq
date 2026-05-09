@@ -29,23 +29,22 @@ $sourceDir               = Join-Path $PSScriptRoot "source"
 # Unattend.xml template (fixed sections + placeholders)
 # ========================================
 # Fixed sections:
-#   generalize  -> preserve drivers (PersistAllDeviceInstalls etc.)
 #   specialize  -> time zone (Tokyo Standard Time)
 #   oobeSystem  -> locale (ja-JP), prevent device encryption
 #
 # Variable sections (placeholders):
-#   {{SPECIALIZE_SETTINGS}} -> ComputerName, CopyProfile
-#   {{OOBE_BLOCK}}          -> per-skip settings inside <OOBE>
-#   {{USER_ACCOUNTS_BLOCK}} -> TestUserName, EnableAdministrator
+#   {{GENERALIZE_DRIVER_BLOCK}} -> DoNotCleanUpNonPresentDevices, PersistAllDeviceInstalls
+#                                  (defaults to true/true when CSV row absent or Enabled=0)
+#   {{SPECIALIZE_SETTINGS}}     -> ComputerName, CopyProfile
+#   {{OOBE_BLOCK}}              -> per-skip settings inside <OOBE>
+#   {{USER_ACCOUNTS_BLOCK}}     -> TestUserName, EnableAdministrator
 # ========================================
 $xmlTemplate = @'
 <?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
     <settings pass="generalize">
         <component name="Microsoft-Windows-PnpSysprep" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <DoNotCleanUpNonPresentDevices>true</DoNotCleanUpNonPresentDevices>
-            <PersistAllDeviceInstalls>true</PersistAllDeviceInstalls>
-        </component>
+{{GENERALIZE_DRIVER_BLOCK}}        </component>
     </settings>
     <settings pass="specialize">
         <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -323,6 +322,26 @@ if (Test-Path $sourceDir) {
 # --- 5-2: Generate unattend.xml dynamically -> deploy ---
 Show-Info "Generating unattend.xml..."
 
+# Build {{GENERALIZE_DRIVER_BLOCK}}
+# Note: unlike other SettingName entries, these two settings always emit the
+# element. Row-absent or Enabled=0 falls back to the historical default "true"
+# (preserves byte-identical output of v1.0.x). Set Enabled=1 + Value=false to
+# explicitly emit <...>false</...>.
+$generalizeDriverBlock = ""
+$dontCleanup = if ($settings.ContainsKey("DoNotCleanUpNonPresentDevices")) {
+    $settings["DoNotCleanUpNonPresentDevices"]
+} else {
+    "true"
+}
+$generalizeDriverBlock += "            <DoNotCleanUpNonPresentDevices>$dontCleanup</DoNotCleanUpNonPresentDevices>`r`n"
+
+$persistAll = if ($settings.ContainsKey("PersistAllDeviceInstalls")) {
+    $settings["PersistAllDeviceInstalls"]
+} else {
+    "true"
+}
+$generalizeDriverBlock += "            <PersistAllDeviceInstalls>$persistAll</PersistAllDeviceInstalls>`r`n"
+
 # Build {{SPECIALIZE_SETTINGS}}
 $specializeBlock = ""
 if ($settings.ContainsKey("ComputerName")) {
@@ -380,7 +399,8 @@ else {
 }
 
 # Substitute placeholders (use .Replace for safe literal replacement)
-$xmlContent = $xmlTemplate.Replace('{{SPECIALIZE_SETTINGS}}', $specializeBlock)
+$xmlContent = $xmlTemplate.Replace('{{GENERALIZE_DRIVER_BLOCK}}', $generalizeDriverBlock)
+$xmlContent = $xmlContent.Replace('{{SPECIALIZE_SETTINGS}}', $specializeBlock)
 $xmlContent = $xmlContent.Replace('{{OOBE_BLOCK}}', $oobeBlock)
 $xmlContent = $xmlContent.Replace('{{USER_ACCOUNTS_BLOCK}}', $userAccountsBlock)
 
