@@ -16,6 +16,42 @@
 ## [Unreleased]
 
 ### Security
+- modules/standard/robocopy_config v1.0.0 → v1.0.1 (PATCH):
+  UNC 認証パスワード（AuthPass）を `net use` のコマンドライン引数経由
+  から **stdin パイプ経由** に変更（A3 / T1-B robocopy）。閉じられる
+  leak vector:
+    - **`Win32_Process.CommandLine`**: net.exe lifetime 中の live
+      snapshot。同 logon session の他プロセス（AV / EDR / sysmon /
+      `Get-CimInstance Win32_Process` 経由）から password 文字列を
+      取得可能だった。本変更で net.exe のコマンドライン引数から
+      AuthPass が消えるため遮断
+    - **Windows Security Log Event ID 4688**: site で
+      `Audit Process Creation` + `IncludeCommandLine` が有効な場合
+      （B2G の標準 audit 設定）、永続的にイベントログ記録 → SIEM 転送
+      先まで到達する経路。本変更で 4688 にも password が記録されない
+    - **PowerShell Module Logging**: site で有効化された場合、native
+      command の引数も間接的に記録される実装。本変更で対象外
+  実装詳細: L162 の `& net use $share "$pass" /user:U` を
+  `"$pass" | & net use $share /user:U` に変更。net.exe は `/user:` 指定 +
+  password 引数なしで prompt mode に入り、PowerShell の native command
+  pipe からの 1 行を password として読む（標準 net.exe 挙動、Windows
+  10/11 で安定）。SMB session 確立後 robocopy は OS の SMB credential
+  cache 経由で UNC パスへ透過アクセス。cleanup (`& net use $share /delete
+  /y`) は password 不要のため変更なし。
+  検討済却下案:
+    - PSDrive `-Persist` 化: drive letter mapping を新規導入する副作用
+      が現状仕様（drive letter 不使用）と乖離するため見送り
+    - `WNetAddConnection2W` P/Invoke: 最も architectural だが Add-Type
+      C# block の複雑性大、stdin pipe で同等のセキュリティ効果が得られる
+      ため不採用
+  Guide.txt の UNC Authentication 節と L107「パスワードはコンソール/
+  ログに一切出力されません」記載を、実装と整合する正確な表現に書き換え
+  （PS Transcript / Win32_Process.CommandLine / 4688 / Module Logging
+  の各経路について明示）。stdin pipe 化以前は L107 記載は
+  Win32_Process.CommandLine 経由で実際には漏洩していた虚偽記載で、
+  本変更で記載が事実と整合。
+  公開 API 不変、`REQUIRES_KERNEL` 据え置き 2.0.0、CSV スキーマ /
+  ModuleResult 契約 / 動作フロー operator 視点いずれも不変
 - modules/standard/windows_license_config v1.0.0 → v1.0.1 (PATCH):
   Windows プロダクトキーの transcript 漏洩を抑止（A3 / T1-A、3 箇所）。
   共通 redact-map 経路（`Invoke-TelemetryRedact`）はキー値そのものを
@@ -43,10 +79,10 @@
     - 公開 API 不変、`REQUIRES_KERNEL` 据え置き 2.0.0
 - 残るリスク（A3 / T1-B 以降、別作業として継続検討）:
     - `office_license_install.ps1:199` `& cscript ... /inpkey:KEY`:
-      外部プロセス引数経由の transcript 漏洩。Native API 経路 or
-      `OfficeSoftwareProtectionService` CIM 直叩きへの実装変更要
-    - `robocopy_config.ps1:162` `& net use ... AuthPass ...`: 同上、
-      `New-PSDrive -Credential` 化の選択肢あり
+      外部プロセス引数経由の漏洩（Win32_Process.CommandLine / 4688）。
+      Native API 経路 or `OfficeSoftwareProtectionService` CIM 直叩き
+      への実装変更要。robocopy_config の stdin pipe 解は cscript には
+      適用不可（OSPP.vbs は引数で key を受け取る設計のため）
     - `windows_license_install.ps1:78` `Read-Host` manual 入力 echo
       （T2、`-AsSecureString` 化候補、UX 変更を伴うため別議論）
     - 各 `catch { Show-Error "...: $_" }` 経由の error message 漏洩
@@ -64,6 +100,19 @@
       なり得るため。診断価値（どの列が失敗したか）保持のため列名
       （`Column '$($prop.Name)':`）は出力継続。直後の Decrypt OK / FAILED
       ライン（L57 / L60）は不変
+- (framing correction) 前 commit 5500cc1 の A1+A2+A3-T1-A entries で
+  「PS Transcript に password が記録される」と記述したが、これは部分的
+  に不正確だった。正確な leak vector の整理:
+    - A1+A2 (`commands/diag_crypto.ps1`) と A3-T1-A (license modules) の
+      `Write-Host` / `Show-*` 経由は **Console output 経由で展開後の値
+      が PS Transcript に記録される** 経路（PowerShell Transcript の
+      output capture 機能による）。実際の漏洩経路で、修正は妥当
+    - 一方 A3-T1-B (今回 robocopy) は PS Transcript ではなく
+      Win32_Process.CommandLine と 4688 audit log が leak vector で、
+      PS Transcript には source code 行が literal で記録されるのみ
+      （変数参照 `$($item.AuthPass)` のまま、展開後の値は出ない）
+    - 修正は両方とも妥当かつ価値あり。framing 上「PS Transcript への
+      漏洩」と一括りで扱った前 commit のメッセージを精度訂正する記録
 - 公開 API 不変（`KERNEL_API.md` §1〜§5 touched せず）。kernel/common.ps1
   も touched せず、Unprotect-FabriqValue / Import-ModuleCsv の挙動・
   シグネチャ完全一致
