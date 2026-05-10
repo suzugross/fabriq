@@ -5,9 +5,10 @@
 #
 # Targets:
 #   - kernel/KERNEL_VERSION (source of truth, X.Y.Z)
-#   - README.md L1          "# Fabriq ver{X.Y}"
-#   - kernel/common.ps1 L2  "Common Function Library v{X.Y.Z}"   (full)
-#   - kernel/main.ps1   L3  "Fabriq ver{X.Y}"                    (major.minor)
+#   - README.md L1            "# Fabriq ver{X.Y}"
+#   - kernel/common.ps1 L2    "Common Function Library v{X.Y.Z}"  (full)
+#   - kernel/main.ps1   L3    "Fabriq ver{X.Y}"                   (major.minor)
+#   - kernel/KERNEL_API.md L3 "**Current Kernel Version**: `{X.Y.Z}`" (full)
 #
 # Usage:
 #   pwsh ./dev/check_version.ps1
@@ -105,6 +106,15 @@ Test-VersionLine `
     -LineNumber 3 `
     -Pattern '(?i)Fabriq\s+ver(\d+\.\d+)' `
     -Expected $majorMinor
+
+# kernel/KERNEL_API.md L3 : "**Current Kernel Version**: `{X.Y.Z}`"
+# Added 2026-05-10 (v3.2.4) after observing 2-release drift on this header.
+Test-VersionLine `
+    -Label "kernel/KERNEL_API.md L3" `
+    -FilePath (Join-Path $projectRoot "kernel\KERNEL_API.md") `
+    -LineNumber 3 `
+    -Pattern 'Current Kernel Version.*?`(\d+\.\d+\.\d+)`' `
+    -Expected $fullVersion
 
 Write-Host ""
 if ($mismatches.Count -eq 0) {

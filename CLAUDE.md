@@ -182,10 +182,11 @@ kernel/MODULE_COMPAT.md
 
 1. `kernel/KERNEL_VERSION` を新しい `X.Y.Z` に更新
 2. `CHANGELOG.md` の `[Unreleased]` を `[X.Y.Z] - YYYY-MM-DD`（当日日付）に昇格し、直上に空の `[Unreleased]` を再設
-3. 以下 3 箇所の版表記を `X.Y`（MAJOR.MINOR）に同期:
-   - `README.md` L1 `# Fabriq ver{X.Y}`
-   - `kernel/common.ps1` L2 `# Easy Kitting Batch - Common Function Library v{X.Y}.Z`（Z まで含める）
-   - `kernel/main.ps1` L3 `# Fabriq ver{X.Y} - Manifeste du Surkitinisme -`
+3. 以下 4 箇所の版表記を同期:
+   - `README.md` L1 `# Fabriq ver{X.Y}`（X.Y のみ）
+   - `kernel/common.ps1` L2 `# Easy Kitting Batch - Common Function Library v{X.Y}.Z`（X.Y.Z 完全形）
+   - `kernel/main.ps1` L3 `# Fabriq ver{X.Y} - Manifeste du Surkitinisme -`（X.Y のみ）
+   - `kernel/KERNEL_API.md` L3 `**Current Kernel Version**: \`{X.Y.Z}\`（...）`（X.Y.Z 完全形。drift 検出は `dev/check_version.ps1` が自動化、2026-05-10 / v3.2.4 で sync list へ追加）
 4. `pwsh ./dev/check_version.ps1` を実行して整合性確認
 5. `git tag kernel-vX.Y.Z` は **Claude 側では実行しない**。コマンドを提示してユーザーにお願いする（モジュール単独リリースなら `git tag <module>-vX.Y.Z` を提示）
 
