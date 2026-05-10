@@ -15,6 +15,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- `kernel/KERNEL_API.md` L3 `**Current Kernel Version**` ヘッダの drift
+  解消（3.2.2 → 3.2.4）。3.2.3 / 3.2.4 の 2 連続 PATCH 昇格時に sync 漏れ
+  していたものを retroactive 修正。
+
+### Changed
+- CLAUDE.md ルール J step 3 の sync list に `kernel/KERNEL_API.md` L3 を
+  追加（従来 3 箇所 → 4 箇所）。`KERNEL_API.md` L3 drift 観察を受けた
+  恒久対策。`dev/check_version.ps1` も同 L3 ヘッダの drift 検出を追加し、
+  リリース時の見落としを構造的に防止。
+
 ## [3.2.4] - 2026-05-10
 
 ### Added
