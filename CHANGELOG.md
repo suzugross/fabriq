@@ -58,6 +58,43 @@
     - `tests/_helpers/test_csv.ps1`: `[AllowEmptyCollection()]` 化 +
       `-Rows` 既定値 `@()` で header-only fixture を許可
       (Import-ModuleCsv 空ファイル分岐のテストに必要)
+    - `tests/_helpers/test_state.ps1` 拡張: `Set-FabriqTestState`
+      ヘルパ追加 (`$script:ResumeStatePath` / `$script:SessionID` /
+      `$script:HistoryPath` / `$script:StatusFilePath` を tests から
+      override 可能に)。production code は不変、main.ps1 経由の
+      Initialize-Session を経由しないテストでも production 既定の
+      相対パス (CWD 根拠) で実状態を上書きしないよう隔離
+    - `tests/kernel/ResumeState.tests.ps1` (Phase 2): 4 Context /
+      15 ケース。`Save-ResumeState` / `Load-ResumeState` の on-disk
+      JSON 形式契約と __RESTART__ 越え round-trip を pin。
+        - **Linear (v1) 出力 4 ケース**: `schemaVersion` /
+          `ExecutionMode` / `SelectedOrders` / `ModuleStates` 4 fields
+          が **全て不在** であることを検証 (pre-FlexProfile v1 file との
+          byte-compat) / 核心 fields (ProfilePath, ProfileName,
+          ResumeAfterOrder, SessionID, AutoPilot 系, EvidenceBasePath)
+          シリアライズ / CompletedModules を Order/MenuName/Status
+          triple として記録 / ProfileStartTime は ISO 8601 "o" 形式
+        - **Flex (v2) 出力 4 ケース** (kernel 3.1.0 導入): `-ExecutionMode
+          Flex` で schemaVersion=2 + ExecutionMode='Flex' を emit /
+          SelectedOrders 配列シリアライズ / ModuleStates hashtable を
+          JSON object 化 (`'10' = @{Status='Success'; Verified=$true}`
+          形式の round-trip) / v1 核心 fields も同時保持
+        - **Round-trip 4 ケース**: v1 形式の Save → Load 完全回復 /
+          v2 形式の Save → Load (schemaVersion / SelectedOrders /
+          ModuleStates 全保持) / HostEnvironment スナップショットの
+          値保存 (SELECTED_NEW_PCNAME を実 env で設定 → save → load
+          → 復元値一致、テスト後に env 復元) / SELECTED_PRINTER_<N>_*
+          (10 slots × 3 suffixes = 30 keys) の HostEnvironment 構造
+          保証
+        - **Load 境界 3 ケース**: ファイル不在で `$null` 返却 /
+          壊れた JSON で `$null` 返却 (try/catch 経路) / pre-FlexProfile
+          v1 ファイル (schemaVersion 不在) を error 無く読める
+          (kernel 3.1.0 後方互換契約)
+        - `Mock Write-KernelTelemetryEvent {}` で telemetry 副次副作用
+          を抑止。`$global:AutoPilotMode` / `WaitSec` /
+          `FabriqMasterPassphrase` / `FabriqEvidenceBasePath` を BeforeEach
+          で初期化、tmp resume_state ファイルは BeforeEach で生成
+          AfterEach で削除
 - dev/run_tests.ps1: Pester v5+ runner。`tests/` と
   `apps/fabriq_ios/tests/` を一括実行。Pester v5 未インストール環境で
   は明示エラー + `Install-Module` ヒント表示で exit 1（v3.4.0 の
