@@ -112,9 +112,7 @@ function Load-CsvToTable {
     $Table.Rows.Clear()
 
     $columns = @(
-        "Enabled", "DisplayName", "Publisher", "DisplayVersion", "Architecture",
-        "WindowsInstaller", "QuietUninstallString", "UninstallString",
-        "NoRemove", "SystemComponent", "InstallDate", "RegistryKey"
+        "Enabled", "DisplayName", "MatchPattern", "Description", "Segment"
     )
 
     foreach ($item in $csvData) {
@@ -320,12 +318,10 @@ $lblCsvPath.ForeColor = $fgDim
 $lblCsvPath.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 $panelBottom.Controls.Add($lblCsvPath)
 
-# --- CSV DataTable (12 columns) ---
+# --- CSV DataTable (5 columns, matches bloatware_remove schema) ---
 $dt = New-Object System.Data.DataTable
 foreach ($col in @(
-    "Enabled", "DisplayName", "Publisher", "DisplayVersion", "Architecture",
-    "WindowsInstaller", "QuietUninstallString", "UninstallString",
-    "NoRemove", "SystemComponent", "InstallDate", "RegistryKey"
+    "Enabled", "DisplayName", "MatchPattern", "Description", "Segment"
 )) {
     [void]$dt.Columns.Add($col)
 }
@@ -350,8 +346,8 @@ $colEnabled.DataPropertyName = "Enabled"
 $colEnabled.Name = "Enabled"
 $colEnabled.Items.AddRange("0", "1")
 $colEnabled.FlatStyle = "Flat"
-$colEnabled.FillWeight = 4
-$colEnabled.MinimumWidth = 55
+$colEnabled.FillWeight = 8
+$colEnabled.MinimumWidth = 60
 $null = $gridCsv.Columns.Add($colEnabled)
 
 # DisplayName
@@ -359,88 +355,32 @@ $colDN = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colDN.HeaderText = "DisplayName"
 $colDN.DataPropertyName = "DisplayName"
 $colDN.Name = "DisplayName"
-$colDN.FillWeight = 20
+$colDN.FillWeight = 30
 $null = $gridCsv.Columns.Add($colDN)
 
-# Publisher
-$colPub = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colPub.HeaderText = "Publisher"
-$colPub.DataPropertyName = "Publisher"
-$colPub.Name = "Publisher"
-$colPub.FillWeight = 12
-$null = $gridCsv.Columns.Add($colPub)
+# MatchPattern
+$colMP = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colMP.HeaderText = "MatchPattern"
+$colMP.DataPropertyName = "MatchPattern"
+$colMP.Name = "MatchPattern"
+$colMP.FillWeight = 22
+$null = $gridCsv.Columns.Add($colMP)
 
-# DisplayVersion
-$colVer = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colVer.HeaderText = "Version"
-$colVer.DataPropertyName = "DisplayVersion"
-$colVer.Name = "DisplayVersion"
-$colVer.FillWeight = 6
-$null = $gridCsv.Columns.Add($colVer)
+# Description
+$colDesc = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colDesc.HeaderText = "Description"
+$colDesc.DataPropertyName = "Description"
+$colDesc.Name = "Description"
+$colDesc.FillWeight = 25
+$null = $gridCsv.Columns.Add($colDesc)
 
-# Architecture
-$colArch = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colArch.HeaderText = "Arch"
-$colArch.DataPropertyName = "Architecture"
-$colArch.Name = "Architecture"
-$colArch.FillWeight = 5
-$null = $gridCsv.Columns.Add($colArch)
-
-# WindowsInstaller
-$colWI = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colWI.HeaderText = "MSI"
-$colWI.DataPropertyName = "WindowsInstaller"
-$colWI.Name = "WindowsInstaller"
-$colWI.FillWeight = 4
-$null = $gridCsv.Columns.Add($colWI)
-
-# QuietUninstallString
-$colQUS = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colQUS.HeaderText = "QuietUninstall"
-$colQUS.DataPropertyName = "QuietUninstallString"
-$colQUS.Name = "QuietUninstallString"
-$colQUS.FillWeight = 18
-$null = $gridCsv.Columns.Add($colQUS)
-
-# UninstallString
-$colUS = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colUS.HeaderText = "UninstallString"
-$colUS.DataPropertyName = "UninstallString"
-$colUS.Name = "UninstallString"
-$colUS.FillWeight = 18
-$null = $gridCsv.Columns.Add($colUS)
-
-# NoRemove
-$colNR = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colNR.HeaderText = "NoRem"
-$colNR.DataPropertyName = "NoRemove"
-$colNR.Name = "NoRemove"
-$colNR.FillWeight = 4
-$null = $gridCsv.Columns.Add($colNR)
-
-# SystemComponent
-$colSC = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colSC.HeaderText = "SysComp"
-$colSC.DataPropertyName = "SystemComponent"
-$colSC.Name = "SystemComponent"
-$colSC.FillWeight = 5
-$null = $gridCsv.Columns.Add($colSC)
-
-# InstallDate
-$colDate = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colDate.HeaderText = "InstallDate"
-$colDate.DataPropertyName = "InstallDate"
-$colDate.Name = "InstallDate"
-$colDate.FillWeight = 7
-$null = $gridCsv.Columns.Add($colDate)
-
-# RegistryKey
-$colRK = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colRK.HeaderText = "RegistryKey"
-$colRK.DataPropertyName = "RegistryKey"
-$colRK.Name = "RegistryKey"
-$colRK.FillWeight = 18
-$null = $gridCsv.Columns.Add($colRK)
+# Segment
+$colSeg = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colSeg.HeaderText = "Segment"
+$colSeg.DataPropertyName = "Segment"
+$colSeg.Name = "Segment"
+$colSeg.FillWeight = 15
+$null = $gridCsv.Columns.Add($colSeg)
 
 $panelBottom.Controls.Add($gridCsv)
 
@@ -571,18 +511,11 @@ $btnAddToCsv.Add_Click({
         if ($null -eq $src) { continue }
 
         $row = $dt.NewRow()
-        $row["Enabled"]              = "1"
-        $row["DisplayName"]          = $src.DisplayName
-        $row["Publisher"]            = $src.Publisher
-        $row["DisplayVersion"]       = $src.DisplayVersion
-        $row["Architecture"]         = $src.Architecture
-        $row["WindowsInstaller"]     = $src.WindowsInstaller
-        $row["QuietUninstallString"] = $src.QuietUninstallString
-        $row["UninstallString"]      = $src.UninstallString
-        $row["NoRemove"]             = $src.NoRemove
-        $row["SystemComponent"]      = $src.SystemComponent
-        $row["InstallDate"]          = $src.InstallDate
-        $row["RegistryKey"]          = $src.RegistryKey
+        $row["Enabled"]      = "1"
+        $row["DisplayName"]  = $src.DisplayName
+        $row["MatchPattern"] = "$($src.DisplayName)*"
+        $row["Description"]  = ""
+        $row["Segment"]      = ""
         $dt.Rows.Add($row)
         $addedCount++
     }
@@ -666,18 +599,11 @@ $btnSave.Add_Click({
         $exportData = @()
         foreach ($row in $dt.Rows) {
             $exportData += [PSCustomObject]@{
-                Enabled              = $row["Enabled"]
-                DisplayName          = $row["DisplayName"]
-                Publisher            = $row["Publisher"]
-                DisplayVersion       = $row["DisplayVersion"]
-                Architecture         = $row["Architecture"]
-                WindowsInstaller     = $row["WindowsInstaller"]
-                QuietUninstallString = $row["QuietUninstallString"]
-                UninstallString      = $row["UninstallString"]
-                NoRemove             = $row["NoRemove"]
-                SystemComponent      = $row["SystemComponent"]
-                InstallDate          = $row["InstallDate"]
-                RegistryKey          = $row["RegistryKey"]
+                Enabled      = $row["Enabled"]
+                DisplayName  = $row["DisplayName"]
+                MatchPattern = $row["MatchPattern"]
+                Description  = $row["Description"]
+                Segment      = $row["Segment"]
             }
         }
 

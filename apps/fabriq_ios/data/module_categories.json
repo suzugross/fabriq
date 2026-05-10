@@ -12,7 +12,6 @@
         "autologon_config",
         "azure_ad_join_check",
         "bitlocker_config",
-        "bloatware_export",
         "brightness_config",
         "browser_addon_config",
         "builtin_admin_config",

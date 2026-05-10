@@ -27,7 +27,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 60 種、Extended 14 種、計 74 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
+| **モジュールシステム** | Standard 59 種、Extended 14 種、計 74 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -197,7 +197,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 ## モジュール一覧
 
-### Standard モジュール（60）
+### Standard モジュール（59）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -207,7 +207,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Security** | `bitlocker_config`, `firewall_config`, `firewall_rule_config`, `firewall_rule_make_config`, `cert_config`, `office_license_config`, `windows_license_config` |
 | **User Management** | `local_user_config`, `profile_delete` |
 | **Printer** | `printer_driver_config`, `printer_delete` |
-| **Applications** | `app_config`, `winget_install`, `bloatware_remove`, `bloatware_export`, `storeapp_config`, `odt_config`, `browser_addon_config`, `fabriq_app_launcher` |
+| **Applications** | `app_config`, `winget_install`, `bloatware_remove`, `storeapp_config`, `odt_config`, `browser_addon_config`, `fabriq_app_launcher` |
 | **Power** | `power_config` |
 | **Maintenance** | `acl_config`, `copyfile_config`, `file_delete`, `office_update`, `partition_config`, `robocopy_config`, `system_finalize` |
 | **System** | `autologon_config`, `default_app_config`, `driver_config`, `generic_process_runner`, `ppkg_config`, `process_killer`, `restart_config`, `restore_point`, `scheduled_task_config`, `signout_config`, `spi_config`, `sysprep_config`, `time_sync_config`, `volume_config` |
