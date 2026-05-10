@@ -13,7 +13,7 @@ $pp = $global:FabriqMasterPassphrase
 if ([string]::IsNullOrWhiteSpace($pp)) {
     Write-Host "[1] FabriqMasterPassphrase: NOT SET (null/empty)" -ForegroundColor Red
 } else {
-    Write-Host "[1] FabriqMasterPassphrase: SET (length=$($pp.Length))" -ForegroundColor Green
+    Write-Host "[1] FabriqMasterPassphrase: SET" -ForegroundColor Green
 }
 
 # 2. Check function availability
@@ -49,7 +49,7 @@ foreach ($csv in $csvFiles) {
                     foreach ($prop in $row.PSObject.Properties) {
                         if ($prop.Value -is [string] -and $prop.Value.StartsWith("ENC:")) {
                             $stillEncrypted = $true
-                            Write-Host "      Column '$($prop.Name)' = $($prop.Value.Substring(0, [Math]::Min(30, $prop.Value.Length)))..." -ForegroundColor DarkGray
+                            Write-Host "      Column '$($prop.Name)':" -ForegroundColor DarkGray
 
                             # Direct decryption test
                             try {

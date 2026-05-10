@@ -12,6 +12,27 @@
 # ========================================
 
 # ========================================
+# Helper: Mask product key for safe display
+# ========================================
+# Returns a masked form keeping only the last 5 characters visible.
+# Dashes are preserved so the standard 5-5-5-5-5 layout remains
+# recognizable. Falls back to length-only masking for non-conforming
+# inputs. Used to avoid leaking raw keys to the PowerShell transcript
+# via Write-Host / Show-* paths.
+function Get-MaskedKey {
+    param([string]$Key)
+    if ([string]::IsNullOrEmpty($Key)) { return '' }
+    $len = $Key.Length
+    if ($len -le 5) { return ('*' * $len) }
+    $sb = [System.Text.StringBuilder]::new()
+    for ($i = 0; $i -lt $len - 5; $i++) {
+        if ($Key[$i] -eq '-') { [void]$sb.Append('-') } else { [void]$sb.Append('*') }
+    }
+    [void]$sb.Append($Key.Substring($len - 5))
+    return $sb.ToString()
+}
+
+# ========================================
 # Helper: Find OSPP.vbs
 # ========================================
 function Find-OsppVbs {
@@ -115,7 +136,7 @@ foreach ($item in $enabledItems) {
         Write-Host "  [OSPP NOT FOUND] $displayName" -ForegroundColor Red
     }
 
-    Write-Host "    Key:  $($item.ProductKey)" -ForegroundColor DarkGray
+    Write-Host "    Key:  $(Get-MaskedKey $item.ProductKey)" -ForegroundColor DarkGray
     Write-Host "    OSPP: $(if ($osppPath) { $osppPath } else { '(not found)' })" -ForegroundColor DarkGray
 
     # Activation type display
@@ -174,7 +195,7 @@ foreach ($item in $enabledItems) {
     # Key format validation
     # ----------------------------------------
     if ($item.ProductKey -notmatch '^[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}$') {
-        Show-Skip "Invalid key format: $($item.ProductKey)"
+        Show-Skip "Invalid key format (expected XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)"
         Write-Host ""
         $skipCount++
         continue

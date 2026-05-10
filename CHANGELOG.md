@@ -15,6 +15,59 @@
 
 ## [Unreleased]
 
+### Security
+- modules/standard/windows_license_config v1.0.0 → v1.0.1 (PATCH):
+  Windows プロダクトキーの transcript 漏洩を抑止（A3 / T1-A、3 箇所）。
+  共通 redact-map 経路（`Invoke-TelemetryRedact`）はキー値そのものを
+  redact map に持たないため適用不能で、表示時マスクが正解。
+    - L59 CSV 読み込み後の `Write-Host "  Key: $productKey"` を
+      `Get-MaskedKey` 経由に変更。末尾 5 文字のみ可視化（dash 維持）、
+      他 24 文字を `*` に置換（`*****-*****-*****-*****-XXXXX`）
+    - L90 形式不正時の `Show-Error "Invalid key format: $productKey"`
+      から生キー値を除去、形式テンプレ（`XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`）
+      のみ表示
+    - L118 確認ダイアログ前の `Write-Host "New Key: $productKey ..."`
+      を `Get-MaskedKey` 経由に変更
+    - ローカルヘルパ `Get-MaskedKey` を script 先頭に追加
+      （autologon_config L87-91 のマスク手法と同精神。`common.ps1` の
+      `Invoke-TelemetryRedact` は redact-map 型で要件不一致のため独自）
+    - 公開 API 不変、`REQUIRES_KERNEL` 据え置き 2.0.0
+- modules/standard/office_license_config v1.0.0 → v1.0.1 (PATCH):
+  Office プロダクトキーの transcript 漏洩を抑止（A3 / T1-A、2 箇所）。
+    - L118 事前一覧表示の `Write-Host "    Key:  $($item.ProductKey)"`
+      を `Get-MaskedKey` 経由に変更（windows_license と同マスク仕様）
+    - L177 形式不正時の `Show-Skip "Invalid key format: $($item.ProductKey)"`
+      から生キー値を除去、形式テンプレのみ表示
+    - ローカルヘルパ `Get-MaskedKey` を script 先頭に追加（windows_license
+      と同実装）
+    - 公開 API 不変、`REQUIRES_KERNEL` 据え置き 2.0.0
+- 残るリスク（A3 / T1-B 以降、別作業として継続検討）:
+    - `office_license_install.ps1:199` `& cscript ... /inpkey:KEY`:
+      外部プロセス引数経由の transcript 漏洩。Native API 経路 or
+      `OfficeSoftwareProtectionService` CIM 直叩きへの実装変更要
+    - `robocopy_config.ps1:162` `& net use ... AuthPass ...`: 同上、
+      `New-PSDrive -Credential` 化の選択肢あり
+    - `windows_license_install.ps1:78` `Read-Host` manual 入力 echo
+      （T2、`-AsSecureString` 化候補、UX 変更を伴うため別議論）
+    - 各 `catch { Show-Error "...: $_" }` 経由の error message 漏洩
+      （T3、実機 error 検証を要する）
+- commands/diag_crypto.ps1: 診断出力からの機密情報漏洩を 2 箇所削減
+  （crypto/security review メモ A1 + A2、`project_crypto_security_review.md`）。
+  本変更は出力整形のみで、診断機能（passphrase SET 判定、CSV ENC: 値スキャン、
+  Unprotect-FabriqValue 経由の復号成否確認）は不変。
+    - **A1** L16: `FabriqMasterPassphrase: SET (length=$($pp.Length))` から
+      `(length=...)` サフィックスを削除。マスターパスフレーズ長は brute-force
+      探索空間を絞る情報のため、PowerShell Transcript に残るのを避ける。
+      NOT SET 判定行（L14）は不変
+    - **A2** L52: ENC: 値の先頭 30 文字プレビュー出力を削除。fixed salt /
+      決定論的 IV と組み合わさると暗号文ヘッダ部の同一性が攻撃材料に
+      なり得るため。診断価値（どの列が失敗したか）保持のため列名
+      （`Column '$($prop.Name)':`）は出力継続。直後の Decrypt OK / FAILED
+      ライン（L57 / L60）は不変
+- 公開 API 不変（`KERNEL_API.md` §1〜§5 touched せず）。kernel/common.ps1
+  も touched せず、Unprotect-FabriqValue / Import-ModuleCsv の挙動・
+  シグネチャ完全一致
+
 ## [3.2.5] - 2026-05-10
 
 ### Added
