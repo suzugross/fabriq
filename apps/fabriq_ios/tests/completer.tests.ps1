@@ -57,17 +57,34 @@ Describe 'Get-FabriqIosCompletion - top-level commands' {
 }
 
 Describe 'Get-FabriqIosCompletion - dynamic sources' {
-    It 'completes hostname candidates from hostlist' {
+    # Phase 8 (commit 4ad817d) severed the hostlist / workerlist coupling
+    # when fabriq_ios forked into a standalone joke shell. The two cases
+    # below pin the post-Phase-8 contract as negative assertions: the
+    # `hostname` and `ip.address` Get-DynamicCompletion sources were
+    # explicitly dropped, so neither surface should ever yield candidates
+    # from kernel/csv/hostlist.csv. A regression that re-introduces the
+    # coupling (e.g. someone wires Get-HostnameCompletionFromHostlist
+    # back into Get-DynamicCompletion's switch) flips these to red and
+    # forces a deliberate decision rather than a silent re-coupling.
+
+    It 'does not suggest hostlist entries after hostname verb (Phase 8 contract)' {
         $state = New-ShellState
         $r = Get-FabriqIosCompletion -Line 'host ' -Position 5 -Mode 'GlobalConfig' -State $state
-        # Hostlist on this repo has at least NEW-PC-01.
-        $r | Should -Contain 'NEW-PC-01'
+        # `host` resolves to the `hostname` verb via prefix match. The
+        # Phase 8 contract is "no dynamic source" - the result must be
+        # an empty array, and in particular must not contain any
+        # NEW-PC-* style hostlist entry.
+        $r.Count        | Should -Be 0
+        $r              | Should -Not -Contain 'NEW-PC-01'
     }
 
-    It 'completes ip address candidates with from-hostlist literal' {
+    It 'does not surface from-hostlist literal after ip address (Phase 8 contract)' {
         $state = New-ShellState
         $r = Get-FabriqIosCompletion -Line 'ip address ' -Position 11 -Mode 'InterfaceConfig' -State $state
-        $r | Should -Contain 'from-hostlist'
+        # `from-hostlist` was the retired alias for the hostlist-driven
+        # IP-address branch removed in Phase 8. Pin its absence.
+        $r.Count        | Should -Be 0
+        $r              | Should -Not -Contain 'from-hostlist'
     }
 
     It 'returns empty for unknown leading command' {

@@ -95,6 +95,50 @@
           `FabriqMasterPassphrase` / `FabriqEvidenceBasePath` を BeforeEach
           で初期化、tmp resume_state ファイルは BeforeEach で生成
           AfterEach で削除
+    - `tests/kernel/New-ModuleResult.tests.ps1` (Phase 3): 5 Context /
+      19 ケース。Phase 1b で `New-BatchResult` の wrapper をテスト済の
+      foundation 契約 (`KERNEL_API.md` §1.3 / §5) を直接 pin。
+        - **Status ValidateSet 6 ケース**: 5 つの正規 status (Success /
+          Error / Cancelled / Skipped / Partial) を `-ForEach` で受理 +
+          不正値での parameter-binding throw
+        - **Defaults 3 ケース**: Message 既定 `''` / Details 既定 `@()`
+          (`[System.Object[]]` 型) / Verified 既定 `$null` (`-eq $null`
+          の identity 含む)
+        - **Shape contract 3 ケース**: `_IsModuleResult=$true` /
+          Timestamp が `[datetime]` / property 6 件ちょうど
+          (`_IsModuleResult, Status, Message, Details, Verified,
+          Timestamp`、それ以上もそれ以下もない契約)
+        - **Verified Nullable[bool] pass-through 3 ケース**: $true /
+          $false (Success Status と組み合わせ) / 明示的 $null
+          (sysprep 等の verify 不能ケース)
+        - **Details pass-through 2 ケース**: PSCustomObject 配列の
+          verbatim 保存 / string 配列の保存
+        - **`$global:_LastModuleResult` side-effect 2 ケース**:
+          返却値と global の reference identity 一致 / 後続呼び出しでの
+          上書き (FlexProfile AutoConfirmMode が pipeline 取りこぼし
+          時に頼る fallback の存在を pin)
+    - `tests/kernel/Confirm-Execution.tests.ps1` (Phase 3): 3 Describe
+      / 14 ケース。AutoPilot (kernel 2.x 系) と AutoConfirmMode (kernel
+      3.1.5 で導入、FlexProfile 単発 [Run] 用) の二段短絡契約
+      (`KERNEL_API.md` §1.4 / §2) を pin。回帰のシグネチャは
+      "AutoPilot 中に Y/N ダイアログが顔を出す" "Flex 単発 [Run] で
+      Press-Enter が止まる" の 2 系統で、いずれも静的解析では検出
+      不可能なため Read-Host モックで明示固定。
+        - **Confirm-Execution AutoPilot 短絡 1 ケース** + **AutoConfirm
+          短絡 2 ケース** (片側のみ true / 両 true): `Mock Read-Host
+          { throw }` で「呼ばれていないこと」を意図明示し、`Should
+          -Invoke -Times 0 -Exactly` で固定
+        - **Confirm-Execution 対話 5 ケース**: Y / y / N / n の case
+          insensitivity + invalid → '' → Y の loop 復帰 (Read-Host が
+          3 回呼ばれること、最終 return が `$true` であることを同時
+          検証)
+        - **Wait-KeyPress 3 ケース**: AutoPilot=true で Read-Host 呼ば
+          れず / AutoConfirm=true でも同じ / 両方 false で Read-Host
+          が 1 回だけ
+        - **Confirm-ModuleExecution 3 ケース**: AutoPilot 中は `$null`
+          (proceed signal) / Y で `$null` / N で `Cancelled` の
+          ModuleResult (Status / Message='User canceled' / `_IsModuleResult`
+          marker) を返却
 - dev/run_tests.ps1: Pester v5+ runner。`tests/` と
   `apps/fabriq_ios/tests/` を一括実行。Pester v5 未インストール環境で
   は明示エラー + `Install-Module` ヒント表示で exit 1（v3.4.0 の
@@ -114,6 +158,24 @@
   結果報告を必須化
 
 ### Fixed
+- `apps/fabriq_ios/tests/completer.tests.ps1`: Phase 8 fork (commit
+  4ad817d) で hostlist / workerlist 結合を切った際に同期漏れしていた
+  stale テスト 2 件を Phase 8 契約の negative assertion に書き換え。
+    - `completes hostname candidates from hostlist` → `does not suggest
+      hostlist entries after hostname verb (Phase 8 contract)`: `host `
+      補完が NEW-PC-01 等の hostlist 項目を **含まない** ことと候補が
+      空であることを pin
+    - `completes ip address candidates with from-hostlist literal` →
+      `does not surface from-hostlist literal after ip address (Phase 8
+      contract)`: 廃止された `from-hostlist` literal が **再浮上しない**
+      ことを pin
+  Phase 8 で `Get-DynamicCompletion` の `hostname` / `ip.address`
+  source case を削除した時点でこれらは事実上 dead test だったが、
+  期待値が古いまま残って 2 件 fail を継続していた。Get-FabriqIosCompletion
+  本体は改修なし、製品挙動は不変。Phase 1 で `__SHUTDOWN__` 退役
+  マーカーを `[+] collects retired __SHUTDOWN__ marker as InvalidPath
+  (graceful degradation, kernel 3.0.0)` として pin しているのと
+  同じパターン。
 - `kernel/KERNEL_API.md` L3 `**Current Kernel Version**` ヘッダの drift
   解消（3.2.2 → 3.2.4）。3.2.3 / 3.2.4 の 2 連続 PATCH 昇格時に sync 漏れ
   していたものを retroactive 修正。
