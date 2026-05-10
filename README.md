@@ -330,6 +330,35 @@ Fabriq Studio（別プロジェクト。WPF / .NET 8.0）は Fabriq の **GUI �
 
 本体 Fabriq は Studio のバージョン・機能に依存しません。Studio 側の具体的な機能セットは Studio リポジトリを参照してください。
 
+## テスト
+
+カーネルの公開関数群に対する Pester ベースのユニットテストが `tests/` 配下に存在します。
+
+### 前提
+
+- **Pester v5+**（Windows 同梱の v3.4.0 では実行不可）
+
+```powershell
+Install-Module -Name Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+```
+
+### 実行
+
+```powershell
+pwsh ./dev/run_tests.ps1          # PowerShell 7+
+powershell -File ./dev/run_tests.ps1
+```
+
+`tests/` と `apps/fabriq_ios/tests/` 以下の `*.tests.ps1` を一括実行します。
+
+### 構成
+
+| パス | 内容 |
+|---|---|
+| `tests/_helpers/` | テスト共通ヘルパ（CSV 生成・モックモジュール・パス解決） |
+| `tests/kernel/` | `kernel/common.ps1` 公開関数のユニットテスト |
+| `apps/fabriq_ios/tests/` | fabriq_ios 用 Pester テスト |
+
 ## ライセンス
 
 [MIT License](LICENSE) — fabriq 本体。

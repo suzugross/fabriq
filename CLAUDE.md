@@ -104,6 +104,11 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
     kernel  : X.Y.Z → X.Y.Z（MAJOR / MINOR / PATCH / 変更なし）
     modules : <list of touched modules, each with predicted bump>
 - 既存モジュールへの波及: ゼロ / <具体リスト>
+- 影響テスト: なし / <test path list>（kernel/common.ps1 や
+  公開 API surface を touched する場合は必須記載）
+- 新規テスト追加: 不要 / <概要>
+- 実行予定: pwsh ./dev/run_tests.ps1（テスト touched / kernel touched
+  時は必ず実行）
 ```
 
 ### D. ルール F: 実装サマリでの最終報告（必須）
@@ -118,6 +123,9 @@ Claude が実装を一手に担う前提で、ランタイムチェックは行�
     <module_name> : X.Y.Z → X.Y.Z+N（種別 / 理由）
 - untouched modules : N/71（一切触っていないモジュール数）
 - 配備方針 : kernel/ フォルダ差し替えのみで OK / モジュール X の更新も必要 / 全件再配布必要
+- テスト実行結果: Tests Passed: N / Failed: M / Skipped: K
+  （未実行の場合は理由を明記。kernel touched 時は実行省略禁止）
+- 新規追加テスト: なし / <test path list>
 ```
 
 ### E. ルール G: `KERNEL_API.md` の同期保守
