@@ -13,6 +13,56 @@ function Get-FabriqRepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
 
+function Get-FabriqMainFunctionScriptBlock {
+    # Extracts a single named function from kernel/main.ps1 as a script
+    # block, without executing main.ps1's top-level startup code (which
+    # would call Enable-SleepSuppression / Set-ConsoleSize / load
+    # fabriq_operator GUI / exit 1 if no GUI - none of which is sane in
+    # a test runner).
+    #
+    # Approach: parse main.ps1 with the PowerShell language Parser into
+    # an AST, find the requested FunctionDefinitionAst by name, and
+    # return [scriptblock]::Create on its source extent. Callers in
+    # BeforeAll then dot-source the returned scriptblock to define the
+    # function in the test scope:
+    #
+    #   $sb = Get-FabriqMainFunctionScriptBlock -Name 'Set-SelectedHostEnvironment'
+    #   . $sb
+    #
+    # Throws if main.ps1 fails to parse or the named function is absent
+    # (regression signal: rename / removal of the production function
+    # the test was pinning).
+    param(
+        [Parameter(Mandatory)][string]$Name
+    )
+    $mainPath = Join-Path (Get-FabriqRepoRoot) 'kernel\main.ps1'
+    if (-not (Test-Path $mainPath)) {
+        throw "kernel/main.ps1 not found at $mainPath"
+    }
+
+    $tokens = $null
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+        $mainPath, [ref]$tokens, [ref]$errors
+    )
+    if ($errors -and $errors.Count -gt 0) {
+        $msg = ($errors | ForEach-Object { $_.Message }) -join '; '
+        throw "Parse errors in main.ps1: $msg"
+    }
+
+    $fn = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $Name
+    }, $true) | Select-Object -First 1
+
+    if (-not $fn) {
+        throw "Function '$Name' not found in kernel/main.ps1"
+    }
+
+    return [scriptblock]::Create($fn.Extent.Text)
+}
+
 function Set-FabriqTestState {
     # Sets script-scope state that production normally configures via
     # Initialize-Session in kernel/main.ps1. Tests dot-source common.ps1

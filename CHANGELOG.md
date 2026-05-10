@@ -139,6 +139,48 @@
           (proceed signal) / Y で `$null` / N で `Cancelled` の
           ModuleResult (Status / Message='User canceled' / `_IsModuleResult`
           marker) を返却
+    - `tests/kernel/Set-SelectedHostEnvironment.tests.ps1` (Phase 4):
+      4 Context / 16 ケース。Profile 実行の背骨である hostlist 行 →
+      `SELECTED_*` env vars 47 個 (3 identity + 3 ethernet + 3 wifi +
+      4 DNS + 1 PIN + 30 printer slots) のマッピング契約
+      (`KERNEL_API.md` §3.1) と ENC: 復号 routing 契約 (§1.5) を pin。
+      kernel/main.ps1 は top-level 起動 side effect (sleep suppression
+      / GUI load / `exit 1` if no GUI) を持つため通常 dot-source 不可
+      なので、新規 helper `Get-FabriqMainFunctionScriptBlock`
+      (`tests/_helpers/test_state.ps1`) で
+      `System.Management.Automation.Language.Parser::ParseFile` 経由
+      に AST から `FunctionDefinitionAst` を抜き出し scriptblock 化、
+      テスト側で `. $sb` して startup 副次副作用を持ち込まずに関数
+      本体だけを inject する pattern を新規導入。
+        - **Plain identity / network env mapping 5 ケース**:
+          identity trio (AdminID → SELECTED_KANRI_NO + OldPCName +
+          NewPCName) / Ethernet trio / Wifi trio / DNS 4 slots /
+          Pin → SELECTED_PIN。CSV 列名 → env var 名の rename / swap
+          regression をピンポイントで検出
+        - **Printer slot enumeration 4 ケース**: slot 1 trio / slot 10
+          trio (`for ($i = 1; $i -le 10; ...)` の off-by-one guard、
+          `-lt 10` への退化が surface する) / 全 30 keys (1..10 ×
+          NAME/DRIVER/PORT、cross-slot や cross-suffix の wiring エラー
+          を sentinel 値経由で検出) / 欠損 slot 入力での no-throw
+          (`Set-Item -Value $null -ErrorAction SilentlyContinue` の
+          $null bind 黙殺で slot carryover 挙動が未仕様であることを
+          コメントで明文化)
+        - **Empty / null value handling 2 ケース**: 空文字列 input は
+          decryption に進まず empty env (Mock Unprotect-FabriqValue
+          throw で短絡を assert) / 列欠損 PSCustomObject input は
+          BeNullOrEmpty で吸収 (PS 5.1 は `$env:X = $null` で unset
+          / read-back $null、PS Core は '' に coerce する処理系差を
+          test 側で許容)
+        - **ENC: decryption routing 5 ケース** (Mock Unprotect-FabriqValue
+          で algorithm 切り離し、本体は `Unprotect-FabriqValue.tests.ps1`
+          で別途 pin 予定): plain pass-through (passphrase 設定済でも
+          ENC: prefix 無しなら decrypt しない) / passphrase 未設定時の
+          ENC: pass-through (anti-leak: パスフレーズ無いのに silent
+          decrypt は禁) / passphrase 空白のみ時も pass-through
+          (`IsNullOrWhiteSpace` guard) / 正規 path での invocation
+          (passed-through passphrase の identity 確認 + 復号結果の env 反映)
+          / 復号 throw 時の graceful fallback (raw ENC: 値が env に
+          残り、catch 経路で Show-Warning が発火)
 - dev/run_tests.ps1: Pester v5+ runner。`tests/` と
   `apps/fabriq_ios/tests/` を一括実行。Pester v5 未インストール環境で
   は明示エラー + `Install-Module` ヒント表示で exit 1（v3.4.0 の
