@@ -15,6 +15,43 @@
 
 ## [Unreleased]
 
+### Added
+- tests/: kernel ユニットテスト基盤（Pester v5+）の Phase 0 + Phase 1 着手。
+  公開 API は不変、production code 1 行も touched せず、純粋に追加のみ。
+    - `tests/_helpers/test_state.ps1`: `Get-FabriqRepoRoot` パス解決ヘルパ
+      （Phase 2 で `Set-FabriqTestState` 等の script-scope 設定 helper を
+      追加予定）
+    - `tests/_helpers/test_csv.ps1`: `New-TestProfileCsv` /
+      `Remove-TestProfileCsv` / `New-MockModule` の 3 ヘルパ。一時 Profile
+      CSV は `Resolve-ProfileModules` の `Import-Csv -Encoding Default`
+      に合わせ ASCII で書き出し、JP locale CP932 環境の BOM 誤読を回避
+    - `tests/kernel/Resolve-ProfileModules.tests.ps1`: 6 Context / 14
+      ケース。CHANGELOG 上の過去 regression（kernel 3.0.0 / 3.1.3 / 3.1.7
+      / 3.2.0 / 2.1.0）を将来検出可能に。AutoPilot Enabled=0 ガード /
+      WaitSec=N パース / `__ASYNC__` kill switch（`Get-FabriqAsyncConfig`
+      mock 経由）/ Group 列の trim・欠損 fallback / Order int 紐付け
+      + 昇順ソート / Sibling-row Segment 分離（PSObject.Copy 経由の
+      source 不変性検証）/ `__RESTART__` `_IsRestart` flag /
+      `__AUTO_to_<User>__` 展開 / 退役マーカー graceful degradation を
+      pin。kernel touch ゼロ
+- dev/run_tests.ps1: Pester v5+ runner。`tests/` と
+  `apps/fabriq_ios/tests/` を一括実行。Pester v5 未インストール環境で
+  は明示エラー + `Install-Module` ヒント表示で exit 1（v3.4.0 の
+  Windows 同梱版では v5 構文の `Should -Be` / `BeforeAll` が動かない
+  ため、`-SkipPublisherCheck` 付きインストールが必須）
+- README.md: `## テスト` 節を新設（前提 Pester v5+、実行コマンド、
+  ディレクトリ構成）
+- dev/framework_overlay_rules.json: `bundles.kernel.includePaths` に
+  `tests/` を追加。Studio 経由の overlay で kernel bundle と一緒に
+  tests/ も配信される（schema 不変、外部 tool 側コード改修不要 —
+  JSON 動的読込みのため）
+- kernel/KERNEL_API.md §9.2: kernel bundle 構成行に `tests/` を追記
+  （overlay rules JSON の真実源と同期）
+- CLAUDE.md ルール E（事前宣言）/ ルール F（実装サマリ）テンプレに
+  「テスト影響」「テスト実行結果」項目を追加。kernel または
+  modules/** を touched する作業では、関連テストの宣言・実行・
+  結果報告を必須化
+
 ### Fixed
 - `kernel/KERNEL_API.md` L3 `**Current Kernel Version**` ヘッダの drift
   解消（3.2.2 → 3.2.4）。3.2.3 / 3.2.4 の 2 連続 PATCH 昇格時に sync 漏れ

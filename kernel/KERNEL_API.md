@@ -284,7 +284,7 @@ fabriq 本体の再配布・in-place 更新（site-specific データを保持�
 
 | Bundle | Version ファイル | 対象パス |
 |---|---|---|
-| **kernel** | `kernel/KERNEL_VERSION` | `kernel/`, `apps/`, `commands/`, `dev/`, `Fabriq.exe`, `Deploy.bat`, `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `LICENSE` |
+| **kernel** | `kernel/KERNEL_VERSION` | `kernel/`, `apps/`, `commands/`, `dev/`, `tests/`, `Fabriq.exe`, `Deploy.bat`, `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `LICENSE` |
 | **module:\<name\>** | `modules/{std,ext}/<name>/VERSION` | `modules/{std,ext}/<name>/`（ただし `moduleCsvWhitelist` 以外の CSV は除く） |
 
 `apps/` / `commands/` / `dev/` は個別 `VERSION` を持たず、kernel bundle と同期して動きます。
