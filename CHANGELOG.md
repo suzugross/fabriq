@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [3.2.5] - 2026-05-10
+
 ### Added
 - tests/: kernel ユニットテスト基盤（Pester v5+）の Phase 0 + Phase 1 着手。
   公開 API は不変、production code 1 行も touched せず、純粋に追加のみ。
