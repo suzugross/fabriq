@@ -77,16 +77,37 @@
     - ローカルヘルパ `Get-MaskedKey` を script 先頭に追加（windows_license
       と同実装）
     - 公開 API 不変、`REQUIRES_KERNEL` 据え置き 2.0.0
-- 残るリスク（A3 / T1-B 以降、別作業として継続検討）:
-    - `office_license_install.ps1:199` `& cscript ... /inpkey:KEY`:
-      外部プロセス引数経由の漏洩（Win32_Process.CommandLine / 4688）。
-      Native API 経路 or `OfficeSoftwareProtectionService` CIM 直叩き
-      への実装変更要。robocopy_config の stdin pipe 解は cscript には
-      適用不可（OSPP.vbs は引数で key を受け取る設計のため）
-    - `windows_license_install.ps1:78` `Read-Host` manual 入力 echo
-      （T2、`-AsSecureString` 化候補、UX 変更を伴うため別議論）
-    - 各 `catch { Show-Error "...: $_" }` 経由の error message 漏洩
-      （T3、実機 error 検証を要する）
+- modules/standard/office_license_config/Guide.txt: Security Note 節を新設。
+  `office_license_install.ps1` の `cscript OSPP.vbs /inpkey:KEY` が
+  Win32_Process.CommandLine / 4688 audit / Module Logging に ProductKey を
+  露出させる構造的制約を明記。Microsoft プラットフォーム制約 (OSPP.vbs
+  positional 引数のみ、C2R では `OfficeSoftwareProtectionService` WMI
+  provider 削除済) で fabriq 側に解がないため accept & document。
+  B2G 厳格監査環境向けに Office Customization Tool / KMS-ADBA / 監査
+  一時無効化等の代替運用を提示。`project_crypto_security_review.md`
+  メモリの A3 T1-B office セクションへの参照を追加
+- A3 (transcript 漏洩点検) close-out 整理:
+    - **A3 T1-A** (license keys masking, windows / office): ✅ 完了
+      (本コミット `[Unreleased]` 参照、commit 5500cc1)
+    - **A3 T1-B robocopy** (`net use` AuthPass stdin pipe 化): ✅ 完了
+      (commit 2a52eee)
+    - **A3 T1-B office cscript** (`cscript /inpkey:KEY` 引数経由): ⚠️
+      Microsoft プラットフォーム構造的制約で fabriq 側 unfixable、
+      accept & document (Guide.txt Security Note 参照)。Microsoft の
+      platform 改善通知があれば再評価
+    - **A3 T2** (`Read-Host` manual 入力 echo, `windows_license_install.ps1:78`):
+      ⏸ defer。SecureString 化は可能だが 25 文字 product key を
+      asterisks 入力する UX 劣化。発火条件 (license_key.csv 不在 or
+      Enabled キーゼロ) は fabriq 設計上の例外パスで real pain 低
+    - **A3 T3** (catch エラーメッセージ経由漏洩, `Show-Error "...: $_"`):
+      ⏸ defer。Add-Computer / Import-Certificate / netsh 等の
+      Microsoft 由来 cmdlet error は password 非含有が empirical 慣例、
+      理論上のみ。各エラーパスを実機 trigger して検証する運用工数の
+      問題で、real pain surface 待ち
+  A3 の core security gain は T1-A + T1-B robocopy で達成済。残り
+  T1-B office / T2 / T3 は ROI 低 or 構造的制約のため defer。次の
+  natural step は A4 (resume_state stale 検出設計議論)、A5 (Studio
+  リリース同調)、B 群 (B2G trigger 待ち)。詳細は `project_crypto_security_review.md`
 - commands/diag_crypto.ps1: 診断出力からの機密情報漏洩を 2 箇所削減
   （crypto/security review メモ A1 + A2、`project_crypto_security_review.md`）。
   本変更は出力整形のみで、診断機能（passphrase SET 判定、CSV ENC: 値スキャン、
