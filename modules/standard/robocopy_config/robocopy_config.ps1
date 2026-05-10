@@ -159,7 +159,15 @@ foreach ($item in $enabledItems) {
         foreach ($share in $uncShares) {
             Show-Info "Authenticating: $share (User: $($item.AuthUser))"
 
-            $netOutput = & net use $share "$($item.AuthPass)" /user:"$($item.AuthUser)" 2>&1
+            # Pass AuthPass via stdin pipe instead of as a positional
+            # argument. net.exe with /user: but no password argument enters
+            # prompt mode and reads the password from stdin (one line).
+            # This keeps the password out of:
+            #   - Win32_Process.CommandLine (live snapshot, AV/EDR/sysmon)
+            #   - Windows Security Log Event ID 4688 (Audit Process Creation
+            #     with IncludeCommandLine enabled, common in B2G sites)
+            #   - PowerShell Module Logging native command argument capture
+            $netOutput = "$($item.AuthPass)" | & net use $share /user:"$($item.AuthUser)" 2>&1
             $netExitCode = $LASTEXITCODE
 
             if ($netExitCode -ne 0) {

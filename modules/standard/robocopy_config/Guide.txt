@@ -98,14 +98,24 @@ Robocopy によるファイル/フォルダコピーを実行するモジュー�
 
   動作フロー:
     1. Source/Destination から UNC 共有ルート（\\Server\Share）を抽出
-    2. net use で接続確立
-    3. Robocopy 実行
+    2. net use で接続確立（パスワードは stdin パイプ経由で送信、
+       コマンドライン引数として展開しない）
+    3. Robocopy 実行（OS レベルの SMB セッションキャッシュを再利用）
     4. finally ブロックで net use /delete（確実な切断）
 
   注意事項:
     - AuthUser と AuthPass の両方が設定されている場合のみ有効
-    - パスワードはコンソール/ログに一切出力されません
-    - ENC: プレフィックスによる暗号化パスワードに対応
+    - パスワードは net.exe にコマンドライン引数として渡しません。
+      stdin パイプ経由で送信するため、以下のログ機構には記録されません:
+        * Win32_Process.CommandLine（同 logon session の他プロセスが
+          live snapshot で参照可能な経路）
+        * Windows Security Log Event ID 4688（Audit Process Creation
+          + IncludeCommandLine が有効な site でも安全）
+        * PowerShell Module Logging（有効化された site でも安全）
+      （PS Transcript の source code 行は変数参照 `$($item.AuthPass)`
+       のまま記録され、展開後の値は記録されません）
+    - ENC: プレフィックスによる暗号化パスワードに対応（Import-ModuleCsv
+      が透過復号、ENC: 解除後の平文 String は kernel が memory 内で保持）
     - net use 失敗時（ExitCode≠0）はジョブをスキップし次へ進行
 
 ■ ExitCode Evaluation
