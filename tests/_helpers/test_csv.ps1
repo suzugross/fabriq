@@ -9,7 +9,10 @@
 
 function New-TestProfileCsv {
     param(
-        [Parameter(Mandatory)][object[]]$Rows,
+        # AllowEmptyCollection lets callers create header-only fixtures
+        # to exercise the "no data rows" branch of Import-ModuleCsv.
+        [AllowEmptyCollection()]
+        [object[]]$Rows = @(),
         [string[]]$Columns = @('Order','ScriptPath','Enabled','Description','Segment','ErrorMode','Group')
     )
     $csvPath = Join-Path $env:TEMP ("fabriq-test-{0}.csv" -f ([guid]::NewGuid().ToString('N')))

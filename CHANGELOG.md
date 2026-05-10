@@ -34,6 +34,30 @@
       source 不変性検証）/ `__RESTART__` `_IsRestart` flag /
       `__AUTO_to_<User>__` 展開 / 退役マーカー graceful degradation を
       pin。kernel touch ゼロ
+    - `tests/kernel/New-BatchResult.tests.ps1`: 4 Context / 18 ケース。
+      Status 自動判定 5x3 マトリクス全分岐 (Success only / Skip only /
+      Fail only / Success+Skip / Success+Fail / Skip+Fail / 全部混在 /
+      All-zero default branch) + Verified pass-through ($true / $false /
+      $null + Partial と組み合わせ) + Message format ("Success: N, Skip:
+      M, Fail: K" + MessageSuffix のスペース連結) + ModuleResult shape
+      contract (`_IsModuleResult=$true`, `Timestamp` is DateTime,
+      `Details` defaults to empty array)
+    - `tests/kernel/Import-ModuleCsv.tests.ps1`: 4 Context / 14 ケース。
+      Segment 厳密マッチ 5 ケース (列欠損 = フィルタ無効 / 空 vs 空 = 一致
+      / 値 vs 同値 = 一致 / 値 vs 別値 = 不一致 / 両側 trim) + Segment
+      whitespace-only 正規化 + `-FilterEnabled` Enabled=1 抽出 + 未指定時
+      全件返却 + `-RequiredColumns` 必要列存在/欠落分岐 + caller-observable
+      boundaries 4 ケース (filter eliminates all = `$null`、Segment filter
+      eliminates all = `$null`、file 不存在 = `$null`、header-only 空ファ
+      イル = `$null`)。最後の 4 ケースは「`Import-ModuleCsv` が内部的に
+      `@()` を返すパスは PowerShell の scalar-unwrap で呼び出し側では
+      `$null` に潰れる」という現行挙動を pin。これにより標準モジュール
+      テンプレートの `if ($items.Count -eq 0)` 分岐が実質 dead code であ
+      ることが明文化された (将来の kernel 改修で `,@()` 化する場合は本
+      テストの reframe が必要、回帰検出のシグナル)
+    - `tests/_helpers/test_csv.ps1`: `[AllowEmptyCollection()]` 化 +
+      `-Rows` 既定値 `@()` で header-only fixture を許可
+      (Import-ModuleCsv 空ファイル分岐のテストに必要)
 - dev/run_tests.ps1: Pester v5+ runner。`tests/` と
   `apps/fabriq_ios/tests/` を一括実行。Pester v5 未インストール環境で
   は明示エラー + `Install-Module` ヒント表示で exit 1（v3.4.0 の
