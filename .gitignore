@@ -70,3 +70,7 @@
 # logs/telemetry/ 自体は /logs/* で既に追跡対象外。
 # salt は環境ごとに自動生成され、commit してはいけない。
 /kernel/json/telemetry_salt.txt
+
+# NOTE: kernel/json/verbose_capture.flag is INTENTIONALLY tracked
+# (standard deployment ships with verbose capture ON by default).
+# Removing the file is the documented opt-out path.

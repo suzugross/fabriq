@@ -15,7 +15,51 @@
 
 ## [Unreleased]
 
+## [3.2.4] - 2026-05-10
+
 ### Added
+- kernel/common.ps1 + kernel/main.ps1 (PATCH): Verbose stream capture
+  channel (`cmdlet.verbose` イベント) — **標準配備、デフォルト ON**。
+  `kernel/json/verbose_capture.flag` を git tracked で同梱、起動時に
+  presence をチェックして verbose capture を活性化。`Invoke-SafeCommand`
+  がモジュール実行を `$VerbosePreference='Continue'` +
+  `$PSDefaultParameterValues['*:Verbose']=$true` + `4>&1` redirect で
+  wrap し、cmdlet の verbose ストリームを `cmdlet.verbose` 構造化
+  イベントに変換してモジュール envelope に append。出力は local-only
+  （log_uploader が `logs/telemetry/` を除外、顧客 PC 外へ流出しない）。
+  顧客がオプトアウトしたい場合は flag 削除で無効化（escape hatch）。
+    - 新規関数: `Enable-FabriqVerboseCapture` /
+      `Disable-FabriqVerboseCapture`（いずれも内部実装、KERNEL_API.md §6
+      範囲、PATCH 可）
+    - 内部実装変更: `Invoke-SafeCommand` の `& $ScriptBlock` 呼び出しを
+      flag 有効時のみ `4>&1 | ForEach-Object` でストリーム redirect 化。
+      `VerboseRecord` 型の record だけフィルタして telemetry 行き、その他
+      の output（ModuleResult 含む）は pass through。`$VerbosePreference`
+      は finally で復元
+    - 公開 API 不変: シグネチャ・戻り値・コンソール出力（Show-* の
+      Write-Host 経路は 4>&1 の影響を受けない Information ストリーム）
+      は不変
+    - 取得対象: `Set-ItemProperty`, `Rename-Computer`, `Set-NetFirewallProfile`,
+      `New-LocalUser` 等の組み込み cmdlet が標準で発行する "Performing
+      the operation..." verbose 行。ユーザー定義関数は `Write-Verbose`
+      呼び出しがある場合のみ捕捉、外部プロセス（winget / robocopy / dism）
+      は対象外
+    - redact: 既存 `New-TelemetryRedactMap` を再利用。verbose の `msg`
+      フィールドが redact map 通過
+    - **process restart 不要**（先行検討した Module Logging E1 trial は
+      registry を mid-session に書き換えても既存ロード済みモジュールに
+      反映されない致命的制約があり未採用 / 撤退。本機能は
+      `$VerbosePreference` のランタイム評価により即時有効化される）
+    - Phase 1 は Invoke-SafeCommand 同期パスのみ。`Invoke-SafeCommandAsync`
+      の child runspace 内 redirect は Phase 2 で扱う
+    - dev/TELEMETRY_INTERNAL.md §6.7 に schema・coverage・trade-off を
+      明文化
+- kernel/json/verbose_capture.flag (新規): 標準配備で verbose capture を
+  活性化するためのフラグファイル（git tracked）。fabriq 配布物に常時
+  含まれる。削除が opt-out の唯一の方法
+- .gitignore: 旧 `/kernel/json/verbose_capture.flag` 除外エントリを撤去
+  （上記方針変更により git tracked へ移行）
+
 - kernel/common.ps1 + kernel/main.ps1 (PATCH 予定): Telemetry Layer の
   カバレッジ拡張（v3.2.3 で導入された AI 開発コーパス機構の機能追加。
   公開 API §1〜§5 不変、KERNEL_API.md 不変、`dev/TELEMETRY_INTERNAL.md`

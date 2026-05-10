@@ -1,0 +1,16 @@
+# Fabriq verbose stream capture (standard deployment, default ON).
+#
+# Presence of this file enables cmdlet.verbose telemetry events:
+#   - Invoke-SafeCommand wraps each module run with $VerbosePreference='Continue'
+#     and a 4>&1 stream redirect.
+#   - Built-in cmdlet verbose output (Set-ItemProperty / Set-NetAdapterBinding /
+#     Rename-Computer / etc.) is captured as cmdlet.verbose events in the
+#     module envelope JSONL.
+#   - Output is local-only: log_uploader excludes logs/telemetry/.
+#
+# To opt out: delete this file. fabriq will start in standard mode with
+# verbose capture inactive (no PSDefaultParameterValues mutation, no
+# stream redirect overhead).
+#
+# This file's contents are not parsed; only its presence matters.
+# See dev/TELEMETRY_INTERNAL.md §6.7 for the full schema and trade-offs.

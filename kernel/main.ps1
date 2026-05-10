@@ -1451,6 +1451,16 @@ $allModules = $moduleSystem.AllModules
 $groupedModules = $moduleSystem.GroupedModules
 
 # ========================================
+# Verbose Stream Capture (standard deployment, default ON via kernel/json/verbose_capture.flag)
+# ========================================
+# Flag is shipped present in git so standard deployments capture cmdlet.verbose
+# events automatically. Deleting the flag is the documented opt-out path.
+# Invoke-SafeCommand wraps each module run with $VerbosePreference='Continue'
+# + $PSDefaultParameterValues['*:Verbose']=$true + 4>&1 stream redirect so
+# cmdlet verbose output is routed to telemetry as cmdlet.verbose events.
+$null = Enable-FabriqVerboseCapture
+
+# ========================================
 # Status Monitor
 # ========================================
 $global:FabriqStatusMonitorProcess = Start-StatusMonitor

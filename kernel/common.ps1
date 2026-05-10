@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.2.3
+# Easy Kitting Batch - Common Function Library v3.2.4
 # ========================================
 
 # ========================================
@@ -1402,6 +1402,46 @@ function Test-CsvColumns {
 # Error Handling Functions
 # ========================================
 
+# ========================================
+# Telemetry: Verbose Stream Capture (standard deployment, default ON)
+# ========================================
+# Standard deployment ships with kernel/json/verbose_capture.flag present
+# (tracked in git). Presence = enable; deletion = opt-out escape hatch.
+#
+# When active, Invoke-SafeCommand wraps module execution with
+# $VerbosePreference='Continue' + $PSDefaultParameterValues['*:Verbose']=$true
+# + 4>&1 stream redirect so cmdlets emit verbose records into the pipeline,
+# where they are filtered out and converted to cmdlet.verbose telemetry
+# events. ModuleResult / Show-* host output are unaffected (Show-* uses
+# Information stream / Write-Host, not affected by 4>&1).
+#
+# Trade-offs:
+# - Verbose records contain cmdlet args including potential customer values;
+#   the existing redact map is applied before writing to JSONL.
+# - No process-restart needed — VerbosePreference and PSDefaultParameterValues
+#   are evaluated at runtime per cmdlet call.
+# - Output is local-only: log_uploader excludes logs/telemetry/, so verbose
+#   data never leaves the kitting PC. Customers wanting zero on-disk telemetry
+#   can delete the flag file.
+# ========================================
+$global:FabriqVerboseCaptureActive = $false
+
+function Enable-FabriqVerboseCapture {
+    # Standard deployment: kernel/json/verbose_capture.flag is shipped present.
+    # Operator/customer can delete the flag to opt out of cmdlet.verbose
+    # capture (escape hatch — fabriq runs in pre-P5 telemetry mode).
+    $flagPath = ".\kernel\json\verbose_capture.flag"
+    if (-not (Test-Path $flagPath)) { return $false }
+    $global:FabriqVerboseCaptureActive = $true
+    Show-Info "Verbose stream capture active (cmdlet.verbose telemetry events)"
+    return $true
+}
+
+function Disable-FabriqVerboseCapture {
+    if (-not $global:FabriqVerboseCaptureActive) { return }
+    $global:FabriqVerboseCaptureActive = $false
+}
+
 function Invoke-SafeCommand {
     param(
         [scriptblock]$ScriptBlock,
@@ -1424,11 +1464,55 @@ function Invoke-SafeCommand {
     # Telemetry envelope (best-effort; never affects outcome)
     try { Start-ModuleTelemetry -ModuleName $OperationName -IsAsync $false } catch { }
 
+    # Verbose stream capture context (dev trial). When active, save/restore
+    # both $VerbosePreference (controls Write-Verbose host display) and
+    # $PSDefaultParameterValues['*:Verbose'] (forces built-in cmdlets'
+    # ShouldProcess machinery to emit "Performing the operation..." verbose
+    # — necessary because $VerbosePreference='Continue' alone does NOT
+    # trigger this; only an explicit -Verbose param does, which we synthesize
+    # via PSDefaultParameterValues).
+    $verboseCaptureOn      = [bool]$global:FabriqVerboseCaptureActive
+    $verbosePrefSaved      = $null
+    $psdpvHadVerbose       = $false
+    $psdpvVerboseSaved     = $null
+    if ($verboseCaptureOn) {
+        $verbosePrefSaved = $VerbosePreference
+        $VerbosePreference = 'Continue'
+        if ($null -eq $global:PSDefaultParameterValues) {
+            $global:PSDefaultParameterValues = @{}
+        }
+        if ($global:PSDefaultParameterValues.ContainsKey('*:Verbose')) {
+            $psdpvHadVerbose = $true
+            $psdpvVerboseSaved = $global:PSDefaultParameterValues['*:Verbose']
+        }
+        $global:PSDefaultParameterValues['*:Verbose'] = $true
+    }
+
     try {
         # Clear the global fallback before invocation
         $global:_LastModuleResult = $null
 
-        $output = & $ScriptBlock
+        if ($verboseCaptureOn) {
+            # 4>&1 redirects the verbose stream into stream 1; ForEach-Object
+            # filters VerboseRecord objects out and routes them to telemetry,
+            # passing other output (incl. ModuleResult) through unchanged.
+            $output = & $ScriptBlock 4>&1 | ForEach-Object {
+                if ($_ -is [System.Management.Automation.VerboseRecord]) {
+                    try {
+                        $tEnv = $global:_CurrentModuleTelemetry
+                        if ($null -ne $tEnv) {
+                            $vMsg = Invoke-TelemetryRedact -Text "$($_.Message)" -Map $tEnv.RedactMap
+                            Write-TelemetryEvent -Type 'cmdlet.verbose' -Data @{ msg = $vMsg }
+                        }
+                    } catch { }
+                    # Filter out: don't emit downstream
+                } else {
+                    $_
+                }
+            }
+        } else {
+            $output = & $ScriptBlock
+        }
 
         # Find a ModuleResult in the pipeline output
         $moduleResult = $null
@@ -1472,6 +1556,19 @@ function Invoke-SafeCommand {
         }
     }
     finally {
+        # Restore $VerbosePreference + $PSDefaultParameterValues before any
+        # other cleanup so subsequent telemetry writes don't accidentally
+        # emit verbose records that leak past this scope.
+        if ($verboseCaptureOn) {
+            if ($null -ne $verbosePrefSaved) {
+                $VerbosePreference = $verbosePrefSaved
+            }
+            if ($psdpvHadVerbose) {
+                $global:PSDefaultParameterValues['*:Verbose'] = $psdpvVerboseSaved
+            } else {
+                $global:PSDefaultParameterValues.Remove('*:Verbose') | Out-Null
+            }
+        }
         $result.Duration = (Get-Date) - $startTime
         # Close telemetry envelope (best-effort)
         try { Complete-ModuleTelemetry -Status $result.Status -Verified $result.Verified -Message $result.Message } catch { }
@@ -4571,6 +4668,9 @@ function Exit-Fabriq {
         Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
         $global:FabriqStatusMonitorProcess = $null
     }
+
+    # Verbose capture cleanup (no-op if not active; just resets the flag)
+    try { Disable-FabriqVerboseCapture } catch { }
 
     # Disable sleep suppression
     Disable-SleepSuppression
