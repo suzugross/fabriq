@@ -12,7 +12,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 - **GUI ダッシュボード**（WinForms）から個別モジュール実行・プロファイル一括実行・セッション切替を操作
 - **AutoPilot** による省人化キッティング。モジュール単位のエラー処理ポリシー（`skip` / `retry`）、再起動跨ぎ自動再開、HTML チェックリスト出力、スクリーンショット自動取得（運用上は仕上げ・確認のため operator の立ち会いを想定）
 - **AES-256-CBC + PBKDF2** による CSV 内機密値の暗号化保持
-- **70 種類超の標準・拡張モジュール**を同梱
+- **76 種類の標準・拡張モジュール**を同梱
 
 ## 前提条件
 
@@ -27,7 +27,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 59 種、Extended 14 種、計 74 種以上のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
+| **モジュールシステム** | Standard 60 種、Extended 16 種、計 76 種のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -62,7 +62,7 @@ fabriq/
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
 │   ├── standard/           # 標準モジュール群（60）
-│   └── extended/           # 拡張モジュール群（14）
+│   └── extended/           # 拡張モジュール群（16）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
 │   ├── fabriq_operator/    # メインダッシュボード GUI
@@ -197,7 +197,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 ## モジュール一覧
 
-### Standard モジュール（59）
+### Standard モジュール（60）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -210,7 +210,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Applications** | `app_config`, `winget_install`, `bloatware_remove`, `storeapp_config`, `odt_config`, `browser_addon_config`, `fabriq_app_launcher` |
 | **Power** | `power_config` |
 | **Maintenance** | `acl_config`, `copyfile_config`, `file_delete`, `office_update`, `partition_config`, `robocopy_config`, `system_finalize` |
-| **System** | `autologon_config`, `default_app_config`, `driver_config`, `generic_process_runner`, `ppkg_config`, `process_killer`, `restart_config`, `restore_point`, `scheduled_task_config`, `signout_config`, `spi_config`, `sysprep_config`, `time_sync_config`, `volume_config` |
+| **System** | `autologon_config`, `default_app_config`, `driver_config`, `generic_process_runner`, `ppkg_config`, `process_killer`, `restart_config`, `restore_point`, `scheduled_task_config`, `signout_config`, `spi_config`, `sysprep_config`, `time_sync_config`, `volume_config`, `windows_feature_config` |
 | **Registry** | `reg_hklm_config`, `reg_hkcu_config` |
 | **Scripts** | `generic_batch_runner`, `startup_command_config` |
 | **Evidence** | `evidence_config` |
@@ -218,7 +218,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 `windows_update` は GUI ダッシュボードの **Windows Update** ボタン専用で、`module.csv` を持たず Script Menu には表示されません。
 
-### Extended モジュール（14）
+### Extended モジュール（16）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -227,9 +227,9 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Desktop** | `desktop_icon_config` |
 | **User Management** | `builtin_admin_config`, `group_config` |
 | **Maintenance** | `directory_cleaner`, `history_destroyer` |
-| **System** | `azure_ad_join_check`, `reg_template` |
+| **System** | `azure_ad_join_check`, `reg_template`, `server_feature_config` |
 | **Scripts** | `script_looper` |
-| **ManualWorks** | `manual_kitting_assistant` |
+| **ManualWorks** | `manual_kitting_assistant`, `pianist` |
 | **Evidence** | `log_uploader` |
 
 ## モジュール構成
