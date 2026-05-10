@@ -309,6 +309,112 @@ Manual = `[cl]` regenerate or Flex `[Complete]`).
 {"ts":"...","type":"finalize.end","profileName":"...","mode":"Auto","durationMs":3120,"checklistGenerated":true}
 ```
 
+## 6.7 Verbose Stream Capture channel (`cmdlet.verbose`) — STANDARD
+
+**Status**: standard deployment, default ON. Customer PCs running fabriq
+get cmdlet.verbose telemetry automatically. Output is local-only
+(`log_uploader` excludes `logs/telemetry/`); no data leaves the kitting PC.
+
+**Opt-out**: delete `kernel/json/verbose_capture.flag`. fabriq starts in
+the pre-P5 telemetry mode (envelope + show.* + csv.load + kernel events
+only, no `$VerbosePreference` mutation, no stream redirect overhead).
+
+### Why this channel exists
+
+Existing telemetry captures Show-* messages (operator-facing decision text)
++ ErrorRecord (caught exceptions). It does NOT capture cmdlet-level
+operations like `Set-ItemProperty -Path HKLM:\... -Name AdminID -Value 1`.
+Verbose stream capture fills that gap by routing built-in cmdlets'
+`Write-Verbose` output ("Performing the operation 'Set Property' on target
+'Item: HKLM:\\... Property: AdminID'") into structured telemetry events.
+
+This channel was implemented after a Module Logging (Event 4103) trial
+revealed that `HKLM:\...\PowerShell\ModuleLogging` registry must be set
+**before** the PowerShell process starts to be honored — mid-session
+activation captures only late-loaded modules. `$VerbosePreference` does
+not have this restriction (evaluated at runtime per cmdlet emission).
+
+### Activation lifecycle
+
+`kernel/json/verbose_capture.flag` is **shipped tracked** in the fabriq
+git repository. Standard deployments therefore start with the flag present
+and verbose capture active.
+
+On `fabriq.exe` startup, kernel calls `Enable-FabriqVerboseCapture` which
+sets `$global:FabriqVerboseCaptureActive=$true`. `Invoke-SafeCommand` then
+wraps each module run with:
+
+```powershell
+$VerbosePreference = 'Continue'
+$output = & $ScriptBlock 4>&1 | ForEach-Object {
+    if ($_ -is [System.Management.Automation.VerboseRecord]) {
+        # → cmdlet.verbose telemetry event (redacted)
+    } else {
+        $_  # pass through (incl. ModuleResult)
+    }
+}
+```
+
+### Event schema
+
+```json
+{
+  "ts":"...","type":"cmdlet.verbose",
+  "msg":"Performing the operation \"Set Property\" on target \"Item: HKLM:\\... Property: AdminID\""
+}
+```
+
+The `msg` field passes through the existing redact map so customer-specific
+values (hostname, IP, AdminID, worker name, etc.) become hash tokens.
+
+### Coverage
+
+- ✅ Built-in PowerShell cmdlets that follow standard verbose conventions
+  (Set-ItemProperty, Rename-Computer, Add-Computer, Set-NetFirewallProfile,
+  New-LocalUser, Set-Service, ...). These emit "Performing the operation..."
+  verbose lines automatically when `$VerbosePreference='Continue'`.
+- 🔶 User-defined functions in fabriq modules: only those that explicitly
+  call `Write-Verbose`. Most fabriq local helpers do not.
+- ❌ External processes (`winget`, `robocopy`, `dism`, `slmgr`, native
+  binaries): their stdout/stderr is unrelated to PowerShell's verbose stream.
+  Out-of-scope for this channel.
+
+### Trade-offs
+
+- **No PC trace** — `$VerbosePreference` and `$PSDefaultParameterValues`
+  are process-scoped; no registry, no Event Log writes. Both saved/restored
+  per Invoke-SafeCommand call; nothing persists past fabriq exit.
+- **No process restart needed** — unlike Module Logging (E1, evaluated and
+  rejected), takes effect immediately for the current PowerShell process.
+- **Console clutter** — `4>&1 | ForEach-Object` consumes verbose records
+  before `Out-Default`, so most lines do not reach console. Some cmdlets
+  may still write directly to host (rare); fabriq's GUI mode usually hides
+  console anyway.
+- **Volume** — typically ~50-200 cmdlet.verbose events per module envelope.
+  A full-profile session adds ~1-3 MB. Telemetry stays local (log_uploader
+  exclusion); long-running kitting PCs may accumulate cumulative on-disk
+  data over many sessions. No automatic rotation in Phase 1; operators
+  needing zero accumulation should delete the flag.
+- **Async path not covered in Phase 1** — `Invoke-SafeCommandAsync` does
+  not yet apply the redirect inside child runspace. Async modules
+  (`__ASYNC__` profile marker) emit verbose to their child runspace's host
+  normally and do NOT contribute cmdlet.verbose events. Sync (default)
+  module path covers the vast majority of fabriq workload.
+
+### Rejected alternative: Module Logging (E1)
+
+The PowerShell OS-level Module Logging path (registry
+`HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\PowerShell\ModuleLogging`)
+was implemented as a trial and **rejected**. Trial revealed that PowerShell
+5.1 reads the registry only at process startup and per-module-import; setting
+the registry mid-session does NOT enable logging for the already-loaded
+PowerShell modules that fabriq uses. A 17-module session captured only 22
+events (all from late finalize-phase Add-Type calls), 0.2-0.4% of expected
+volume. Moving the registry write to before PowerShell starts would require
+launcher modification (Fabriq.exe C# code) which is disproportionate cost
+for the granularity gain. P5 verbose stream capture provides ~80% of the
+practical AI-corpus value with no process-restart constraint and no PC trace.
+
 ## 7. Implementation surface
 
 | File | Change |
