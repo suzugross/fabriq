@@ -148,6 +148,57 @@ EXTENDED GRACE 等）が1つでも存在する場合のみ認証を実行しま�
     - プロダクトキーとインストール済み Office のエディションが一致しているか確認してください。
 
 
+■ Security Note: ProductKey の Win32_Process.CommandLine 露出
+（Microsoft プラットフォーム構造的制約）
+
+office_license_install.ps1 は OSPP.vbs `/inpkey:KEY` を cscript 経由で
+呼び出します。このとき ProductKey が cscript.exe の起動引数として
+OS layer に展開され、以下のログ機構に記録されます:
+
+  - Win32_Process.CommandLine（cscript.exe の lifetime 中、live snapshot）
+  - Windows Security Log Event ID 4688（site で `Audit Process Creation`
+    + `IncludeCommandLine` が有効な場合、永続記録 → SIEM 転送先まで到達）
+  - PowerShell Module Logging（site で有効化された場合）
+
+これは fabriq 側で回避できない **Microsoft プラットフォームの構造的制約**
+です。理由:
+  - OSPP.vbs は WScript.Arguments 経由で `/inpkey:KEY` を positional
+    引数として受け付ける設計
+  - stdin / file / 環境変数経由の代替インターフェイスが存在しない
+  - Office C2R 2019/2021/365 では `OfficeSoftwareProtectionService`
+    WMI provider が deprecated/削除済で、CIM 直叩きの clean 経路が
+    存在しない（MSI Office 2016 以前なら CIM 経由可能だが、現代の
+    B2G 環境ではほぼ C2R）
+  - 自前 wrapper VBS / Process.Start native API 等の代替案も、
+    最終的に OSPP.vbs に `/inpkey:` を引数として渡す経路を回避
+    できないため、leak vector を閉じられない
+
+[B2G / 厳格監査環境での運用推奨]
+本制約が問題となる環境（Audit Process Creation + IncludeCommandLine
+が site policy で強制有効、SIEM 転送あり）では、以下のいずれかを
+検討してください:
+
+  1. Office Customization Tool (OCT) で生成した XML 設定に ProductKey
+     を埋め込み、Office インストール時に同時に key 登録する
+     （install 時 1 回の暴露で post-install の再 key install 不要に）
+  2. Microsoft Volume Licensing Service Center で AD 連携 KMS / ADBA
+     を構成し、ProductKey の手動登録を完全に省略する
+  3. 上記が不可能な場合、本モジュールの実行時間帯のみ
+     IncludeCommandLine を一時的に無効化（GPO ロールバック付き）
+
+[fabriq の他モジュールとの対比]
+  - windows_license_config: SoftwareLicensingService CIM 経由で実装、
+    ProductKey は CIM パラメータとして渡るため Win32_Process.CommandLine
+    に現れない（Windows License は安定 WMI provider あり）
+  - robocopy_config (v1.0.1+): UNC AuthPass を stdin pipe 経由で net.exe
+    に渡すことで Win32_Process.CommandLine 露出を回避（v1.0.0 では
+    暴露していた、kernel 3.2.5 期に修正）
+  - office_license_config: OSPP.vbs の制約により上記対策が適用不可
+
+詳細は `project_crypto_security_review.md` メモリの A3 T1-B office
+セクションを参照。Microsoft platform 改善（Office C2R に新しい license
+API が追加される等）があれば再評価対象。
+
 ■ 手動確認コマンド
 
   ライセンス状態の確認:
