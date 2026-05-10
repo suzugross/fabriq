@@ -59,8 +59,8 @@ function Invoke-QuoteUninstallPath {
 # Helper: Find matching apps in registry
 # Scans HKLM 64-bit and 32-bit Uninstall hives
 # for apps whose DisplayName matches the given
-# pattern. Follows bloatware_export.ps1 enumeration
-# pattern with DisplayName deduplication.
+# pattern. Performs DisplayName deduplication
+# across both hives.
 # ========================================
 function Find-RegistryUninstallEntry {
     param(

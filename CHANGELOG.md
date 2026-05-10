@@ -25,6 +25,28 @@
   追加（従来 3 箇所 → 4 箇所）。`KERNEL_API.md` L3 drift 観察を受けた
   恒久対策。`dev/check_version.ps1` も同 L3 ヘッダの drift 検出を追加し、
   リリース時の見落としを構造的に防止。
+- apps/bloatware_exporter: CSV スキーマを bloatware_remove v1.0.0 の
+  5 列形式 (`Enabled, DisplayName, MatchPattern, Description, Segment`)
+  に揃える。旧 12 列形式 (Publisher / DisplayVersion / Architecture /
+  WindowsInstaller / QuietUninstallString / UninstallString / NoRemove /
+  SystemComponent / InstallDate / RegistryKey) は bloatware_remove の
+  動的レジストリルックアップ方式 (実行時に HKLM Uninstall ハイブから
+  UninstallString 等を取得) 採用以降不要だったが、exporter Save が
+  新形式 `bloatware_list.csv` を旧 12 列で全件上書きして破壊する
+  unsafe な状態が放置されていたため整合化。`Add to CSV >>` 押下時に
+  MatchPattern を `<DisplayName>*` で seed し wildcard 一括削除を
+  デフォルト挙動に。Scan grid (上段 7 列スナップショット) は
+  Publisher / NoRemove / SystemComponent の警告視認のため維持。
+  load → append-with-dedup → 全件 save の操作モデルは不変
+
+### Removed
+- modules/standard/bloatware_export: 廃止。役割を
+  apps/bloatware_exporter に統合 (機能重複)。profile 参照は皆無
+  (3.2.4 までの全 profile で未使用、Order=99 / Enabled=0 の
+  デフォルト無効モジュールだった) のため互換性影響なし。
+  `apps/fabriq_ios/data/module_categories.json` の settings カテゴリ
+  からも該当エントリを除去。`README.md` Applications カテゴリ表記と
+  Standard モジュール数 (60 → 59) も同期更新
 
 ## [3.2.4] - 2026-05-10
 
