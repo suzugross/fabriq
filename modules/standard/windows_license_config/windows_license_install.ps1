@@ -5,6 +5,27 @@
 # Key source: CSV (license_key.csv) or manual input.
 # ========================================
 
+# ========================================
+# Helper: Mask product key for safe display
+# ========================================
+# Returns a masked form keeping only the last 5 characters visible.
+# Dashes are preserved so the standard 5-5-5-5-5 layout remains
+# recognizable. Falls back to length-only masking for non-conforming
+# inputs. Used to avoid leaking raw keys to the PowerShell transcript
+# via Write-Host / Show-* paths.
+function Get-MaskedKey {
+    param([string]$Key)
+    if ([string]::IsNullOrEmpty($Key)) { return '' }
+    $len = $Key.Length
+    if ($len -le 5) { return ('*' * $len) }
+    $sb = [System.Text.StringBuilder]::new()
+    for ($i = 0; $i -lt $len - 5; $i++) {
+        if ($Key[$i] -eq '-') { [void]$sb.Append('-') } else { [void]$sb.Append('*') }
+    }
+    [void]$sb.Append($Key.Substring($len - 5))
+    return $sb.ToString()
+}
+
 # Check Administrator Privileges
 if (-not (Test-AdminPrivilege)) {
     Show-Error "This script requires administrator privileges."
@@ -56,7 +77,7 @@ if (Test-Path $csvPath) {
             }
 
             Show-Info "Product key loaded from CSV"
-            Write-Host "  Key:         $productKey" -ForegroundColor White
+            Write-Host "  Key:         $(Get-MaskedKey $productKey)" -ForegroundColor White
             if ($keyDesc) {
                 Write-Host "  Description: $keyDesc" -ForegroundColor Gray
             }
@@ -87,7 +108,7 @@ if ([string]::IsNullOrWhiteSpace($productKey)) {
 # Step 2: Validate Key Format
 # ========================================
 if ($productKey -notmatch '^[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}$') {
-    Show-Error "Invalid key format: $productKey"
+    Show-Error "Invalid key format (expected XXXXX-XXXXX-XXXXX-XXXXX-XXXXX)"
     return (New-ModuleResult -Status "Error" -Message "Invalid product key format")
 }
 
@@ -115,7 +136,7 @@ else {
 
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
-Write-Host "New Key:    $productKey (Source: $keySource)" -ForegroundColor Yellow
+Write-Host "New Key:    $(Get-MaskedKey $productKey) (Source: $keySource)" -ForegroundColor Yellow
 Write-Host ""
 
 # ========================================
