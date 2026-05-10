@@ -117,12 +117,37 @@
 - `kernel/KERNEL_API.md` L3 `**Current Kernel Version**` ヘッダの drift
   解消（3.2.2 → 3.2.4）。3.2.3 / 3.2.4 の 2 連続 PATCH 昇格時に sync 漏れ
   していたものを retroactive 修正。
+- `README.md` モジュール数表記と一覧の整合化。実態と乖離していた箇所を
+  一括補正:
+    - L15 概要: 「70 種類超」→「76 種類」
+    - L30 機能表: 「Standard 59 種、Extended 14 種、計 74 種以上」→
+      「Standard 60 種、Extended 16 種、計 76 種」
+    - L65 ディレクトリツリー: 「拡張モジュール群（14）」→「（16）」
+    - L200 Standard モジュール一覧見出し: 「（59）」→「（60）」
+    - L213 Standard System カテゴリに `windows_feature_config` を追記
+      （v3.2.3 で新規追加されていたが README 反映漏れ）
+    - L221 Extended モジュール一覧見出し: 「（14）」→「（16）」
+    - L228 Extended System カテゴリに `server_feature_config` を追記
+      （直近新規追加分）
+    - L230 Extended ManualWorks カテゴリに `pianist` を追記（v1.6.0 で
+      extended モジュール統合済だったが README 反映漏れ）
+  bloatware_export 削除に伴う README sync は本エントリに統合。
 
 ### Changed
 - CLAUDE.md ルール J step 3 の sync list に `kernel/KERNEL_API.md` L3 を
   追加（従来 3 箇所 → 4 箇所）。`KERNEL_API.md` L3 drift 観察を受けた
   恒久対策。`dev/check_version.ps1` も同 L3 ヘッダの drift 検出を追加し、
   リリース時の見落としを構造的に防止。
+- modules/standard/{firewall_rule_config, firewall_rule_make_config,
+  temp_ipaddress_config}: VERSION 0.1.0 → 1.0.0。2026-04-23 の baseline
+  seed (`dev/seed_module_versions.ps1`) は idempotent で既存値保持の
+  挙動だったため、上記 3 件は当時すでに 0.1.0 が打刻されていたことに
+  より 1.0.0 baseline へ昇格漏れしていた。実装は production 安定運用
+  実績ありで、CLAUDE.md ルール H 定義（`0.1.0` = 「開発中・未リリース」
+  の目印 / `1.0.0` = baseline）に整合させる訂正。スクリプト本体は
+  touched せず VERSION ファイル 1 行のみの変更。
+  windows_feature_config / extended/server_feature_config は直近新規
+  追加分で開発中扱いを継続するため `0.1.0` 据え置き。
 - apps/bloatware_exporter: CSV スキーマを bloatware_remove v1.0.0 の
   5 列形式 (`Enabled, DisplayName, MatchPattern, Description, Segment`)
   に揃える。旧 12 列形式 (Publisher / DisplayVersion / Architecture /
@@ -143,8 +168,8 @@
   (3.2.4 までの全 profile で未使用、Order=99 / Enabled=0 の
   デフォルト無効モジュールだった) のため互換性影響なし。
   `apps/fabriq_ios/data/module_categories.json` の settings カテゴリ
-  からも該当エントリを除去。`README.md` Applications カテゴリ表記と
-  Standard モジュール数 (60 → 59) も同期更新
+  からも該当エントリを除去。README.md 側の Applications カテゴリ表記
+  ・モジュール数の同期は下記 Fixed エントリで一括修正
 
 ## [3.2.4] - 2026-05-10
 
