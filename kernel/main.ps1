@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver3.2 - Manifeste du Surkitinisme -
+# Fabriq ver3.3 - Manifeste du Surkitinisme -
 #
 # ========================================
 

@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `3.2.5`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
+**Current Kernel Version**: `3.3.0`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -99,7 +99,7 @@
 | マーカー | 動作 |
 |---|---|
 | `__AUTOPILOT__` | 以降を AutoPilot 化（`Description` に `WaitSec=N`） |
-| `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行（Skip ボタン / timeout で強制中断可能、since kernel 2.1.0） |
+| `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行（Skip ボタン / timeout で強制中断可能、since kernel 2.1.0）。**since kernel 3.3.0**: `async_config.json` の `DefaultAsync=true`（shipped default）時はマーカー有無に関わらず全モジュールが async 化されるため、本マーカーは idempotent な ON-only no-op として扱われる（後方互換）。マーカーで明示的に async 化したい場合や `DefaultAsync=false` 環境への portable な profile を作る場合は引き続き有効 |
 | `__RESTART__` | Windows 再起動 + RunOnce 経由で再開 |
 | `__REEXPLORER__` | Explorer 再起動 |
 | `__AUTO_to_<User>__` | `autologon_config` に User 指定で呼び出し |
@@ -249,6 +249,23 @@ formal SemVer の出発点。以下すべて利用可能:
 - §6 内部実装に Invoke-FlexProfileLoop の "RunGroup" action / Show-
   FlexDashboard の Groups バー UI / `_Group` モジュール属性を追加
   （いずれもモジュール側からは不可視）
+
+### 3.3.0
+
+- **§4.2 `__ASYNC__` マーカー意味論を後方互換に拡張（MINOR）**
+  - `async_config.json` に新フィールド `DefaultAsync` を追加。
+    shipped default は `true` で、profile 内の `__ASYNC__` マーカーの
+    有無に関わらず全モジュールが監視付き Runspace 経路で実行される
+  - `__ASYNC__` マーカー自体は idempotent な ON-only no-op として
+    後方互換保持（既存 profile は無変更で動作）
+  - kill switch `async_config.json.Enabled=false` は引き続き優先
+    （`DefaultAsync=true` であっても全モジュールが同期経路に降格）
+  - `DefaultAsync` フィールドが欠損／旧 config を使用する環境では
+    `Get-FabriqAsyncConfig` が `false` にフォールバックし、従来通り
+    マーカー必須の挙動を維持する（環境差分での silent な挙動変化を回避）
+  - 本変更を要求するのは "profile に `__ASYNC__` を書かなくても
+    async が効くことを前提とした profile" を配布する場合のみ。
+    マーカーを明示的に置く profile は引き続き 2.1.0 で動作可能
 
 ### 判定ルール
 
