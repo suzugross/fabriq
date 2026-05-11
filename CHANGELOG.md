@@ -15,6 +15,31 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-05-12
+
+### Changed
+- kernel/common.ps1 + kernel/json/async_config.json: `__ASYNC__` マーカー
+  挙動の後方互換な拡張（MINOR / 3.2.5 → 3.3.0）。
+  `async_config.json` に新フィールド `DefaultAsync` を追加し、shipped
+  default を `true` に設定。profile 内のマーカー有無に関わらず全モジュール
+  が監視付き Runspace（`Invoke-SafeCommandAsync`）経路で実行されるように
+  なる。`__ASYNC__` マーカー自体は idempotent ON-only no-op として
+  後方互換保持。kill switch `Enabled=false` は引き続き優先で全モジュール
+  を同期経路に降格させる。`DefaultAsync` フィールド欠損時のフォールバック
+  は `false`（旧 config 互換）。
+  動機: マーカーを profile に書き忘れた場合でも Status Monitor の Skip
+  ボタン / timeout 強制中断という安全網が常時利用可能になる。疲弊した
+  キッティング作業者の認知負荷軽減を目的とした defensive default。
+  `kernel/KERNEL_API.md` §4.2 / §8 を同コミット内で更新済み。
+- kernel/common.ps1 :: `Get-FabriqAsyncConfig`: 返却 PSCustomObject に
+  `DefaultAsync` プロパティ追加。fallback default は `$false`（config
+  欠損／パース失敗時に silent な async 化を防ぐ安全側挙動）。
+- kernel/common.ps1 :: `Resolve-ProfileModules`: `$asyncMode` 初期値を
+  `$false` ハードコードから `Get-FabriqAsyncConfig` の `DefaultAsync`
+  AND `Enabled` の組み合わせから算出するように変更。
+- tests/kernel/Resolve-ProfileModules.tests.ps1: `DefaultAsync` 既定 ON
+  挙動と kill switch 優先性を検証する 3 ケース追加。
+
 ### Security
 - modules/standard/robocopy_config v1.0.0 → v1.0.1 (PATCH):
   UNC 認証パスワード（AuthPass）を `net use` のコマンドライン引数経由

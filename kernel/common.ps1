@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.2.5
+# Easy Kitting Batch - Common Function Library v3.3.0
 # ========================================
 
 # ========================================
@@ -1590,8 +1590,13 @@ function Invoke-SafeCommand {
 
 function Get-FabriqAsyncConfig {
     $configPath = ".\kernel\json\async_config.json"
+    # Fallback defaults (used when async_config.json is missing or corrupt).
+    # DefaultAsync defaults to $false here so that a missing config file
+    # cannot silently switch the whole framework into async mode — the
+    # shipped config opts in explicitly with "DefaultAsync": true.
     $default = [PSCustomObject]@{
         Enabled           = $true
+        DefaultAsync      = $false
         DefaultTimeoutSec = 0
         PollIntervalMs    = 500
         SkipFlagPath      = ".\kernel\json\skip_request.flag"
@@ -1601,6 +1606,7 @@ function Get-FabriqAsyncConfig {
         $json = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         return [PSCustomObject]@{
             Enabled           = if ($null -ne $json.Enabled) { [bool]$json.Enabled } else { $default.Enabled }
+            DefaultAsync      = if ($null -ne $json.DefaultAsync) { [bool]$json.DefaultAsync } else { $default.DefaultAsync }
             DefaultTimeoutSec = if ($null -ne $json.DefaultTimeoutSec) { [int]$json.DefaultTimeoutSec } else { $default.DefaultTimeoutSec }
             PollIntervalMs    = if ($null -ne $json.PollIntervalMs) { [int]$json.PollIntervalMs } else { $default.PollIntervalMs }
             SkipFlagPath      = if (-not [string]::IsNullOrWhiteSpace($json.SkipFlagPath)) { $json.SkipFlagPath } else { $default.SkipFlagPath }
@@ -3788,11 +3794,17 @@ function Resolve-ProfileModules {
     $invalidPaths = @()
     $autoPilot = $false
     $autoPilotWaitSec = 3
-    $asyncMode = $false
 
     # Kill switch: if async is disabled in config, __ASYNC__ markers are
     # silently ignored and all modules fall back to the synchronous path.
-    $asyncEnabledGlobally = (Get-FabriqAsyncConfig).Enabled
+    # DefaultAsync: when true (and kill switch is also on), every module
+    # is treated as async even without an __ASYNC__ marker — the marker
+    # then becomes an idempotent no-op for backward compatibility with
+    # existing profiles. The shipped async_config.json opts into this
+    # default so exhausted operators don't have to remember the marker.
+    $asyncCfg              = Get-FabriqAsyncConfig
+    $asyncEnabledGlobally  = [bool]$asyncCfg.Enabled
+    $asyncMode             = $asyncEnabledGlobally -and [bool]$asyncCfg.DefaultAsync
 
     try {
         $entries = @(Import-Csv $ProfileCsvPath -Encoding Default)

@@ -116,6 +116,47 @@ Describe 'Resolve-ProfileModules' {
         }
     }
 
+    Context 'DefaultAsync (kernel 3.3.0)' {
+
+        It 'attaches _IsAsync=$true to all modules when DefaultAsync=true and no __ASYNC__ marker' {
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = 'standard\hostname_config\hostname_config.ps1'; Enabled = '1' }
+                @{ Order = 20; ScriptPath = 'standard\reg_hklm_config\reg_hklm_config.ps1'; Enabled = '1' }
+            )
+            try {
+                Mock Get-FabriqAsyncConfig { @{ Enabled = $true; DefaultAsync = $true } }
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules.Count       | Should -Be 2
+                $r.ValidModules[0]._IsAsync | Should -BeTrue
+                $r.ValidModules[1]._IsAsync | Should -BeTrue
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'keeps _IsAsync=$false when DefaultAsync=false and no marker (legacy behavior)' {
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = 'standard\hostname_config\hostname_config.ps1'; Enabled = '1' }
+            )
+            try {
+                Mock Get-FabriqAsyncConfig { @{ Enabled = $true; DefaultAsync = $false } }
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules.Count       | Should -Be 1
+                $r.ValidModules[0]._IsAsync | Should -BeFalse
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'kill switch (Enabled=$false) overrides DefaultAsync=$true' {
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = 'standard\hostname_config\hostname_config.ps1'; Enabled = '1' }
+            )
+            try {
+                Mock Get-FabriqAsyncConfig { @{ Enabled = $false; DefaultAsync = $true } }
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules.Count       | Should -Be 1
+                $r.ValidModules[0]._IsAsync | Should -BeFalse
+            } finally { Remove-TestProfileCsv $csv }
+        }
+    }
+
     Context 'Group attribution (kernel 3.2.0)' {
 
         It 'attaches _Group="" when Group column is missing from CSV' {
