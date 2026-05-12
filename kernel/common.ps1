@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.3.1
+# Easy Kitting Batch - Common Function Library v3.4.0
 # ========================================
 
 # ========================================
@@ -1748,11 +1748,25 @@ function Invoke-SafeCommandAsync {
 
         $asyncHandle = $ps.BeginInvoke()
 
-        # Monitor loop: wait for completion, Skip flag, or timeout
+        # Monitor loop: wait for completion, Skip flag, or timeout.
+        # Inner sub-sleep pumps WinForms messages at ~16ms so the
+        # execution toolbar / FlexProfile dashboard stay smooth during
+        # drag while an async module runs. Skip flag is checked inside
+        # the inner loop so Skip is honored within ~16ms instead of up
+        # to $pollMs. DoEvents is try/catch'd for headless contexts
+        # where System.Windows.Forms may not be loaded.
+        $uiPumpMs = 16
         while (-not $asyncHandle.IsCompleted) {
-            Start-Sleep -Milliseconds $pollMs
+            $waitUntil = (Get-Date).AddMilliseconds($pollMs)
+            $skipDetected = $false
+            while ((Get-Date) -lt $waitUntil) {
+                Start-Sleep -Milliseconds $uiPumpMs
+                try { [System.Windows.Forms.Application]::DoEvents() } catch { }
+                if ($asyncHandle.IsCompleted) { break }
+                if (Test-Path $skipFlagPath) { $skipDetected = $true; break }
+            }
 
-            if (Test-Path $skipFlagPath) {
+            if ($skipDetected -or (Test-Path $skipFlagPath)) {
                 Remove-Item $skipFlagPath -Force -ErrorAction SilentlyContinue
                 $interrupted = $true
                 $interruptReason = "Skip"
@@ -4680,6 +4694,12 @@ function Exit-Fabriq {
     if ($null -ne $global:FabriqStatusMonitorProcess) {
         Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
         $global:FabriqStatusMonitorProcess = $null
+    }
+
+    # Hide in-process execution toolbar (defined in fabriq_operator;
+    # may not exist in headless contexts where the GUI failed to load).
+    if (Get-Command Hide-ExecutionToolbar -ErrorAction SilentlyContinue) {
+        try { Hide-ExecutionToolbar } catch { }
     }
 
     # Verbose capture cleanup (no-op if not active; just resets the flag)
