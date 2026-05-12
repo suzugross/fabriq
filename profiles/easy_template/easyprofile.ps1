@@ -8,6 +8,13 @@
 # NO logging / NO evidence / NO checklist.
 # NO session initialization / NO history.
 #
+# CSV columns: Enabled, Script, Description, Segment
+#   - Segment (optional): when set, exported as
+#     $env:FABRIQ_SEGMENT before invocation so
+#     Segment-aware modules (Import-ModuleCsv path)
+#     filter their _list.csv accordingly. Cleared
+#     after each module to avoid pollution.
+#
 # NOTES:
 # - Place this directory at profiles/<name>/
 # - fabriq root is resolved as 2 levels up
@@ -56,17 +63,41 @@ Write-Host ""
 # ========================================
 # Load easyprofile.csv
 # ========================================
+# Plain Import-CsvSafe is used instead of Import-ModuleCsv because
+# Import-ModuleCsv applies a strict-match Segment filter to the CSV
+# itself when a Segment column is present (intended for module
+# _list.csv files). In EasyProfile, the Segment column carries per-row
+# parameters for module dispatch, so that filter would silently drop
+# every row whose Segment differs from $env:FABRIQ_SEGMENT (typically
+# unset on entry). This mirrors what Resolve-ProfileModules does for
+# the Linear profile CSV in kernel/common.ps1.
 $csvPath = Join-Path $PSScriptRoot "easyprofile.csv"
 
-$scriptList = Import-ModuleCsv -Path $csvPath -FilterEnabled `
-    -RequiredColumns @("Enabled", "Script")
+$allEntries = Import-CsvSafe -Path $csvPath -Description "easyprofile.csv"
 
-if ($null -eq $scriptList) {
-    Show-Error "Failed to load easyprofile.csv"
+if ($null -eq $allEntries) {
     Read-Host "Press Enter to exit"
     Disable-SleepSuppression
     exit 1
 }
+
+# Empty CSV (header only). Import-CsvSafe already emitted Show-Warning;
+# treat as "no entries" and exit cleanly so Test-CsvColumns doesn't
+# silently fail on an empty array.
+if ($allEntries.Count -eq 0) {
+    Read-Host "Press Enter to exit"
+    Disable-SleepSuppression
+    exit 0
+}
+
+if (-not (Test-CsvColumns -CsvData $allEntries -RequiredColumns @("Enabled", "Script") -CsvName "easyprofile.csv")) {
+    Read-Host "Press Enter to exit"
+    Disable-SleepSuppression
+    exit 1
+}
+
+$scriptList = @($allEntries | Where-Object { $_.Enabled -eq "1" })
+
 if ($scriptList.Count -eq 0) {
     Show-Info "No enabled entries in easyprofile.csv"
     Read-Host "Press Enter to exit"
@@ -86,7 +117,10 @@ Write-Host ""
 $idx = 0
 foreach ($entry in $scriptList) {
     $idx++
-    $displayName = if ($entry.Description) { $entry.Description } else { [System.IO.Path]::GetFileName($entry.Script) }
+    $segment    = if ($entry.PSObject.Properties.Name -contains 'Segment') { "$($entry.Segment)".Trim() } else { "" }
+    $segLabel   = if ($segment) { " [seg:$segment]" } else { "" }
+    $baseName   = if ($entry.Description) { $entry.Description } else { [System.IO.Path]::GetFileName($entry.Script) }
+    $displayName = "$baseName$segLabel"
     $scriptPath  = Join-Path $fabriqRoot $entry.Script
 
     if (Test-Path $scriptPath) {
@@ -114,7 +148,10 @@ $failCount    = 0
 $idx = 0
 foreach ($entry in $scriptList) {
     $idx++
-    $displayName = if ($entry.Description) { $entry.Description } else { [System.IO.Path]::GetFileName($entry.Script) }
+    $segment    = if ($entry.PSObject.Properties.Name -contains 'Segment') { "$($entry.Segment)".Trim() } else { "" }
+    $segLabel   = if ($segment) { " [seg:$segment]" } else { "" }
+    $baseName   = if ($entry.Description) { $entry.Description } else { [System.IO.Path]::GetFileName($entry.Script) }
+    $displayName = "$baseName$segLabel"
     $scriptPath  = [string](Join-Path $fabriqRoot $entry.Script)
 
     Write-Host ""
@@ -129,6 +166,15 @@ foreach ($entry in $scriptList) {
         Write-Host ""
         $skipCount++
         continue
+    }
+
+    # --- Segment parameter passing via $env:FABRIQ_SEGMENT ---
+    # Same env-var contract as kernel/main.ps1 (Linear path). Modules
+    # consume it implicitly through Import-ModuleCsv's default
+    # -Segment parameter. Cleared in `finally` so exceptions or early
+    # returns inside the module do not leak the value to the next row.
+    if ($segment) {
+        $env:FABRIQ_SEGMENT = $segment
     }
 
     # --- Execute with ModuleResult detection ---
@@ -182,6 +228,11 @@ foreach ($entry in $scriptList) {
         Write-Host ""
         Show-Error "Exception in '$displayName': $_"
         $failCount++
+    }
+    finally {
+        if ($segment) {
+            $env:FABRIQ_SEGMENT = $null
+        }
     }
 }
 

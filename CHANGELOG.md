@@ -15,6 +15,29 @@
 
 ## [Unreleased]
 
+### Added
+- profiles/easy_template: `easyprofile.csv` の列定義に `Segment` を追加し、
+  `easyprofile.ps1` で行ごとの Segment 値を実行直前に
+  `$env:FABRIQ_SEGMENT` へ export、`finally` ブロックで clear するように
+  変更（`kernel/main.ps1:441-465` の Linear path と同じ env-var contract）。
+  これにより EasyProfile からも Segment-aware モジュール
+  （`reg_hklm_config` / `app_config` / `acl_config` / `test_harness_config`
+  等）を `_list.csv` の Segment フィルタ付きで呼び分け可能。
+  実装メモ: profile 級 CSV を `Import-ModuleCsv` で読むと、CSV 自身が
+  `Segment` 列の strict-match で絞られてしまう（`kernel/common.ps1:1063-
+  1080` の挙動。`_list.csv` 用途には正しいが Profile では行ごとに違う
+  Segment を意図するため不整合）。これを避けるため CSV ロードを
+  `Import-CsvSafe` + `Test-CsvColumns` + 手動 Enabled フィルタの組み合わせ
+  に切り替え（Linear path `Resolve-ProfileModules` が `Import-Csv` を
+  直接呼ぶのと同じ路線）。Segment 列を持たない既存 CSV は後方互換で
+  そのまま動作（`$entry.PSObject.Properties.Name -contains 'Segment'`
+  ガード）。事前表示および実行バナーには Linear/Flex 慣習に合わせて
+  `[seg:<value>]` ラベルを併記。公開 API 不変、kernel `KERNEL_VERSION`
+  据え置き 3.3.1。検証: 既定 CSV（全 Enabled=0）の早期 exit / Segment=値
+  と Segment=空の 2 行同時実行による env-var set/clear 動作を
+  `test_harness_config` 経由で smoke 確認済み（Segment filter が指定行
+  にのみ適用され、次の Segment 空行には漏れないことを確認）。
+
 ## [3.3.1] - 2026-05-12
 
 ### Fixed
