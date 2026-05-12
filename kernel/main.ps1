@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver3.3 - Manifeste du Surkitinisme -
+# Fabriq ver3.4 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -282,6 +282,11 @@ function Invoke-BatchExecution {
 
     Clear-ExecutionResults
 
+    # Execution toolbar: signal batch start (enables Skip / Gyotaq
+    # buttons; per-module label updates happen inside the foreach
+    # loop below).
+    try { Update-ExecutionToolbar -ExecutionState 'Running' } catch { }
+
     # Reload current-session history into IsRestored entries so the
     # previous batch's results survive Clear-ExecutionResults's wipe of
     # non-IsRestored entries between batches in the same session.
@@ -369,6 +374,9 @@ function Invoke-BatchExecution {
             Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..." -Order $module.Order
             $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))" -Order $module.Order
 
+            # Hide toolbar cleanly before reboot kills the process
+            try { Hide-ExecutionToolbar } catch { }
+
             Invoke-CountdownRestart
             return
         }
@@ -416,6 +424,9 @@ function Invoke-BatchExecution {
 
         # Normal module execution
         Show-BatchProgress -Current $current -Total $total -ItemName $module.MenuName
+
+        # Execution toolbar: update label to current module name
+        try { Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName $module.MenuName } catch { }
 
         # AutoPilot: inter-module wait
         if ($global:AutoPilotMode -and $current -gt 1) {
@@ -582,6 +593,9 @@ function Invoke-BatchExecution {
         # AutoPilot: always reset (Profile scope guarantee)
         $global:AutoPilotMode = $false
         $global:AutoPilotWaitSec = 3
+        # Execution toolbar: return to Idle (disables Skip / Gyotaq).
+        # Guarded - a failed toolbar update must never break finalize.
+        try { Update-ExecutionToolbar -ExecutionState 'Idle' } catch { }
         # Publish per-module results for FlexProfile dashboard polling.
         # Always set in finally so cancel / mid-throw paths produce a
         # consistent snapshot (possibly partial, possibly empty).
@@ -820,6 +834,9 @@ function Invoke-FlexProfileLoop {
                 Add-ExecutionResult -Operation "[RESTART NOW]" -Status "Success" -Message "FlexProfile Restart Now" -Order 0
                 $null = Write-ExecutionHistory -ModuleName "[RESTART NOW]" -Category "System" -Status "Success" -Message "FlexProfile Restart Now (dashboard reopen on resume)" -Order 0
 
+                # Hide toolbar cleanly before reboot kills the process
+                try { Hide-ExecutionToolbar } catch { }
+
                 Invoke-CountdownRestart
                 # Process exits here (Restart-Computer in Invoke-CountdownRestart).
                 return
@@ -1048,6 +1065,9 @@ function Invoke-WindowsUpdateLoop {
             Show-Error "Failed to register RunOnce for WU resume"
             return
         }
+
+        # Hide toolbar cleanly before reboot kills the process
+        try { Hide-ExecutionToolbar } catch { }
 
         # Reboot (same function as Profile __RESTART__)
         Invoke-CountdownRestart -Seconds $wuState.RebootSec
@@ -1461,9 +1481,24 @@ $groupedModules = $moduleSystem.GroupedModules
 $null = Enable-FabriqVerboseCapture
 
 # ========================================
-# Status Monitor
+# Execution Toolbar (replaces retired Status Monitor in 3.4.0)
 # ========================================
-$global:FabriqStatusMonitorProcess = Start-StatusMonitor
+# Out-of-process Status Monitor (kernel/ps1/status_monitor.ps1, spawned
+# via Start-Process powershell.exe -WindowStyle Hidden) is retired
+# because recent Defender / ASR heuristics block that spawn pattern.
+# In-process toolbar runs on a dedicated STA Runspace within the kernel
+# powershell.exe, so those restrictions do not apply.
+#
+# Emergency rollback: uncomment the Start-StatusMonitor line below.
+# status_monitor.ps1 and Start/Stop-StatusMonitor stay in 3.4.x for
+# this purpose; scheduled removal in 3.5.0.
+#   $global:FabriqStatusMonitorProcess = Start-StatusMonitor
+try {
+    Show-ExecutionToolbar
+}
+catch {
+    Show-Warning "Failed to show execution toolbar: $($_.Exception.Message)"
+}
 
 
 # ========================================
@@ -1935,6 +1970,8 @@ $script:guiExitRequested = $false
                 Write-Host ""
                 if (Confirm-Execution -Message "Register RunOnce and restart the computer?") {
                     if (Register-FabriqRunOnce) {
+                        # Hide toolbar cleanly before reboot kills the process
+                        try { Hide-ExecutionToolbar } catch { }
                         Invoke-CountdownRestart
                     }
                 }
@@ -1946,6 +1983,7 @@ $script:guiExitRequested = $false
 
             "Refabriq" {
                 Show-Info "Restarting Fabriq..."
+                try { Hide-ExecutionToolbar } catch { }
                 Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
                 $fabriqRoot = (Resolve-Path ".").Path
                 $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"

@@ -20,6 +20,7 @@ try {
     . (Join-Path $operatorLibDir "quickactions_dialog.ps1")
     . (Join-Path $operatorLibDir "dashboard_form.ps1")
     . (Join-Path $operatorLibDir "flex_dashboard.ps1")
+    . (Join-Path $operatorLibDir "execution_toolbar.ps1")
 
     $script:UseGui = $true
 }

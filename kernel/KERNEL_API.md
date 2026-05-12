@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `3.3.1`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
+**Current Kernel Version**: `3.4.0`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -138,12 +138,15 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Register-FabriqRunOnce` / `Invoke-CountdownRestart`
 - `Write-ExecutionHistory` / `Initialize-ExecutionHistory` / `Restore-ExecutionHistory` / `Export-ExecutionHistory` / `Export-HtmlChecklist`
 - `Capture-ScreenEvidence` / `Initialize-EvidenceBasePath`
-- `Write-StatusFile` / `Start-StatusMonitor` / `Stop-StatusMonitor`
+- `Write-StatusFile`
+- `Start-StatusMonitor` / `Stop-StatusMonitor` **(Deprecated since 3.4.0、削除予定 3.5.0)**: 旧 Status Monitor 起動・終了。3.4.0 で kernel/main.ps1 からの呼び出しを停止し、in-process な Execution Toolbar に役割移管。関数本体と `kernel/ps1/status_monitor.ps1` は緊急 rollback 用に 3.4.x 系では残置。
+- `Show-ExecutionToolbar` / `Hide-ExecutionToolbar` / `Update-ExecutionToolbar` **(since 3.4.0)**: in-process 浮遊ツールバー (Skip / Gyotaq) のライフサイクル。実装は `apps/fabriq_operator/lib/execution_toolbar.ps1` の dedicated STA Runspace。kernel/main.ps1 が batch / 各モジュール開始 / 完了 / __RESTART__ / exit でこれらを呼ぶ。
+- `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`
 - 状態ファイル: `kernel/json/resume_state.json`, `status.json`, `session.json`, `art_pulse.txt`, `async_config.json`, `skip_request.flag`
 - オーケストレータ経由で設定される仕組み（`__ASYNC__` の Runspace 実装等）
-- Status Monitor の UI 構成・ボタン配置
+- Execution Toolbar の UI 構成・ボタン配置（旧 Status Monitor の UI 構成は 3.5.0 で削除予定）
 - HTML チェックリストのテンプレート
 
 ---
@@ -249,6 +252,33 @@ formal SemVer の出発点。以下すべて利用可能:
 - §6 内部実装に Invoke-FlexProfileLoop の "RunGroup" action / Show-
   FlexDashboard の Groups バー UI / `_Group` モジュール属性を追加
   （いずれもモジュール側からは不可視）
+
+### 3.4.0
+
+- **Status Monitor 廃止と Execution Toolbar への役割移管（MINOR）**
+  - 旧 Status Monitor (`kernel/ps1/status_monitor.ps1`、別プロセスの
+    PowerShell として `Start-Process powershell.exe -WindowStyle Hidden`
+    で起動されていた) は、recent な Windows Update / Defender / ASR
+    ヒューリスティックでブロックされるケースが増えたため retire
+  - 代替として in-process な **Execution Toolbar**
+    (`apps/fabriq_operator/lib/execution_toolbar.ps1`) を新設。
+    dedicated STA Runspace 上で WinForms メッセージループを回すため、
+    kernel main thread がモーダル ShowDialog や Read-Host 中でも
+    常時応答 (drag / Skip / Gyotaq)
+  - §6 内部実装の追加: `Show-ExecutionToolbar` /
+    `Hide-ExecutionToolbar` / `Update-ExecutionToolbar` / `Save-Screenshot`
+  - §6 内部実装の Deprecated: `Start-StatusMonitor` / `Stop-StatusMonitor`
+    (関数本体と `kernel/ps1/status_monitor.ps1` は 3.4.x 系で残置、
+    3.5.0 で削除予定)
+  - `kernel/common.ps1` :: `Invoke-SafeCommandAsync` の poll loop に
+    `[System.Windows.Forms.Application]::DoEvents()` を 16ms 間隔で注入
+    (toolbar の応答性確保)。ヘッドレス環境耐性のため try/catch ガード付き
+  - kernel 公開 API §1〜§5 への影響なし。モジュールスクリプト視点では
+    Capture-ScreenEvidence の自動撮影は不変
+  - **本変更を要求する状況**: 旧 Status Monitor の UI 構成や
+    Start-StatusMonitor / Stop-StatusMonitor を直接呼んでいた外部
+    ツールがある場合のみ、この版を要求。標準的なモジュールスクリプト
+    側からは要求不要
 
 ### 3.3.0
 

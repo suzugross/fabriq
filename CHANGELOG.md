@@ -15,6 +15,41 @@
 
 ## [Unreleased]
 
+
+## [3.4.0] - 2026-05-13
+
+### Changed
+- kernel/main.ps1 + kernel/common.ps1 + apps/fabriq_operator/lib/execution_toolbar.ps1:
+  Status Monitor 廃止 + Execution Toolbar 新設 (MINOR / 3.3.1 → 3.4.0)。
+  詳細は kernel/KERNEL_API.md §8 3.4.0 セクション参照。実装は 4 サブステージ
+  (4a〜4d) で段階的に投入し、各ステージで Pester 157/157 pass + 実機 smoke
+  で検証。
+  - Stage 4a: kernel/common.ps1 `Invoke-SafeCommandAsync` の poll loop に
+    `[Application]::DoEvents()` を 16ms 間隔で注入 (sub-sleep ループで
+    pollMs を内側分割、Skip 検出応答性も改善)。try/catch でヘッドレス
+    環境耐性確保。
+  - Stage 4b: apps/fabriq_operator/fabriq_operator.ps1 の lib dot-source
+    リストに execution_toolbar.ps1 を追加。
+  - Stage 4c: apps/fabriq_operator/lib/execution_toolbar.ps1 新設
+    (dedicated STA Runspace ベース、WinForms TopMost ツールバー、
+    Skip / Gyotaq ボタン、ヘッダドラッグ可)。
+    kernel/main.ps1 への lifecycle wiring (Show / Update Running /
+    Update Idle / Hide before __RESTART__ x 4 / Hide before Refabriq)。
+    kernel/common.ps1 :: `Exit-Fabriq` に Hide-ExecutionToolbar 追加
+    (Get-Command guard 付き、headless 耐性)。
+  - Stage 4d: kernel/main.ps1 の `Start-StatusMonitor` 呼び出しを
+    comment-out。`status_monitor.ps1` ファイル本体と
+    `Start-StatusMonitor` / `Stop-StatusMonitor` 関数は 3.4.x 系で
+    残置 (緊急 rollback 用、3.5.0 で削除予定)。
+- kernel/KERNEL_API.md §6: `Start-StatusMonitor` / `Stop-StatusMonitor` に
+  Deprecated 注記、`Show/Hide/Update-ExecutionToolbar` / `Save-Screenshot`
+  を内部実装として追記。
+- kernel/KERNEL_API.md §8: 3.4.0 release notes セクション追加。
+  動機: recent な Windows Update / Defender / ASR ヒューリスティックが
+  hidden child PowerShell process spawn をブロックするケースが増え、
+  Status Monitor の Skip / Gyotaq surface が一部端末で失われていた。
+  in-process Toolbar への移管で Defender / ASR の影響を受けない構成へ。
+
 ### Added
 - profiles/easy_template: `easyprofile.csv` の列定義に `Segment` を追加し、
   `easyprofile.ps1` で行ごとの Segment 値を実行直前に
