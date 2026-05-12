@@ -1,5 +1,5 @@
 # ========================================
-# Easy Kitting Batch - Common Function Library v3.3.0
+# Easy Kitting Batch - Common Function Library v3.3.1
 # ========================================
 
 # ========================================
@@ -1680,6 +1680,7 @@ function Invoke-SafeCommandAsync {
     $inject = @{
         FabriqMasterPassphrase = $global:FabriqMasterPassphrase
         AutoPilotMode          = $global:AutoPilotMode
+        AutoConfirmMode        = $global:AutoConfirmMode
         AutoPilotWaitSec       = $global:AutoPilotWaitSec
         FabriqTranscriptPath   = $global:FabriqTranscriptPath
         FabriqUniqueId         = $global:FabriqUniqueId

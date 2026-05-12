@@ -15,6 +15,31 @@
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-05-12
+
+### Fixed
+- kernel/common.ps1 :: `Invoke-SafeCommandAsync`: child runspace の
+  inject hashtable に `$global:AutoConfirmMode` を追加（PATCH /
+  3.3.0 → 3.3.1）。
+  **症状**: 3.3.0 で DefaultAsync 既定 ON 化以降、FlexProfile の `[Run This]`
+  ボタン（RunSingle 経路）でモジュールを実行すると、モジュール内
+  `Confirm-ModuleExecution` の Y/N プロンプト（例: hkcu_config の
+  「Apply the above registry changes?」、network_profile_config の
+  「Apply the above network category changes?」など）が auto-confirm
+  されず Read-Host へ落ちる regression。
+  **原因**: kernel 3.1.0 で導入された公開グローバル `$global:AutoConfirmMode`
+  （KERNEL_API.md §2 で宣言済）が `Invoke-SafeCommandAsync` の inject
+  リストに含まれておらず、child runspace では common.ps1 init 既定値
+  `$false` のまま。3.2.5 以前は RunSingle が sync 経路だったため
+  同一スコープで読めて無症状だったが、3.3.0 で全モジュールが async
+  経路に切り替わったことで dormant bug が発現。
+  **影響範囲**: `Confirm-ModuleExecution` を呼ぶ全モジュール（108 件
+  ヒット）の FlexProfile `[Run This]` 経由実行。`[Run Batch]` /
+  `[Run: Group]` / Linear `[Execute Profile]` は `AutoPilotMode` が
+  inject 済みのため無影響。
+  **修正**: inject hashtable に `AutoConfirmMode = $global:AutoConfirmMode`
+  を 1 行追加。公開 API 仕様（KERNEL_API.md §2）の遵守。
+
 ## [3.3.0] - 2026-05-12
 
 ### Changed
