@@ -128,6 +128,14 @@ function Set-SelectedHostEnvironment {
     }
 
     Show-Info "Environment variables set."
+
+    # Push the just-set SELECTED_* values to the execution toolbar's
+    # PC Info pane. No-op when the toolbar is not yet running (the
+    # toolbar self-pushes from the same env vars on its own startup,
+    # so the fresh-start / resume cases are covered there).
+    if (Get-Command Update-ExecutionToolbar -ErrorAction SilentlyContinue) {
+        try { Update-ExecutionToolbar -TargetHostInfo (Get-FabriqHostInfoFromEnv) } catch { }
+    }
 }
 
 # ========================================

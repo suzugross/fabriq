@@ -1,78 +1,86 @@
+﻿# ========================================
+# Fabriq Operator - Execution Toolbar (Status Monitor recreation)
 # ========================================
-# Fabriq Operator - Execution Toolbar
-# ========================================
-# In-process floating toolbar that replaces the out-of-process
-# Status Monitor (kernel/ps1/status_monitor.ps1, retired in 3.4.0).
+# In-process replacement for kernel/ps1/status_monitor.ps1 (retired in
+# 3.4.0). Faithfully recreates the old monitor's visual identity (dark
+# theme, Consolas, cyan GroupBox titles, [OK]/[!!]/[--] markers, art
+# panel) while:
 #
-# Provides operator touch surface while modules are executing:
-#   - [Skip]   : write skip_request.flag (honored by Invoke-SafeCommandAsync)
-#   - [Gyotaq] : on-demand screenshot via Save-Screenshot (the
-#                evidence subfolder stays "gyotaku/" for path
-#                compatibility with existing evidence_manager flows)
-#   - Status label showing the currently running module
+#   - Living on a dedicated STA Runspace inside the kernel powershell.exe
+#     so Defender / ASR child-process restrictions do not apply.
+#   - Driving PC Info from $FabriqToolbarShared.TargetHostInfo (pushed
+#     by Set-SelectedHostEnvironment via Update-ExecutionToolbar) and
+#     live OS queries (Get-NetIPAddress / Get-Printer / etc.), removing
+#     the dependence on a written status.json for the comparison view.
+#   - Keeping the original Surkitinisme art panel intact, reading
+#     art_pulse.txt / art_sentences.txt / silence.flag / status.json
+#     directly from disk just like the old monitor did.
 #
-# Architecturally an in-process WinForms TopMost window hosted on a
-# dedicated STA Runspace. Lives in the same powershell.exe as the
-# kernel/dashboard, so Defender / ASR heuristics that block
-# "powershell.exe spawning hidden powershell.exe children" do not
-# apply (which is why Status Monitor failed to launch on recent
-# Windows builds - see CHANGELOG 3.4.0).
-#
-# Why a dedicated runspace:
-#   - The runspace owns its own message loop (Application::Run), so
-#     the toolbar is responsive even when the kernel main thread is
-#     blocked in Read-Host or a modal ShowDialog (e.g. FlexProfile
-#     dashboard, which would otherwise input-disable any sibling
-#     window on the SAME thread).
-#   - Cross-thread state is a single synchronized hashtable
-#     (`$FabriqToolbarShared`): kernel writes, toolbar's WinForms
-#     Timer reads at 100ms cadence.
-#   - Click handlers (Skip / Gyotaq) run inside the toolbar runspace
-#     with common.ps1 + theme.ps1 dot-sourced, so Get-FabriqAsyncConfig
-#     / Save-Screenshot / Show-* are available without marshalling.
-#
-# Public surface (called by kernel main.ps1):
+# Public surface (called by kernel main.ps1 / common.ps1):
 #   - Show-ExecutionToolbar
 #   - Hide-ExecutionToolbar
-#   - Update-ExecutionToolbar -ExecutionState 'Idle'|'Running' [-ModuleName <s>]
+#   - Update-ExecutionToolbar [-ExecutionState 'Idle'|'Running']
+#                             [-ModuleName <s>]
+#                             [-TargetHostInfo <hashtable>]
 # ========================================
 
-# ----------------------------------------------------------------
-# Module-level handles for the toolbar's dedicated runspace
-# ----------------------------------------------------------------
 $script:ExecutionToolbarRunspace = $null
 $script:ExecutionToolbarPS       = $null
 $script:ExecutionToolbarHandle   = $null
 $script:ExecutionToolbarShared   = $null
 
-# Fabriq root captured at dot-source time. Used to resolve paths
-# (skip_request.flag, evidence/gyotaku/, common.ps1, theme.ps1)
-# without depending on the current working directory, which modules
-# may alter during execution. Derived from $PSScriptRoot
-# (.../apps/fabriq_operator/lib) -> three levels up = fabriq root.
 $script:ExecutionToolbarFabriqRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot "..\..\..")
 ).TrimEnd('\')
 
-# Header drag is implemented with pure-PowerShell MouseDown/Move/Up
-# handlers using Cursor.Position deltas. Add-Type -TypeDefinition for
-# WM_NCLBUTTONDOWN P/Invoke would work too, but spawns csc.exe at
-# runspace startup, which is needless overhead here.
+function Get-FabriqHostInfoFromEnv {
+    <#
+    .SYNOPSIS
+        Read the current SELECTED_* env vars and build the TargetHostInfo
+        hashtable that the execution toolbar expects.
+    .DESCRIPTION
+        Called from two places: Set-SelectedHostEnvironment (kernel) on
+        every host-selection change, and Show-ExecutionToolbar itself
+        on startup to recover the snapshot when the toolbar comes up
+        after env vars are already populated (fresh-start session init
+        or resume).
+    #>
+    [CmdletBinding()]
+    param()
+
+    $printers = @()
+    for ($i = 1; $i -le 10; $i++) {
+        $pName = (Get-Item -Path "env:SELECTED_PRINTER_$($i)_NAME" -ErrorAction SilentlyContinue).Value
+        if (-not [string]::IsNullOrWhiteSpace($pName)) {
+            $printers += @{
+                Name   = $pName
+                Driver = (Get-Item -Path "env:SELECTED_PRINTER_$($i)_DRIVER" -ErrorAction SilentlyContinue).Value
+                Port   = (Get-Item -Path "env:SELECTED_PRINTER_$($i)_PORT"   -ErrorAction SilentlyContinue).Value
+            }
+        }
+    }
+    $dns = @($env:SELECTED_DNS1, $env:SELECTED_DNS2, $env:SELECTED_DNS3, $env:SELECTED_DNS4) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    return @{
+        Hostname    = $env:SELECTED_NEW_PCNAME
+        KanriNo     = $env:SELECTED_KANRI_NO
+        Pin         = $env:SELECTED_PIN
+        EthIP       = $env:SELECTED_ETH_IP
+        EthSubnet   = $env:SELECTED_ETH_SUBNET
+        EthGateway  = $env:SELECTED_ETH_GATEWAY
+        WifiIP      = $env:SELECTED_WIFI_IP
+        WifiSubnet  = $env:SELECTED_WIFI_SUBNET
+        WifiGateway = $env:SELECTED_WIFI_GATEWAY
+        DNS         = @($dns)
+        Printers    = $printers
+    }
+}
 
 function Show-ExecutionToolbar {
     <#
     .SYNOPSIS
-        Spawn the floating execution toolbar on a dedicated STA Runspace.
-    .DESCRIPTION
-        Idempotent: a second call while the toolbar runspace is alive
-        is a no-op. The runspace runs its own message loop via
-        [Application]::Run($form), so the toolbar stays responsive
-        regardless of what the kernel main thread is doing.
-
-        Cross-thread state is exchanged via $script:ExecutionToolbarShared
-        (a synchronized hashtable). Update-ExecutionToolbar writes to it
-        from the main thread; a WinForms Timer inside the runspace polls
-        and applies changes to the form.
+        Open the Status-Monitor-style floating panel on a dedicated STA Runspace.
     #>
     [CmdletBinding()]
     param()
@@ -81,164 +89,904 @@ function Show-ExecutionToolbar {
         return
     }
 
-    # Synchronized cross-thread state. Operations on a Synchronized
-    # hashtable serialize through an internal lock, so reads/writes
-    # are atomic at the entry level (sufficient for our purposes -
-    # all values are simple types, no nested mutation).
     $shared = [hashtable]::Synchronized(@{
-        State            = 'Idle'
-        ModuleName       = ''
-        EvidenceBasePath = if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) { $global:FabriqEvidenceBasePath } else { '' }
-        CloseRequested   = $false
-        FabriqRoot       = $script:ExecutionToolbarFabriqRoot
+        State                 = 'Idle'
+        ModuleName            = ''
+        EvidenceBasePath      = if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) { $global:FabriqEvidenceBasePath } else { '' }
+        CloseRequested        = $false
+        FabriqRoot            = $script:ExecutionToolbarFabriqRoot
+        TargetHostInfo        = $null
+        TargetHostInfoVersion = 0
     })
 
     $rs = [runspacefactory]::CreateRunspace($Host)
     $rs.ApartmentState = "STA"
     $rs.ThreadOptions  = "ReuseThread"
     $rs.Open()
-    $rs.SessionStateProxy.SetVariable('FabriqToolbarShared',      $shared)
-    $rs.SessionStateProxy.SetVariable('FabriqToolbarCommonPath',  (Join-Path $script:ExecutionToolbarFabriqRoot 'kernel\common.ps1'))
-    $rs.SessionStateProxy.SetVariable('FabriqToolbarThemePath',   (Join-Path $script:ExecutionToolbarFabriqRoot 'apps\fabriq_operator\lib\theme.ps1'))
+    $rs.SessionStateProxy.SetVariable('FabriqToolbarShared',     $shared)
+    $rs.SessionStateProxy.SetVariable('FabriqToolbarCommonPath', (Join-Path $script:ExecutionToolbarFabriqRoot 'kernel\common.ps1'))
     $rs.SessionStateProxy.Path.SetLocation($script:ExecutionToolbarFabriqRoot) | Out-Null
 
     $ps = [PowerShell]::Create()
     $ps.Runspace = $rs
     [void]$ps.AddScript({
         try {
-            Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Windows.Forms
             [System.Windows.Forms.Application]::EnableVisualStyles()
 
-            # Dot-source fabriq dependencies into THIS runspace. common.ps1
-            # provides Get-FabriqAsyncConfig / Save-Screenshot / Show-Info etc.
-            # theme.ps1 provides $script:bg* colors + New-StyledButton.
             . $FabriqToolbarCommonPath
-            . $FabriqToolbarThemePath
 
-            # Drag state for the header strip. Lives in this runspace's
-            # $script: scope; closures attached to MouseDown / Move / Up
-            # bind by name at execution time. No Add-Type / csc.exe spawn
-            # (see top of file comment).
-            $script:dragState = @{
-                Dragging = $false
-                OffsetX  = 0
-                OffsetY  = 0
+            $fabriqRoot = $FabriqToolbarShared.FabriqRoot
+            $gyotakuDir = Join-Path $fabriqRoot 'evidence\gyotaku'
+
+            # Disk paths used by the art panel (resolved at startup so
+            # CWD changes during module execution do not break them).
+            $artPulseFilePath = Join-Path $fabriqRoot 'kernel\json\art_pulse.txt'
+            $sentenceFilePath = Join-Path $fabriqRoot 'kernel\txt\art_sentences.txt'
+            $silenceFlagPath  = Join-Path $fabriqRoot 'kernel\txt\silence.flag'
+            $statusFilePath   = Join-Path $fabriqRoot 'kernel\json\status.json'
+
+            # ----- DPI scale -----
+            $script:dpiScale = 1.0
+            try {
+                $tmpG = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+                $rawDpi = $tmpG.DpiX
+                $tmpG.Dispose()
+                if ($rawDpi -gt 0) { $script:dpiScale = $rawDpi / 96.0 }
+            } catch { }
+            if ($script:dpiScale -le 0) { $script:dpiScale = 1.0 }
+
+            # ----- Colors (legacy Status Monitor palette) -----
+            $darkBg       = [System.Drawing.Color]::FromArgb(30, 30, 30)
+            $accentCyan   = [System.Drawing.Color]::FromArgb(0, 200, 200)
+            $textWhite    = [System.Drawing.Color]::White
+            $textGray     = [System.Drawing.Color]::FromArgb(160, 160, 160)
+            $successGreen = [System.Drawing.Color]::FromArgb(80, 220, 80)
+            $errorRed     = [System.Drawing.Color]::FromArgb(255, 80, 80)
+            $orangeSkip   = [System.Drawing.Color]::FromArgb(255, 170, 60)
+
+            # ----- Fonts -----
+            $fontNormal = New-Object System.Drawing.Font("Consolas", 9)
+            $fontBold   = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+
+            # ========================================
+            # Art panel configuration (copied verbatim
+            # from the retired status_monitor.ps1)
+            # ========================================
+            # Art render at 10fps (100ms). The retired Status Monitor
+            # ran at 25fps (40ms) because it was in a separate process
+            # and CPU was its own to burn. In-process we share the UI
+            # thread with PC Info refresh and click handlers, so a more
+            # conservative cadence is friendlier. Typing animation is
+            # still smooth and cursor blink (500ms) has plenty of room.
+            $script:ART_RENDER_INTERVAL = 100
+            $script:ART_PULSE_INTERVAL  = 200
+            $script:ART_BURST_SPEED     = 8
+            $script:ART_IDLE_SPEED      = 35
+            $script:ART_MAX_LINES       = 50
+            $script:ART_LINE_HEIGHT     = 16
+            $script:GLITCH_CHARS = @('_','#','@','!','^','~','`','|','{','}','[',']','<','>','/','?','+','=','*','0','1')
+
+            $script:artFont     = New-Object System.Drawing.Font("Consolas", 8)
+            $script:artFontBold = New-Object System.Drawing.Font("Consolas", 8, [System.Drawing.FontStyle]::Bold)
+            $script:artLineH    = $script:ART_LINE_HEIGHT
+            $script:artBgColor       = $darkBg
+            $script:artCyanColor     = [System.Drawing.Color]::FromArgb(0, 130, 130)
+            $script:artDimGreen      = [System.Drawing.Color]::FromArgb(0, 140, 100)
+            $script:artDimGray       = [System.Drawing.Color]::FromArgb(60, 70, 60)
+            $script:artGlitchWhite   = [System.Drawing.Color]::FromArgb(255, 255, 255)
+            $script:artAlphaColor        = [System.Drawing.Color]::FromArgb(130, 80, 180)
+            $script:artAlphaDimGreen     = [System.Drawing.Color]::FromArgb(80, 50, 120)
+            $script:artAlphaDimGray      = [System.Drawing.Color]::FromArgb(50, 40, 55)
+            $script:artBgBrush           = New-Object System.Drawing.SolidBrush($darkBg)
+            $script:artCyanBrush         = New-Object System.Drawing.SolidBrush($script:artCyanColor)
+            $script:artDimGreenBrush     = New-Object System.Drawing.SolidBrush($script:artDimGreen)
+            $script:artDimGrayBrush      = New-Object System.Drawing.SolidBrush($script:artDimGray)
+            $script:artAlphaBrush        = New-Object System.Drawing.SolidBrush($script:artAlphaColor)
+            $script:artAlphaDimGreenBrush = New-Object System.Drawing.SolidBrush($script:artAlphaDimGreen)
+            $script:artAlphaDimGrayBrush  = New-Object System.Drawing.SolidBrush($script:artAlphaDimGray)
+
+            $script:artRng = New-Object System.Random
+            $script:artDisplayLines = [System.Collections.ArrayList]::new()
+            $script:artCurrentText = ""
+            $script:artCursorPos = 0
+            $script:artState = "waiting"
+            $script:artTypeSpeed = $script:ART_BURST_SPEED
+            $script:artLastTypeTime = [DateTime]::Now
+            $script:artCursorVisible = $true
+            $script:artCursorBlinkTime = [DateTime]::Now
+            $script:artGlitchFrames = 0
+            $script:artFlashFrames = 0
+            $script:artFlashColor = $null
+            $script:artContinueOnSameLine = $false
+            $script:artLastPulseValue = 0
+            $script:artTriggerQueue = 0
+            $script:artBufferBitmap = $null
+            $script:artBufferGraphics = $null
+            $script:artLastStatusWriteTime = [DateTime]::MinValue
+            $script:artLastDetailCount = 0
+            $script:artCurrentPhase = "idle"
+            $script:artSilent = $false
+
+            # Load art sentences (paragraph / sentence / clause pools)
+            $script:artByParagraph = @()
+            $script:artBySentence  = @()
+            $script:artByClause    = @()
+            if (Test-Path $sentenceFilePath) {
+                $rawText = [System.IO.File]::ReadAllText($sentenceFilePath, [System.Text.Encoding]::UTF8)
+                $script:artByParagraph = @($rawText -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -ge 8 })
+                $script:artBySentence  = @($rawText -split '(?<=\u3002)' | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -ge 8 })
+                $script:artByClause    = @($rawText -split '(?<=\u3001)' | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -ge 8 })
+            }
+            if ($script:artBySentence.Count -eq 0) {
+                $fallback = @(
+                    "SYSTEM INITIALIZED.",
+                    "DATA STREAM ACTIVE.",
+                    "PROCESSING SIGNAL.",
+                    "KERNEL READY.",
+                    "CONFIGURATION LOADED.",
+                    "VERIFY SEQUENCE COMPLETE."
+                )
+                $script:artByParagraph = $fallback
+                $script:artBySentence  = $fallback
+                $script:artByClause    = $fallback
             }
 
-            # ---------- Form geometry ----------
-            $headerH = 22
-            $formW   = 210
-            $formH   = 92
-
+            # ========================================
+            # Form
+            # ========================================
             $form = New-Object System.Windows.Forms.Form
-            $form.Text            = "fabriq"
-            $form.Size            = New-Object System.Drawing.Size($formW, $formH)
-            $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-            $form.BackColor       = $script:bgForm
-            $form.ForeColor       = $script:fgText
-            $form.Font            = $script:fontNormal
-            $form.TopMost         = $true
-            $form.ShowInTaskbar   = $false
-            $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
-
-            $workArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+            $form.Text = "Fabriq - Status Monitor"
+            $formW = [int](600 * $script:dpiScale)
+            $formH = [int](700 * $script:dpiScale)
+            $form.Size = New-Object System.Drawing.Size($formW, $formH)
+            $form.StartPosition = "Manual"
+            $workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
             $form.Location = New-Object System.Drawing.Point(
-                ($workArea.Right - $formW - 16),
-                ($workArea.Top + 16)
+                ($workingArea.Right - $formW - [int](20 * $script:dpiScale)),
+                ([int](50 * $script:dpiScale))
             )
+            $form.FormBorderStyle = "FixedSingle"
+            $form.MaximizeBox = $false
+            $form.MinimizeBox = $true
+            $form.ShowInTaskbar = $false
+            $form.BackColor = $darkBg
+            $form.ForeColor = $textWhite
+            $form.Font = $fontNormal
+            $form.TopMost = $true
 
-            # ---------- Header strip ----------
-            $headerPanel = New-Object System.Windows.Forms.Panel
-            $headerPanel.Location  = New-Object System.Drawing.Point(0, 0)
-            $headerPanel.Size      = New-Object System.Drawing.Size($formW, $headerH)
-            $headerPanel.BackColor = $script:bgPanel
-            $headerPanel.Cursor    = [System.Windows.Forms.Cursors]::SizeAll
-            $form.Controls.Add($headerPanel)
+            # ----- Main layout: PC Info (top, 60%) + Surkitinisme (bottom, 40%) -----
+            $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
+            $mainLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $mainLayout.RowCount = 2
+            $mainLayout.ColumnCount = 1
+            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 60))) | Out-Null
+            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 40))) | Out-Null
+            $mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+            $mainLayout.Padding = New-Object System.Windows.Forms.Padding(6, 6, 6, 0)
+            $form.Controls.Add($mainLayout)
 
-            $stripe = New-Object System.Windows.Forms.Panel
-            $stripe.Location  = New-Object System.Drawing.Point(0, 0)
-            $stripe.Size      = New-Object System.Drawing.Size(3, $headerH)
-            $stripe.BackColor = $script:stripeBlue
-            $headerPanel.Controls.Add($stripe)
+            # ----- PC Info GroupBox -----
+            $pcInfoGroup = New-Object System.Windows.Forms.GroupBox
+            $pcInfoGroup.Text = " PC Info Comparison "
+            $pcInfoGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $pcInfoGroup.ForeColor = $accentCyan
+            $pcInfoGroup.Font = $fontBold
+            $mainLayout.Controls.Add($pcInfoGroup, 0, 0)
 
-            $headerLabel           = New-Object System.Windows.Forms.Label
-            $headerLabel.Text      = "fabriq"
-            $headerLabel.Location  = New-Object System.Drawing.Point(10, 3)
-            $headerLabel.Size      = New-Object System.Drawing.Size(100, 16)
-            $headerLabel.Font      = $script:fontSemiBold
-            $headerLabel.ForeColor = $script:fgWhite
-            $headerLabel.BackColor = $script:bgPanel
-            $headerPanel.Controls.Add($headerLabel)
+            $pcInfoRtb = New-Object System.Windows.Forms.RichTextBox
+            $pcInfoRtb.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $pcInfoRtb.ForeColor = $textWhite
+            $pcInfoRtb.BackColor = $darkBg
+            $pcInfoRtb.Font = $fontNormal
+            $pcInfoRtb.ReadOnly = $true
+            $pcInfoRtb.BorderStyle = "None"
+            $pcInfoRtb.TabStop = $false
+            $pcInfoRtb.Text = "Waiting for host selection..."
+            $pcInfoGroup.Controls.Add($pcInfoRtb)
 
-            # Pure-PowerShell drag handlers.
-            # MouseDown: snapshot cursor-to-form offset (constant for the
-            #            duration of the drag, regardless of which control
-            #            within the header strip received the event).
-            # MouseMove: move the form so the cursor maintains the same
-            #            offset from the form's top-left.
-            # MouseUp:   release.
-            $dragMouseDown = {
-                param($src, $e)
-                if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-                    $f = $src.FindForm()
-                    if ($null -ne $f) {
-                        $cur = [System.Windows.Forms.Cursor]::Position
-                        $script:dragState.Dragging = $true
-                        $script:dragState.OffsetX  = $cur.X - $f.Location.X
-                        $script:dragState.OffsetY  = $cur.Y - $f.Location.Y
-                    }
-                }
-            }
-            $dragMouseMove = {
-                param($src, $e)
-                if ($script:dragState.Dragging) {
-                    $f = $src.FindForm()
-                    if ($null -ne $f) {
-                        $cur = [System.Windows.Forms.Cursor]::Position
-                        $f.Location = New-Object System.Drawing.Point(
-                            ($cur.X - $script:dragState.OffsetX),
-                            ($cur.Y - $script:dragState.OffsetY)
-                        )
-                    }
-                }
-            }
-            $dragMouseUp = {
-                param($src, $e)
-                $script:dragState.Dragging = $false
-            }
+            # ----- Surkitinisme art GroupBox -----
+            $artGroup = New-Object System.Windows.Forms.GroupBox
+            $artGroup.Text = " Surkitinisme "
+            $artGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $artGroup.ForeColor = $accentCyan
+            $artGroup.Font = $fontBold
+            $mainLayout.Controls.Add($artGroup, 0, 1)
 
-            foreach ($dragCtl in @($headerPanel, $headerLabel, $stripe)) {
-                $dragCtl.Add_MouseDown($dragMouseDown)
-                $dragCtl.Add_MouseMove($dragMouseMove)
-                $dragCtl.Add_MouseUp($dragMouseUp)
-            }
+            $artCanvas = New-Object System.Windows.Forms.PictureBox
+            $artCanvas.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $artCanvas.BackColor = $darkBg
+            $artGroup.Controls.Add($artCanvas)
 
-            # ---------- Status label ----------
-            $bodyTopY = $headerH + 6
+            # ----- Status bar -----
+            $statusBar = New-Object System.Windows.Forms.StatusStrip
+            $statusBar.BackColor = [System.Drawing.Color]::FromArgb(25, 25, 25)
 
-            $lblStatus              = New-Object System.Windows.Forms.Label
-            $lblStatus.Name         = "lblStatus"
-            $lblStatus.Text         = "Idle"
-            $lblStatus.Location     = New-Object System.Drawing.Point(10, $bodyTopY)
-            $lblStatus.Size         = New-Object System.Drawing.Size(($formW - 20), 16)
-            $lblStatus.Font         = $script:fontNormal
-            $lblStatus.ForeColor    = $script:fgDim
-            $lblStatus.BackColor    = $script:bgForm
-            $lblStatus.AutoEllipsis = $true
-            $form.Controls.Add($lblStatus)
+            $btnGyotaq = New-Object System.Windows.Forms.ToolStripButton
+            $btnGyotaq.Text = "Gyotaq"
+            $btnGyotaq.ForeColor = $accentCyan
+            $btnGyotaq.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+            $btnGyotaq.Margin = New-Object System.Windows.Forms.Padding(4, 2, 8, 0)
+            $btnGyotaq.Enabled = $false
+            $statusBar.Items.Add($btnGyotaq) | Out-Null
 
-            # ---------- Action buttons ----------
-            # Skip is small (60x22) yellow to discourage accidental
-            # interruption. Gyotaq is larger (108x26) green - benign
-            # capture action.
-            $btnRowY    = $bodyTopY + 24
-            $btnSkipH   = 22
-            $btnGyotaqH = 26
-
-            $btnSkip = New-StyledButton -Text "Skip" -X 10 -Y ($btnRowY + ($btnGyotaqH - $btnSkipH) / 2) -Width 60 -Height $btnSkipH -BgColor $script:stripeYellow
-            $btnSkip.Name    = "btnSkip"
+            $btnSkip = New-Object System.Windows.Forms.ToolStripButton
+            $btnSkip.Text = "Skip"
+            $btnSkip.ForeColor = $orangeSkip
+            $btnSkip.Font = New-Object System.Drawing.Font("Consolas", 9, [System.Drawing.FontStyle]::Bold)
+            $btnSkip.Margin = New-Object System.Windows.Forms.Padding(0, 2, 8, 0)
+            $btnSkip.ToolTipText = "Request async module skip. Only effective for modules running after __ASYNC__ marker."
             $btnSkip.Enabled = $false
+            $statusBar.Items.Add($btnSkip) | Out-Null
+
+            $statusSep = New-Object System.Windows.Forms.ToolStripSeparator
+            $statusBar.Items.Add($statusSep) | Out-Null
+
+            $statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+            $statusLabel.ForeColor = $textGray
+            $statusLabel.Text = "Idle"
+            $statusLabel.Spring = $true
+            $statusLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+            $statusBar.Items.Add($statusLabel) | Out-Null
+
+            $emailLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+            $emailLabel.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
+            $emailLabel.Text = "yuki.suzuki@suzugross.com"
+            $statusBar.Items.Add($emailLabel) | Out-Null
+
+            $form.Controls.Add($statusBar)
+
+            # ========================================
+            # PC Info helpers
+            # ========================================
+            function Format-StatusLine {
+                param([string]$Content, [string]$Marker, [int]$Width = 50)
+                $padding = $Width - $Content.Length - $Marker.Length
+                if ($padding -lt 1) { $padding = 1 }
+                return "$Content$(' ' * $padding)$Marker"
+            }
+
+            function Set-ColorizedText {
+                param(
+                    [System.Windows.Forms.RichTextBox]$RichTextBox,
+                    [string]$Text
+                )
+                # The 25fps art-render timer can starve WM_PAINT for the
+                # RichTextBox, which leaves the internal text up-to-date
+                # but the screen frozen on the previous frame. Suspending
+                # layout around the bulk edit + forcing Refresh() at the
+                # end gives the control a synchronous repaint window.
+                $RichTextBox.SuspendLayout()
+                $RichTextBox.Text = $Text
+                $RichTextBox.SelectAll()
+                $RichTextBox.SelectionFont = $fontNormal
+                $RichTextBox.SelectionColor = $textWhite
+
+                $markerMap = @(
+                    @{ Token = "[OK]"; Color = $successGreen },
+                    @{ Token = "[!!]"; Color = $errorRed     },
+                    @{ Token = "[--]"; Color = $errorRed     }
+                )
+                foreach ($m in $markerMap) {
+                    $pos = 0
+                    while (($idx = $RichTextBox.Text.IndexOf($m.Token, $pos)) -ge 0) {
+                        $RichTextBox.Select($idx, $m.Token.Length)
+                        $RichTextBox.SelectionColor = $m.Color
+                        $pos = $idx + $m.Token.Length
+                    }
+                }
+                $RichTextBox.Select(0, 0)
+                $RichTextBox.ResumeLayout($true)
+                $RichTextBox.Refresh()
+            }
+
+            $script:cachedCurrent = @{
+                Hostname = $env:COMPUTERNAME
+                EthIPs   = @()
+                WifiIPs  = @()
+                Gateways = @()
+                DNS      = @()
+                Printers = @()
+            }
+
+            function Update-CurrentSnapshot {
+                param([string]$Tier)
+
+                if ($Tier -eq 'hostname' -or $Tier -eq 'all') {
+                    $script:cachedCurrent.Hostname = $env:COMPUTERNAME
+                }
+
+                if ($Tier -eq 'network' -or $Tier -eq 'all') {
+                    try {
+                        $allIPs = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                            Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' })
+                        $script:cachedCurrent.EthIPs  = @($allIPs | Where-Object { $_.InterfaceAlias -match 'Ethernet|Local Area' })
+                        $script:cachedCurrent.WifiIPs = @($allIPs | Where-Object { $_.InterfaceAlias -match 'Wi-?Fi|Wireless' })
+
+                        $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue)
+                        $script:cachedCurrent.Gateways = @($routes | Select-Object -ExpandProperty NextHop -Unique | Where-Object { $_ -and $_ -ne '0.0.0.0' })
+
+                        $script:cachedCurrent.DNS = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                            ForEach-Object { $_.ServerAddresses } |
+                            Where-Object { $_ -and $_ -notlike 'fec0:*' } |
+                            Select-Object -Unique)
+                    } catch { }
+                }
+
+                if ($Tier -eq 'printer' -or $Tier -eq 'all') {
+                    try {
+                        $script:cachedCurrent.Printers = @(Get-Printer -ErrorAction SilentlyContinue)
+                    } catch {
+                        $script:cachedCurrent.Printers = @()
+                    }
+                }
+            }
+
+            function Update-PCInfoDisplay {
+                $hi = $FabriqToolbarShared.TargetHostInfo
+                $cur = $script:cachedCurrent
+
+                $hasAnyTarget = $false
+                if ($null -ne $hi) {
+                    foreach ($key in @('Hostname','KanriNo','Pin','EthIP','EthSubnet','EthGateway','WifiIP','WifiSubnet','WifiGateway')) {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$hi.$key)) { $hasAnyTarget = $true; break }
+                    }
+                    if (-not $hasAnyTarget -and $hi.DNS -and $hi.DNS.Count -gt 0)           { $hasAnyTarget = $true }
+                    if (-not $hasAnyTarget -and $hi.Printers -and $hi.Printers.Count -gt 0) { $hasAnyTarget = $true }
+                }
+
+                if (-not $hasAnyTarget) {
+                    $placeholder = "Waiting for host selection..."
+                    if ($script:lastPcInfoText -ne $placeholder) {
+                        Set-ColorizedText -RichTextBox $pcInfoRtb -Text $placeholder
+                        $script:lastPcInfoText = $placeholder
+                    }
+                    return
+                }
+
+                $pcText = ""
+
+                if (-not [string]::IsNullOrWhiteSpace([string]$hi.KanriNo)) {
+                    $pcText += "ID:        $($hi.KanriNo)`r`n"
+                }
+                if (-not [string]::IsNullOrWhiteSpace([string]$hi.Pin)) {
+                    $pcText += "PIN:       $($hi.Pin)`r`n"
+                }
+                if ($pcText) { $pcText += "`r`n" }
+
+                # PC Name
+                if (-not [string]::IsNullOrWhiteSpace([string]$hi.Hostname)) {
+                    $curName = $cur.Hostname
+                    $tgtName = $hi.Hostname
+                    if ($curName -eq $tgtName) {
+                        $pcText += (Format-StatusLine "PC Name:   $curName" "[OK]") + "`r`n"
+                    } else {
+                        $pcText += (Format-StatusLine "PC Name:   $curName" "[!!]") + "`r`n"
+                        $pcText += "           -> $tgtName`r`n"
+                    }
+                    $pcText += "`r`n"
+                }
+
+                # Ethernet
+                $hasEth = (-not [string]::IsNullOrWhiteSpace([string]$hi.EthIP)) -or
+                          (-not [string]::IsNullOrWhiteSpace([string]$hi.EthSubnet)) -or
+                          (-not [string]::IsNullOrWhiteSpace([string]$hi.EthGateway))
+                if ($hasEth) {
+                    $pcText += "[Ethernet]`r`n"
+                    $ethIps = @($cur.EthIPs | Select-Object -ExpandProperty IPAddress)
+                    $ethPfx = @($cur.EthIPs | Select-Object -ExpandProperty PrefixLength)
+
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.EthIP)) {
+                        $curVal = if ($ethIps.Count -gt 0) { $ethIps[0] } else { "(none)" }
+                        if ($ethIps -contains $hi.EthIP) {
+                            $pcText += (Format-StatusLine "  IP:      $curVal" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  IP:      $curVal" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.EthIP)`r`n"
+                        }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.EthSubnet)) {
+                        $prefix = 0; [void][int]::TryParse([string]$hi.EthSubnet, [ref]$prefix)
+                        $curPfx = if ($ethPfx.Count -gt 0) { "/$($ethPfx[0])" } else { "(none)" }
+                        if ($ethPfx -contains $prefix) {
+                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[!!]") + "`r`n"
+                            $pcText += "           -> /$($hi.EthSubnet)`r`n"
+                        }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.EthGateway)) {
+                        $curVal = if ($cur.Gateways.Count -gt 0) { $cur.Gateways[0] } else { "(none)" }
+                        if ($cur.Gateways -contains $hi.EthGateway) {
+                            $pcText += (Format-StatusLine "  GW:      $curVal" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  GW:      $curVal" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.EthGateway)`r`n"
+                        }
+                    }
+                    $pcText += "`r`n"
+                }
+
+                # Wi-Fi
+                $hasWifi = (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiIP)) -or
+                           (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiSubnet)) -or
+                           (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiGateway))
+                if ($hasWifi) {
+                    $pcText += "[Wi-Fi]`r`n"
+                    $wifiIps = @($cur.WifiIPs | Select-Object -ExpandProperty IPAddress)
+                    $wifiPfx = @($cur.WifiIPs | Select-Object -ExpandProperty PrefixLength)
+
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiIP)) {
+                        $curVal = if ($wifiIps.Count -gt 0) { $wifiIps[0] } else { "(none)" }
+                        if ($wifiIps -contains $hi.WifiIP) {
+                            $pcText += (Format-StatusLine "  IP:      $curVal" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  IP:      $curVal" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.WifiIP)`r`n"
+                        }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiSubnet)) {
+                        $prefix = 0; [void][int]::TryParse([string]$hi.WifiSubnet, [ref]$prefix)
+                        $curPfx = if ($wifiPfx.Count -gt 0) { "/$($wifiPfx[0])" } else { "(none)" }
+                        if ($wifiPfx -contains $prefix) {
+                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[!!]") + "`r`n"
+                            $pcText += "           -> /$($hi.WifiSubnet)`r`n"
+                        }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiGateway)) {
+                        $curVal = if ($cur.Gateways.Count -gt 0) { $cur.Gateways[0] } else { "(none)" }
+                        if ($cur.Gateways -contains $hi.WifiGateway) {
+                            $pcText += (Format-StatusLine "  GW:      $curVal" "[OK]") + "`r`n"
+                        } else {
+                            $pcText += (Format-StatusLine "  GW:      $curVal" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.WifiGateway)`r`n"
+                        }
+                    }
+                    $pcText += "`r`n"
+                }
+
+                # DNS
+                if ($hi.DNS -and $hi.DNS.Count -gt 0) {
+                    $targetDns  = @($hi.DNS | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object)
+                    $currentDns = @($cur.DNS | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object)
+                    $tgtStr = $targetDns -join ", "
+                    $curStr = $currentDns -join ", "
+                    $allMatched = $true
+                    foreach ($d in $targetDns) {
+                        if ($cur.DNS -notcontains $d) { $allMatched = $false; break }
+                    }
+                    if ($allMatched) {
+                        $pcText += (Format-StatusLine "[DNS]  $tgtStr" "[OK]") + "`r`n"
+                    } else {
+                        $curDisplay = if ($curStr) { $curStr } else { "(none)" }
+                        $pcText += (Format-StatusLine "[DNS]  $curDisplay" "[!!]") + "`r`n"
+                        $pcText += "       -> $tgtStr`r`n"
+                    }
+                    $pcText += "`r`n"
+                }
+
+                # Printers
+                if ($hi.Printers -and $hi.Printers.Count -gt 0) {
+                    $pcText += "[Printers]`r`n"
+                    foreach ($tp in $hi.Printers) {
+                        $pName = $tp.Name
+                        if ($pName.Length -gt 38) { $pName = $pName.Substring(0, 35) + "..." }
+                        $found = $cur.Printers | Where-Object { $_.Name -eq $tp.Name } | Select-Object -First 1
+                        if ($null -ne $found) {
+                            $driverOk = [string]::IsNullOrWhiteSpace([string]$tp.Driver) -or ($found.DriverName -eq $tp.Driver)
+                            $portOk   = [string]::IsNullOrWhiteSpace([string]$tp.Port)   -or ($found.PortName   -eq $tp.Port)
+                            if ($driverOk -and $portOk) {
+                                $pcText += (Format-StatusLine "  $pName" "[OK]") + "`r`n"
+                            } else {
+                                $detail = if (-not $driverOk -and -not $portOk) { "drv+port" }
+                                          elseif (-not $driverOk)               { "drv" }
+                                          else                                  { "port" }
+                                $pcText += (Format-StatusLine "  $pName ($detail)" "[!!]") + "`r`n"
+                            }
+                        } else {
+                            $pcText += (Format-StatusLine "  $pName" "[--]") + "`r`n"
+                        }
+                    }
+                }
+
+                if ($script:lastPcInfoText -ne $pcText) {
+                    Set-ColorizedText -RichTextBox $pcInfoRtb -Text $pcText
+                    $script:lastPcInfoText = $pcText
+                }
+            }
+
+            # ========================================
+            # Art panel (ported verbatim from status_monitor.ps1)
+            # ========================================
+            function Initialize-ArtBuffer {
+                $w = $artCanvas.ClientSize.Width
+                $h = $artCanvas.ClientSize.Height
+                if ($w -le 0 -or $h -le 0) { return }
+
+                if ($null -ne $script:artBufferGraphics) { $script:artBufferGraphics.Dispose() }
+                if ($null -ne $script:artBufferBitmap)   { $script:artBufferBitmap.Dispose() }
+                $script:artBufferBitmap   = New-Object System.Drawing.Bitmap($w, $h)
+                $script:artBufferGraphics = [System.Drawing.Graphics]::FromImage($script:artBufferBitmap)
+                $script:artBufferGraphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+            }
+
+            function Select-NextArtSentence {
+                $roll = $script:artRng.Next(100)
+                $pool = if ($roll -lt 60) { $script:artBySentence }
+                        elseif ($roll -lt 80) { $script:artByParagraph }
+                        else { $script:artByClause }
+                $script:artCurrentText = $pool[$script:artRng.Next($pool.Count)]
+                $script:artCursorPos = 0
+                $script:artLastTypeTime = [DateTime]::Now
+            }
+
+            function Invoke-ArtTrigger {
+                $script:artTypeSpeed = $script:ART_BURST_SPEED
+                $script:artGlitchFrames = [Math]::Max($script:artGlitchFrames, 4)
+
+                if ($script:artState -eq "typing" -and $script:artCurrentText.Length -gt 0 -and $script:artCursorPos -lt $script:artCurrentText.Length) {
+                    $script:artDisplayLines.Add(@{
+                        Text  = $script:artCurrentText
+                        Color = "dim"
+                        Age   = 0
+                    }) | Out-Null
+                    while ($script:artDisplayLines.Count -gt $script:ART_MAX_LINES) {
+                        $script:artDisplayLines.RemoveAt(0)
+                    }
+                }
+
+                if ($script:artRng.Next(100) -lt 25) {
+                    $script:artDisplayLines.Clear()
+                }
+
+                $script:artContinueOnSameLine = ($script:artDisplayLines.Count -gt 0 -and $script:artRng.Next(100) -lt 40)
+
+                Select-NextArtSentence
+                $script:artState = "typing"
+            }
+
+            function Sync-ArtSilenceFlag {
+                try {
+                    $present = Test-Path $silenceFlagPath
+                    if ($present -eq $script:artSilent) { return }
+                    if ($present) {
+                        $script:artDisplayLines.Clear()
+                        $script:artCurrentText   = ""
+                        $script:artCursorPos     = 0
+                        $script:artState         = "waiting"
+                        $script:artTriggerQueue  = 0
+                        $script:artFlashFrames   = 0
+                        $script:artGlitchFrames  = 0
+                        $script:artContinueOnSameLine = $false
+                    }
+                    else {
+                        try {
+                            if (Test-Path $artPulseFilePath) {
+                                $val = [int][System.IO.File]::ReadAllText($artPulseFilePath).Trim()
+                                $script:artLastPulseValue = $val
+                            }
+                        } catch { }
+                    }
+                    $script:artSilent = $present
+                } catch { }
+            }
+
+            function Sync-ArtPulseFile {
+                try {
+                    if (Test-Path $artPulseFilePath) {
+                        $val = [int][System.IO.File]::ReadAllText($artPulseFilePath).Trim()
+                        if ($val -gt $script:artLastPulseValue) {
+                            $diff = $val - $script:artLastPulseValue
+                            if ($script:artCurrentPhase -eq "executing") {
+                                $script:artTriggerQueue += $diff
+                                $script:artLastPulseValue = $val
+                            }
+                        }
+                    }
+                } catch { }
+            }
+
+            function Sync-ArtStatusFile {
+                if (-not (Test-Path $statusFilePath)) { return }
+                try {
+                    $fileInfo = Get-Item $statusFilePath -ErrorAction Stop
+                    if ($fileInfo.LastWriteTime -eq $script:artLastStatusWriteTime) { return }
+                    $script:artLastStatusWriteTime = $fileInfo.LastWriteTime
+
+                    $json = $null
+                    for ($retry = 0; $retry -lt 3; $retry++) {
+                        try {
+                            $json = [System.IO.File]::ReadAllText($statusFilePath, [System.Text.Encoding]::UTF8)
+                            break
+                        } catch { Start-Sleep -Milliseconds 50 }
+                    }
+                    if ([string]::IsNullOrWhiteSpace($json)) { return }
+
+                    $artStatus = $json | ConvertFrom-Json
+
+                    $newPhase = $artStatus.Execution.Phase
+                    if ($newPhase -ne $script:artCurrentPhase) {
+                        $script:artCurrentPhase = $newPhase
+                        if ($newPhase -eq "complete") {
+                            $script:artFlashColor = [System.Drawing.Color]::White
+                            $script:artFlashFrames = 8
+                        }
+                    }
+
+                    $detailCount = 0
+                    if ($null -ne $artStatus.Execution.Details) {
+                        $detailCount = @($artStatus.Execution.Details).Count
+                    }
+                    if ($detailCount -gt $script:artLastDetailCount) {
+                        $latestDetail = $artStatus.Execution.Details[-1]
+                        if ($null -ne $latestDetail -and $latestDetail.Status -eq "Error") {
+                            $script:artFlashColor = [System.Drawing.Color]::FromArgb(200, 30, 30)
+                            $script:artFlashFrames = 6
+                            $script:artGlitchFrames = 8
+                        }
+                        elseif ($null -ne $latestDetail -and $latestDetail.Status -eq "Success") {
+                            $script:artFlashColor = [System.Drawing.Color]::FromArgb(0, 200, 180)
+                            $script:artFlashFrames = 3
+                        }
+                    }
+                    $script:artLastDetailCount = $detailCount
+                } catch { }
+            }
+
+            function Write-ColoredText {
+                param(
+                    [System.Drawing.Graphics]$Graphics,
+                    [string]$Text,
+                    [System.Drawing.Font]$Font,
+                    [System.Drawing.Brush]$BaseBrush,
+                    [System.Drawing.Brush]$AlphaBrush,
+                    [System.Drawing.RectangleF]$Rect,
+                    [System.Drawing.StringFormat]$SF
+                )
+
+                if ($Text -notmatch '[a-zA-Z]') {
+                    $Graphics.DrawString($Text, $Font, $BaseBrush, $Rect, $SF)
+                    return
+                }
+                if ($Text -match '^[a-zA-Z ]+$') {
+                    $Graphics.DrawString($Text, $Font, $AlphaBrush, $Rect, $SF)
+                    return
+                }
+
+                $sfTypo = [System.Drawing.StringFormat]::GenericTypographic.Clone()
+                $sfTypo.FormatFlags = [System.Drawing.StringFormatFlags]::MeasureTrailingSpaces -bor [System.Drawing.StringFormatFlags]::NoWrap
+                $fullSize = $Graphics.MeasureString($Text, $Font, [System.Drawing.PointF]::new(0, 0), $sfTypo)
+
+                if ($fullSize.Width -gt $Rect.Width) {
+                    $Graphics.DrawString($Text, $Font, $BaseBrush, $Rect, $SF)
+                    $alphaRuns = @()
+                    $ci = 0
+                    while ($ci -lt $Text.Length -and $alphaRuns.Count -lt 32) {
+                        if ($Text[$ci] -match '[a-zA-Z]') {
+                            $start = $ci
+                            while ($ci -lt $Text.Length -and $Text[$ci] -match '[a-zA-Z]') { $ci++ }
+                            $alphaRuns += @{ First = $start; Length = $ci - $start }
+                        } else { $ci++ }
+                    }
+                    if ($alphaRuns.Count -gt 0) {
+                        $crArray = New-Object 'System.Drawing.CharacterRange[]' $alphaRuns.Count
+                        for ($j = 0; $j -lt $alphaRuns.Count; $j++) {
+                            $crArray[$j] = New-Object System.Drawing.CharacterRange($alphaRuns[$j].First, $alphaRuns[$j].Length)
+                        }
+                        $sfMeasure = $SF.Clone()
+                        try {
+                            $sfMeasure.SetMeasurableCharacterRanges($crArray)
+                            $regions = $Graphics.MeasureCharacterRanges($Text, $Font, $Rect, $sfMeasure)
+                            $padX = $Font.Size / 6.0
+                            for ($j = 0; $j -lt $regions.Length; $j++) {
+                                $bounds = $regions[$j].GetBounds($Graphics)
+                                $regions[$j].Dispose()
+                                if ($bounds.Width -gt 0 -and $bounds.Height -gt 0) {
+                                    $substr = $Text.Substring($alphaRuns[$j].First, $alphaRuns[$j].Length)
+                                    $Graphics.DrawString($substr, $Font, $AlphaBrush, ($bounds.X - $padX), $bounds.Y, $SF)
+                                }
+                            }
+                        } catch { }
+                        finally { $sfMeasure.Dispose() }
+                    }
+                    $sfTypo.Dispose()
+                    return
+                }
+
+                $runs = [System.Collections.ArrayList]::new()
+                $i = 0
+                while ($i -lt $Text.Length) {
+                    $isAlpha = ($Text[$i] -match '[a-zA-Z]')
+                    $start = $i
+                    if ($isAlpha) {
+                        while ($i -lt $Text.Length -and $Text[$i] -match '[a-zA-Z]') { $i++ }
+                    } else {
+                        while ($i -lt $Text.Length -and $Text[$i] -notmatch '[a-zA-Z]') { $i++ }
+                    }
+                    [void]$runs.Add(@{ Start = $start; Length = $i - $start; IsAlpha = $isAlpha })
+                }
+
+                $padX = $Font.Size / 6.0
+                $currentX = $Rect.X + $padX
+                foreach ($run in $runs) {
+                    $substr = $Text.Substring($run.Start, $run.Length)
+                    $size = $Graphics.MeasureString($substr, $Font, [System.Drawing.PointF]::new(0, 0), $sfTypo)
+                    $brush = if ($run.IsAlpha) { $AlphaBrush } else { $BaseBrush }
+                    $Graphics.DrawString($substr, $Font, $brush, $currentX, $Rect.Y, $sfTypo)
+                    $currentX += $size.Width
+                }
+                $sfTypo.Dispose()
+            }
+
+            function Update-ArtFrame {
+                if ($null -eq $script:artBufferGraphics) { return }
+
+                if ($script:artSilent) {
+                    $script:artBufferGraphics.FillRectangle($script:artBgBrush, 0, 0,
+                        $script:artBufferBitmap.Width, $script:artBufferBitmap.Height)
+                    $artCanvas.Image = $script:artBufferBitmap
+                    return
+                }
+
+                $now = [DateTime]::Now
+                $g = $script:artBufferGraphics
+                $w = $script:artBufferBitmap.Width
+                $h = $script:artBufferBitmap.Height
+
+                if ($script:artState -eq "waiting" -and $script:artTriggerQueue -gt 0) {
+                    $script:artTriggerQueue--
+                    Invoke-ArtTrigger
+                }
+
+                if ($script:artState -eq "typing" -and $script:artCurrentText.Length -gt 0 -and $script:artCursorPos -lt $script:artCurrentText.Length) {
+                    $elapsed = ($now - $script:artLastTypeTime).TotalMilliseconds
+                    if ($elapsed -ge $script:artTypeSpeed) {
+                        $charsToAdvance = [Math]::Max(1, [int]($elapsed / $script:artTypeSpeed))
+                        $script:artCursorPos = [Math]::Min($script:artCurrentText.Length, $script:artCursorPos + $charsToAdvance)
+                        $script:artLastTypeTime = $now
+                    }
+                }
+                elseif ($script:artState -eq "typing" -and $script:artCurrentText.Length -gt 0 -and $script:artCursorPos -ge $script:artCurrentText.Length) {
+                    if ($script:artContinueOnSameLine -and $script:artDisplayLines.Count -gt 0) {
+                        $lastLine = $script:artDisplayLines[$script:artDisplayLines.Count - 1]
+                        $lastLine.Text += $script:artCurrentText
+                        $lastLine.Age = 0
+                    }
+                    else {
+                        $script:artDisplayLines.Add(@{
+                            Text  = $script:artCurrentText
+                            Color = "dim"
+                            Age   = 0
+                        }) | Out-Null
+                    }
+                    while ($script:artDisplayLines.Count -gt $script:ART_MAX_LINES) {
+                        $script:artDisplayLines.RemoveAt(0)
+                    }
+                    $script:artCurrentText = ""
+                    $script:artCursorPos = 0
+                    $script:artState = "waiting"
+                    $script:artContinueOnSameLine = $false
+                }
+
+                if (($now - $script:artCursorBlinkTime).TotalMilliseconds -ge 500) {
+                    $script:artCursorVisible = -not $script:artCursorVisible
+                    $script:artCursorBlinkTime = $now
+                }
+
+                $g.FillRectangle($script:artBgBrush, 0, 0, $w, $h)
+
+                if ($script:artFlashFrames -gt 0) {
+                    $alpha = [Math]::Min(80, $script:artFlashFrames * 12)
+                    $flashBrush = New-Object System.Drawing.SolidBrush(
+                        [System.Drawing.Color]::FromArgb($alpha, $script:artFlashColor.R, $script:artFlashColor.G, $script:artFlashColor.B)
+                    )
+                    $g.FillRectangle($flashBrush, 0, 0, $w, $h)
+                    $flashBrush.Dispose()
+                    $script:artFlashFrames--
+                }
+
+                $sf = [System.Drawing.StringFormat]::GenericDefault
+                $maxTextWidth = $w - 16
+                $y = 8
+
+                $totalHeights = @()
+                for ($i = 0; $i -lt $script:artDisplayLines.Count; $i++) {
+                    $measured = $g.MeasureString($script:artDisplayLines[$i].Text, $script:artFont, $maxTextWidth, $sf)
+                    $totalHeights += [Math]::Max($script:artLineH, [int][Math]::Ceiling($measured.Height))
+                }
+                $reserveH = $script:artLineH * 2
+                $availH = $h - 8 - $reserveH
+                $cumH = 0
+                $startIdx = $script:artDisplayLines.Count
+                for ($i = $script:artDisplayLines.Count - 1; $i -ge 0; $i--) {
+                    $cumH += $totalHeights[$i]
+                    if ($cumH -gt $availH) { break }
+                    $startIdx = $i
+                }
+
+                for ($i = $startIdx; $i -lt $script:artDisplayLines.Count; $i++) {
+                    $line = $script:artDisplayLines[$i]
+                    $line.Age++
+
+                    $brush      = if ($line.Age -lt 60) { $script:artDimGreenBrush }       else { $script:artDimGrayBrush }
+                    $alphaBrush = if ($line.Age -lt 60) { $script:artAlphaDimGreenBrush } else { $script:artAlphaDimGrayBrush }
+
+                    $text = $line.Text
+                    if ($script:artGlitchFrames -gt 0 -and $script:artRng.Next(100) -lt 20) {
+                        $pos = $script:artRng.Next([Math]::Min($text.Length, [Math]::Max(1, $text.Length)))
+                        $glitchChar = $script:GLITCH_CHARS[$script:artRng.Next($script:GLITCH_CHARS.Count)]
+                        $text = $text.Substring(0, $pos) + $glitchChar + $text.Substring([Math]::Min($pos + 1, $text.Length))
+                        $brush = New-Object System.Drawing.SolidBrush($script:artGlitchWhite)
+                    }
+
+                    $rect = New-Object System.Drawing.RectangleF(8, $y, $maxTextWidth, ($h - $y))
+                    Write-ColoredText -Graphics $g -Text $text -Font $script:artFont -BaseBrush $brush -AlphaBrush $alphaBrush -Rect $rect -SF $sf
+                    $measured = $g.MeasureString($text, $script:artFont, $maxTextWidth, $sf)
+                    $y += [Math]::Max($script:artLineH, [int][Math]::Ceiling($measured.Height))
+                }
+
+                if ($script:artState -eq "typing" -and $script:artCurrentText.Length -gt 0) {
+                    $textStr = $script:artCurrentText.Substring(0, $script:artCursorPos)
+
+                    $xOffset = 8
+                    $drawWidth = $maxTextWidth
+                    if ($script:artContinueOnSameLine -and $script:artDisplayLines.Count -gt 0) {
+                        $lastLine = $script:artDisplayLines[$script:artDisplayLines.Count - 1]
+                        $lastMeasured = $g.MeasureString($lastLine.Text, $script:artFont, $maxTextWidth, $sf)
+                        $lastLineWidth = $lastMeasured.Width
+                        $xOffset = 8 + $lastLineWidth - 6
+                        $drawWidth = $maxTextWidth - ($xOffset - 8)
+                        if ($drawWidth -lt 50) {
+                            $xOffset = 8
+                            $drawWidth = $maxTextWidth
+                        }
+                        else {
+                            $y -= $script:artLineH
+                        }
+                    }
+
+                    if ($script:artCursorPos -lt $script:artCurrentText.Length -and $script:artRng.Next(100) -lt 8) {
+                        $glitchChar = $script:GLITCH_CHARS[$script:artRng.Next($script:GLITCH_CHARS.Count)]
+                        $glitchText = $textStr + $glitchChar
+                        $glitchBrush = New-Object System.Drawing.SolidBrush($script:artGlitchWhite)
+                        $typeRect = New-Object System.Drawing.RectangleF($xOffset, $y, $drawWidth, ($h - $y))
+                        Write-ColoredText -Graphics $g -Text $glitchText -Font $script:artFontBold -BaseBrush $glitchBrush -AlphaBrush $script:artAlphaBrush -Rect $typeRect -SF $sf
+                        $glitchBrush.Dispose()
+                    }
+                    else {
+                        $typeRect = New-Object System.Drawing.RectangleF($xOffset, $y, $drawWidth, ($h - $y))
+                        Write-ColoredText -Graphics $g -Text $textStr -Font $script:artFontBold -BaseBrush $script:artCyanBrush -AlphaBrush $script:artAlphaBrush -Rect $typeRect -SF $sf
+
+                        if ($script:artCursorVisible -and $script:artCursorPos -lt $script:artCurrentText.Length) {
+                            $typeMeasured = $g.MeasureString($textStr, $script:artFontBold, $drawWidth, $sf)
+                            $typeLineCount = [Math]::Max(1, [int][Math]::Ceiling($typeMeasured.Height / $script:artLineH))
+                            $cursorY = $y + ($typeLineCount - 1) * $script:artLineH
+                            $cursorX = $xOffset + $typeMeasured.Width - 6
+                            if ($typeLineCount -gt 1) {
+                                $cursorX = 8 + $typeMeasured.Width - 6
+                            }
+                            if ($cursorX -gt $w - 16) { $cursorX = 8 }
+                            $g.DrawString("_", $script:artFontBold, $script:artCyanBrush, $cursorX, $cursorY)
+                        }
+                    }
+                }
+                else {
+                    if ($script:artCursorVisible) {
+                        $g.DrawString("_", $script:artFontBold, $script:artCyanBrush, 8, $y)
+                    }
+                }
+
+                if ($script:artGlitchFrames -gt 0) { $script:artGlitchFrames-- }
+
+                $artCanvas.Image = $script:artBufferBitmap
+            }
+
+            # ========================================
+            # Button handlers
+            # ========================================
             $btnSkip.Add_Click({
                 try {
                     $cfg      = Get-FabriqAsyncConfig
@@ -256,21 +1004,18 @@ function Show-ExecutionToolbar {
                     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                     "requested at $ts" | Out-File -FilePath $flagPath -Encoding UTF8 -Force
 
-                    Show-Info "[Toolbar] Skip requested (effective only for async modules)"
+                    $statusLabel.ForeColor = $orangeSkip
+                    $statusLabel.Text = "Skip requested (effective only for async modules)"
                 }
                 catch {
-                    Show-Warning "[Toolbar] Skip request failed: $($_.Exception.Message)"
+                    $statusLabel.ForeColor = $errorRed
+                    $statusLabel.Text = "Skip request failed: $($_.Exception.Message)"
                 }
             })
-            $form.Controls.Add($btnSkip)
 
-            $btnGyotaq = New-StyledButton -Text "Gyotaq" -X ($formW - 108 - 10) -Y $btnRowY -Width 108 -Height $btnGyotaqH -BgColor $script:bgAdd
-            $btnGyotaq.Name    = "btnGyotaq"
-            $btnGyotaq.Enabled = $false
             $btnGyotaq.Add_Click({
-                $btnG       = $form.Controls["btnGyotaq"]
-                $wasEnabled = $btnG.Enabled
-                $btnG.Enabled = $false
+                $wasEnabled = $btnGyotaq.Enabled
+                $btnGyotaq.Enabled = $false
 
                 $savedLocation = $form.Location
                 $savedSize     = $form.Size
@@ -281,17 +1026,11 @@ function Show-ExecutionToolbar {
                 $result   = $null
                 $errorMsg = $null
                 try {
-                    # Save-Screenshot internally reads $global:FabriqEvidenceBasePath
-                    # to choose unified vs legacy layout. Sync the snapshot from
-                    # $FabriqToolbarShared into this runspace's globals so the
-                    # unified path is selected (the kernel updates the snapshot
-                    # on every Update-ExecutionToolbar call).
                     $global:FabriqEvidenceBasePath = $FabriqToolbarShared.EvidenceBasePath
-
                     $baseDir = if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
                         Join-Path $global:FabriqEvidenceBasePath "gyotaku"
                     } else {
-                        Join-Path $FabriqToolbarShared.FabriqRoot "evidence\gyotaku"
+                        $gyotakuDir
                     }
                     $result = Save-Screenshot -BaseDir $baseDir
                 }
@@ -299,31 +1038,41 @@ function Show-ExecutionToolbar {
                     $errorMsg = $_.Exception.Message
                 }
                 finally {
-                    $form.Location   = $savedLocation
-                    $form.Size       = $savedSize
+                    $form.Location = $savedLocation
+                    $form.Size     = $savedSize
                     $form.Show()
-                    $btnG.Enabled    = $wasEnabled
+                    $btnGyotaq.Enabled = $wasEnabled
                     [System.Windows.Forms.Application]::DoEvents()
                 }
 
                 if ($null -ne $result) {
-                    Show-Success "[Toolbar] Screenshot saved: $([System.IO.Path]::GetFileName($result))"
+                    $statusLabel.ForeColor = $successGreen
+                    $statusLabel.Text = "Screenshot saved: $([System.IO.Path]::GetFileName($result))"
                 }
                 elseif ($errorMsg) {
-                    Show-Warning "[Toolbar] Screenshot error: $errorMsg"
+                    $statusLabel.ForeColor = $errorRed
+                    $statusLabel.Text = "Screenshot error: $errorMsg"
                 }
                 else {
-                    Show-Warning "[Toolbar] Screenshot failed (Save-Screenshot returned null)"
+                    $statusLabel.ForeColor = $errorRed
+                    $statusLabel.Text = "Screenshot failed (Save-Screenshot returned null)"
                 }
             })
-            $form.Controls.Add($btnGyotaq)
 
-            # ---------- Timer: $shared -> form sync ----------
-            # 100ms polling on the runspace's UI thread. Reads atomic
-            # values from $FabriqToolbarShared and applies to the form.
-            # Diff-checks prevent unnecessary repaints.
+            # ========================================
+            # Timers
+            # ========================================
+            $script:tickCount = 0
+
+            # Cache of the most-recent rendered PC Info text. The 1s
+            # tick regenerates this on every fire even when nothing has
+            # changed; skipping the RichTextBox rewrite when content is
+            # identical avoids needless invalidation churn that competes
+            # with the art panel for paint cycles.
+            $script:lastPcInfoText = $null
+
             $timer = New-Object System.Windows.Forms.Timer
-            $timer.Interval = 100
+            $timer.Interval = 1000
             $timer.Add_Tick({
                 if ($FabriqToolbarShared.CloseRequested) {
                     $timer.Stop()
@@ -331,34 +1080,78 @@ function Show-ExecutionToolbar {
                     return
                 }
 
-                $running  = ($FabriqToolbarShared.State -eq 'Running')
-                $newText  = if ($running) {
-                    if ([string]::IsNullOrWhiteSpace($FabriqToolbarShared.ModuleName)) { "Running..." } else { $FabriqToolbarShared.ModuleName }
-                } else { "Idle" }
-                $newColor = if ($running) { $script:fgText } else { $script:fgDim }
+                $script:tickCount++
 
-                if ($lblStatus.Text -ne $newText)       { $lblStatus.Text      = $newText }
-                if ($lblStatus.ForeColor -ne $newColor) { $lblStatus.ForeColor = $newColor }
-                if ($btnSkip.Enabled    -ne $running)   { $btnSkip.Enabled     = $running }
-                if ($btnGyotaq.Enabled  -ne $running)   { $btnGyotaq.Enabled   = $running }
+                Update-CurrentSnapshot -Tier 'hostname'
+                if (($script:tickCount % 3) -eq 0) {
+                    Update-CurrentSnapshot -Tier 'network'
+                }
+                if (($script:tickCount % 10) -eq 0) {
+                    Update-CurrentSnapshot -Tier 'printer'
+                }
+
+                Update-PCInfoDisplay
+
+                $running = ($FabriqToolbarShared.State -eq 'Running')
+                $modName = $FabriqToolbarShared.ModuleName
+                if ($running) {
+                    $statusLabel.ForeColor = $textWhite
+                    $statusLabel.Text = if ([string]::IsNullOrWhiteSpace($modName)) { "Running..." } else { "Running: $modName" }
+                } else {
+                    if ($statusLabel.ForeColor -ne $orangeSkip -and
+                        $statusLabel.ForeColor -ne $successGreen -and
+                        $statusLabel.ForeColor -ne $errorRed) {
+                        $statusLabel.ForeColor = $textGray
+                        $statusLabel.Text = "Idle"
+                    }
+                }
+                if ($btnSkip.Enabled   -ne $running) { $btnSkip.Enabled   = $running }
+                if ($btnGyotaq.Enabled -ne $running) { $btnGyotaq.Enabled = $running }
             })
-            $timer.Start()
 
-            # ---------- Run dedicated message loop ----------
-            # Blocks until $form.Close() (signalled by Timer when
-            # CloseRequested goes true). Drag / clicks / repaints are
-            # processed by THIS loop, independent of whatever the kernel
-            # main thread is doing.
+            $artRenderTimer = New-Object System.Windows.Forms.Timer
+            $artRenderTimer.Interval = $script:ART_RENDER_INTERVAL
+            $artRenderTimer.Add_Tick({ Update-ArtFrame })
+
+            $artPulseTimer = New-Object System.Windows.Forms.Timer
+            $artPulseTimer.Interval = $script:ART_PULSE_INTERVAL
+            $artPulseTimer.Add_Tick({
+                Sync-ArtSilenceFlag
+                Sync-ArtPulseFile
+                Sync-ArtStatusFile
+            })
+
+            $form.Add_Shown({ Initialize-ArtBuffer })
+            $artCanvas.Add_Resize({ Initialize-ArtBuffer })
+
+            $form.Add_FormClosing({
+                try { $timer.Stop();          $timer.Dispose()          } catch { }
+                try { $artRenderTimer.Stop(); $artRenderTimer.Dispose() } catch { }
+                try { $artPulseTimer.Stop();  $artPulseTimer.Dispose()  } catch { }
+                try { if ($null -ne $script:artBufferGraphics)     { $script:artBufferGraphics.Dispose() } } catch { }
+                try { if ($null -ne $script:artBufferBitmap)       { $script:artBufferBitmap.Dispose() } } catch { }
+                foreach ($b in @($script:artBgBrush, $script:artCyanBrush, $script:artDimGreenBrush, $script:artDimGrayBrush, $script:artAlphaBrush, $script:artAlphaDimGreenBrush, $script:artAlphaDimGrayBrush)) {
+                    try { if ($null -ne $b) { $b.Dispose() } } catch { }
+                }
+                foreach ($f in @($script:artFont, $script:artFontBold, $fontNormal, $fontBold)) {
+                    try { if ($null -ne $f) { $f.Dispose() } } catch { }
+                }
+            })
+
+            Update-CurrentSnapshot -Tier 'all'
+            Update-PCInfoDisplay
+
+            $timer.Start()
+            $artRenderTimer.Start()
+            $artPulseTimer.Start()
+
             [System.Windows.Forms.Application]::Run($form)
 
-            $timer.Dispose()
-            $form.Dispose()
+            try { $form.Dispose() } catch { }
         }
         catch {
-            # The toolbar runspace cannot reliably write to the operator
-            # console from a failure mode (cross-runspace Show-* may not
-            # have loaded yet). Swallow to keep the BeginInvoke handle
-            # well-formed; the operator notices via "no toolbar".
+            # Toolbar runspace failures are invisible to the operator;
+            # swallow so the BeginInvoke handle ends cleanly.
         }
     })
 
@@ -366,6 +1159,16 @@ function Show-ExecutionToolbar {
     $script:ExecutionToolbarPS       = $ps
     $script:ExecutionToolbarRunspace = $rs
     $script:ExecutionToolbarShared   = $shared
+
+    # Self-push host info from current SELECTED_* env vars. The kernel
+    # may have already populated these (Set-SelectedHostEnvironment in
+    # fresh-start, Restore-HostEnvironment in resume) BEFORE the toolbar
+    # was started, so without this self-push we would sit at the
+    # placeholder until the next host re-selection.
+    try {
+        Update-ExecutionToolbar -TargetHostInfo (Get-FabriqHostInfoFromEnv)
+    }
+    catch { }
 }
 
 function Hide-ExecutionToolbar {
@@ -373,11 +1176,6 @@ function Hide-ExecutionToolbar {
     .SYNOPSIS
         Signal the toolbar runspace to shut down cleanly and dispose
         the runspace handles.
-    .DESCRIPTION
-        Idempotent: safe to call when toolbar is not running. Waits
-        up to 2 seconds for the runspace's Application::Run to return
-        gracefully (Timer detects CloseRequested -> Form.Close).
-        Falls back to PowerShell.Stop() if the runspace hangs.
     #>
     [CmdletBinding()]
     param()
@@ -420,26 +1218,27 @@ function Update-ExecutionToolbar {
     <#
     .SYNOPSIS
         Push state changes to the toolbar runspace via the shared
-        hashtable. The runspace's Timer applies them within 100ms.
-    .DESCRIPTION
-        Non-blocking, safe to call when toolbar is not running (no-op).
-        Also refreshes the EvidenceBasePath snapshot so Gyotaq picks
-        up host-selection updates that happen after toolbar startup.
+        hashtable. The runspace's main Timer applies them on next tick.
 
     .PARAMETER ModuleName
-        Display name of the module currently executing. Empty string
-        when no module is running.
+        Display name of the module currently executing.
 
     .PARAMETER ExecutionState
-        'Idle'    -> buttons disabled, label shows 'Idle' (dim)
-        'Running' -> buttons enabled, label shows ModuleName
-                     (or 'Running...' when ModuleName is empty)
+        'Idle'    -> Skip / Gyotaq buttons disabled
+        'Running' -> Skip / Gyotaq buttons enabled
+
+    .PARAMETER TargetHostInfo
+        Hashtable of selected hostlist row values. See execution_toolbar
+        block in Set-SelectedHostEnvironment (kernel/main.ps1) for the
+        full key list. Empty / missing keys mean "field not set in
+        hostlist" and the corresponding rows / sections are omitted.
     #>
     [CmdletBinding()]
     param(
         [string]$ModuleName = "",
         [ValidateSet('Idle', 'Running')]
-        [string]$ExecutionState = 'Idle'
+        [string]$ExecutionState = 'Idle',
+        [hashtable]$TargetHostInfo = $null
     )
 
     if ($null -eq $script:ExecutionToolbarShared) { return }
@@ -449,6 +1248,10 @@ function Update-ExecutionToolbar {
         $script:ExecutionToolbarShared.ModuleName = $ModuleName
         if (-not [string]::IsNullOrWhiteSpace($global:FabriqEvidenceBasePath)) {
             $script:ExecutionToolbarShared.EvidenceBasePath = $global:FabriqEvidenceBasePath
+        }
+        if ($null -ne $TargetHostInfo) {
+            $script:ExecutionToolbarShared.TargetHostInfo        = $TargetHostInfo
+            $script:ExecutionToolbarShared.TargetHostInfoVersion = [int]$script:ExecutionToolbarShared.TargetHostInfoVersion + 1
         }
     } catch { }
 }

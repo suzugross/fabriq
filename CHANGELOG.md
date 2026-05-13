@@ -15,6 +15,50 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_operator/lib/execution_toolbar.ps1 + kernel/main.ps1:
+  Execution Toolbar に **ホスト情報ライブ照合パネル** を追加し、見た目を
+  旧 Status Monitor (3.4.0 で retire) に忠実再現 (予想 PATCH /
+  3.4.0 → 3.4.1)。kernel 公開 API §1〜§5 への影響なし。
+  - ビジュアル: ダークテーマ (#1E1E1E) + cyan accent (#00C8C8) +
+    Consolas monospace、`Fabriq - Status Monitor` native title bar
+    (FormBorderStyle = FixedSingle、600×700、右上配置)、TableLayoutPanel
+    2 段 (`PC Info Comparison` 60% / `Surkitinisme` 40%)、StatusStrip
+    最下部に `Gyotaq` (cyan) / `Skip` (orange) + 状態 + email。
+  - PC Info Comparison: kernel が push する target ホスト情報 +
+    toolbar runspace 内の `Get-NetIPAddress` / `Get-NetRoute` /
+    `Get-DnsClientServerAddress` / `Get-Printer` を tiered polling
+    (Hostname 1s / Network・DNS 3s / Printer 10s) し、ID / PC Name /
+    [Ethernet] / [Wi-Fi] / [DNS] / [Printers] セクションで current vs
+    target を比較表示 (`[OK]` 緑 / `[!!]` 赤 / `[--]` 赤)。ホストリストに
+    設定値がないフィールドは行ごと省略 (driven by SELECTED_* env vars)。
+  - Surkitinisme art panel: 旧 Status Monitor の typing + glitch +
+    flash effect を完全移植。`kernel/json/art_pulse.txt` /
+    `kernel/json/status.json` / `kernel/txt/art_sentences.txt` /
+    `kernel/txt/silence.flag` の polling は同じ disk file 契約で継続
+    (kernel 側の Write-ArtPulse 等は不変)。render 周期は 100ms (10fps、
+    旧 40ms から保守的に緩和。in-process なので UI スレッド共有、
+    typing/cursor blink は十分滑らか)。
+  - `Update-ExecutionToolbar` (§6 内部実装) に `-TargetHostInfo
+    <hashtable>` パラメータ追加。既存呼び出しは引数省略で従来動作維持。
+  - `Set-SelectedHostEnvironment` (kernel/main.ps1) で
+    `Update-ExecutionToolbar -TargetHostInfo (Get-FabriqHostInfoFromEnv)`
+    を呼び、`SELECTED_*` env-var を構造化 hashtable として push。
+    toolbar 未起動時は no-op (Get-Command guard)。
+  - `Show-ExecutionToolbar` 末尾でも同じ self-push を実施。kernel が
+    `Set-SelectedHostEnvironment` (fresh-start) や Restore-HostEnvironment
+    (resume) で SELECTED_* env vars を populate **した後に** toolbar を
+    起動する経路 (kernel/main.ps1 line 1448 / 1305 → 1535) を救済する
+    ため必須 (これ無しでは toolbar が "Waiting for host selection..."
+    から動かない)。
+  - `Get-FabriqHostInfoFromEnv` (新、§6 内部): `SELECTED_*` env vars
+    から TargetHostInfo hashtable を構築する DRY ヘルパー。Set-Selected
+    HostEnvironment と Show-ExecutionToolbar の両方から呼ばれる。
+  - PC Info 描画は change-detect cache (`$script:lastPcInfoText`) で
+    内容変化なし tick の RichTextBox 書き換えをスキップ。`Set-Colorized
+    Text` は SuspendLayout/ResumeLayout/Refresh の三点セットで bulk
+    edit を 1 paint にまとめる。
+
 
 ## [3.4.0] - 2026-05-13
 

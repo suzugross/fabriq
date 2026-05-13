@@ -1,34 +1,38 @@
-# ========================================
-# Manual smoke test: Execution Toolbar (Stage 4c-ext, Option 3)
+﻿# ========================================
+# Manual smoke test: Execution Toolbar
 # ========================================
 # Stand-alone harness for apps/fabriq_operator/lib/execution_toolbar.ps1.
 # Loads common.ps1 + theme + the toolbar lib, opens the toolbar on its
-# dedicated runspace, cycles through Idle/Running states, polls for
-# Skip flag creation, and auto-closes after ~30 seconds.
+# dedicated runspace, cycles through Idle / Running states + a sequence
+# of host-info pushes, polls for Skip flag creation, and auto-closes
+# after ~60 seconds.
 #
 # Run from fabriq root:
 #   powershell.exe -NoProfile -File .\dev\test_execution_toolbar.ps1
 #
 # Verification checklist for the operator:
 #   1. Toolbar appears in the top-right corner of the primary screen.
-#   2. Initial label = "Idle", both buttons disabled.
-#   3. After ~3s label changes to "test_module_one", buttons enable.
-#   4. After ~12s label changes to a longer module name (truncated
-#      with ellipsis - confirms AutoEllipsis works).
-#   5. After ~22s label returns to "Idle", buttons disable again.
-#   6. DRAG TEST: the toolbar header should be smoothly draggable
-#      AT ANY TIME during the test - including during the Idle phase
-#      (this validates the dedicated runspace's message loop).
-#   7. Click [Skip] during a Running phase:
-#      - Console logs "Skip requested (effective only for async modules)"
-#      - kernel\json\skip_request.flag is created (test harness deletes
-#        it after detection so multiple clicks can be tested cleanly)
-#   8. Click [Gyotaq] during a Running phase:
-#      - Toolbar disappears briefly (~300ms)
-#      - PNG written to evidence\gyotaku\ (no toolbar in the image)
-#      - Toolbar reappears at the same location
-#      - Console logs "Screenshot saved: <filename>"
-#   9. Toolbar closes cleanly at ~30s mark.
+#   2. Initial state = "(no host selected)" placeholder, "Status: Idle",
+#      both buttons disabled.
+#   3. ~3s : host A pushed (hostname + Eth IP/Sub/GW + 2 DNS + 1 printer).
+#            Sections appear; rows show real-time match (current vs
+#            target) with OK / ! icons and amber-tinted mismatch rows.
+#   4. ~8s : module starts -> label changes to "test_module_one",
+#            Skip / Gyotaq enable.
+#   5. ~16s: host B pushed (different hostname + Wifi instead of Eth
+#            + 4 DNS + 3 printers). Toolbar height grows; sections
+#            re-render to match new target shape.
+#   6. ~26s: long module name -> truncates with ellipsis.
+#   7. ~38s: Idle again; buttons disable.
+#   8. ~50s: host info cleared -> placeholder returns.
+#   9. DRAG TEST anytime: header should be smoothly draggable at all
+#      phases (including the Idle phases and the ShowDialog-equivalent
+#      blocking on Sleep here).
+#  10. Skip click during Running phase -> kernel\json\skip_request.flag
+#      created (test harness deletes it on detect).
+#  11. Gyotaq click during Running phase -> PNG saved to
+#      evidence\gyotaku\, toolbar reappears at same location.
+#  12. Toolbar closes cleanly at ~60s mark.
 # ========================================
 
 $ErrorActionPreference = 'Stop'
@@ -39,26 +43,18 @@ Set-Location $fabriqRoot
 
 . (Join-Path $fabriqRoot 'kernel\common.ps1')
 
-# Theme must be loaded before the toolbar lib so $script:bgForm /
-# $script:bgPanel / New-StyledButton etc. are in scope for both the
-# host script (in case it ever uses them) and the toolbar runspace
-# (which re-dot-sources theme.ps1 internally).
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 . (Join-Path $fabriqRoot 'apps\fabriq_operator\lib\theme.ps1')
 . (Join-Path $fabriqRoot 'apps\fabriq_operator\lib\execution_toolbar.ps1')
 
-Show-Info "Stage 4c-ext toolbar smoke test (dedicated-runspace mode)"
-Show-Info "  - Toolbar runs on its own STA Runspace with its own"
-Show-Info "    message loop; the host script's main thread does not"
-Show-Info "    need to pump DoEvents."
-Show-Info "  - Drag should be smooth at all times (Idle / Running)."
-Show-Info "  - Auto-closes after 30 seconds."
+Show-Info "Execution toolbar smoke test (host-info panel + state cycle)"
+Show-Info "  - Drag should be smooth at all times."
+Show-Info "  - Auto-closes after 60 seconds."
 Write-Host ""
 
-# Resolve skip flag path the same way the toolbar handler does, so
-# the harness can poll and delete-on-detect cleanly.
+# Resolve skip flag path so the harness can poll and delete-on-detect.
 $asyncCfg     = Get-FabriqAsyncConfig
 $skipFlagPath = $asyncCfg.SkipFlagPath
 if (-not [System.IO.Path]::IsPathRooted($skipFlagPath)) {
@@ -71,12 +67,50 @@ if (Test-Path $skipFlagPath) {
     Show-Info "Cleared stale skip flag from previous run"
 }
 
+# Sample host fixtures. Real values from $env:COMPUTERNAME and the
+# local network are unlikely to match these targets, so rows will
+# render as mismatches - which is what we want to visually confirm
+# the amber-tint / OK / ! visualisation.
+$hostA = @{
+    Hostname    = 'KIT-A12'
+    KanriNo     = 'admin01'
+    Pin         = '1234'
+    EthIP       = '192.168.1.10'
+    EthSubnet   = '24'
+    EthGateway  = '192.168.1.1'
+    WifiIP      = ''
+    WifiSubnet  = ''
+    WifiGateway = ''
+    DNS         = @('8.8.8.8', '1.1.1.1')
+    Printers    = @(
+        @{ Name = 'HP_LaserJet_M404'; Driver = 'HP LaserJet Pro M404'; Port = 'IP_192.168.1.50' }
+    )
+}
+
+$hostB = @{
+    Hostname    = 'KIT-B07'
+    KanriNo     = 'admin02'
+    Pin         = ''
+    EthIP       = ''
+    EthSubnet   = ''
+    EthGateway  = ''
+    WifiIP      = '10.0.0.5'
+    WifiSubnet  = '24'
+    WifiGateway = '10.0.0.1'
+    DNS         = @('192.168.10.1', '192.168.10.2', '8.8.8.8', '1.1.1.1')
+    Printers    = @(
+        @{ Name = 'HP_LaserJet_M404';   Driver = 'HP LaserJet Pro M404';   Port = 'IP_10.0.0.50' },
+        @{ Name = 'Canon_iR-ADV_C5750'; Driver = 'Canon Generic Plus PCL6'; Port = 'IP_10.0.0.51' },
+        @{ Name = 'Epson_LP-S6160';     Driver = 'EPSON LP-S6160';           Port = 'IP_10.0.0.52' }
+    )
+}
+
 Show-ExecutionToolbar
 
 $start = Get-Date
 $phase = 0
 
-while (((Get-Date) - $start).TotalSeconds -lt 30) {
+while (((Get-Date) - $start).TotalSeconds -lt 60) {
     Start-Sleep -Milliseconds 200
 
     if (Test-Path $skipFlagPath) {
@@ -88,19 +122,34 @@ while (((Get-Date) - $start).TotalSeconds -lt 30) {
     $elapsed = ((Get-Date) - $start).TotalSeconds
 
     if ($elapsed -ge 3 -and $phase -lt 1) {
-        Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName 'test_module_one'
-        Show-Info ("[{0:F1}s] State -> Running (test_module_one)" -f $elapsed)
+        Update-ExecutionToolbar -ExecutionState 'Idle' -TargetHostInfo $hostA
+        Show-Info ("[{0:F1}s] Host -> A (hostname + Eth + 2 DNS + 1 printer)" -f $elapsed)
         $phase = 1
     }
-    elseif ($elapsed -ge 12 -and $phase -lt 2) {
-        Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName 'this_is_a_module_with_a_very_long_name_to_trigger_ellipsis'
-        Show-Info ("[{0:F1}s] State -> Running (long_module_name)" -f $elapsed)
+    elseif ($elapsed -ge 8 -and $phase -lt 2) {
+        Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName 'test_module_one'
+        Show-Info ("[{0:F1}s] State -> Running (test_module_one)" -f $elapsed)
         $phase = 2
     }
-    elseif ($elapsed -ge 22 -and $phase -lt 3) {
+    elseif ($elapsed -ge 16 -and $phase -lt 3) {
+        Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName 'test_module_two' -TargetHostInfo $hostB
+        Show-Info ("[{0:F1}s] Host -> B (Wifi + 4 DNS + 3 printers)" -f $elapsed)
+        $phase = 3
+    }
+    elseif ($elapsed -ge 26 -and $phase -lt 4) {
+        Update-ExecutionToolbar -ExecutionState 'Running' -ModuleName 'this_is_a_module_with_a_very_long_name_to_trigger_ellipsis'
+        Show-Info ("[{0:F1}s] Module name -> very long (ellipsis test)" -f $elapsed)
+        $phase = 4
+    }
+    elseif ($elapsed -ge 38 -and $phase -lt 5) {
         Update-ExecutionToolbar -ExecutionState 'Idle'
         Show-Info ("[{0:F1}s] State -> Idle" -f $elapsed)
-        $phase = 3
+        $phase = 5
+    }
+    elseif ($elapsed -ge 50 -and $phase -lt 6) {
+        Update-ExecutionToolbar -ExecutionState 'Idle' -TargetHostInfo @{}
+        Show-Info ("[{0:F1}s] Host -> empty (placeholder)" -f $elapsed)
+        $phase = 6
     }
 }
 
