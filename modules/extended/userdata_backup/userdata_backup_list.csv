@@ -1,0 +1,6 @@
+Enabled,SourcePath,Recurse,ExcludePattern,OnConflict,IncludeAcl,Description
+1,%USERPROFILE%\Documents,1,*.tmp;~$*,skip,0,User documents
+1,%USERPROFILE%\Desktop,1,*.tmp;~$*,skip,0,Desktop files
+1,%APPDATA%\Microsoft\Signatures,1,,skip,0,Outlook signatures
+0,%APPDATA%\Microsoft\Outlook,1,*.lock;~*,skip,0,Outlook profile (disabled by default - PST files are large)
+0,%LOCALAPPDATA%\Google\Chrome\User Data\Default,1,Cache/;Code Cache/;GPUCache/,skip,0,Chrome profile (disabled)
