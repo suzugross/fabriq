@@ -1,0 +1,199 @@
+■ 概要
+このPCのプリンタ環境（プリンタ、ポート、ドライバ、印刷設定）の
+バックアップと復元を担う統合モジュールです。
+desktop_icon_config と同様に backup / restore の 2 スクリプトが
+1 モジュール内に同居し、共有の制御 CSV（printer_backup_config.csv）
+を読みます。
+
+  [Backup Printer Setup]  (printer_backup.ps1)
+    現環境を採取して manifest.json 中心の portable な backup フォルダ
+    に保存します。
+
+  [Restore Printer Setup] (printer_restore.ps1)
+    本モジュールの backup/ 配下から manifest を読み込み、
+    drivers / ports / printers / print settings / default printer を
+    順序通りに復元します。
+
+■ 出力／入力ディレクトリ
+バックアップ・復元の双方が同じパスを使います（同一モジュール内完結）。
+
+  modules/extended/printer_backup/
+    backup/
+      <ComputerName>/                ← バックアップ元PCの $env:COMPUTERNAME
+        <yyyy_MM_dd_HHmmss>/         ← 実行時刻
+          manifest.json              ← schemaVersion=1 単一の真実源
+          printers.json
+          ports.json
+          drivers_registered.json
+          drivers_inf_inventory.json
+          _restore_notes.txt
+          printsettings/<name>.xml
+          printsettings/<name>.properties.json
+          drivers/oemNN.inf/         ← pnputil /export-driver の出力
+
+別 PC から移行する場合は、ソース PC の <ComputerName>/ サブフォルダを
+ターゲット PC の backup/ にコピーしてから Restore Printer Setup を
+実行してください。
+
+■ 共有設定ファイル（printer_backup_config.csv）
+1 行で両スクリプトの動作モードを制御します。各スクリプトは自分が
+利用する列だけを読み、他列は無視します。
+
+  [共通]
+  Enabled               : 0=モジュール全体をスキップ / 1=実行
+
+  [Backup 用]
+  IncludeDriverBinaries : 0=メタデータのみ
+                          1=pnputil でドライバ本体も export（既定）
+  IncludePrintSettings  : 0=印刷設定をキャプチャしない
+                          1=各プリンタの PrintConfiguration / Property を
+                            保存（既定）
+
+  [Restore 用]
+  SourcePcName          : 空欄=全 PC から最新を自動選択
+                          値=その PC 名サブフォルダのみから選択
+  BackupTimestamp       : 空欄=最新タイムスタンプ
+                          値=その timestamp フォルダを指定
+  StrictOsVersion       : 1=osVersion 完全一致のみ許可（厳格）
+                          0=不一致でも警告のみで続行（既定。
+                            Win10→Win11 amd64 移行を許容）
+  ReuseInboxDrivers     : 1=Microsoft 供給ドライバの payload を使わず
+                            Windows 内蔵を再利用（既定）
+                          0=backup の payload で強制再注入
+  OnConflict            : skip=既存プリンタは温存（既定）
+                          replace=既存プリンタを削除してから再作成（破壊的）
+  RestoreDefaultPrinter : 1=既定プリンタも復元（既定）
+                          0=既定プリンタは触らない
+
+■ 復元される項目と SKIP されるもの
+
+  [復元対象]
+  ・TCPIP ポート / LPR ポート
+  ・サードパーティドライバ（pnputil /add-driver → Add-PrinterDriver）
+  ・プリンタ（Add-Printer + Set-Printer で Shared/ShareName/Comment/Location）
+  ・印刷設定（Set-PrintConfiguration -PrintTicketXml で round-trip）
+  ・プリンタプロパティ（Set-PrinterProperty、書き込み不可は silent skip）
+  ・既定プリンタ（RestoreDefaultPrinter=1 のとき）
+
+  [自動 SKIP]
+  ・RDP リダイレクトプリンタ（driverName=Remote Desktop Easy Print
+    または portName=TS\d+）→ セッション中のみ存在する一時オブジェクト
+  ・Local ポート（LPT1: / COM1: / FILE: 等）→ Windows 標準
+  ・WSD / Bonjour ポート → 動的発見前提のため自動復元不能
+  ・inbox driver の payload → ReuseInboxDrivers=1 のとき Windows 内蔵を再利用
+
+■ 互換性チェック（Restore）
+manifest.osArch / osVersion を target PC と比較します。
+
+  ・osArch 不一致（amd64 ⇔ arm64 等）→ ハード fail で abort
+  ・osVersion 不一致:
+      StrictOsVersion=1 → fail で abort
+      StrictOsVersion=0 → warning を出して続行（Win10→Win11 等）
+
+Win10→Win11 amd64 シナリオでの注意:
+  ・v4 ドライバは基本互換、v3 ドライバ（Ricoh RPCS 等）は警告 / 部分動作の
+    可能性。失敗時はベンダから Win11 用最新ドライバを取得して再注入推奨
+  ・DEVMODE（PrintTicketXML）は基本項目（color / duplex / paper）は維持、
+    ベンダ独自設定は default にフォールバックする可能性
+
+■ ドライババージョン一致の重要性（重要 / 実機検証で確定）
+
+source PC と target PC でプリンタドライバの **バージョンが一致**して
+いることが、信頼性の高い復元の前提です（2026-05-13 検証）。
+
+  [version 一致不要で動く設定]
+  ・用紙サイズ、両面、部数、既定給紙トレイ等の公開 DM_* field
+  ・ポート、プリンタ登録自体
+
+  [version 一致が必須の設定]
+  ・Canon iR-ADV 系の Color モード
+    （Auto / Color / Pure Black / Grayscale 等）
+  ・Installable Options（カセット 2/3 の有無、フィニッシャ等）
+  ・ベンダ固有印刷設定（ステープル位置、ICC profile 等）
+
+  [Why]
+  これらは driver private DEVMODE 拡張部および
+  HKLM\Printers\<name>\PrinterDriverData の vendor binary blob
+  （DeviceOption01 等）に格納されており、フォーマットが driver
+  version 依存。minor version 差でも driver の整合性 check に失敗
+  すると値が部分的にリセットされる。Microsoft 公式 PrintBRM.exe
+  も同じ制約を抱える Windows 印刷 subsystem の本質的限界。
+
+  [推奨運用]
+  ・キッティング workflow では fresh target PC への restore が標準。
+    backup に同梱された driver payload が pnputil で installed され、
+    target に prior 同名 driver が無ければ自動で version 一致する
+  ・target に prior driver が installed の場合、Phase 1 で skip
+    扱いとなり既存 driver version が使われる。source と異なれば
+    Color / トレイ等が部分的にリセットされる可能性あり
+
+  [一致しない場合の代替手段]
+  ・operator が target PC で「プリンタのプロパティ → 構成」を開き、
+    手動で installable options を再設定する（一度設定すれば永続）
+  ・Color モードは「印刷設定」で個別プリンタごとに再設定
+  ・将来的に Pianist モジュールで UI 操作を自動化する案あり（未実装）
+
+■ 前提条件
+・管理者権限が必要です
+  - pnputil /export-driver, /add-driver
+  - Get-PrinterDriver / Get-WindowsDriver -Online
+  - Add-PrinterDriver / Add-Printer / Add-PrinterPort / Set-PrintConfiguration
+・Print Spooler サービスが Running であること
+
+■ AutoPilot
+AutoPilot モードでは Confirm-ModuleExecution を skip して即実行します。
+__ASYNC__ 経路（kernel 3.3.0+ DefaultAsync=true）で Skip ボタン中断可能。
+
+■ Post-Apply Verification
+
+  [Backup]
+  ・必須ファイル（manifest.json / printers.json / ports.json /
+    drivers_registered.json / drivers_inf_inventory.json /
+    _restore_notes.txt）の存在とサイズ非ゼロ
+  ・manifest.json が valid JSON でかつ schemaVersion=1 /
+    manifestType="fabriq-printer-backup" であること
+  ・drivers/oemNN.inf/ フォルダ数が export 計画数と一致
+  ・printsettings/*.xml の数がプリンタ数と一致
+
+  [Restore]
+  ・復元対象プリンタの Get-Printer 存在確認
+  ・DriverName が manifest と一致
+  ・PortName が manifest と一致
+
+  両者とも全件 PASS のとき -Verified=$true を返します。
+
+■ Manifest スキーマの公開化（将来）
+manifest.json の構造は、外部 evidence consumer や他ツールが
+consume する想定で、kernel/PRINTER_BACKUP_MANIFEST.md として
+公開契約化することを視野に入れています（evidence_config の
+EVIDENCE_MANIFEST.md と同じ運用パターン）。schemaVersion=1 は
+後方互換に拡張する方針です。
+
+■ 動作の流れ
+
+  [Backup Printer Setup]
+  1. printer_backup_config.csv 読み込み（IncludeDriverBinaries /
+     IncludePrintSettings を参照）
+  2. 管理者・Print Spooler の前提チェック
+  3. Get-Printer / Get-PrinterPort / Get-PrinterDriver /
+     Get-WindowsDriver -Online で環境スキャン、dry-run 表示
+  4. 実行確認（Y/N）
+  5. backup/<PC名>/<timestamp>/ を作成して各種 JSON / 印刷設定 /
+     ドライバ payload を出力、manifest.json を最後に書き出し
+  6. Post-Apply Verification
+  7. New-ModuleResult を返却
+
+  [Restore Printer Setup]
+  1. printer_backup_config.csv 読み込み（SourcePcName /
+     BackupTimestamp / StrictOsVersion / ReuseInboxDrivers /
+     OnConflict / RestoreDefaultPrinter を参照）
+  2. 管理者・Print Spooler の前提チェック
+  3. backup/ 配下を走査して候補を列挙、最新を選択
+  4. manifest.schemaVersion / manifestType 検証
+  5. osArch / osVersion 互換性チェック
+  6. Restore plan 構築（RDP filter / inbox 判定 / 衝突検出）→ 実行確認
+  7. Phase 1: ドライバ復元 / Phase 2: ポート復元 /
+     Phase 3: プリンタ復元 / Phase 4: 印刷設定復元
+  8. 既定プリンタ復元（RestoreDefaultPrinter=1 のとき）
+  9. Post-Apply Verification
+ 10. New-BatchResult を返却

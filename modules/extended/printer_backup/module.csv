@@ -1,0 +1,3 @@
+MenuName,Category,Script,Order,Enabled
+Backup Printer Setup,Printer,printer_backup.ps1,34,1
+Restore Printer Setup,Printer,printer_restore.ps1,35,1
