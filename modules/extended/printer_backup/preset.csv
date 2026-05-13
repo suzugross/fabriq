@@ -1,0 +1,19 @@
+Column,Value,Label
+Enabled,1,Enabled
+Enabled,0,Disabled
+IncludeDriverBinaries,1,Include driver payload
+IncludeDriverBinaries,0,Skip driver payload
+IncludePrintSettings,1,Include print settings
+IncludePrintSettings,0,Skip print settings
+StrictOsVersion,1,Strict (block on osVersion mismatch)
+StrictOsVersion,0,Permissive (warn only, allow Win10->Win11)
+ReuseInboxDrivers,1,Reuse Windows inbox drivers
+ReuseInboxDrivers,0,Force payload reinstall for Microsoft drivers
+OnConflict,skip,Skip existing printers
+OnConflict,replace,Replace existing printers (destructive)
+RestoreDefaultPrinter,1,Set default printer
+RestoreDefaultPrinter,0,Do not set default printer
+SkipVirtualPrinters,1,Skip virtual printers (PDF/XPS/OneNote/Fax)
+SkipVirtualPrinters,0,Restore virtual printers
+RestoreHardwareConfig,1,Restore installable options (trays/finisher)
+RestoreHardwareConfig,0,Skip hardware config (driver defaults only)

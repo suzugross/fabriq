@@ -15,6 +15,114 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/extended/printer_backup v0.4.0 → v0.4.1:
+  Color / Trays が反映されない問題に対する restore 書き込み順序の最適化
+  (PATCH / 内部実装変更、公開 API 影響なし)。
+  - **症状**: Hardware config restore + Spooler restart 後に Canon
+    iR-ADV のような driver で `DeviceOption01` REG_BINARY が部分リセット、
+    DEVMODE 復元値も driver 再初期化で上書きされる現象を実機テストで観測
+  - **原因の仮説**: pass 1 で DevModePerUser + PrinterDriverData を書いて
+    から Spooler restart すると、restart 時の driver 再初期化が我々の
+    binary 値を validation → 部分的に再生成してしまう
+  - **対応**: Phase 4 を 2 pass に分割。
+    1. pass 1: Set-PrintConfiguration (PrintTicket + explicit fields) +
+       Set-PrinterProperty のみ
+    2. Spooler 再起動 (HW config or DEVMODE が存在する場合のみ、+ 2 秒
+       stabilize)
+    3. pass 2: PrinterDriverData (HKLM) + DevModePerUser (HKCU) を**最後**
+       に書く
+  - これにより我々の binary 値が driver 再初期化後の "最後の書き手"
+    となり、上書きされにくくなる。なお Canon driver 私的 DEVMODE 拡張は
+    driver version 依存のため、本変更でも一部 vendor 固有設定（色モード
+    詳細・フィニッシャ等）の cross-version 復元は本質的に困難（Microsoft
+    PrintBRM も同じ制約を抱える領域）
+
+### Added
+- modules/extended/printer_backup v0.3.1 → v0.4.0:
+  実機テストで報告された 2 つの残課題に対応 (MINOR / 後方互換)。
+  - **Color 設定が driver default に戻る問題**:
+    PrintTicketXML round-trip だけでは一部ドライバ（特に企業向け
+    カラー複合機）が `DM_COLOR` を無視するため、PrintTicket 適用後に
+    `Set-PrintConfiguration -Color/-Collate/-DuplexingMode/-PaperSize/
+    -PaperSource/-PrintQuality` を**個別パラメータ**で明示再適用する
+    fallback パスを追加。各 field は個別 try/catch で driver 非対応時
+    も他 field の適用を阻害しない
+  - **Installable options（トレイ・フィニッシャ）の欠落問題**:
+    Add-Printer 直後はドライバ最小ハードウェア構成（カセット 1 のみ等）に
+    リセットされる。これは per-user DEVMODE ではなく **HKLM 側の
+    `Printers\<name>\PrinterDriverData`** に保存される vendor 固有
+    REG_BINARY blob 群が原因。バックアップ時に当該サブキー全 value を
+    type 付き JSON でダンプ、復元時に書き戻し → `Restart-Service Spooler`
+    で適用する経路を追加。risk としてドライババージョン依存のため
+    `RestoreHardwareConfig` 列で opt-in 制御（既定 1）
+  - manifest.items.printers[] に `hwConfigFile` フィールド追加
+    (additive / schemaVersion=1 内の後方互換変更)
+  - CSV 列 `RestoreHardwareConfig` 追加（既定 1）
+
+### Fixed
+- modules/extended/printer_backup v0.3.0 → v0.3.1:
+  per-user DEVMODE の HKCU アクセスを `Resolve-HkcuRoot` 経由に修正
+  (PATCH / 内部実装変更、公開 API 影響なし)。
+  - 元の実装は `HKCU:\Printers\DevModePerUser` を直接参照していたが、
+    UAC 昇格時（別管理者アカウント）や SYSTEM コンテキスト実行時に
+    `HKCU:` が **ログオン中ユーザではなく昇格元アカウント / SYSTEM** を
+    指してしまい、backup は誤ったユーザの blob を採取、restore も
+    誤ったユーザに書き戻す問題があった
+  - reg_hkcu_config / desktop_icon_backup と同じ idiom（共通関数
+    `Resolve-HkcuRoot` で HKU\<LoggedOnUserSid> に切り替え）を採用。
+    Redirect 発生時は実行時に対象 SID を Show-Info で通知
+
+### Added
+- modules/extended/printer_backup v0.3.0:
+  per-user DEVMODE のバックアップ/復元 + virtual printer 自動スキップ
+  対応 (MINOR / 後方互換)。
+  - **per-user DEVMODE 対応**: `HKCU:\Printers\DevModePerUser\<name>` の
+    REG_BINARY blob を base64 で `printsettings/<safe>.devmode.b64` に
+    保存し、復元時にそのまま書き戻す。これまで `Set-PrintConfiguration
+    -PrintTicketXml` のみ実装していたが、これは spooler 側の既定値
+    更新であり、アプリの**印刷ダイアログが参照する per-user blob は
+    更新されない**。実機テストで「印刷設定が引き継がれない」現象が
+    確認されたためこちらを正規ルートに追加。
+  - **virtual printer 自動スキップ**: `SkipVirtualPrinters` 列 (既定 1)
+    新設。Microsoft Print To PDF / XPS Document Writer / OneNote /
+    Fax / OpenXPS など inbox 級の仮想プリンタを driver/port 名パターンで
+    検出し plan 段階で除外。Win11 でも標準で同等品が存在するため
+    cross-PC restore で再作成する価値が低いケースに対応。
+  - manifest.items.printers[] に `devModeFile` フィールド追加
+    (additive、schemaVersion=1 内の後方互換変更)。古い manifest を
+    新 restore で読んでも `devModeFile=null` で従来どおり動作。
+- modules/extended/printer_backup (新規統合モジュール v0.2.0):
+  このPCのプリンタ環境（プリンタ、ポート、ドライバ、印刷設定）の
+  **バックアップ + 復元**を担う統合モジュール。1 モジュール内に
+  backup / restore の 2 スクリプトが同居し、`printer_backup_config.csv`
+  を共有制御契約として読む構成（`desktop_icon_config` の backup/restore
+  パターンを踏襲）。
+  - **Backup (`printer_backup.ps1`)**: `backup/<ComputerName>/<yyyy_MM_dd_HHmmss>/`
+    に manifest.json (schemaVersion=1, `fabriq-printer-backup`) 中心の
+    portable バックアップを生成。ドライバ payload は
+    `pnputil /export-driver` で oemNN.inf 単位に export、DriverName →
+    oemNN.inf 逆引きマップを manifest に内包。Post-Apply Verification
+    はファイル存在・サイズ・JSON 妥当性・件数一致で実施。
+  - **Restore (`printer_restore.ps1`)**: 同一モジュール内の `backup/`
+    配下から manifest を読み込み、drivers (pnputil + Add-PrinterDriver) /
+    ports (type-aware Add-PrinterPort) / printers (Add-Printer +
+    Set-Printer) / print settings (Set-PrintConfiguration -PrintTicketXml)
+    / default printer の順で復元。osArch 不一致は hard fail、osVersion
+    不一致は `StrictOsVersion=0` 既定で warning 降格（Win10→Win11 amd64
+    移行を許容）。RDP redirect printer（`Remote Desktop Easy Print` /
+    `TS\d+` ポート）と Local/WSD/Bonjour ポートは自動 skip。
+    `ReuseInboxDrivers=1` 既定で Microsoft 供給ドライバの payload
+    再注入を回避し Windows 内蔵を再利用。`OnConflict=skip|replace` で
+    既存プリンタ衝突挙動を制御。Post-Apply Verification は
+    Get-Printer の存在/DriverName/PortName 一致を全件検証。
+  - 共有 CSV 列: `Enabled` / `IncludeDriverBinaries` /
+    `IncludePrintSettings` / `SourcePcName` / `BackupTimestamp` /
+    `StrictOsVersion` / `ReuseInboxDrivers` / `OnConflict` /
+    `RestoreDefaultPrinter` / `Description`（10 列、各スクリプトは
+    自分が利用する列のみ参照、他列は無視）。
+  - kernel 公開 API §1〜§5 への影響なし、Min Kernel API = 2.0.0。
+
 ### Changed
 - apps/fabriq_operator/lib/execution_toolbar.ps1 + kernel/main.ps1:
   Execution Toolbar に **ホスト情報ライブ照合パネル** を追加し、見た目を
