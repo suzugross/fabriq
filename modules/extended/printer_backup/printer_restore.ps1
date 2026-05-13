@@ -95,6 +95,17 @@ catch {
 # ========================================
 # Step 3a: Locate Source Backup
 # ========================================
+# Resolution priority for the source PC name:
+#   1. CSV SourcePcName (explicit override, for testing / cross-PC moves)
+#   2. $env:SELECTED_OLD_PCNAME (hostlist context — the standard kitting
+#      workflow path: operator selects a host, OldPCname is set, restore
+#      auto-picks the matching backup subfolder)
+#   3. Neither set -> hard error (we refuse the ambiguous "scan all PCs"
+#      path because it makes it unclear which PC's settings were restored)
+#
+# Resolution priority for the timestamp:
+#   1. CSV BackupTimestamp (explicit override)
+#   2. Latest manifest.collectedAt under the resolved PcName
 $backupRoot = Join-Path $PSScriptRoot "backup"
 $backupRoot = [System.IO.Path]::GetFullPath($backupRoot)
 
@@ -106,35 +117,70 @@ if (-not (Test-Path $backupRoot)) {
 
 Show-Info "Backup root: $backupRoot"
 
-# Enumerate candidate backup folders (those containing manifest.json)
+# Step 3a-i: Resolve target PC name
+$envOldPcName = $env:SELECTED_OLD_PCNAME
+$pcNameSource = $null
+$resolvedPcName = $null
+if (-not [string]::IsNullOrWhiteSpace($cfgSourcePcName)) {
+    $resolvedPcName = $cfgSourcePcName
+    $pcNameSource   = "CSV SourcePcName"
+}
+elseif (-not [string]::IsNullOrWhiteSpace($envOldPcName)) {
+    $resolvedPcName = $envOldPcName.Trim()
+    $pcNameSource   = "hostlist OldPCname"
+}
+else {
+    Show-Error "No source PC name available."
+    Show-Error "  Either select a host (so SELECTED_OLD_PCNAME is set) or"
+    Show-Error "  set SourcePcName in printer_backup_config.csv."
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "No source PC name (host not selected, CSV SourcePcName empty)")
+}
+
+Show-Info "Source PC name : $resolvedPcName (from $pcNameSource)"
+
+# Step 3a-ii: Locate matching <PcName> subfolder
+$pcDir = Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue |
+         Where-Object { $_.Name -ieq $resolvedPcName } |
+         Select-Object -First 1
+
+if ($null -eq $pcDir) {
+    Show-Error "No backup subfolder for PC '$resolvedPcName' under: $backupRoot"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "No backup folder for source PC '$resolvedPcName'")
+}
+
+# Step 3a-iii: Enumerate timestamp folders containing manifest.json
 $candidates = @()
-foreach ($pcDir in @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)) {
-    if ($cfgSourcePcName -and ($pcDir.Name -ine $cfgSourcePcName)) { continue }
-    foreach ($tsDir in @(Get-ChildItem -Path $pcDir.FullName -Directory -ErrorAction SilentlyContinue)) {
-        if ($cfgBackupTimestamp -and ($tsDir.Name -ine $cfgBackupTimestamp)) { continue }
-        $mfPath = Join-Path $tsDir.FullName "manifest.json"
-        if (-not (Test-Path $mfPath)) { continue }
-        $candidates += [PSCustomObject]@{
-            PcName    = $pcDir.Name
-            Timestamp = $tsDir.Name
-            Path      = $tsDir.FullName
-            Manifest  = $mfPath
-        }
+foreach ($tsDir in @(Get-ChildItem -Path $pcDir.FullName -Directory -ErrorAction SilentlyContinue)) {
+    if (-not [string]::IsNullOrWhiteSpace($cfgBackupTimestamp) -and ($tsDir.Name -ine $cfgBackupTimestamp)) { continue }
+    $mfPath = Join-Path $tsDir.FullName "manifest.json"
+    if (-not (Test-Path $mfPath)) { continue }
+    $candidates += [PSCustomObject]@{
+        PcName    = $pcDir.Name
+        Timestamp = $tsDir.Name
+        Path      = $tsDir.FullName
+        Manifest  = $mfPath
     }
 }
 
 if ($candidates.Count -eq 0) {
-    $filter = if ($cfgSourcePcName -or $cfgBackupTimestamp) {
-        " (filter: SourcePcName='$cfgSourcePcName', BackupTimestamp='$cfgBackupTimestamp')"
+    $filter = if (-not [string]::IsNullOrWhiteSpace($cfgBackupTimestamp)) {
+        " (timestamp filter: '$cfgBackupTimestamp')"
     } else { "" }
-    Show-Error "No backup folders with manifest.json found under: $backupRoot$filter"
+    Show-Error "No backup folders with manifest.json under: $($pcDir.FullName)$filter"
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "No backup folders found")
+    return (New-ModuleResult -Status "Error" -Message "No backups under PC '$resolvedPcName'")
 }
 
-# Pick newest by manifest.collectedAt (fallback: folder mtime)
+# Step 3a-iv: Pick newest by manifest.collectedAt (fallback: folder mtime)
 $chosen = $null
 $chosenAt = [DateTime]::MinValue
+$timestampSource = if (-not [string]::IsNullOrWhiteSpace($cfgBackupTimestamp)) {
+    "CSV BackupTimestamp"
+} else {
+    "latest manifest.collectedAt"
+}
 foreach ($c in $candidates) {
     try {
         $m = Get-Content -Path $c.Manifest -Raw | ConvertFrom-Json
@@ -163,6 +209,8 @@ if ($null -eq $chosen) {
 
 $backupDir = $chosen.Path
 Show-Success "Selected backup: $($chosen.PcName) / $($chosen.Timestamp)"
+Show-Info "  PcName from   : $pcNameSource"
+Show-Info "  Timestamp from: $timestampSource"
 Show-Info "  Path: $backupDir"
 if ($candidates.Count -gt 1) {
     Show-Info "  (Skipped $($candidates.Count - 1) older candidate(s))"
@@ -331,6 +379,7 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Restore Plan" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "  Source PC          : $($manifest.computerName) ($($manifest.collectedAt))" -ForegroundColor White
+Write-Host "  Resolved via       : PcName=$pcNameSource, Timestamp=$timestampSource" -ForegroundColor DarkGray
 Write-Host "  Target PC          : $env:COMPUTERNAME" -ForegroundColor White
 Write-Host "  OS Version Match   : $(if ($osVersionMatches) { 'YES' } else { 'NO (warning, proceeding)' })" -ForegroundColor White
 Write-Host ""

@@ -15,6 +15,37 @@
 
 ## [Unreleased]
 
+### Changed
+- modules/extended/printer_backup v0.4.2 → v0.5.0:
+  restore の source backup 解決を **hostlist 駆動**化 (MINOR / 後方互換)。
+  - Why: backup 側が hostlist OldPCname でフォルダを切る運用に揃ったため、
+    restore も「選択中ホストの OldPCname → backup/<その名前>/」で
+    自動マッチさせるのが kitting workflow と整合的
+  - 新解決順位:
+    1. CSV `SourcePcName` (明示 override、テスト/特殊ケース向け)
+    2. `$env:SELECTED_OLD_PCNAME` (hostlist 選択中のホスト)
+    3. どちらも空 → **エラーで abort**（"select a host or set CSV"）
+  - 旧 v0.4.x の「scan all PCs and pick newest by collectedAt」fallback は
+    廃止。どの PC の backup を復元したか不明な事故を防ぐ
+  - Plan display と Show-Info で resolution source を明示
+    （`PcName=hostlist OldPCname, Timestamp=latest manifest.collectedAt` 等）
+  - 公開 API への追加依存: `$env:SELECTED_OLD_PCNAME` (KERNEL_API.md §3.1
+    既存、Min Kernel API = 2.0.0 のまま)
+  - 既存 CSV-explicit ワークフローは override 経路として完全互換
+
+- modules/extended/printer_backup v0.4.1 → v0.4.2:
+  backup 出力フォルダの `<PCName>` 解決順序を `$env:COMPUTERNAME` から
+  **`$env:SELECTED_OLD_PCNAME`（hostlist の OldPCname）優先、未設定時は
+  `$env:COMPUTERNAME` フォールバック** に変更。
+  - Why: kitting workflow では OldPCname が顧客視点のホスト identity
+    で、バックアップフォルダもこちらで識別する方が運用上自然
+    （Windows 上の現行 COMPUTERNAME はリネーム前後で揺れる可能性あり）
+  - Backup Plan 表示と `_restore_notes.txt` にも両方の名前
+    （PCName as folder / actual COMPUTERNAME）を表示し追跡可能化
+  - manifest schema 変更なし（`computerName` フィールドが OldPCname
+    ベースに切り替わるのみ。schemaVersion=1 内の解釈変更）
+  - 既存 backup（旧 COMPUTERNAME ベース）の restore は不変
+
 ### Fixed
 - modules/extended/printer_backup v0.4.0 → v0.4.1:
   Color / Trays が反映されない問題に対する restore 書き込み順序の最適化

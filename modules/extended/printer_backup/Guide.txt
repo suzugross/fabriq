@@ -19,7 +19,9 @@ desktop_icon_config と同様に backup / restore の 2 スクリプトが
 
   modules/extended/printer_backup/
     backup/
-      <ComputerName>/                ← バックアップ元PCの $env:COMPUTERNAME
+      <PCName>/                      ← $env:SELECTED_OLD_PCNAME（hostlist の
+                                       OldPCname）優先、未設定時は
+                                       $env:COMPUTERNAME にフォールバック
         <yyyy_MM_dd_HHmmss>/         ← 実行時刻
           manifest.json              ← schemaVersion=1 単一の真実源
           printers.json
@@ -50,9 +52,11 @@ desktop_icon_config と同様に backup / restore の 2 スクリプトが
                             保存（既定）
 
   [Restore 用]
-  SourcePcName          : 空欄=全 PC から最新を自動選択
-                          値=その PC 名サブフォルダのみから選択
-  BackupTimestamp       : 空欄=最新タイムスタンプ
+  SourcePcName          : Restore 元のバックアップフォルダ名
+                          ※ 空欄時は $env:SELECTED_OLD_PCNAME
+                            （hostlist で選択中のホストの OldPCname）に
+                            自動フォールバック。両方空ならエラーで abort
+  BackupTimestamp       : 空欄=指定 PC 配下の最新タイムスタンプを auto-select
                           値=その timestamp フォルダを指定
   StrictOsVersion       : 1=osVersion 完全一致のみ許可（厳格）
                           0=不一致でも警告のみで続行（既定。
@@ -188,7 +192,11 @@ EVIDENCE_MANIFEST.md と同じ運用パターン）。schemaVersion=1 は
      BackupTimestamp / StrictOsVersion / ReuseInboxDrivers /
      OnConflict / RestoreDefaultPrinter を参照）
   2. 管理者・Print Spooler の前提チェック
-  3. backup/ 配下を走査して候補を列挙、最新を選択
+  3. Source PC 名を解決（優先順位）
+     a. CSV SourcePcName（明示 override）
+     b. $env:SELECTED_OLD_PCNAME（hostlist 選択中の OldPCname）
+     c. どちらも空 → エラーで abort
+     その PC 名サブフォルダ配下のみを走査、最新タイムスタンプを auto-select
   4. manifest.schemaVersion / manifestType 検証
   5. osArch / osVersion 互換性チェック
   6. Restore plan 構築（RDP filter / inbox 判定 / 衝突検出）→ 実行確認
