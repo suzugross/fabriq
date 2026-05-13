@@ -158,11 +158,23 @@ foreach ($pd in $printerDrivers) {
     }
 }
 
+# Resolve PC name for backup folder identity. Prefer hostlist OldPCname
+# (kitting workflow's view of the customer's PC) and fall back to the
+# current Windows COMPUTERNAME when no hostlist is in effect.
+$pcName = if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_OLD_PCNAME)) {
+    $env:SELECTED_OLD_PCNAME.Trim()
+} else {
+    $env:COMPUTERNAME
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Backup Plan" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
-Write-Host "  Computer:           $env:COMPUTERNAME" -ForegroundColor White
+Write-Host "  PC name (folder):   $pcName" -ForegroundColor White
+if ($pcName -ne $env:COMPUTERNAME) {
+    Write-Host "  Computer name:      $env:COMPUTERNAME (current Windows hostname)" -ForegroundColor DarkGray
+}
 Write-Host "  Printers:           $($printers.Count)" -ForegroundColor White
 Write-Host "  Ports:              $($ports.Count)" -ForegroundColor White
 Write-Host "  Registered drivers: $($printerDrivers.Count)" -ForegroundColor White
@@ -186,7 +198,7 @@ Write-Host ""
 # ========================================
 # Step 5: Execute Backup
 # ========================================
-$pcName    = $env:COMPUTERNAME
+# $pcName was resolved in Step 3 (OldPCname preferred, fallback to COMPUTERNAME)
 $timestamp = Get-Date -Format "yyyy_MM_dd_HHmmss"
 $backupDir = Join-Path (Join-Path (Join-Path $PSScriptRoot "backup") $pcName) $timestamp
 
@@ -661,9 +673,10 @@ $inboxDriverNames = @($driverInfoList | Where-Object { $_.IsInboxDriver } | ForE
 $restoreNotes = @"
 Printer Backup - Restore Notes
 ================================
-Backup taken : $((Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
-Source PC    : $pcName
-OS / Arch    : $osVersion / $osArch
+Backup taken    : $((Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
+Source PC       : $pcName$(if ($pcName -ne $env:COMPUTERNAME) { " (from hostlist OldPCname)" } else { "" })
+Computer name   : $env:COMPUTERNAME$(if ($pcName -ne $env:COMPUTERNAME) { " (actual Windows hostname at backup time)" } else { "" })
+OS / Arch       : $osVersion / $osArch
 
 A companion restore module will read manifest.json from this folder.
 Restore is only guaranteed on a target PC with the same OS version
