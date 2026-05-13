@@ -15,6 +15,37 @@
 
 ## [Unreleased]
 
+### Added
+- modules/extended/userdata_backup (新規モジュール v0.1.0):
+  任意のファイル / ディレクトリの portable backup + restore を担う
+  試作モジュール。printer_backup と同じ backup フォルダ規約
+  （`backup/<OldPCname>/<yyyy_MM_dd_HHmmss>/`）・hostlist 駆動・
+  manifest 中心設計を踏襲し、将来の **backup モジュール統合**を見据えて
+  manifest を parallel な構造で設計（manifestType=`fabriq-userdata-backup`
+  schemaVersion=1）。
+  - **Backup (`userdata_backup.ps1`)**: `userdata_backup_list.csv` の各
+    enabled 行を 1 entry として robocopy で `entries/<NN>/data/` に複製。
+    Per-entry 設定: `SourcePath` (環境変数展開対応) / `Recurse` (再帰 ON/OFF) /
+    `ExcludePattern` (`;` 区切り、末尾 `/` で `/XD`、それ以外は `/XF`) /
+    `OnConflict` (restore 時挙動) / `IncludeAcl` (`/COPYALL` opt-in)。
+    robocopy `/B` backup mode でロックファイルにも対応。Post-Apply
+    Verification は manifest 妥当性 + 必須ファイル存在 + 各 entry の
+    data/ フォルダ存在を検証。
+  - **Restore (`userdata_restore.ps1`)**: manifest を契約として読み込み、
+    robocopy で逆方向に復元。ソース解決は **hostlist 駆動**
+    (`$env:SELECTED_OLD_PCNAME` → backup/<その名前>/ → 最新 timestamp、
+    `userdata_backup_config.csv` の `SourcePcName` / `BackupTimestamp` で
+    override 可)。Per-entry `OnConflict`: skip (既存温存) / overwrite /
+    rename (既存を `.bak_yyyyMMdd_HHmmss` に退避)。printer_restore と
+    異なり osArch / osVersion は hard fail せず情報記録のみ (ファイル系は
+    arch 独立)。
+  - **将来統合計画への配慮**: manifest 構造を printer_backup と意図的に
+    parallel に保ち、`manifestType` と `items` 内のキーだけがモジュール
+    固有。3rd backup モジュール出現時 or 明示的統合タスク時に
+    `kernel/common.ps1` への共通化を検討する想定 (現時点は premature
+    abstraction を避けて scaffold 同形コピーで進める)。
+  - kernel 公開 API §1〜§5 への影響なし、Min Kernel API = 2.0.0。
+
 ### Changed
 - modules/extended/printer_backup v0.4.2 → v0.5.0:
   restore の source backup 解決を **hostlist 駆動**化 (MINOR / 後方互換)。
