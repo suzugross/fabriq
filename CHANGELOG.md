@@ -15,6 +15,197 @@
 
 ## [Unreleased]
 
+### Changed
+- apps/fabriq_backuper v0.5.0 → v0.5.1 (default OnConflict 変更):
+  `apps/fabriq_backuper/data/userdata_list.csv` の OnConflict 既定値を
+  `skip` → `overwrite` に変更。**Migration workflow で機能不全だった既定挙動を修正**。
+  - 旧 (skip): target に Desktop / Documents が存在する場合（ほぼ常に存在）
+    エントリ全体を skip → 何も復元されない、という非実用的挙動だった
+  - 新 (overwrite): robocopy `/E` で **merge** 動作 — target unique
+    ファイルは保護、同名ファイルは backup で上書き、backup unique は追加。
+    キッティング新 PC で Desktop に既存 shortcut (Edge / OneDrive 等) が
+    あっても残しつつ旧 PC の Desktop ファイルを取り込む期待挙動
+  - 注意: "overwrite" は merge セマンティクス（/MIR ではない）。
+    target unique ファイルを削除したい完全 mirror が必要なら将来 `mirror`
+    モード追加（要件次第、現状未実装）
+  - operator は引き続き CSV の OnConflict 列で per-entry に
+    `skip` / `overwrite` / `rename` を選択可能
+
+### Changed
+- apps/fabriq_backuper v0.4.0 → v0.5.0 (Phase 2.4 / UNC destination + Browse restore):
+  バックアップ先と復元ソースを **任意の場所 (UNC 含む)** に指定できるよう拡張。
+  manifest.json は既に portable descriptor なので、別途 "展開バッチ素材" 生成は
+  不要 — 「Browse でフォルダを指定 → FabriqBackUper が manifest を読んで restore」
+  だけで Migration workflow が成立する設計。
+  - 新規: `lib/ui/unc_helper.ps1` (Test-UncPath / Connect-UncWithCredentials /
+    Resolve-UncAccess)。UNC 未認証時に Get-Credential プロンプト
+    （Windows 標準）→ New-PSDrive で一時マウント
+  - 修正: `lib/ui/backup_view.ps1` 冒頭に "Destination root" テキストボックス +
+    [Browse...] ボタン。既定値は `apps/fabriq_backuper/Backup`、UNC で
+    `\\server\share\backups` 等に変更可。Start 時に Resolve-UncAccess で
+    疎通＋認証を確保してから engine 呼び出し
+  - 修正: `lib/ui/restore_view.ps1` に [Browse for backup...] ボタン追加。
+    任意フォルダの aggregate manifest を読んで restore plan を構築
+    (Hostlist 駆動経路と切り替え可能)。printer リストも内部 manifest 駆動
+  - 修正: `lib/engine.ps1`:
+    - `Invoke-BackuperBackupCore` に `-DestinationRoot` 追加
+    - `Invoke-BackuperRestoreCore` に `-ExplicitAggregateDir` 追加 +
+      `-PickedTimestamp` を optional 化
+  - 修正: `lib/sections/userdata/restore.ps1` で **sourcePath 再展開**
+    （cross-user 対応）: env var を含むパスは target process context で
+    再 expand。`%USERPROFILE%` 等が backup-time の suzuki でなく
+    restore-time の tanaka に解決される。env var なしの絶対パスは
+    resolvedPath にフォールバック
+  - form size: 720×540 → **760×660**（destination root + Browse 等のフィールド
+    追加分のスペース確保）
+  - kernel 公開 API 影響なし、Min Kernel API = 2.0.0
+  - 既存 modules への波及: ゼロ
+  - 既知: future 候補として「展開先ユーザの選択 GUI」(admin 昇格時の
+    env var resolution 問題対応) はメモリに記録、Phase 2.7 以降で対応予定
+
+### Changed
+- apps/fabriq_backuper v0.3.1 → v0.4.0 (Phase 2.3 / userdata section 内製化):
+  printer に続いて **userdata セクションも内製化**。出力先が
+  `Backup/<OldPCname>/<ts>/sections/userdata/` に統合され、printer と
+  userdata の保存先不一致を解消。modules/extended/userdata_backup は
+  引き続き touched せず並走運用継続。
+  - `lib/sections/userdata/backup.ps1`: 既存 module 全機能を内製版に移植
+    (robocopy /B + ACL + ExcludePattern + per-entry OnConflict)。
+    CSV ソースを **FabriqBackUper-owned** `apps/fabriq_backuper/data/userdata_list.csv`
+    に切替（modules 側 CSV はもう参照しない）。`$SectionParams.IncludeEntries`
+    で per-entry filter 可能（Phase 2.2.2 GUI editor が活用予定）
+  - `lib/sections/userdata/restore.ps1`: manifest 駆動の内製 restore。
+    per-entry OnConflict (skip/overwrite/rename) を尊重。
+    `$SectionParams.IncludeEntries` でフィルタ
+  - 新規: `apps/fabriq_backuper/data/userdata_list.csv`
+    (Documents / Desktop / Outlook signatures 等のサンプル付き default)
+  - 修正: `lib/ui/backup_view.ps1` userdata プレビューの CSV 参照先を
+    `apps/fabriq_backuper/data/userdata_list.csv` に切替
+  - **既存 modules への波及**: ゼロ (modules/extended/userdata_backup 並走)
+  - 移行注意: operator が modules 側 CSV で行っていたカスタマイズは
+    自動移行されない。新規 deployment では FabriqBackUper-owned CSV を
+    手動で編集する必要あり（Phase 2.2.2 で GUI 編集機能を提供予定）
+
+### Fixed
+- apps/fabriq_backuper v0.3.0 → v0.3.1 (Phase 2.2.1a hotfix):
+  Phase 2.2.1 で engine が全 section に `-SectionParams` を渡すように変更したが、
+  userdata セクション wrapper の param 宣言を忘れていたため、printer 完了後
+  に userdata 実行で "パラメーター名 'SectionParams' に一致するパラメーターが
+  見つかりません" でクラッシュしていた。userdata wrapper（backup/restore 両方）
+  に `[hashtable]$SectionParams = @{}` を追加して accept できるよう修正
+  （wrapper 自身は SectionParams を無視、Phase 2.3 内製化時に活用予定）。
+  同時に lint 警告 `$null` 比較順序（`$x -eq $null` → `$null -eq $x`）も修正。
+
+### Changed
+- apps/fabriq_backuper v0.2.1 → v0.3.0 (Phase 2.2.1 / printer section 内製化):
+  printer の backup/restore セクションを内製化し、GUI 上で **per-printer 選別**
+  (checkbox) を可能化。modules/extended/printer_backup は touched せず並走継続。
+  - `lib/sections/printer/backup.ps1`: 既存 module 全機能を内製版に移植
+    (Get-Printer 列挙 / DEVMODE / hwconfig / payload export 全部入り)。
+    `$SectionParams.IncludePrinters` でフィルタ。出力は
+    `Backup/<OldPCname>/<ts>/sections/printer/` に統合
+  - `lib/sections/printer/restore.ps1`: manifest 駆動の内製 restore。
+    Spooler restart を挟んだ 2 pass 構造 / Color/duplex の explicit Set /
+    HKLM hwconfig + HKCU DEVMODE (Resolve-HkcuRoot 経由) すべて踏襲。
+    `$SectionParams.IncludePrinters` でフィルタ
+  - `lib/engine.ps1`: `Invoke-SectionScript` / `Invoke-BackuperBackupCore` /
+    `Invoke-BackuperRestoreCore` に **`SectionParams` / `SectionParamsBySection`**
+    パラメータ追加。section ごとに任意の追加 param を hashtable で渡せる
+  - `lib/ui/backup_view.ps1`: printer DataGridView (checkbox + Select All /
+    None / Refresh)。**仮想プリンタ (Microsoft Print to PDF / OneNote /
+    XPS / Fax / RDP redirect) は既定 uncheck**、それ以外は check。
+    Start 時に checked 名のリストを `SectionParams.printer.IncludePrinters`
+    として渡す
+  - `lib/ui/restore_view.ps1`: timestamp 選択時に
+    `sections/printer/manifest.json` を読んで printer DataGridView に
+    populate (manifest 駆動)。RDP redirect は plan 段階で除外、仮想は
+    既定 uncheck。同じ idiom で per-printer 選別
+  - `lib/manifest_aggregator.ps1`: aggregate manifest に `manifestPath`
+    フィールド追加 (internal section 用、`sections/<name>/manifest.json`
+    relative path)。`externalOutputDir` も残置で後方互換
+  - **userdata section は引き続き wrapper のまま** (Phase 2.3 で内製化予定)
+  - kernel 公開 API 影響なし、Min Kernel API = 2.0.0
+  - 既存 modules への波及: **ゼロ** (modules/extended/printer_backup 並走)
+
+### Fixed
+- apps/fabriq_backuper v0.2.0 → v0.2.1 (Phase 2.1c hotfix):
+  Backup 実行時に "引数が空のコレクションであるため、パラメーター 'Warnings'
+  にバインドできません" エラーで manifest 書き込みが失敗する不具合を修正。
+  原因: `New-AggregateManifest` の `Warnings` パラメータが
+  `[Parameter(Mandatory = $true)][array]` 宣言で空配列 `@()` の binding を
+  拒否していた (PowerShell の Mandatory+array+empty 仕様)。
+  Fix: `Mandatory = $true` を外し、デフォルト値 `@()` を設定する形に変更。
+  console 経路でも同じ潜在 bug があったが今まで未実行で顕在化していなかった。
+
+### Changed
+- apps/fabriq_backuper v0.1.0 → v0.2.0 (Phase 2.1 / GUI 化):
+  console UI を WinForms GUI に置き換え (tonebender 風の Mode Select →
+  Backup/Restore View → Progress View の 4 view 構造)。fabriq_operator の
+  CentreCOM-inspired light theme を satellite-app 独立原則に従い自前移植
+  (`lib/ui/theme.ps1`)、`lib/ui/main_form.ps1` が view 切替と shared
+  state を管理。
+  - `lib/ui/theme.ps1`: 色定数 / フォント / スタイルヘルパー
+    (New-StyledButton, Set-GridStyle, New-StyledLabel 等) を自前定義
+    (fabriq_operator/lib/theme.ps1 からの直接コピー + 名前空間維持)
+  - `lib/ui/main_form.ps1`: 720x540 Form、ヘッダ (ホスト指示) + 切替可能
+    Content Panel、`Switch-View` / `Update-HostHeader` / `Start-FabriqBackuperGui`
+  - `lib/ui/mode_select_view.ps1`: hostlist combo + Backup/Restore/Quit ボタン。
+    `$env:SELECTED_OLD_PCNAME` 既セット時は自動継承
+  - `lib/ui/backup_view.ps1`: section チェックボックス + userdata エントリ
+    プレビュー DataGridView (Phase 2.1 は read-only) + Start。Phase 2.2 で
+    ephemeral checkbox + Add Folder/File 編集機能を追加予定
+  - `lib/ui/restore_view.ps1`: timestamp dropdown + manifest 要約表示 +
+    section チェックボックス + Start
+  - `lib/ui/progress_view.ps1`: monospace log + Done ボタン (Phase 2.1 は
+    synchronous 実行のため完了後表示、Phase 2.2 で Runspace 化予定)
+  - `lib/engine.ps1`: UI-agnostic core 関数 `Invoke-BackuperBackupCore` /
+    `Invoke-BackuperRestoreCore` を追加 (param 受取式、prompt なし)。
+    Legacy console orchestrator `Invoke-BackuperEngine` は fallback として
+    保持
+  - `fabriq_backuper.ps1`: console menu loop を `Start-FabriqBackuperGui`
+    呼び出しに切替
+  - **既知の Phase 2.1 限界** (Phase 2.2/2.3 で解決予定):
+    1. 過去時点 restore は wrapped module 側で「最新」に依存 (Phase 2.3
+       sections 内製化で根本解決)
+    2. UI が backup/restore 実行中に freeze (synchronous 実行、Phase 2.2
+       Runspace 化で解決)
+    3. CSV エントリの GUI 編集は未対応 (Phase 2.2 で追加)
+  - kernel 公開 API 影響なし、Min Kernel API = 2.0.0
+
+### Added
+- apps/fabriq_backuper (新規 satellite app v0.1.0 / Phase 1 PoC):
+  Backup/Restore 専業 satellite として `apps/fabriq_backuper/` を新設。
+  FabriqIOS と同型の self-spawning subprocess + kernel dot-source パターンで
+  独立 entry を持つ。Operator-facing は `Fabriq_BackUper.exe`（fabriq root、
+  56 KB の C# launcher）一系統に絞り、FabriqApps ダイアログからは除外。
+  - **Entry**: `apps/fabriq_backuper/fabriq_backuper.ps1`（self-spawning,
+    kernel/common.ps1 dot-source, defensive log suppression）
+  - **Engine**: `lib/engine.ps1` が section 群を orchestrate。
+    hostlist 読み取り（`Import-ModuleCsv` 経由で ENC: 自動復号）→
+    host selector → section selector → 各 section 実行 → 集約 manifest
+  - **Hostlist 結合**: `kernel/csv/hostlist.csv` を read-only 消費、
+    `Test-MasterPassphrase` でパスフレーズ検証、`$global:FabriqMasterPassphrase`
+    セット後 `Import-ModuleCsv` が自動復号。`$env:SELECTED_OLD_PCNAME` が
+    既セットなら継承（fabriq 親 session から）、なければ console picker
+  - **Section 契約** (Phase 1 plug-in interface):
+    `lib/sections/<name>/{backup,restore}.ps1` が PSCustomObject (Status /
+    ElapsedMs / Summary / Warnings / ExternalOutputDir / ExternalManifestPath)
+    を return。Phase 1 では既存 `modules/extended/printer_backup` /
+    `modules/extended/userdata_backup` を **薄く wrap**（modules touched なし）
+  - **Aggregate manifest** (`fabriq-backuper-snapshot` schemaVersion=1):
+    `Backup/<OldPCname>/<yyyy_MM_dd_HHmmss>/manifest.json` に各 section 個別
+    manifest への pointer + summary を集約。printer_backup / userdata_backup の
+    parallel manifest 構造を上位に統合する形
+  - **Console UI** (Phase 1): main menu / section selector / timestamp picker /
+    confirm prompt。Phase 3 で WinForms 化予定
+  - **既存 modules への波及**: ゼロ（並走運用。Phase 4 で削除予定）
+  - kernel 公開 API §1〜§5 のみ依存、Min Kernel API = 2.0.0
+- dev/launcher/Launcher_BackUper.cs + app_backuper.manifest + build_backuper.ps1:
+  Fabriq_BackUper.exe を csc.exe で生成する launcher 一式
+  （Launcher_IOS と同型、UAC requireAdministrator、anycpu .NET Framework 4.x）
+- apps/fabriq_operator/lib/apps_dialog.ps1: exclusion list に
+  `fabriq_backuper` を追加（FabriqIOS と同様、独自 EXE 起動経路に揃える）
+
 ### Added
 - modules/extended/userdata_backup (新規モジュール v0.1.0):
   任意のファイル / ディレクトリの portable backup + restore を担う
