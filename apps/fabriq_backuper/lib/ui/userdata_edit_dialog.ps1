@@ -132,7 +132,14 @@ function Show-UserdataEditDialog {
             }
         } catch { }
         if ($fbd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $txtPath.Text = $fbd.SelectedPath
+            # Phase 2.8.0: if the picked path sits under the selected user's
+            # profile, rewrite the prefix back to %USERPROFILE% / %APPDATA% /
+            # %LOCALAPPDATA% so the saved entry stays portable across users.
+            $picked = $fbd.SelectedPath
+            try {
+                $picked = ConvertTo-EnvVarPath -AbsolutePath $picked -UserProfilePath $DefaultUserProfilePath
+            } catch { }
+            $txtPath.Text = $picked
         }
     })
 
@@ -156,7 +163,11 @@ function Show-UserdataEditDialog {
             }
         } catch { }
         if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $txtPath.Text = $ofd.FileName
+            $picked = $ofd.FileName
+            try {
+                $picked = ConvertTo-EnvVarPath -AbsolutePath $picked -UserProfilePath $DefaultUserProfilePath
+            } catch { }
+            $txtPath.Text = $picked
         }
     })
 
