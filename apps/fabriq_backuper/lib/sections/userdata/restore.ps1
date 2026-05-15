@@ -105,18 +105,30 @@ if ($plannedEntries.Count -eq 0) {
 
 Show-Info "Restoring $($plannedEntries.Count) entry(ies)"
 
+# Phase 2.7.8 / 2.7.9: hand the planned list to the Progress View
+# checklist. Direct call (no Get-Command gate); try/catch handles the
+# console-only / no-GUI fallback.
+try {
+    $uiEntries = foreach ($pe in $plannedEntries) {
+        @{ Id = "$($pe.id)"; Label = "$($pe.sourcePath)" }
+    }
+    Initialize-ProgressEntries -Entries @($uiEntries)
+} catch { }
+
 # ----------------------------------------------------------
 # Execute
 # ----------------------------------------------------------
 $successCount = 0; $skipCount = 0; $failCount = 0
 
 foreach ($pe in $plannedEntries) {
+    try { Set-EntryStatus -Id "$($pe.id)" -Status 'InProgress' } catch { }
     Show-Info "[$($pe.id)] $($pe.resolvedPath)"
     $srcDataDir = Join-Path $sectionDir $pe.backupSubpath
     if (-not (Test-Path $srcDataDir)) {
         Show-Error "  Backup data folder missing: $srcDataDir"
         $warnings += "Missing data folder for entry $($pe.id)"
         $failCount++
+        try { Set-EntryStatus -Id "$($pe.id)" -Status 'Failed' } catch { }
         continue
     }
 
@@ -146,11 +158,14 @@ foreach ($pe in $plannedEntries) {
     $onConflict = if ([string]::IsNullOrWhiteSpace($pe.onConflict)) { 'skip' } else { $pe.onConflict.ToLower() }
     $includeAcl = [bool]$pe.includeAcl
     $proceed = $true
+    # Phase 2.7.8: tracks the reason proceed got flipped to false so the
+    # UI checklist can distinguish "skipped" vs "failed" for this entry.
+    $proceedReason = 'Failed'
 
     if ($isDir) {
         if (Test-Path -LiteralPath $targetPath -PathType Container) {
             switch ($onConflict) {
-                'skip' { Show-Skip "  exists (skip)"; $skipCount++; $proceed = $false }
+                'skip' { Show-Skip "  exists (skip)"; $skipCount++; $proceed = $false; $proceedReason = 'Skipped' }
                 'overwrite' { Show-Info "  exists (overwrite)" }
                 'rename' {
                     $renamed = "$targetPath.bak_$(Get-Date -Format yyyyMMdd_HHmmss)"
@@ -169,7 +184,7 @@ foreach ($pe in $plannedEntries) {
     } else {
         if (Test-Path -LiteralPath $targetPath -PathType Leaf) {
             switch ($onConflict) {
-                'skip' { Show-Skip "  exists (skip)"; $skipCount++; $proceed = $false }
+                'skip' { Show-Skip "  exists (skip)"; $skipCount++; $proceed = $false; $proceedReason = 'Skipped' }
                 'overwrite' { Show-Info "  exists (overwrite)" }
                 'rename' {
                     $renamed = "$targetPath.bak_$(Get-Date -Format yyyyMMdd_HHmmss)"
@@ -185,18 +200,29 @@ foreach ($pe in $plannedEntries) {
         }
     }
 
-    if (-not $proceed) { continue }
+    if (-not $proceed) {
+        try { Set-EntryStatus -Id "$($pe.id)" -Status $proceedReason } catch { }
+        continue
+    }
 
     if ($isDir) {
         if (-not (Test-Path -LiteralPath $targetPath)) {
             try { $null = New-Item -ItemType Directory -Path $targetPath -Force -ErrorAction Stop }
-            catch { $warnings += "Target dir create failed: $targetPath"; $failCount++; continue }
+            catch {
+                $warnings += "Target dir create failed: $targetPath"; $failCount++
+                try { Set-EntryStatus -Id "$($pe.id)" -Status 'Failed' } catch { }
+                continue
+            }
         }
     } else {
         $parent = Split-Path -Path $targetPath -Parent
         if (-not (Test-Path -LiteralPath $parent)) {
             try { $null = New-Item -ItemType Directory -Path $parent -Force -ErrorAction Stop }
-            catch { $warnings += "Target parent create failed: $parent"; $failCount++; continue }
+            catch {
+                $warnings += "Target parent create failed: $parent"; $failCount++
+                try { Set-EntryStatus -Id "$($pe.id)" -Status 'Failed' } catch { }
+                continue
+            }
         }
     }
 
@@ -214,19 +240,15 @@ foreach ($pe in $plannedEntries) {
         $targetDir = Split-Path -Path $targetPath -Parent
         $rcArgs = @($srcDataDir, $targetDir, $fileName, $copyFlag, '/B', '/R:1', '/W:1', '/NP', '/NDL', '/NS', '/NC')
     }
-    if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
-        Add-ProgressLog "  [$($pe.id)] robocopy $srcDataDir -> $targetPath"
-    }
-    # Phase 2.7.4: stream robocopy output line-by-line so the user sees
-    # restore progress in real time. DoEvents() pump every 8 lines keeps the
-    # UI responsive while staying on the synchronous backup/restore thread.
+    try { Add-ProgressLog "  [$($pe.id)] robocopy $srcDataDir -> $targetPath" } catch { }
+    # Phase 2.7.4 / 2.7.9: stream robocopy output line-by-line so the user
+    # sees restore progress in real time. Direct Add-ProgressLog call
+    # (no Get-Command gate) — see backup.ps1 for the same rationale.
     $rcLine = 0
     & robocopy.exe @rcArgs 2>&1 | ForEach-Object {
         $line = "$_"
         if (-not [string]::IsNullOrWhiteSpace($line)) {
-            if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
-                Add-ProgressLog "    $($line.TrimEnd())"
-            }
+            try { Add-ProgressLog "    $($line.TrimEnd())" } catch { }
             $rcLine++
             if (($rcLine % 8) -eq 0 -and `
                 ([System.Windows.Forms.Application] -as [type])) {
@@ -235,16 +257,20 @@ foreach ($pe in $plannedEntries) {
         }
     }
     $rcExit = $LASTEXITCODE
+    $entryUiStatus = 'Done'
     if ($rcExit -ge 8) {
         Show-Error "  robocopy fail (exit $rcExit)"
         $warnings += "robocopy exit $rcExit for $($pe.id)"; $failCount++
+        $entryUiStatus = 'Failed'
     } elseif ($rcExit -ge 4) {
         Show-Warning "  robocopy mismatch (exit $rcExit)"
         $warnings += "robocopy mismatch (exit $rcExit) for $($pe.id)"; $successCount++
+        $entryUiStatus = 'Partial'
     } else {
         Show-Success "  restored (exit $rcExit)"
         $successCount++
     }
+    try { Set-EntryStatus -Id "$($pe.id)" -Status $entryUiStatus } catch { }
 }
 
 $sw.Stop()

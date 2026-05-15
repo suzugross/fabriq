@@ -192,12 +192,35 @@ foreach ($e in $entries) {
 }
 
 # ----------------------------------------------------------
+# Phase 2.7.8: hand the planned list to the Progress View
+# checklist so operators can track per-entry completion.
+# Phase 2.7.9: Get-Command gate was unreliable when section is
+# invoked via `& $scriptPath` — dynamic scope chain works for
+# DIRECT function calls (Test-AdminPrivilege etc.) but
+# Get-Command lookup may not surface parent-scope functions.
+# Wrap the call in try/catch so console-only invocation still
+# degrades gracefully.
+# ----------------------------------------------------------
+try {
+    $uiEntries = foreach ($p in $planned) {
+        $label = if (-not [string]::IsNullOrWhiteSpace($p.Description)) {
+            "$($p.Description)  ($($p.SourcePath))"
+        } else {
+            "$($p.SourcePath)"
+        }
+        @{ Id = $p.Id; Label = $label }
+    }
+    Initialize-ProgressEntries -Entries @($uiEntries)
+} catch { }
+
+# ----------------------------------------------------------
 # Execute backup
 # ----------------------------------------------------------
 $manifestEntries = @()
 $successCount = 0; $skipCount = 0; $failCount = 0
 
 foreach ($p in $planned) {
+    try { Set-EntryStatus -Id $p.Id -Status 'InProgress' } catch { }
     $entryDir = Join-Path (Join-Path $sectionDir 'entries') $p.Id
     $dataDir  = Join-Path $entryDir 'data'
     $logFile  = Join-Path $entryDir 'entry_log.txt'
@@ -230,6 +253,7 @@ foreach ($p in $planned) {
             status          = $status
             reason          = $reason
         }
+        try { Set-EntryStatus -Id $p.Id -Status 'Skipped' } catch { }
         continue
     }
 
@@ -238,6 +262,7 @@ foreach ($p in $planned) {
     } catch {
         $warnings += "Entry $($p.Id) dir creation failed: $($_.Exception.Message)"
         $failCount++
+        try { Set-EntryStatus -Id $p.Id -Status 'Failed' } catch { }
         continue
     }
 
@@ -275,14 +300,17 @@ foreach ($p in $planned) {
     }
 
     Show-Info "  robocopy ..."
-    if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
-        Add-ProgressLog "  [$($p.Id)] robocopy $($p.ResolvedPath) -> $dataDir"
-    }
+    try { Add-ProgressLog "  [$($p.Id)] robocopy $($p.ResolvedPath) -> $dataDir" } catch { }
     # Phase 2.7.4: stream robocopy stdout/stderr line-by-line. Each line is
     # (a) appended to entry_log.txt (preserves existing artifact) and
     # (b) forwarded to the Progress View log with periodic DoEvents() so the
     # WinForms message pump can render incremental updates. Without this the
     # whole backup ran silently on the UI thread until completion.
+    # Phase 2.7.9: removed the Get-Command Add-ProgressLog gate — it was
+    # silently no-op'ing in the section's `&`-invoked scope. Direct call
+    # works via PowerShell's dynamic-scope function lookup (same as
+    # Test-AdminPrivilege / Show-Info above); try/catch keeps the
+    # console-only / no-GUI fallback path safe.
     $logStream = [System.IO.StreamWriter]::new($logFile, $false, [System.Text.Encoding]::UTF8)
     try {
         $rcLine = 0
@@ -290,9 +318,7 @@ foreach ($p in $planned) {
             $line = "$_"
             $logStream.WriteLine($line)
             if (-not [string]::IsNullOrWhiteSpace($line)) {
-                if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
-                    Add-ProgressLog "    $($line.TrimEnd())"
-                }
+                try { Add-ProgressLog "    $($line.TrimEnd())" } catch { }
                 $rcLine++
                 if (($rcLine % 8) -eq 0 -and `
                     ([System.Windows.Forms.Application] -as [type])) {
@@ -344,6 +370,15 @@ foreach ($p in $planned) {
         status          = $status
         reason          = $reason
     }
+
+    $uiStatus = switch ($status) {
+        'Success' { 'Done' }
+        'Failed'  { 'Failed' }
+        'Partial' { 'Partial' }
+        'Skipped' { 'Skipped' }
+        default   { 'Done' }
+    }
+    try { Set-EntryStatus -Id $p.Id -Status $uiStatus } catch { }
 }
 
 # ----------------------------------------------------------

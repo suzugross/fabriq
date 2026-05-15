@@ -15,6 +15,69 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_backuper v0.7.9 → v0.7.10 (Phase 2.7.10 / `$script:` スコープ解決問題):
+  Phase 2.7.9 で Get-Command ゲートを撤去したが、streaming/checklist は依然
+  反応せず。実機で popup は動くのに streaming は動かない、というユーザ報告から
+  原因を `$script:` の dynamic 解決問題と特定。
+  - 原因の核心: `Add-ProgressLog` などの関数は `$script:ProgressLogBox` を
+    参照しているが、PowerShell の `$script:` は **関数を実行している現在の
+    script コンテキスト** によって動的に切り替わる。section script を engine
+    が `& $scriptPath` で起動すると、section は独自の script スコープを持つ
+    ため、そこから呼ばれた `Add-ProgressLog` 内の `$script:ProgressLogBox`
+    は **section のスコープに解決され、null** となっていた。popup は
+    `Show-CompletionPopup` が `Invoke-BackupStart` (fabriq script スコープ
+    の関数) から呼ばれるため `$script:MainForm` が正しく解決され動作していた、
+    という非対称な挙動だった
+  - 修正: UI コントロール参照のうち、section から呼ばれるパス上にある 2 個 -
+    `$script:ProgressLogBox` → **`$global:Fbp_ProgressLogBox`** /
+    `$script:ProgressEntriesGrid` → **`$global:Fbp_ProgressEntriesGrid`**
+    に昇格。`Fbp_` prefix で global namespace の汚染を最小化
+  - 副作用なし: New-ProgressView / Initialize-ProgressView / Add-ProgressLog /
+    Initialize-ProgressEntries / Set-EntryStatus の全箇所を一括書き換え
+
+### Fixed
+- apps/fabriq_backuper v0.7.8 → v0.7.9 (Phase 2.7.9 / streaming/checklist 無反応バグ):
+  Phase 2.7.4 で入れた robocopy streaming と Phase 2.7.8 で入れた per-entry
+  チェックリストが、**実機で全く反応しなかった**問題を修正。
+  - 原因: section script (`userdata/backup.ps1` / `userdata/restore.ps1`) を
+    engine から `& $scriptPath` で呼んだ際、`Get-Command Add-ProgressLog
+    -ErrorAction SilentlyContinue` が **親スコープにある dot-source 済み関数
+    を検出できない** ケースがあり、`if` ゲートが常に偽となって Add-ProgressLog /
+    Initialize-ProgressEntries / Set-EntryStatus がすべて no-op になっていた。
+    `Test-AdminPrivilege` のような **直接呼び出し** は dynamic scope chain で
+    解決できるが、`Get-Command` 経由の lookup は別経路を通る挙動
+  - 修正: section 内の全 `if (Get-Command X -EA SilentlyContinue) { X ... }`
+    パターンを **`try { X ... } catch { }`** に置換。直接呼び出しに変更し、
+    console-only fallback の安全性は try/catch で確保
+  - 影響: backup / restore とも、Phase 2.7.4 (streaming) と Phase 2.7.8
+    (checklist) が **GUI 経由でようやく実際に動作**するようになる
+
+### Added
+- apps/fabriq_backuper v0.7.7 → v0.7.8 (Phase 2.7.8 / per-entry 進捗チェックリスト):
+  Progress View に **エントリ単位の状態表示 grid** を追加。
+  「Documents 終わった → Chrome User Data コピー中 → Desktop pending」が
+  一目でわかるようになる。アプリ設定 entry が先に終われば、その時点で
+  当該アプリの動作確認を始められるユースケース対応。
+  - 新規ヘルパー (progress_view.ps1):
+    - `Initialize-ProgressEntries -Entries @(@{Id=...; Label=...}, ...)`
+      で planned エントリ一覧をチェックリストに展開
+    - `Set-EntryStatus -Id <id> -Status <Pending|InProgress|Done|Partial|Failed|Skipped>`
+      で個別エントリの状態を更新。マーカー (`[v] Done` 等) + 色 (Done=green,
+      Failed=red, Partial=orange, Skipped=gray, InProgress=blue) を変更
+    - DoEvents pump 内蔵で同期 UI スレッドでも即時反映
+    - InProgress に変わった行は自動スクロール
+  - レイアウト変更: Title (Y=14) → **Entry status grid** (Y=68, h=150) →
+    **Detail log** (Y=248, h=362) → Done ボタン (Y=624)。既存の streaming
+    log は縮小して併設
+  - 呼び出し側 (`userdata/backup.ps1` / `userdata/restore.ps1`):
+    planned 配列構築直後に `Initialize-ProgressEntries`、各エントリ処理開始時に
+    `Set-EntryStatus -InProgress`、完了時に `Done` / `Partial` / `Failed` /
+    `Skipped` のいずれか。`Get-Command` ガードで console 実行時の後方互換維持
+  - Label の表示:
+    - Backup: Description (空なら SourcePath)
+    - Restore: manifest の sourcePath (Description は manifest に保存していない)
+
 ### Added
 - apps/fabriq_backuper v0.7.6 → v0.7.7 (Phase 2.7.7 / userdata エントリ順並べ替え):
   Backup View の userdata grid に **[Up] / [Down] ボタン**を追加。選択行を
