@@ -15,6 +15,70 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_backuper v0.7.6 → v0.7.7 (Phase 2.7.7 / userdata エントリ順並べ替え):
+  Backup View の userdata grid に **[Up] / [Down] ボタン**を追加。選択行を
+  上下に 1 つずつ移動でき、即時 CSV 保存 (.bak rotation) で永続化される。
+  - 配置: editor 行内 Delete と Save changes の間
+    (Add / Edit / Delete / Up / Down / Save changes の 6 ボタン構成)
+  - 共有ヘルパー `Move-BackupEntry -Delta <-1|+1>` を追加し、Up/Down は
+    1 行のラッパーで呼び出し
+  - 並べ替え後、選択行のハイライトは移動先に追従
+  - **重要**: バックアップ実行時の処理順 = userdata_list.csv の行順 →
+    manifest.items.entries[] に焼き込まれる → restore はその順で実行。
+    つまり CSV を並べ替えるだけで **次回 backup と その restore 両方** の
+    順序が制御される (既存 backup の manifest 順は凍結のため変更不可)
+
+### Changed
+- apps/fabriq_backuper v0.7.5 → v0.7.6 (Phase 2.7.6 / robocopy multi-thread bump):
+  `userdata/backup.ps1` と `userdata/restore.ps1` の robocopy 引数に
+  **`/MT:16`** を追加 (既定 `/MT:8` → 16 に倍化)。
+  - 期待効果: AppData / browser cache / Outlook signatures など極小ファイル
+    大量系で +10〜20% のスループット改善
+  - `/MT:32` (Microsoft MIGRATE 採用値) と比較して保守的に選択:
+    HDD destination での seek storm リスクを避ける + log 行錯綜を抑える
+  - 1Gbps LAN のワイヤ飽和は既に robocopy 既定で達成済みのため、
+    本変更の主効果は **小ファイル系のレイテンシ隠蔽**
+  - 大ファイル中心の workload では効果ほぼ無し (差なし)
+  - 計測した結果さらに上げたい場合は `/MT:32` への昇格を検討 (1 行修正)
+
+### Added
+- apps/fabriq_backuper v0.7.4 → v0.7.5 (Phase 2.7.5 / 完了通知ポップアップ):
+  バックアップ/リストア完了時に **MessageBox モーダル**で結果を表示するように。
+  Progress View を凝視していなくても完了に気付けるよう改善。
+  - **新規ヘルパー** (progress_view.ps1): `Show-CompletionPopup`
+    (-Title / -Body / -Status)。Status により icon を出し分け:
+    `Success` → Information, `Partial` → Warning, `Failed` → Error
+  - Backup 完了 popup の本文: Status + Elapsed + Data size + Files/Dirs +
+    Entries + Written to (AggregateDir)
+  - Restore 完了 popup の本文: Status + Elapsed + Entries (success/skip/
+    fail) + Restored from (AggregateDir)
+  - 副次効果: MessageBox 出現時に OS 通知音 + タスクバー点滅が自動発生
+    (ユーザが他作業中でも気付ける), `$script:MainForm.Activate()` でフォーム
+    自体も foreground に持ち上げ
+
+### Added
+- apps/fabriq_backuper v0.7.3 → v0.7.4 (Phase 2.7.4 / 進行可視化 + Run summary):
+  バックアップ/リストアが silent に見える問題と、所要時間 / データ量がわからない
+  問題をまとめて解消。
+  - **robocopy 出力の line-by-line streaming**: `userdata/backup.ps1` と
+    `userdata/restore.ps1` の robocopy 呼び出しを stdout/stderr 一行ずつ
+    `Add-ProgressLog` に転送する形に変更。8 行毎に
+    `[System.Windows.Forms.Application]::DoEvents()` を pump し、同期 UI
+    スレッドでも message queue が処理されて Progress View 上で **ファイル名が
+    流れる**ようになる。実行コストは無視できる範囲、Runspace 化なし
+  - **Run summary block**: backup_view / restore_view の Invoke-XxxStart
+    で全体 stopwatch を取り、終了後に `Run summary:` ブロックを Progress
+    View 末尾に追記:
+    - Elapsed: 経過時間 (`5m 23s` / `1h 12m 45s` 形式)
+    - Data size: 各 section の Summary.totalBytes を集計 (Format-Bytes で
+      KB/MB/GB 単位)
+    - Files / Dirs / Entries: 利用可能な集計値を表示
+    - restore 側は totalBytes が無いので Entries (success/skip/fail) を表示
+  - **新規ヘルパー** (progress_view.ps1): `Format-Bytes`, `Format-Duration`
+  - backup.ps1 の entry_log.txt は streaming 経由でも書き続ける (artifact
+    保持)、restore は元から log file 書き出しなしのため UI 転送のみ
+
 ### Fixed
 - apps/fabriq_backuper v0.7.2 → v0.7.3 (Phase 2.7.3 / Documents 内ジャンクション追跡問題):
   `%USERPROFILE%\Documents` をバックアップすると、Pictures / Music / Videos
