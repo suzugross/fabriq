@@ -1,18 +1,26 @@
 # ============================================================
-# FabriqBackUper - Backup View (Phase 2.2.1)
-# Section toggles + per-printer selection grid + Start.
-# Per-printer checkboxes are ephemeral (this run only); the
-# printer section receives selected names via SectionParams.
+# FabriqBackUper - Backup View
+# Phase 2.7.1: Compact layout to fit 780-tall form (smaller
+#              printer grid, tighter Y positions). Start button
+#              now ends at Y=676 within the ~690-px content area.
+# Phase 2.7  : Source-user dropdown + editable User Data grid
+#              (Add / Edit / Delete / Save). Toggling the per-row
+#              checkbox is ephemeral (filters the current run);
+#              Save changes writes the Enabled column back to
+#              userdata_list.csv (1-gen .bak rotation).
+# Form size assumption: 960x780 with 44-px header dock.
 # ============================================================
 
-$script:BackupSectionChecks   = @{}
-$script:BackupPrinterGrid     = $null
-$script:BackupPrinterRows     = @()
-$script:BackupEntryGrid       = $null
+$script:BackupSectionChecks    = @{}
+$script:BackupPrinterGrid      = $null
+$script:BackupPrinterRows      = @()
+$script:BackupEntryGrid        = $null
+$script:BackupEntries          = @()   # Live in-memory CSV rows (PSCustomObjects)
 $script:BackupSectionContainer = $null
 $script:BackupDestinationBox   = $null
+$script:BackupUserCombo        = $null
+$script:BackupUserList         = @()
 
-# Virtual printer detection (unchecked by default)
 $script:VirtualDriverPatterns = @(
     'Microsoft Print To PDF',
     'Microsoft XPS Document Writer',
@@ -38,30 +46,31 @@ function New-BackupView {
     $panel = New-Object System.Windows.Forms.Panel
     $panel.BackColor = $script:bgForm
 
-    $btnBack = New-StyledButton -Text "< Back" -X 16 -Y 12 -Width 80 -Height 28
+    # ---- Top row: Back + title ----------------------------
+    $btnBack = New-StyledButton -Text "< Back" -X 16 -Y 10 -Width 80 -Height 28
     $btnBack.Add_Click({ Switch-View 'ModeSelect' })
     $panel.Controls.Add($btnBack)
 
-    $title = New-StyledLabel -Text "Backup" -X 110 -Y 14 -Width 200 -Height 24 -Font $script:fontLarge
+    $title = New-StyledLabel -Text "Backup" -X 110 -Y 12 -Width 200 -Height 24 -Font $script:fontLarge
     $panel.Controls.Add($title)
 
-    # Destination root (Phase 2.4)
-    $destLbl = New-StyledLabel -Text "Destination root (UNC OK):" `
-        -X 32 -Y 50 -Width 240 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- Destination row ----------------------------------
+    $destLbl = New-StyledLabel -Text "Destination root (local path or UNC):" `
+        -X 24 -Y 44 -Width 320 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($destLbl)
 
     $destBox = New-Object System.Windows.Forms.TextBox
-    $destBox.Location = New-Object System.Drawing.Point(32, 70)
-    $destBox.Size = New-Object System.Drawing.Size(560, 24)
+    $destBox.Location = New-Object System.Drawing.Point(24, 66)
+    $destBox.Size = New-Object System.Drawing.Size(620, 24)
     Set-TextBoxStyle -TextBox $destBox
     $destBox.Text = (Join-Path $script:BackuperRoot 'Backup')
     $panel.Controls.Add($destBox)
     $script:BackupDestinationBox = $destBox
 
-    $btnDestBrowse = New-StyledButton -Text "Browse..." -X 600 -Y 68 -Width 80 -Height 26
+    $btnDestBrowse = New-StyledButton -Text "Browse..." -X 654 -Y 64 -Width 100 -Height 28
     $btnDestBrowse.Add_Click({
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = "Select backup destination root (local or UNC)"
+        $dlg.Description = "Select backup destination root (local folder)"
         $dlg.ShowNewFolderButton = $true
         if (-not [string]::IsNullOrWhiteSpace($script:BackupDestinationBox.Text) -and `
             (Test-Path $script:BackupDestinationBox.Text)) {
@@ -73,91 +82,142 @@ function New-BackupView {
     })
     $panel.Controls.Add($btnDestBrowse)
 
-    # Sections row
-    $sectionGroupLbl = New-StyledLabel -Text "Sections" -X 32 -Y 108 -Width 200 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    $btnUncConnect = New-StyledButton -Text "Connect UNC..." -X 762 -Y 64 -Width 130 -Height 28 -BgColor $script:bgAccent
+    $btnUncConnect.Add_Click({
+        $initial = if ($script:BackupDestinationBox.Text -like '\\*') { $script:BackupDestinationBox.Text } else { '' }
+        $unc = Show-UncConnectDialog -InitialPath $initial
+        if (-not [string]::IsNullOrWhiteSpace($unc)) {
+            $script:BackupDestinationBox.Text = $unc
+        }
+    })
+    $panel.Controls.Add($btnUncConnect)
+
+    # ---- Sections row -------------------------------------
+    $sectionGroupLbl = New-StyledLabel -Text "Sections" `
+        -X 24 -Y 100 -Width 200 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($sectionGroupLbl)
     $script:BackupSectionContainer = New-Object System.Windows.Forms.Panel
-    $script:BackupSectionContainer.Location = New-Object System.Drawing.Point(32, 130)
-    $script:BackupSectionContainer.Size = New-Object System.Drawing.Size(640, 30)
+    $script:BackupSectionContainer.Location = New-Object System.Drawing.Point(24, 122)
+    $script:BackupSectionContainer.Size = New-Object System.Drawing.Size(880, 26)
     $script:BackupSectionContainer.BackColor = [System.Drawing.Color]::Transparent
     $panel.Controls.Add($script:BackupSectionContainer)
 
-    # Printer list (when Printer section is enabled)
-    $pLbl = New-StyledLabel -Text "Printers on this PC (uncheck to exclude from this backup)" `
-        -X 32 -Y 170 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- Printer list row ---------------------------------
+    $pLbl = New-StyledLabel -Text "Printers on this PC (uncheck to exclude)" `
+        -X 24 -Y 156 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($pLbl)
 
-    $btnSelectAll = New-StyledButton -Text "Select All" -X 498 -Y 166 -Width 86 -Height 22
+    $btnSelectAll = New-StyledButton -Text "Select All" -X 620 -Y 152 -Width 96 -Height 24
     $btnSelectAll.Add_Click({ Set-AllPrinterChecks $true })
     $panel.Controls.Add($btnSelectAll)
-    $btnNone = New-StyledButton -Text "None" -X 588 -Y 166 -Width 60 -Height 22
+
+    $btnNone = New-StyledButton -Text "None" -X 722 -Y 152 -Width 80 -Height 24
     $btnNone.Add_Click({ Set-AllPrinterChecks $false })
     $panel.Controls.Add($btnNone)
-    $btnRefresh = New-StyledButton -Text "Refresh" -X 652 -Y 166 -Width 60 -Height 22
+
+    $btnRefresh = New-StyledButton -Text "Refresh" -X 808 -Y 152 -Width 96 -Height 24
     $btnRefresh.Add_Click({ Update-BackupPrinterGrid })
     $panel.Controls.Add($btnRefresh)
 
     $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point(32, 194)
-    $grid.Size = New-Object System.Drawing.Size(680, 180)
+    $grid.Location = New-Object System.Drawing.Point(24, 182)
+    $grid.Size = New-Object System.Drawing.Size(880, 140)
     Set-GridStyle -Grid $grid
     $grid.ReadOnly = $false
 
     $colCk = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
-    $colCk.HeaderText = ""
-    $colCk.Width = 32
-    $colCk.Name = "Check"
+    $colCk.HeaderText = ""; $colCk.Width = 36; $colCk.Name = "Check"
     [void]$grid.Columns.Add($colCk)
 
     $colName = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $colName.HeaderText = "Printer Name"
-    $colName.Width = 280
-    $colName.Name = "Name"
-    $colName.ReadOnly = $true
+    $colName.HeaderText = "Printer Name"; $colName.Width = 320; $colName.Name = "Name"; $colName.ReadOnly = $true
     [void]$grid.Columns.Add($colName)
 
     $colDriver = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $colDriver.HeaderText = "Driver"
-    $colDriver.Width = 180
-    $colDriver.Name = "Driver"
-    $colDriver.ReadOnly = $true
+    $colDriver.HeaderText = "Driver"; $colDriver.Width = 280; $colDriver.Name = "Driver"; $colDriver.ReadOnly = $true
     [void]$grid.Columns.Add($colDriver)
 
     $colPort = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colPort.HeaderText = "Port"
     $colPort.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
-    $colPort.Name = "Port"
-    $colPort.ReadOnly = $true
+    $colPort.Name = "Port"; $colPort.ReadOnly = $true
     [void]$grid.Columns.Add($colPort)
 
     $panel.Controls.Add($grid)
     $script:BackupPrinterGrid = $grid
 
-    # User Data entries preview (still preview-only in 2.4; editor is Phase 2.2.2)
-    $entryLbl = New-StyledLabel -Text "User Data Entries (preview; editor in Phase 2.2.2)" `
-        -X 32 -Y 384 -Width 480 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- User Data row: title + source user combo ---------
+    $entryLbl = New-StyledLabel -Text "User Data (toggle = per-session, Add/Edit/Delete/Save persist)" `
+        -X 24 -Y 336 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($entryLbl)
 
-    $eGrid = New-Object System.Windows.Forms.DataGridView
-    $eGrid.Location = New-Object System.Drawing.Point(32, 406)
-    $eGrid.Size = New-Object System.Drawing.Size(680, 80)
-    Set-GridStyle -Grid $eGrid
+    $userLbl = New-StyledLabel -Text "Source user:" `
+        -X 568 -Y 336 -Width 80 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    $panel.Controls.Add($userLbl)
+    $userCombo = New-StyledComboBox -X 650 -Y 332 -Width 254 -Height 24
+    $script:BackupUserCombo = $userCombo
+    $panel.Controls.Add($userCombo)
 
-    $ec1 = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $ec1.HeaderText = "On"; $ec1.Width = 36; $ec1.DefaultCellStyle.Alignment = "MiddleCenter"
-    [void]$eGrid.Columns.Add($ec1)
+    # ---- User Data row: editor buttons --------------------
+    $btnEntryAdd = New-StyledButton -Text "Add" -X 24 -Y 362 -Width 80 -Height 26 -BgColor $script:bgAdd
+    $btnEntryAdd.ForeColor = $script:fgWhite
+    $btnEntryAdd.Add_Click({ Invoke-EntryAdd })
+    $panel.Controls.Add($btnEntryAdd)
+
+    $btnEntryEdit = New-StyledButton -Text "Edit" -X 108 -Y 362 -Width 80 -Height 26
+    $btnEntryEdit.Add_Click({ Invoke-EntryEdit })
+    $panel.Controls.Add($btnEntryEdit)
+
+    $btnEntryDel = New-StyledButton -Text "Delete" -X 192 -Y 362 -Width 80 -Height 26 -BgColor $script:bgDelete
+    $btnEntryDel.ForeColor = $script:fgWhite
+    $btnEntryDel.Add_Click({ Invoke-EntryDelete })
+    $panel.Controls.Add($btnEntryDel)
+
+    $btnEntrySave = New-StyledButton -Text "Save changes" -X 280 -Y 362 -Width 124 -Height 26 -BgColor $script:bgAccent
+    $btnEntrySave.Font = $script:fontBold
+    $btnEntrySave.Add_Click({ Invoke-EntrySaveAll })
+    $panel.Controls.Add($btnEntrySave)
+
+    # ---- User Data grid -----------------------------------
+    $eGrid = New-Object System.Windows.Forms.DataGridView
+    $eGrid.Location = New-Object System.Drawing.Point(24, 396)
+    $eGrid.Size = New-Object System.Drawing.Size(880, 218)
+    Set-GridStyle -Grid $eGrid
+    $eGrid.ReadOnly = $false
+
+    $ec0 = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
+    $ec0.HeaderText = "On"; $ec0.Width = 40; $ec0.Name = "Enabled"
+    [void]$eGrid.Columns.Add($ec0)
+
     $ec2 = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $ec2.HeaderText = "Description"; $ec2.Width = 200
+    $ec2.HeaderText = "Description"; $ec2.Width = 220; $ec2.Name = "Description"; $ec2.ReadOnly = $true
     [void]$eGrid.Columns.Add($ec2)
+
     $ec3 = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $ec3.HeaderText = "SourcePath"
-    $ec3.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
+    $ec3.HeaderText = "SourcePath"; $ec3.Width = 320; $ec3.Name = "SourcePath"; $ec3.ReadOnly = $true
     [void]$eGrid.Columns.Add($ec3)
+
+    $ec4 = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $ec4.HeaderText = "Conflict"; $ec4.Width = 80; $ec4.Name = "OnConflict"; $ec4.ReadOnly = $true
+    [void]$eGrid.Columns.Add($ec4)
+
+    $ec5 = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $ec5.HeaderText = "Exclude"; $ec5.Name = "ExcludePattern"; $ec5.ReadOnly = $true
+    $ec5.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
+    [void]$eGrid.Columns.Add($ec5)
+
+    # Double-click row to edit (renamed $sender -> $src to avoid the
+    # PowerShell automatic variable; the param itself is unused).
+    $eGrid.Add_CellDoubleClick({
+        param($src, $ev)
+        if ($ev.RowIndex -ge 0) { Invoke-EntryEdit }
+    })
+
     $panel.Controls.Add($eGrid)
     $script:BackupEntryGrid = $eGrid
 
-    # Start button
-    $btnStart = New-StyledButton -Text "Start Backup" -X 512 -Y 496 -Width 200 -Height 40 -BgColor $script:bgAccent
+    # ---- Start button -------------------------------------
+    $btnStart = New-StyledButton -Text "Start Backup" -X 700 -Y 624 -Width 204 -Height 44 -BgColor $script:bgAccent
     $btnStart.Font = $script:fontLarge
     $btnStart.Add_Click({ Invoke-BackupStart })
     $panel.Controls.Add($btnStart)
@@ -188,38 +248,140 @@ function Update-BackupPrinterGrid {
     }
 }
 
+# ============================================================
+# User-data editor: in-memory model
+# ============================================================
+
+function Update-BackupUserComboItems {
+    $combo = $script:BackupUserCombo
+    if ($null -eq $combo) { return }
+    $combo.Items.Clear()
+    $script:BackupUserList = @(Get-UserProfileList)
+    foreach ($u in $script:BackupUserList) { [void]$combo.Items.Add($u.Label) }
+    $idx = Get-DefaultProfileIndex -List $script:BackupUserList
+    if ($idx -ge 0) { $combo.SelectedIndex = $idx }
+}
+
+function Get-SelectedBackupUserProfilePath {
+    $combo = $script:BackupUserCombo
+    if ($null -eq $combo -or $combo.SelectedIndex -lt 0) { return $null }
+    if ($combo.SelectedIndex -ge $script:BackupUserList.Count) { return $null }
+    return $script:BackupUserList[$combo.SelectedIndex].ProfilePath
+}
+
+function Update-BackupEntryGridFromMemory {
+    $grid = $script:BackupEntryGrid
+    if ($null -eq $grid) { return }
+    $grid.Rows.Clear()
+    foreach ($e in $script:BackupEntries) {
+        $enabled = ("$($e.Enabled)" -match '^(1|true|yes)$')
+        $idx = $grid.Rows.Add($enabled, $e.Description, $e.SourcePath, $e.OnConflict, $e.ExcludePattern)
+        $grid.Rows[$idx].Tag = $e
+    }
+}
+
+function Read-BackupEntryGridIntoMemory {
+    # Sync the grid's Enabled checkbox column back into $script:BackupEntries
+    # (other columns are read-only in the grid; editing is via the dialog).
+    $grid = $script:BackupEntryGrid
+    if ($null -eq $grid) { return }
+    for ($i = 0; $i -lt $grid.Rows.Count; $i++) {
+        $row = $grid.Rows[$i]
+        if ($i -ge $script:BackupEntries.Count) { continue }
+        $checked = ($row.Cells['Enabled'].Value -eq $true)
+        $script:BackupEntries[$i].Enabled = if ($checked) { '1' } else { '0' }
+    }
+}
+
+function Invoke-EntryAdd {
+    $new = Show-UserdataEditDialog -DefaultUserProfilePath (Get-SelectedBackupUserProfilePath)
+    if ($null -eq $new) { return }
+    Read-BackupEntryGridIntoMemory
+    $script:BackupEntries = @($script:BackupEntries) + @($new)
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    Save-UserdataCsv -Path $csvPath -Entries $script:BackupEntries
+    Update-BackupEntryGridFromMemory
+}
+
+function Invoke-EntryEdit {
+    $grid = $script:BackupEntryGrid
+    if ($null -eq $grid -or $null -eq $grid.CurrentRow) {
+        [System.Windows.Forms.MessageBox]::Show("Select a row first.", "Edit entry",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $idx = $grid.CurrentRow.Index
+    if ($idx -lt 0 -or $idx -ge $script:BackupEntries.Count) { return }
+    $existing = $script:BackupEntries[$idx]
+    $updated = Show-UserdataEditDialog -Entry $existing -DefaultUserProfilePath (Get-SelectedBackupUserProfilePath)
+    if ($null -eq $updated) { return }
+    Read-BackupEntryGridIntoMemory
+    $script:BackupEntries[$idx] = $updated
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    Save-UserdataCsv -Path $csvPath -Entries $script:BackupEntries
+    Update-BackupEntryGridFromMemory
+}
+
+function Invoke-EntryDelete {
+    $grid = $script:BackupEntryGrid
+    if ($null -eq $grid -or $null -eq $grid.CurrentRow) {
+        [System.Windows.Forms.MessageBox]::Show("Select a row first.", "Delete entry",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $idx = $grid.CurrentRow.Index
+    if ($idx -lt 0 -or $idx -ge $script:BackupEntries.Count) { return }
+    $target = $script:BackupEntries[$idx]
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+        "Delete this entry?`n`n$($target.SourcePath)`n($($target.Description))",
+        "Delete entry",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question)
+    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+    Read-BackupEntryGridIntoMemory
+    $kept = @()
+    for ($i = 0; $i -lt $script:BackupEntries.Count; $i++) {
+        if ($i -ne $idx) { $kept += $script:BackupEntries[$i] }
+    }
+    $script:BackupEntries = @($kept)
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    Save-UserdataCsv -Path $csvPath -Entries $script:BackupEntries
+    Update-BackupEntryGridFromMemory
+}
+
+function Invoke-EntrySaveAll {
+    Read-BackupEntryGridIntoMemory
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    Save-UserdataCsv -Path $csvPath -Entries $script:BackupEntries
+    [System.Windows.Forms.MessageBox]::Show(
+        "Saved $($script:BackupEntries.Count) entry(ies) to:`n$csvPath`n`nPrevious version preserved as .bak.",
+        "Save changes",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+}
+
 function Show-BackupView {
-    # Refresh section checkboxes
     $cont = $script:BackupSectionContainer
     $cont.Controls.Clear()
     $script:BackupSectionChecks = @{}
     $x = 0
     foreach ($s in $script:SectionList) {
-        $cb = New-StyledCheckBox -Text $s.DisplayName -X $x -Y 4 -Width 280 -Height 22 -Checked ($s.Enabled -eq "1")
+        $cb = New-StyledCheckBox -Text $s.DisplayName -X $x -Y 4 -Width 300 -Height 22 -Checked ($s.Enabled -eq "1")
         $cb.Tag = $s.SectionName
         $cont.Controls.Add($cb)
         $script:BackupSectionChecks[$s.SectionName] = $cb
-        $x += 300
+        $x += 320
     }
 
-    # Populate printer grid
     Update-BackupPrinterGrid
+    Update-BackupUserComboItems
 
-    # Populate userdata preview from FabriqBackUper-owned CSV (Phase 2.3)
-    $grid = $script:BackupEntryGrid
-    $grid.Rows.Clear()
-    $userdataCsv = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
-    if (Test-Path $userdataCsv) {
-        try {
-            $rows = Import-Csv -Path $userdataCsv
-            foreach ($r in $rows) {
-                $onMark = if ($r.Enabled -eq "1") { "[v]" } else { "[ ]" }
-                [void]$grid.Rows.Add($onMark, $r.Description, $r.SourcePath)
-            }
-        } catch { [void]$grid.Rows.Add("!", "Failed to read CSV", $_.Exception.Message) }
-    } else {
-        [void]$grid.Rows.Add("?", "(not found)", $userdataCsv)
-    }
+    # Load CSV into memory + render grid
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    $script:BackupEntries = @(Read-UserdataCsv -Path $csvPath)
+    Update-BackupEntryGridFromMemory
 }
 
 function Invoke-BackupStart {
@@ -242,7 +404,6 @@ function Invoke-BackupStart {
         return
     }
 
-    # Collect printer selection
     $selectedPrinters = @()
     if ($null -ne $script:BackupPrinterGrid) {
         foreach ($row in $script:BackupPrinterGrid.Rows) {
@@ -252,23 +413,35 @@ function Invoke-BackupStart {
         }
     }
 
+    # Ephemeral userdata selection: sync grid -> memory, then derive the
+    # currently-checked SourcePath list for this run only (CSV file is
+    # NOT touched here; persistence is via Save changes / Add / Edit / Delete).
+    Read-BackupEntryGridIntoMemory
+    $selectedEntries = @($script:BackupEntries |
+        Where-Object { "$($_.Enabled)" -match '^(1|true|yes)$' } |
+        ForEach-Object { $_.SourcePath })
+
+    $sourceUserProfilePath = Get-SelectedBackupUserProfilePath
+
     $sectionParams = @{
         printer = @{
             IncludePrinters       = $selectedPrinters
             IncludeDriverBinaries = $true
             IncludePrintSettings  = $true
         }
+        userdata = @{
+            IncludeEntries        = $selectedEntries
+            SourceUserProfilePath = $sourceUserProfilePath
+        }
     }
 
-    # Phase 2.4: destination root from UI
     $destRoot = $script:BackupDestinationBox.Text
     if ([string]::IsNullOrWhiteSpace($destRoot)) {
         $destRoot = Join-Path $script:BackuperRoot 'Backup'
     }
-    # If UNC, ensure reachability (prompt for credentials if needed)
     if (-not (Resolve-UncAccess -Path $destRoot)) {
         [System.Windows.Forms.MessageBox]::Show(
-            "Cannot reach destination: $destRoot",
+            "Cannot reach destination: $destRoot`n`nUse [Connect UNC...] if credentials are needed.",
             "Fabriq BackUper", [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
         return
@@ -279,9 +452,15 @@ function Invoke-BackupStart {
     } else {
         "Printers: 0 (printer section will be skipped)"
     }
+    $userdataSummary = "User data: $($selectedEntries.Count) entry(ies) enabled"
+    $userSummary = if ([string]::IsNullOrWhiteSpace($sourceUserProfilePath)) {
+        "Source user: (current process)"
+    } else {
+        "Source user: $sourceUserProfilePath"
+    }
 
     $confirm = [System.Windows.Forms.MessageBox]::Show(
-        "Start backup for $($script:CurrentHost.OldPCname)?`n`nDestination: $destRoot`nSections: $(@($picked | ForEach-Object { $_.SectionName }) -join ', ')`n$printerSummary",
+        "Start backup for $($script:CurrentHost.OldPCname)?`n`nDestination: $destRoot`nSections: $(@($picked | ForEach-Object { $_.SectionName }) -join ', ')`n$printerSummary`n$userdataSummary`n$userSummary",
         "Fabriq BackUper - Confirm",
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Question
@@ -290,10 +469,15 @@ function Invoke-BackupStart {
 
     Switch-View 'Progress'
     Initialize-ProgressView -Title "Backup in progress..."
-    Append-ProgressLog "Starting backup for $($script:CurrentHost.OldPCname)"
-    Append-ProgressLog "Destination: $destRoot"
+    Add-ProgressLog "Starting backup for $($script:CurrentHost.OldPCname)"
+    Add-ProgressLog "Destination: $destRoot"
+    Add-ProgressLog $userSummary
     if ($selectedPrinters.Count -gt 0) {
-        Append-ProgressLog "Selected printers: $($selectedPrinters -join ', ')"
+        Add-ProgressLog "Selected printers: $($selectedPrinters -join ', ')"
+    }
+    if ($selectedEntries.Count -gt 0) {
+        Add-ProgressLog "Selected user-data entries:"
+        foreach ($sp in $selectedEntries) { Add-ProgressLog "  - $sp" }
     }
     $script:MainForm.Refresh()
 
@@ -306,17 +490,17 @@ function Invoke-BackupStart {
         -SectionParamsBySection $sectionParams `
         -DestinationRoot $destRoot
 
-    Append-ProgressLog ""
-    Append-ProgressLog "=========================================="
-    Append-ProgressLog "Backup complete: $($result.Status)"
-    Append-ProgressLog "$($result.Message)"
+    Add-ProgressLog ""
+    Add-ProgressLog "=========================================="
+    Add-ProgressLog "Backup complete: $($result.Status)"
+    Add-ProgressLog "$($result.Message)"
     foreach ($key in $result.SectionResults.Keys) {
         $r = $result.SectionResults[$key]
-        Append-ProgressLog ("  [{0,-10}] {1,-8} ({2} ms)" -f $key, $r.Status, $r.ElapsedMs)
+        Add-ProgressLog ("  [{0,-10}] {1,-8} ({2} ms)" -f $key, $r.Status, $r.ElapsedMs)
         if ($r.InternalSectionDir) {
-            Append-ProgressLog "             -> $($r.InternalSectionDir)"
+            Add-ProgressLog "             -> $($r.InternalSectionDir)"
         } elseif ($r.ExternalOutputDir) {
-            Append-ProgressLog "             -> $($r.ExternalOutputDir)  (external)"
+            Add-ProgressLog "             -> $($r.ExternalOutputDir)  (external)"
         }
     }
     Set-ProgressFinished

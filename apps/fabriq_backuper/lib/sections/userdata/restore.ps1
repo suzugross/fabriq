@@ -6,8 +6,12 @@
 # back to its resolvedPath via robocopy.
 #
 # SectionParams (hashtable, all optional):
-#   IncludeEntries  : array of SourcePath strings to restore
-#                     (null/empty = all entries in manifest, except 'Skipped')
+#   IncludeEntries        : array of SourcePath strings to restore
+#                           (null/empty = all entries in manifest, except 'Skipped')
+#   TargetUserProfilePath : profile path to resolve %USERPROFILE% /
+#                           %APPDATA% / %LOCALAPPDATA% / %USERNAME% against
+#                           on the restore target (null/empty = use current
+#                           process env vars). Phase 2.7.
 # ============================================================
 
 param(
@@ -26,6 +30,12 @@ if ($SectionParams.ContainsKey('IncludeEntries') -and `
     $null -ne $SectionParams['IncludeEntries'] -and `
     @($SectionParams['IncludeEntries']).Count -gt 0) {
     $includeEntries = @($SectionParams['IncludeEntries'])
+}
+
+$targetUserProfilePath = $null
+if ($SectionParams.ContainsKey('TargetUserProfilePath') -and `
+    -not [string]::IsNullOrWhiteSpace($SectionParams['TargetUserProfilePath'])) {
+    $targetUserProfilePath = "$($SectionParams['TargetUserProfilePath'])"
 }
 
 # ----------------------------------------------------------
@@ -110,14 +120,22 @@ foreach ($pe in $plannedEntries) {
         continue
     }
 
-    # Phase 2.4: prefer re-expanding sourcePath against the CURRENT target
-    # process context, so cross-user migration (backup-user != restore-user)
-    # resolves %USERPROFILE% etc. to the correct directory. Fall back to
-    # the manifest's resolvedPath when sourcePath has no env vars.
-    $targetPath = if ($pe.sourcePath -match '%\w+%') {
-        [Environment]::ExpandEnvironmentVariables($pe.sourcePath)
+    # Phase 2.4 / 2.7: re-expand the manifest's sourcePath against the
+    # restore target's user context (selected user > current process env
+    # vars > manifest resolvedPath). This lets cross-user migration
+    # (backup-user != restore-user) map %USERPROFILE% etc. to the right
+    # profile directory, including under admin elevation where the
+    # process owner differs from the chosen logged-on user.
+    $targetPath = $null
+    if ($pe.sourcePath -match '%\w+%') {
+        if (-not [string]::IsNullOrWhiteSpace($targetUserProfilePath) -and `
+            (Get-Command Expand-PathWithUser -ErrorAction SilentlyContinue)) {
+            $targetPath = Expand-PathWithUser -Path $pe.sourcePath -UserProfilePath $targetUserProfilePath
+        } else {
+            $targetPath = [Environment]::ExpandEnvironmentVariables($pe.sourcePath)
+        }
     } else {
-        $pe.sourcePath
+        $targetPath = $pe.sourcePath
     }
     if ([string]::IsNullOrWhiteSpace($targetPath)) {
         $targetPath = $pe.resolvedPath  # final fallback
@@ -184,7 +202,12 @@ foreach ($pe in $plannedEntries) {
 
     $copyFlag = if ($includeAcl) { '/COPYALL' } else { '/COPY:DAT' }
     if ($isDir) {
-        $rcArgs = @($srcDataDir, $targetPath, '/E', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
+        # /XJD on restore is a belt-and-suspenders measure: if the backup
+        # was taken before the v0.7.3 fix and still contains
+        # Documents\My Pictures content, /XJD here prevents robocopy from
+        # writing through the target-side junction to the real Pictures.
+        # New v0.7.3+ backups have no such content; /XJD is a no-op for them.
+        $rcArgs = @($srcDataDir, $targetPath, '/E', '/XJD', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
     } else {
         $fileName = Split-Path -Path $targetPath -Leaf
         $targetDir = Split-Path -Path $targetPath -Parent

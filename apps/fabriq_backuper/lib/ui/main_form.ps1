@@ -71,9 +71,14 @@ function Start-FabriqBackuperGui {
     }
     $script:SectionList = @(Get-RegisteredSections -BackuperRoot $BackuperRoot)
 
-    # Build main form (taller in Phase 2.4 to fit destination root + extra fields)
+    # Build main form (Phase 2.7.1: 900 -> 780, compact layout).
+    # Inner content area = Height - title bar (~30) - borders (~16) - header dock (44).
+    # 780 - 30 - 16 - 44 = ~690 px usable, fits Start button at Y=632 + 44 = 676.
+    # The 900-tall form clipped the Start button on smaller laptop screens
+    # (visible area ~800 after taskbar); the compact layout below trims the
+    # printer / userdata grids to fit comfortably.
     $form = New-Object System.Windows.Forms.Form
-    Set-FormStyle -Form $form -Title "Fabriq BackUper v$BackuperVersion" -Width 760 -Height 660
+    Set-FormStyle -Form $form -Title "Fabriq BackUper v$BackuperVersion" -Width 960 -Height 780
     $script:MainForm = $form
 
     # Header bar (dark stripe with title + host indicator)

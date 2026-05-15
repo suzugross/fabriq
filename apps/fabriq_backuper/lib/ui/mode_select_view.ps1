@@ -12,32 +12,32 @@ function New-ModeSelectView {
 
     # Host selector group
     $hostLbl = New-StyledLabel -Text "Select host (OldPCname):" `
-        -X 32 -Y 32 -Width 280 -Height 20 -Font $script:fontBold
+        -X 40 -Y 60 -Width 280 -Height 22 -Font $script:fontBold
     $panel.Controls.Add($hostLbl)
 
-    $combo = New-StyledComboBox -X 32 -Y 56 -Width 540 -Height 24
+    $combo = New-StyledComboBox -X 40 -Y 88 -Width 800 -Height 24
     $script:ModeHostCombo = $combo
     $panel.Controls.Add($combo)
 
-    $hostHint = New-StyledLabel -Text "(populated from kernel/csv/hostlist.csv)" `
-        -X 32 -Y 84 -Width 540 -Height 18 -FgColor $script:fgDim
+    $hostHint = New-StyledLabel -Text "(populated from kernel/csv/hostlist.csv via Import-ModuleCsv + master passphrase)" `
+        -X 40 -Y 118 -Width 800 -Height 18 -FgColor $script:fgDim
     $panel.Controls.Add($hostHint)
 
-    # Mode buttons row
+    # Mode buttons row (centered, large)
     $btnBackup = New-StyledButton -Text "Backup" `
-        -X 96 -Y 220 -Width 200 -Height 56 -BgColor $script:bgAccent
-    $btnBackup.Font = $script:fontLarge
+        -X 200 -Y 240 -Width 240 -Height 72 -BgColor $script:bgAccent
+    $btnBackup.Font = $script:fontTitle
     $panel.Controls.Add($btnBackup)
 
     $btnRestore = New-StyledButton -Text "Restore" `
-        -X 360 -Y 220 -Width 200 -Height 56 -BgColor $script:bgAdd
+        -X 500 -Y 240 -Width 240 -Height 72 -BgColor $script:bgAdd
     $btnRestore.ForeColor = $script:fgWhite
-    $btnRestore.Font = $script:fontLarge
+    $btnRestore.Font = $script:fontTitle
     $panel.Controls.Add($btnRestore)
 
     # Footer (Quit)
     $btnQuit = New-StyledButton -Text "Quit" `
-        -X 472 -Y 420 -Width 100 -Height 30
+        -X 740 -Y 624 -Width 100 -Height 32
     $panel.Controls.Add($btnQuit)
 
     # Events
