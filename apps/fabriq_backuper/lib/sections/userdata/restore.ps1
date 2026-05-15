@@ -207,13 +207,33 @@ foreach ($pe in $plannedEntries) {
         # Documents\My Pictures content, /XJD here prevents robocopy from
         # writing through the target-side junction to the real Pictures.
         # New v0.7.3+ backups have no such content; /XJD is a no-op for them.
-        $rcArgs = @($srcDataDir, $targetPath, '/E', '/XJD', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
+        # /MT:16 = same threading bump as backup side (Phase 2.7.6).
+        $rcArgs = @($srcDataDir, $targetPath, '/E', '/XJD', $copyFlag, '/B', '/MT:16', '/R:1', '/W:1', '/NP')
     } else {
         $fileName = Split-Path -Path $targetPath -Leaf
         $targetDir = Split-Path -Path $targetPath -Parent
         $rcArgs = @($srcDataDir, $targetDir, $fileName, $copyFlag, '/B', '/R:1', '/W:1', '/NP', '/NDL', '/NS', '/NC')
     }
-    & robocopy.exe @rcArgs 2>&1 | Out-Null
+    if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
+        Add-ProgressLog "  [$($pe.id)] robocopy $srcDataDir -> $targetPath"
+    }
+    # Phase 2.7.4: stream robocopy output line-by-line so the user sees
+    # restore progress in real time. DoEvents() pump every 8 lines keeps the
+    # UI responsive while staying on the synchronous backup/restore thread.
+    $rcLine = 0
+    & robocopy.exe @rcArgs 2>&1 | ForEach-Object {
+        $line = "$_"
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            if (Get-Command Add-ProgressLog -ErrorAction SilentlyContinue) {
+                Add-ProgressLog "    $($line.TrimEnd())"
+            }
+            $rcLine++
+            if (($rcLine % 8) -eq 0 -and `
+                ([System.Windows.Forms.Application] -as [type])) {
+                [System.Windows.Forms.Application]::DoEvents()
+            }
+        }
+    }
     $rcExit = $LASTEXITCODE
     if ($rcExit -ge 8) {
         Show-Error "  robocopy fail (exit $rcExit)"

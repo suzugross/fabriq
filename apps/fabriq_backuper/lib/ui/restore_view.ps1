@@ -414,6 +414,9 @@ function Invoke-RestoreStart {
     }
     $script:MainForm.Refresh()
 
+    # Phase 2.7.4: overall wall-clock for the run summary
+    $overallSw = [System.Diagnostics.Stopwatch]::StartNew()
+
     $coreArgs = @{
         SelectedHost = $hostForEngine
         PickedSections = $picked
@@ -428,6 +431,8 @@ function Invoke-RestoreStart {
     }
     $result = Invoke-BackuperRestoreCore @coreArgs
 
+    $overallSw.Stop()
+
     Add-ProgressLog ""
     Add-ProgressLog "=========================================="
     Add-ProgressLog "Restore complete: $($result.Status)"
@@ -436,5 +441,48 @@ function Invoke-RestoreStart {
         $r = $result.SectionResults[$key]
         Add-ProgressLog ("  [{0,-10}] {1,-8} ({2} ms)" -f $key, $r.Status, $r.ElapsedMs)
     }
+
+    # ---- Run summary (Phase 2.7.4) --------------------------
+    # Restore Summary fields differ from backup: userdata exposes
+    # entrySuccess / entrySkip / entryFail; printer section may report
+    # its own counts. Show elapsed + per-section entry counts when present.
+    $aggSuccess = 0L
+    $aggSkip    = 0L
+    $aggFail    = 0L
+    foreach ($key in $result.SectionResults.Keys) {
+        $s = $result.SectionResults[$key].Summary
+        if ($null -eq $s) { continue }
+        if ($null -ne $s.entrySuccess) { $aggSuccess += [long]$s.entrySuccess }
+        if ($null -ne $s.entrySkip)    { $aggSkip    += [long]$s.entrySkip }
+        if ($null -ne $s.entryFail)    { $aggFail    += [long]$s.entryFail }
+    }
+    $elapsedStr = Format-Duration -Span $overallSw.Elapsed
+
+    Add-ProgressLog ""
+    Add-ProgressLog "Run summary:"
+    Add-ProgressLog ("  Elapsed : {0}" -f $elapsedStr)
+    if (($aggSuccess + $aggSkip + $aggFail) -gt 0) {
+        Add-ProgressLog ("  Entries : {0} success / {1} skip / {2} fail" -f $aggSuccess, $aggSkip, $aggFail)
+    }
+
     Set-ProgressFinished
+
+    # Phase 2.7.5: completion popup (same pattern as Backup).
+    $popupLines = @(
+        "Restore $($result.Status)"
+        ""
+        "Elapsed : $elapsedStr"
+    )
+    if (($aggSuccess + $aggSkip + $aggFail) -gt 0) {
+        $popupLines += "Entries : $aggSuccess success / $aggSkip skip / $aggFail fail"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($result.AggregateDir)) {
+        $popupLines += ""
+        $popupLines += "Restored from:"
+        $popupLines += $result.AggregateDir
+    }
+    Show-CompletionPopup `
+        -Title  "Fabriq BackUper - Restore complete ($($result.Status))" `
+        -Body   ($popupLines -join "`n") `
+        -Status $result.Status
 }

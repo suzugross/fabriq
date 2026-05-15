@@ -173,7 +173,19 @@ function New-BackupView {
     $btnEntryDel.Add_Click({ Invoke-EntryDelete })
     $panel.Controls.Add($btnEntryDel)
 
-    $btnEntrySave = New-StyledButton -Text "Save changes" -X 280 -Y 362 -Width 124 -Height 26 -BgColor $script:bgAccent
+    # Phase 2.7.7: row reorder. Up/Down swap the selected row with its
+    # neighbor and persist to CSV immediately (same .bak rotation as
+    # Add/Edit/Delete). The new order propagates to future backups'
+    # manifest.items.entries[] which determines restore execution order.
+    $btnEntryUp = New-StyledButton -Text "Up" -X 280 -Y 362 -Width 50 -Height 26
+    $btnEntryUp.Add_Click({ Invoke-EntryMoveUp })
+    $panel.Controls.Add($btnEntryUp)
+
+    $btnEntryDown = New-StyledButton -Text "Down" -X 336 -Y 362 -Width 50 -Height 26
+    $btnEntryDown.Add_Click({ Invoke-EntryMoveDown })
+    $panel.Controls.Add($btnEntryDown)
+
+    $btnEntrySave = New-StyledButton -Text "Save changes" -X 400 -Y 362 -Width 124 -Height 26 -BgColor $script:bgAccent
     $btnEntrySave.Font = $script:fontBold
     $btnEntrySave.Add_Click({ Invoke-EntrySaveAll })
     $panel.Controls.Add($btnEntrySave)
@@ -362,6 +374,41 @@ function Invoke-EntrySaveAll {
         [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 }
 
+function Move-BackupEntry {
+    # Shared helper for Up/Down. Delta = -1 (up) or +1 (down).
+    # Reads grid Enabled state back first, swaps the in-memory array,
+    # persists to CSV (.bak rotation), re-renders, and restores the
+    # selection on the moved row.
+    param([Parameter(Mandatory = $true)][int]$Delta)
+    $grid = $script:BackupEntryGrid
+    if ($null -eq $grid -or $null -eq $grid.CurrentRow) {
+        [System.Windows.Forms.MessageBox]::Show("Select a row first.", "Reorder entry",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $idx = $grid.CurrentRow.Index
+    $newIdx = $idx + $Delta
+    if ($newIdx -lt 0 -or $newIdx -ge $script:BackupEntries.Count) { return }
+    Read-BackupEntryGridIntoMemory
+    $entries = @($script:BackupEntries)
+    $tmp = $entries[$newIdx]
+    $entries[$newIdx] = $entries[$idx]
+    $entries[$idx] = $tmp
+    $script:BackupEntries = $entries
+    $csvPath = Join-Path $script:BackuperRoot 'data\userdata_list.csv'
+    Save-UserdataCsv -Path $csvPath -Entries $script:BackupEntries
+    Update-BackupEntryGridFromMemory
+    if ($newIdx -lt $grid.Rows.Count) {
+        $grid.ClearSelection()
+        $grid.Rows[$newIdx].Selected = $true
+        $grid.CurrentCell = $grid.Rows[$newIdx].Cells[0]
+    }
+}
+
+function Invoke-EntryMoveUp   { Move-BackupEntry -Delta -1 }
+function Invoke-EntryMoveDown { Move-BackupEntry -Delta  1 }
+
 function Show-BackupView {
     $cont = $script:BackupSectionContainer
     $cont.Controls.Clear()
@@ -481,6 +528,9 @@ function Invoke-BackupStart {
     }
     $script:MainForm.Refresh()
 
+    # Phase 2.7.4: overall wall-clock for the run summary
+    $overallSw = [System.Diagnostics.Stopwatch]::StartNew()
+
     $result = Invoke-BackuperBackupCore `
         -SelectedHost $script:CurrentHost `
         -PickedSections $picked `
@@ -489,6 +539,8 @@ function Invoke-BackupStart {
         -BackuperVersion $script:BackuperVersion `
         -SectionParamsBySection $sectionParams `
         -DestinationRoot $destRoot
+
+    $overallSw.Stop()
 
     Add-ProgressLog ""
     Add-ProgressLog "=========================================="
@@ -503,5 +555,61 @@ function Invoke-BackupStart {
             Add-ProgressLog "             -> $($r.ExternalOutputDir)  (external)"
         }
     }
+
+    # ---- Run summary (Phase 2.7.4) --------------------------
+    # Aggregate totalBytes / fileCount / dirCount across sections that
+    # report them in Summary. Both printer and userdata expose totalBytes;
+    # userdata also exposes fileCount / dirCount / entryCount.
+    $aggBytes = 0L
+    $aggFiles = 0L
+    $aggDirs  = 0L
+    $aggEntries = 0L
+    foreach ($key in $result.SectionResults.Keys) {
+        $s = $result.SectionResults[$key].Summary
+        if ($null -eq $s) { continue }
+        if ($null -ne $s.totalBytes) { $aggBytes += [long]$s.totalBytes }
+        if ($null -ne $s.fileCount)  { $aggFiles += [long]$s.fileCount }
+        if ($null -ne $s.dirCount)   { $aggDirs  += [long]$s.dirCount }
+        if ($null -ne $s.entryCount) { $aggEntries += [long]$s.entryCount }
+    }
+    $elapsedStr = Format-Duration -Span $overallSw.Elapsed
+    $bytesStr   = Format-Bytes    -Bytes $aggBytes
+
+    Add-ProgressLog ""
+    Add-ProgressLog "Run summary:"
+    Add-ProgressLog ("  Elapsed   : {0}" -f $elapsedStr)
+    Add-ProgressLog ("  Data size : {0}" -f $bytesStr)
+    if ($aggFiles -gt 0 -or $aggDirs -gt 0) {
+        Add-ProgressLog ("  Files     : {0:N0} files, {1:N0} dirs" -f $aggFiles, $aggDirs)
+    }
+    if ($aggEntries -gt 0) {
+        Add-ProgressLog ("  Entries   : {0}" -f $aggEntries)
+    }
+
     Set-ProgressFinished
+
+    # Phase 2.7.5: completion popup so the operator notices end-of-run
+    # without staring at the Progress View. Modal MessageBox + form
+    # Activate(); icon reflects Status (Success / Partial / Failed).
+    $popupLines = @(
+        "Backup $($result.Status)"
+        ""
+        "Elapsed   : $elapsedStr"
+        "Data size : $bytesStr"
+    )
+    if ($aggFiles -gt 0 -or $aggDirs -gt 0) {
+        $popupLines += "Files     : {0:N0} files, {1:N0} dirs" -f $aggFiles, $aggDirs
+    }
+    if ($aggEntries -gt 0) {
+        $popupLines += "Entries   : $aggEntries"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($result.AggregateDir)) {
+        $popupLines += ""
+        $popupLines += "Written to:"
+        $popupLines += $result.AggregateDir
+    }
+    Show-CompletionPopup `
+        -Title  "Fabriq BackUper - Backup complete ($($result.Status))" `
+        -Body   ($popupLines -join "`n") `
+        -Status $result.Status
 }
