@@ -15,6 +15,28 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_backuper v0.7.10 → v0.8.0 (Phase 2.8.0 / Folder/File Browse 時の env-var 自動変換):
+  Add/Edit userdata エントリダイアログで [Folder...] / [File...] からパスを
+  選択した際、選択 user のプロファイル配下なら **prefix を自動的に
+  `%USERPROFILE%` / `%APPDATA%` / `%LOCALAPPDATA%` に書き戻して入力欄に
+  反映**するように変更。CSV に絶対パスではなく env-var 形式で保存されるので、
+  cross-user 移行や admin 昇格コンテキストでも portable に維持される。
+  - 例:
+    - `C:\Users\foo\Desktop` → `%USERPROFILE%\Desktop`
+    - `C:\Users\foo\AppData\Roaming\Microsoft\Signatures` → `%APPDATA%\Microsoft\Signatures`
+    - `C:\Users\foo\AppData\Local\Google\Chrome\User Data` → `%LOCALAPPDATA%\Google\Chrome\User Data`
+    - `D:\Projects\myrepo` → 絶対パスのまま (どの env var とも一致しないため)
+  - **新規ヘルパー** (user_selector.ps1): `ConvertTo-EnvVarPath
+    -AbsolutePath <p> -UserProfilePath <profile>` — `Expand-PathWithUser`
+    の逆操作。longest-prefix-first で `%APPDATA%` / `%LOCALAPPDATA%` /
+    `%USERPROFILE%` の順に判定し、いずれにも該当しなければ絶対パスを返す。
+    prefix 直後の文字が separator または終端の場合のみマッチ (誤マッチ防止)
+  - **呼び出し側** (userdata_edit_dialog.ps1): Folder Browse と File Browse の
+    OK 時に `ConvertTo-EnvVarPath` を通してから textbox に反映。`try/catch`
+    で fallback (helper が見つからなくても元の動作に戻る)
+  - 既存 entry を Edit するときも同じ。手動入力した絶対パスは変換対象外
+
 ### Fixed
 - apps/fabriq_backuper v0.7.9 → v0.7.10 (Phase 2.7.10 / `$script:` スコープ解決問題):
   Phase 2.7.9 で Get-Command ゲートを撤去したが、streaming/checklist は依然

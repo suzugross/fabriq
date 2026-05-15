@@ -75,6 +75,51 @@ function Get-DefaultProfileIndex {
     return -1
 }
 
+function ConvertTo-EnvVarPath {
+    # Phase 2.8.0: inverse of Expand-PathWithUser. If $AbsolutePath sits
+    # under the selected user's profile, rewrite the prefix back into
+    # %APPDATA% / %LOCALAPPDATA% / %USERPROFILE% (longest match first)
+    # so entries stored in userdata_list.csv stay portable across users
+    # and admin-elevation contexts. Returns $AbsolutePath unchanged when
+    # no known prefix matches (e.g. a path under D:\ or another user).
+    param(
+        [Parameter(Mandatory = $true)][string]$AbsolutePath,
+        [string]$UserProfilePath = $null
+    )
+    if ([string]::IsNullOrWhiteSpace($AbsolutePath)) { return $AbsolutePath }
+    if ([string]::IsNullOrWhiteSpace($UserProfilePath)) {
+        $UserProfilePath = $env:USERPROFILE
+    }
+    if ([string]::IsNullOrWhiteSpace($UserProfilePath)) { return $AbsolutePath }
+
+    $appdataPath     = (Join-Path $UserProfilePath 'AppData\Roaming').TrimEnd('\','/')
+    $localAppdataDir = (Join-Path $UserProfilePath 'AppData\Local').TrimEnd('\','/')
+    $profileDir      = $UserProfilePath.TrimEnd('\','/')
+    $abs             = $AbsolutePath.TrimEnd('\','/')
+
+    # Longest-prefix-first to avoid converting AppData paths to
+    # %USERPROFILE%\AppData\Roaming when %APPDATA% is more idiomatic.
+    foreach ($pair in @(
+        @{ Prefix = $appdataPath;     Token = '%APPDATA%' },
+        @{ Prefix = $localAppdataDir; Token = '%LOCALAPPDATA%' },
+        @{ Prefix = $profileDir;      Token = '%USERPROFILE%' }
+    )) {
+        $prefix = $pair.Prefix
+        if ([string]::IsNullOrWhiteSpace($prefix)) { continue }
+        if ($abs.Length -lt $prefix.Length) { continue }
+        if ($abs.Substring(0, $prefix.Length) -ieq $prefix) {
+            # Match: prefix is followed by either nothing or a separator
+            # (so "C:\Users\foo_other" doesn't accidentally match "C:\Users\foo").
+            if ($abs.Length -eq $prefix.Length) { return $pair.Token }
+            $next = $abs[$prefix.Length]
+            if ($next -eq '\' -or $next -eq '/') {
+                return "$($pair.Token)$($abs.Substring($prefix.Length))"
+            }
+        }
+    }
+    return $AbsolutePath
+}
+
 function Expand-PathWithUser {
     # Replace user-scoped env vars (%USERPROFILE% / %APPDATA% /
     # %LOCALAPPDATA% / %USERNAME%) with the chosen user's actual paths,
