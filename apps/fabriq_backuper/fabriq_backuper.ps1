@@ -8,6 +8,12 @@
 # re-launch in an isolated powershell.exe subprocess and return.
 # This keeps PSReadLine key handlers, env-var mutations, and
 # global-scope state confined to the child process.
+#
+# -NoNewWindow makes the child reuse the parent's console window so
+# we don't end up with two visible conhost windows when launched from
+# Fabriq_BackUper.exe (the C# launcher already creates one fresh
+# console via UseShellExecute = true). Process isolation is preserved;
+# only the console window is shared.
 if (-not $env:FABRIQ_BACKUPER_SUBPROCESS) {
     $env:FABRIQ_BACKUPER_SUBPROCESS = '1'
     try {
@@ -18,7 +24,8 @@ if (-not $env:FABRIQ_BACKUPER_SUBPROCESS) {
                 '-ExecutionPolicy', 'Bypass',
                 '-File', "`"$self`""
             ) `
-            -Wait
+            -Wait `
+            -NoNewWindow
     } finally {
         Remove-Item Env:FABRIQ_BACKUPER_SUBPROCESS -ErrorAction SilentlyContinue
     }
@@ -95,7 +102,11 @@ $libsToLoad = @(
     'lib\ui\console_menu.ps1',     # legacy console UI, kept as fallback
     'lib\engine.ps1',
     'lib\ui\theme.ps1',
+    'lib\ui\csv_io.ps1',           # Phase 2.7
+    'lib\ui\user_selector.ps1',    # Phase 2.7
+    'lib\ui\userdata_edit_dialog.ps1', # Phase 2.7
     'lib\ui\unc_helper.ps1',
+    'lib\ui\unc_connect_dialog.ps1',
     'lib\ui\mode_select_view.ps1',
     'lib\ui\backup_view.ps1',
     'lib\ui\restore_view.ps1',

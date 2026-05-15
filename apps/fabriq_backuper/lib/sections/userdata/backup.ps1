@@ -8,8 +8,13 @@
 # Writes manifest.json (fabriq-userdata-backup schemaVersion=1).
 #
 # SectionParams (hashtable, all optional):
-#   IncludeEntries : array of SourcePath strings to include
-#                    (null/empty = use CSV Enabled column as-is)
+#   IncludeEntries        : array of SourcePath strings to include
+#                           (null/empty = use CSV Enabled column as-is)
+#   SourceUserProfilePath : profile path to resolve %USERPROFILE% /
+#                           %APPDATA% / %LOCALAPPDATA% / %USERNAME% against
+#                           (null/empty = use current process env vars,
+#                            which under admin elevation may differ from
+#                            the logged-on interactive user — see Phase 2.7)
 # ============================================================
 
 param(
@@ -31,6 +36,12 @@ if ($SectionParams.ContainsKey('IncludeEntries') -and `
     $null -ne $SectionParams['IncludeEntries'] -and `
     @($SectionParams['IncludeEntries']).Count -gt 0) {
     $includeEntries = @($SectionParams['IncludeEntries'])
+}
+
+$sourceUserProfilePath = $null
+if ($SectionParams.ContainsKey('SourceUserProfilePath') -and `
+    -not [string]::IsNullOrWhiteSpace($SectionParams['SourceUserProfilePath'])) {
+    $sourceUserProfilePath = "$($SectionParams['SourceUserProfilePath'])"
 }
 
 # ----------------------------------------------------------
@@ -122,7 +133,16 @@ Show-Info "Processing $($entries.Count) entry(ies) (from $($allEntries.Count) to
 function Resolve-EntryPath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
-    $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+    # Prefer user-aware expansion when a source profile path was supplied
+    # (Phase 2.7), so admin-elevated runs map %USERPROFILE%/%APPDATA% etc.
+    # to the chosen logged-on user instead of the elevating admin.
+    $expanded = $null
+    if (-not [string]::IsNullOrWhiteSpace($sourceUserProfilePath) -and `
+        (Get-Command Expand-PathWithUser -ErrorAction SilentlyContinue)) {
+        $expanded = Expand-PathWithUser -Path $Path.Trim() -UserProfilePath $sourceUserProfilePath
+    } else {
+        $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+    }
     if ([string]::IsNullOrWhiteSpace($expanded)) { return $null }
     return $expanded
 }
@@ -225,10 +245,21 @@ foreach ($p in $planned) {
     $copyFlag = if ($p.IncludeAcl) { '/COPYALL' } else { '/COPY:DAT' }
 
     if ($p.ExistsAsDir) {
+        # /XJD: eXclude Junction Directories. The XP-era compatibility
+        # junctions inside the user profile (Documents\My Pictures ->
+        # Pictures, Documents\My Music -> Music, Documents\My Videos ->
+        # Videos, AppData\Local\Application Data -> AppData\Local etc.)
+        # would otherwise be FOLLOWED by robocopy /E, leaking sibling
+        # folder contents into the wrong backup subpath. On restore, the
+        # same target-side junctions would silently re-route those files
+        # to the real Pictures / Music / Videos, producing the
+        # "Pictures shows up in Documents but ends up in Pictures on
+        # restore" phenomenon. /XJD makes the recursion respect the
+        # logical folder boundaries instead of NTFS reparse points.
         if ($p.Recurse) {
-            $rcArgs = @($p.ResolvedPath, $dataDir, '/E', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
+            $rcArgs = @($p.ResolvedPath, $dataDir, '/E', '/XJD', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
         } else {
-            $rcArgs = @($p.ResolvedPath, $dataDir, '/LEV:1', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
+            $rcArgs = @($p.ResolvedPath, $dataDir, '/LEV:1', '/XJD', $copyFlag, '/B', '/R:1', '/W:1', '/NP')
         }
         if ($excludes.Files.Count -gt 0) { $rcArgs += '/XF'; $rcArgs += $excludes.Files }
         if ($excludes.Dirs.Count -gt 0)  { $rcArgs += '/XD'; $rcArgs += $excludes.Dirs }
@@ -303,6 +334,11 @@ $totalDirs  = ($manifestEntries | Measure-Object -Property dirCount  -Sum).Sum; 
 $totalBytes = ($manifestEntries | Measure-Object -Property byteCount -Sum).Sum; if ($null -eq $totalBytes) { $totalBytes = 0 }
 $missingCount = @($manifestEntries | Where-Object { $_.status -eq 'Skipped' -and $_.reason -eq 'Source path not found' }).Count
 
+$sourceUserName = $null
+if (-not [string]::IsNullOrWhiteSpace($sourceUserProfilePath)) {
+    try { $sourceUserName = Split-Path $sourceUserProfilePath -Leaf } catch { }
+}
+
 $manifest = [ordered]@{
     schemaVersion       = 1
     manifestType        = "fabriq-userdata-backup"
@@ -313,6 +349,10 @@ $manifest = [ordered]@{
     hardwareUniqueId    = $hwUid
     osVersion           = $osVersion
     osArch              = $osArch
+    sourceUser          = [ordered]@{
+        profilePath = $sourceUserProfilePath
+        userName    = $sourceUserName
+    }
     counts              = [ordered]@{
         entry          = $manifestEntries.Count
         file           = [long]$totalFiles

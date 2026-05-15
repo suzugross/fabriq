@@ -15,24 +15,24 @@ function New-ProgressView {
     $panel.BackColor = $script:bgForm
 
     $script:ProgressTitle = New-StyledLabel -Text "In progress..." `
-        -X 32 -Y 20 -Width 600 -Height 28 -Font $script:fontLarge
+        -X 24 -Y 14 -Width 800 -Height 28 -Font $script:fontLarge
     $panel.Controls.Add($script:ProgressTitle)
 
-    # Log textbox (multiline, readonly, monospace)
+    # Log textbox (multiline, readonly, monospace) - Phase 2.7.1 compact.
     $log = New-Object System.Windows.Forms.TextBox
     $log.Multiline = $true
     $log.ReadOnly  = $true
     $log.ScrollBars = "Vertical"
-    $log.Location = New-Object System.Drawing.Point(32, 60)
-    $log.Size = New-Object System.Drawing.Size(640, 320)
+    $log.Location = New-Object System.Drawing.Point(24, 50)
+    $log.Size = New-Object System.Drawing.Size(880, 560)
     Set-TextBoxStyle -TextBox $log
     $log.Font = $script:fontMono
     $panel.Controls.Add($log)
     $script:ProgressLogBox = $log
 
-    # Done button (hidden initially)
+    # Done button
     $btnDone = New-StyledButton -Text "Done" `
-        -X 472 -Y 400 -Width 200 -Height 40 -BgColor $script:bgAccent
+        -X 700 -Y 624 -Width 204 -Height 44 -BgColor $script:bgAccent
     $btnDone.Font = $script:fontLarge
     $btnDone.Enabled = $false
     $btnDone.Add_Click({ Switch-View 'ModeSelect' })
@@ -49,7 +49,7 @@ function Initialize-ProgressView {
     if ($null -ne $script:ProgressDoneBtn) { $script:ProgressDoneBtn.Enabled = $false }
 }
 
-function Append-ProgressLog {
+function Add-ProgressLog {
     param([string]$Line)
     if ($null -eq $script:ProgressLogBox) { return }
     $script:ProgressLogBox.AppendText($Line + [Environment]::NewLine)

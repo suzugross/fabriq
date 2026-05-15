@@ -1,7 +1,9 @@
 # ============================================================
-# FabriqBackUper - Restore View (Phase 2.2.1)
-# Pick a backup timestamp + sections + per-printer selection
-# (sourced from manifest of the selected backup).
+# FabriqBackUper - Restore View
+# Phase 2.7.1: Compact layout for 780-tall form.
+# Phase 2.7  : Target-user dropdown (resolves %USERPROFILE% etc.
+#              on the restore side; cross-user migration).
+# Form size assumption: 960x780 with 44-px header dock.
 # ============================================================
 
 $script:RestoreTimestampCombo  = $null
@@ -10,79 +12,103 @@ $script:RestoreManifestLabel   = $null
 $script:RestoreSectionContainer = $null
 $script:RestorePrinterGrid     = $null
 $script:RestoreCurrentManifest = $null
-$script:RestoreExplicitDir     = $null   # Phase 2.4: when Browse used
+$script:RestoreExplicitDir     = $null
 $script:RestoreBrowseLabel     = $null
+$script:RestoreUserCombo       = $null
+$script:RestoreUserList        = @()
 
 function New-RestoreView {
     $panel = New-Object System.Windows.Forms.Panel
     $panel.BackColor = $script:bgForm
 
-    $btnBack = New-StyledButton -Text "< Back" -X 16 -Y 12 -Width 80 -Height 28
+    $btnBack = New-StyledButton -Text "< Back" -X 16 -Y 10 -Width 80 -Height 28
     $btnBack.Add_Click({ Switch-View 'ModeSelect' })
     $panel.Controls.Add($btnBack)
 
-    $title = New-StyledLabel -Text "Restore" -X 110 -Y 14 -Width 200 -Height 24 -Font $script:fontLarge
+    $title = New-StyledLabel -Text "Restore" -X 110 -Y 12 -Width 200 -Height 24 -Font $script:fontLarge
     $panel.Controls.Add($title)
 
-    # Timestamp group
-    $tsLbl = New-StyledLabel -Text "Backup Timestamp" -X 32 -Y 50 -Width 240 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- Source row ---------------------------------------
+    $tsLbl = New-StyledLabel -Text "Backup Timestamp (hostlist-driven) or Browse for arbitrary backup folder" `
+        -X 24 -Y 44 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($tsLbl)
 
-    $combo = New-StyledComboBox -X 32 -Y 72 -Width 360 -Height 24
+    $combo = New-StyledComboBox -X 24 -Y 66 -Width 460 -Height 24
     $combo.Add_SelectedIndexChanged({
-        $script:RestoreExplicitDir = $null    # picking dropdown overrides any prior Browse
+        $script:RestoreExplicitDir = $null
         if ($null -ne $script:RestoreBrowseLabel) { $script:RestoreBrowseLabel.Text = "" }
         Update-RestoreSelection
     })
     $script:RestoreTimestampCombo = $combo
     $panel.Controls.Add($combo)
 
-    # Phase 2.4: Browse for backup folder (UNC OK)
-    $btnBrowse = New-StyledButton -Text "Browse for backup..." -X 400 -Y 70 -Width 180 -Height 26
+    $btnBrowse = New-StyledButton -Text "Browse for backup..." -X 494 -Y 64 -Width 170 -Height 28
     $btnBrowse.Add_Click({ Invoke-RestoreBrowse })
     $panel.Controls.Add($btnBrowse)
 
-    $script:RestoreBrowseLabel = New-StyledLabel -Text "" -X 32 -Y 100 -Width 700 -Height 16 -FgColor $script:fgDim
+    $btnUncConnect = New-StyledButton -Text "Connect UNC..." -X 670 -Y 64 -Width 130 -Height 28 -BgColor $script:bgAccent
+    $btnUncConnect.Add_Click({
+        $unc = Show-UncConnectDialog
+        if (-not [string]::IsNullOrWhiteSpace($unc)) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Connected to:`n$unc`n`nNow click [Browse for backup...] and navigate to the actual backup folder under this share.",
+                "UNC Connected",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        }
+    })
+    $panel.Controls.Add($btnUncConnect)
+
+    $script:RestoreBrowseLabel = New-StyledLabel -Text "" -X 24 -Y 96 -Width 880 -Height 16 -FgColor $script:fgDim
     $panel.Controls.Add($script:RestoreBrowseLabel)
 
-    $script:RestoreManifestLabel = New-StyledLabel -Text "" -X 32 -Y 118 -Width 700 -Height 32 -FgColor $script:fgDim
+    $script:RestoreManifestLabel = New-StyledLabel -Text "" -X 24 -Y 114 -Width 880 -Height 28 -FgColor $script:fgDim
     $panel.Controls.Add($script:RestoreManifestLabel)
 
-    # Sections row
-    $sectionLbl = New-StyledLabel -Text "Sections" -X 32 -Y 160 -Width 240 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- Sections row -------------------------------------
+    $sectionLbl = New-StyledLabel -Text "Sections" `
+        -X 24 -Y 150 -Width 240 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($sectionLbl)
     $script:RestoreSectionContainer = New-Object System.Windows.Forms.Panel
-    $script:RestoreSectionContainer.Location = New-Object System.Drawing.Point(32, 182)
-    $script:RestoreSectionContainer.Size = New-Object System.Drawing.Size(680, 30)
+    $script:RestoreSectionContainer.Location = New-Object System.Drawing.Point(24, 172)
+    $script:RestoreSectionContainer.Size = New-Object System.Drawing.Size(880, 26)
     $script:RestoreSectionContainer.BackColor = [System.Drawing.Color]::Transparent
     $panel.Controls.Add($script:RestoreSectionContainer)
 
-    # Printer list (from manifest of selected backup)
-    $pLbl = New-StyledLabel -Text "Printers in this backup (uncheck to exclude from restore)" `
-        -X 32 -Y 222 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    # ---- Target user row ----------------------------------
+    $userLbl = New-StyledLabel -Text "Target user (resolves %USERPROFILE% etc. on restore):" `
+        -X 24 -Y 206 -Width 360 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
+    $panel.Controls.Add($userLbl)
+    $userCombo = New-StyledComboBox -X 386 -Y 202 -Width 260 -Height 24
+    $script:RestoreUserCombo = $userCombo
+    $panel.Controls.Add($userCombo)
+
+    # ---- Printer list row ---------------------------------
+    $pLbl = New-StyledLabel -Text "Printers in this backup (uncheck to exclude)" `
+        -X 24 -Y 238 -Width 540 -Height 18 -Font $script:fontBold -FgColor $script:fgHeader
     $panel.Controls.Add($pLbl)
 
-    $btnSelAll = New-StyledButton -Text "Select All" -X 498 -Y 218 -Width 86 -Height 22
+    $btnSelAll = New-StyledButton -Text "Select All" -X 620 -Y 234 -Width 96 -Height 24
     $btnSelAll.Add_Click({ Set-AllRestorePrinterChecks $true })
     $panel.Controls.Add($btnSelAll)
-    $btnNone = New-StyledButton -Text "None" -X 588 -Y 218 -Width 60 -Height 22
+    $btnNone = New-StyledButton -Text "None" -X 722 -Y 234 -Width 80 -Height 24
     $btnNone.Add_Click({ Set-AllRestorePrinterChecks $false })
     $panel.Controls.Add($btnNone)
 
     $grid = New-Object System.Windows.Forms.DataGridView
-    $grid.Location = New-Object System.Drawing.Point(32, 246)
-    $grid.Size = New-Object System.Drawing.Size(680, 240)
+    $grid.Location = New-Object System.Drawing.Point(24, 264)
+    $grid.Size = New-Object System.Drawing.Size(880, 350)
     Set-GridStyle -Grid $grid
     $grid.ReadOnly = $false
 
     $colCk = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
-    $colCk.HeaderText = ""; $colCk.Width = 32; $colCk.Name = "Check"
+    $colCk.HeaderText = ""; $colCk.Width = 36; $colCk.Name = "Check"
     [void]$grid.Columns.Add($colCk)
     $colName = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $colName.HeaderText = "Printer Name"; $colName.Width = 260; $colName.Name = "Name"; $colName.ReadOnly = $true
+    $colName.HeaderText = "Printer Name"; $colName.Width = 320; $colName.Name = "Name"; $colName.ReadOnly = $true
     [void]$grid.Columns.Add($colName)
     $colDriver = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-    $colDriver.HeaderText = "Driver"; $colDriver.Width = 180; $colDriver.Name = "Driver"; $colDriver.ReadOnly = $true
+    $colDriver.HeaderText = "Driver"; $colDriver.Width = 280; $colDriver.Name = "Driver"; $colDriver.ReadOnly = $true
     [void]$grid.Columns.Add($colDriver)
     $colPort = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colPort.HeaderText = "Port"; $colPort.AutoSizeMode = [System.Windows.Forms.DataGridViewAutoSizeColumnMode]::Fill
@@ -91,8 +117,8 @@ function New-RestoreView {
     $panel.Controls.Add($grid)
     $script:RestorePrinterGrid = $grid
 
-    # Start button
-    $btnStart = New-StyledButton -Text "Start Restore" -X 512 -Y 496 -Width 200 -Height 40 -BgColor $script:bgAdd
+    # ---- Start button -------------------------------------
+    $btnStart = New-StyledButton -Text "Start Restore" -X 700 -Y 624 -Width 204 -Height 44 -BgColor $script:bgAdd
     $btnStart.ForeColor = $script:fgWhite
     $btnStart.Font = $script:fontLarge
     $btnStart.Add_Click({ Invoke-RestoreStart })
@@ -101,24 +127,77 @@ function New-RestoreView {
     return $panel
 }
 
+function Set-AllRestorePrinterChecks {
+    param([bool]$Checked)
+    if ($null -eq $script:RestorePrinterGrid) { return }
+    foreach ($row in $script:RestorePrinterGrid.Rows) {
+        $row.Cells['Check'].Value = $Checked
+    }
+}
+
+function Show-RestoreView {
+    if ($null -eq $script:CurrentHost) {
+        [System.Windows.Forms.MessageBox]::Show("No host selected.", "Fabriq BackUper",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        Switch-View 'ModeSelect'
+        return
+    }
+
+    $combo = $script:RestoreTimestampCombo
+    $combo.Items.Clear()
+    $timestamps = Get-BackupTimestamps -BackuperRoot $script:BackuperRoot -OldPcName $script:CurrentHost.OldPCname
+    foreach ($ts in $timestamps) { [void]$combo.Items.Add($ts) }
+    if ($timestamps.Count -gt 0) { $combo.SelectedIndex = 0 }
+    else { $script:RestoreManifestLabel.Text = "(no local backups found for $($script:CurrentHost.OldPCname); use Browse for backup if your backup is elsewhere)" }
+
+    $cont = $script:RestoreSectionContainer
+    $cont.Controls.Clear()
+    $script:RestoreSectionChecks = @{}
+    $x = 0
+    foreach ($s in $script:SectionList) {
+        $cb = New-StyledCheckBox -Text $s.DisplayName -X $x -Y 4 -Width 300 -Height 22 -Checked ($s.Enabled -eq "1")
+        $cb.Tag = $s.SectionName
+        $cont.Controls.Add($cb)
+        $script:RestoreSectionChecks[$s.SectionName] = $cb
+        $x += 320
+    }
+
+    # Target user combo (default = logged-on interactive user)
+    Update-RestoreUserComboItems
+}
+
+function Update-RestoreUserComboItems {
+    $combo = $script:RestoreUserCombo
+    if ($null -eq $combo) { return }
+    $combo.Items.Clear()
+    $script:RestoreUserList = @(Get-UserProfileList)
+    foreach ($u in $script:RestoreUserList) { [void]$combo.Items.Add($u.Label) }
+    $idx = Get-DefaultProfileIndex -List $script:RestoreUserList
+    if ($idx -ge 0) { $combo.SelectedIndex = $idx }
+}
+
+function Get-SelectedRestoreUserProfilePath {
+    $combo = $script:RestoreUserCombo
+    if ($null -eq $combo -or $combo.SelectedIndex -lt 0) { return $null }
+    if ($combo.SelectedIndex -ge $script:RestoreUserList.Count) { return $null }
+    return $script:RestoreUserList[$combo.SelectedIndex].ProfilePath
+}
+
 function Invoke-RestoreBrowse {
-    # Phase 2.4: pick an arbitrary backup folder (local or UNC) that contains
-    # a fabriq-backuper-snapshot manifest.json.
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dlg.Description = "Select backup folder (must contain manifest.json)"
+    $dlg.Description = "Select backup folder (must contain manifest.json). For UNC use [Connect UNC...] first to authenticate."
     if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
     $chosen = $dlg.SelectedPath
 
-    # UNC auth if needed
     if (-not (Resolve-UncAccess -Path $chosen)) {
         [System.Windows.Forms.MessageBox]::Show(
-            "Cannot reach folder: $chosen",
+            "Cannot reach folder: $chosen`n`nIf this is a UNC share, click [Connect UNC...] first.",
             "Fabriq BackUper", [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
         return
     }
 
-    # Validate manifest.json
     $mfPath = Join-Path $chosen 'manifest.json'
     if (-not (Test-Path $mfPath)) {
         [System.Windows.Forms.MessageBox]::Show(
@@ -144,86 +223,88 @@ function Invoke-RestoreBrowse {
         return
     }
 
-    # Accepted: switch into Browse mode
-    $script:RestoreExplicitDir = $chosen
+    # Phase 2.7.2: clear the combo FIRST so its SelectedIndexChanged side
+    # effect (which resets RestoreExplicitDir / BrowseLabel / ManifestLabel
+    # and clears the printer grid) runs before we install Browse-mode state.
+    # The previous ordering put $script:RestoreExplicitDir = $chosen above
+    # this line, which the event handler immediately wiped to $null when the
+    # combo was previously at index 0 (local backups present).
     $script:RestoreTimestampCombo.SelectedIndex = -1
+
+    $script:RestoreExplicitDir = $chosen
     $script:RestoreBrowseLabel.Text = "Browse mode: $chosen"
-    # Show aggregate summary
     $sz = if ($agg.summary.totalBytes) { [math]::Round([long]$agg.summary.totalBytes / 1MB, 1) } else { 0 }
     $secCount = if ($agg.summary.sectionCount) { [int]$agg.summary.sectionCount } else { 0 }
     $script:RestoreManifestLabel.Text = "aggregate manifest  |  collectedAt=$($agg.collectedAt)  |  oldPcName=$($agg.oldPcName)  |  sections=$secCount  |  totalBytes=$sz MB"
 
-    # Populate printer list from internal manifest (if present)
     Show-RestorePrinterListFromAggregate -AggregateDir $chosen
 }
 
 function Show-RestorePrinterListFromAggregate {
     param([Parameter(Mandatory = $true)][string]$AggregateDir)
+
+    # Phase 2.7.2: replaced the previous silent try/catch — failures were
+    # invisible and made "grid empty" indistinguishable from "manifest missing
+    # / malformed / property access failed". Now every branch reports state to
+    # RestoreManifestLabel so the operator can diagnose without the console.
+    if ($null -eq $script:RestorePrinterGrid) { return }
     $script:RestorePrinterGrid.Rows.Clear()
+
     $printerManifestPath = Join-Path $AggregateDir 'sections\printer\manifest.json'
     if (-not (Test-Path $printerManifestPath)) {
         $null = $script:RestorePrinterGrid.Rows.Add($false, "(no printer section manifest found)", "", "")
-        return
-    }
-    try {
-        $pm = Get-Content -Path $printerManifestPath -Raw | ConvertFrom-Json
-        foreach ($p in @($pm.items.printers)) {
-            if ($p.driverName -eq 'Remote Desktop Easy Print') { continue }
-            if ($p.portName -match '^TS\d+$') { continue }
-            $isVirtual = $false
-            $virtPats = @('Microsoft Print To PDF','Microsoft XPS Document Writer','OneNote','Microsoft Shared Fax','Microsoft OpenXPS')
-            foreach ($vp in $virtPats) { if ($p.driverName -like "*$vp*") { $isVirtual = $true; break } }
-            $virtPortPats = @('PORTPROMPT:','XPSPort:','FAX:','nul:','SHRFAX:')
-            foreach ($vp in $virtPortPats) { if ($p.portName -like "*$vp*") { $isVirtual = $true; break } }
-            if ($p.portName -like 'OneNote*') { $isVirtual = $true }
-            $defaultChecked = -not $isVirtual
-            $null = $script:RestorePrinterGrid.Rows.Add($defaultChecked, $p.name, $p.driverName, $p.portName)
+        if ($null -ne $script:RestoreManifestLabel) {
+            $script:RestoreManifestLabel.Text += "  |  printer manifest: NOT FOUND ($printerManifestPath)"
         }
-    } catch { }
-}
-
-function Set-AllRestorePrinterChecks {
-    param([bool]$Checked)
-    if ($null -eq $script:RestorePrinterGrid) { return }
-    foreach ($row in $script:RestorePrinterGrid.Rows) {
-        $row.Cells['Check'].Value = $Checked
-    }
-}
-
-function Show-RestoreView {
-    if ($null -eq $script:CurrentHost) {
-        [System.Windows.Forms.MessageBox]::Show("No host selected.", "Fabriq BackUper",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
-        Switch-View 'ModeSelect'
         return
     }
 
-    # Populate timestamp combo
-    $combo = $script:RestoreTimestampCombo
-    $combo.Items.Clear()
-    $timestamps = Get-BackupTimestamps -BackuperRoot $script:BackuperRoot -OldPcName $script:CurrentHost.OldPCname
-    foreach ($ts in $timestamps) { [void]$combo.Items.Add($ts) }
-    if ($timestamps.Count -gt 0) { $combo.SelectedIndex = 0 }
-    else { $script:RestoreManifestLabel.Text = "(no backups found for $($script:CurrentHost.OldPCname))" }
+    $pm = $null
+    try {
+        $pm = Get-Content -Path $printerManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $null = $script:RestorePrinterGrid.Rows.Add($false, "(printer manifest read failed)", $_.Exception.Message, "")
+        if ($null -ne $script:RestoreManifestLabel) {
+            $script:RestoreManifestLabel.Text += "  |  printer manifest READ FAILED: $($_.Exception.Message)"
+        }
+        return
+    }
 
-    # Section checkboxes
-    $cont = $script:RestoreSectionContainer
-    $cont.Controls.Clear()
-    $script:RestoreSectionChecks = @{}
-    $x = 0
-    foreach ($s in $script:SectionList) {
-        $cb = New-StyledCheckBox -Text $s.DisplayName -X $x -Y 4 -Width 280 -Height 22 -Checked ($s.Enabled -eq "1")
-        $cb.Tag = $s.SectionName
-        $cont.Controls.Add($cb)
-        $script:RestoreSectionChecks[$s.SectionName] = $cb
-        $x += 300
+    $printersNode = $null
+    if ($null -ne $pm -and $null -ne $pm.items) { $printersNode = $pm.items.printers }
+    $printersArr = @($printersNode)
+    if ($printersArr.Count -eq 0 -or ($printersArr.Count -eq 1 -and $null -eq $printersArr[0])) {
+        $null = $script:RestorePrinterGrid.Rows.Add($false, "(printer manifest has no printers)", "", "")
+        if ($null -ne $script:RestoreManifestLabel) {
+            $script:RestoreManifestLabel.Text += "  |  printers in manifest: 0"
+        }
+        return
+    }
+
+    $total = 0
+    $hidden = 0
+    foreach ($p in $printersArr) {
+        if ($null -eq $p) { continue }
+        $total++
+        if ($p.driverName -eq 'Remote Desktop Easy Print') { $hidden++; continue }
+        if ($p.portName -match '^TS\d+$') { $hidden++; continue }
+        $isVirtual = $false
+        $virtPats = @('Microsoft Print To PDF','Microsoft XPS Document Writer','OneNote','Microsoft Shared Fax','Microsoft OpenXPS')
+        foreach ($vp in $virtPats) { if ($p.driverName -like "*$vp*") { $isVirtual = $true; break } }
+        $virtPortPats = @('PORTPROMPT:','XPSPort:','FAX:','nul:','SHRFAX:')
+        foreach ($vp in $virtPortPats) { if ($p.portName -like "*$vp*") { $isVirtual = $true; break } }
+        if ($p.portName -like 'OneNote*') { $isVirtual = $true }
+        $defaultChecked = -not $isVirtual
+        $null = $script:RestorePrinterGrid.Rows.Add($defaultChecked, $p.name, $p.driverName, $p.portName)
+    }
+
+    $shown = $total - $hidden
+    if ($null -ne $script:RestoreManifestLabel) {
+        $script:RestoreManifestLabel.Text += "  |  printers: $shown shown, $hidden virtual/RDP hidden (of $total)"
     }
 }
 
 function Update-RestoreSelection {
-    # Hostlist-driven path. Browse path is handled separately by
-    # Invoke-RestoreBrowse / Show-RestorePrinterListFromAggregate.
     if ($script:RestorePrinterGrid) { $script:RestorePrinterGrid.Rows.Clear() }
 
     if ($null -eq $script:RestoreTimestampCombo -or $script:RestoreTimestampCombo.SelectedIndex -lt 0) {
@@ -254,12 +335,11 @@ function Update-RestoreSelection {
 }
 
 function Invoke-RestoreStart {
-    # Determine source mode: Browse explicit dir vs hostlist-driven timestamp
     $useExplicit = -not [string]::IsNullOrWhiteSpace($script:RestoreExplicitDir)
     if (-not $useExplicit) {
         if ($null -eq $script:CurrentHost) { return }
         if ($null -eq $script:RestoreTimestampCombo -or $script:RestoreTimestampCombo.SelectedIndex -lt 0) {
-            [System.Windows.Forms.MessageBox]::Show("Select a backup timestamp or use 'Browse for backup...'.", "Fabriq BackUper",
+            [System.Windows.Forms.MessageBox]::Show("Select a backup timestamp or use [Browse for backup...].", "Fabriq BackUper",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
             return
@@ -278,7 +358,6 @@ function Invoke-RestoreStart {
         return
     }
 
-    # Collect printer selection (from internal manifest if available)
     $selectedPrinters = @()
     if ($null -ne $script:RestorePrinterGrid) {
         foreach ($row in $script:RestorePrinterGrid.Rows) {
@@ -291,12 +370,12 @@ function Invoke-RestoreStart {
         }
     }
 
+    $targetUserProfilePath = Get-SelectedRestoreUserProfilePath
     $sectionParams = @{
-        printer = @{ IncludePrinters = $selectedPrinters }
+        printer  = @{ IncludePrinters = $selectedPrinters }
+        userdata = @{ TargetUserProfilePath = $targetUserProfilePath }
     }
 
-    # Build host context: from CurrentHost (Hostlist mode) or synthesized
-    # from manifest.oldPcName (Browse mode).
     $hostForEngine = $script:CurrentHost
     $sourceLabel = ""
     if ($useExplicit) {
@@ -313,8 +392,13 @@ function Invoke-RestoreStart {
         $sourceLabel = "Hostlist: $($script:CurrentHost.OldPCname) / $ts"
     }
 
+    $userSummary = if ([string]::IsNullOrWhiteSpace($targetUserProfilePath)) {
+        "Target user: (current process)"
+    } else {
+        "Target user: $targetUserProfilePath"
+    }
     $confirm = [System.Windows.Forms.MessageBox]::Show(
-        "Restore from:`n  $sourceLabel`n`nSections: $(@($picked | ForEach-Object { $_.SectionName }) -join ', ')`nPrinters: $($selectedPrinters.Count) selected",
+        "Restore from:`n  $sourceLabel`n`nSections: $(@($picked | ForEach-Object { $_.SectionName }) -join ', ')`nPrinters: $($selectedPrinters.Count) selected`n$userSummary",
         "Fabriq BackUper - Confirm",
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Question
@@ -323,9 +407,10 @@ function Invoke-RestoreStart {
 
     Switch-View 'Progress'
     Initialize-ProgressView -Title "Restore in progress..."
-    Append-ProgressLog "Restoring from: $sourceLabel"
+    Add-ProgressLog "Restoring from: $sourceLabel"
+    Add-ProgressLog $userSummary
     if ($selectedPrinters.Count -gt 0) {
-        Append-ProgressLog "Selected printers: $($selectedPrinters -join ', ')"
+        Add-ProgressLog "Selected printers: $($selectedPrinters -join ', ')"
     }
     $script:MainForm.Refresh()
 
@@ -343,13 +428,13 @@ function Invoke-RestoreStart {
     }
     $result = Invoke-BackuperRestoreCore @coreArgs
 
-    Append-ProgressLog ""
-    Append-ProgressLog "=========================================="
-    Append-ProgressLog "Restore complete: $($result.Status)"
-    Append-ProgressLog "$($result.Message)"
+    Add-ProgressLog ""
+    Add-ProgressLog "=========================================="
+    Add-ProgressLog "Restore complete: $($result.Status)"
+    Add-ProgressLog "$($result.Message)"
     foreach ($key in $result.SectionResults.Keys) {
         $r = $result.SectionResults[$key]
-        Append-ProgressLog ("  [{0,-10}] {1,-8} ({2} ms)" -f $key, $r.Status, $r.ElapsedMs)
+        Add-ProgressLog ("  [{0,-10}] {1,-8} ({2} ms)" -f $key, $r.Status, $r.ElapsedMs)
     }
     Set-ProgressFinished
 }

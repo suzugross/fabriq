@@ -15,6 +15,140 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_backuper v0.7.2 → v0.7.3 (Phase 2.7.3 / Documents 内ジャンクション追跡問題):
+  `%USERPROFILE%\Documents` をバックアップすると、Pictures / Music / Videos
+  などの**兄弟フォルダの中身が Documents バックアップ内に混入**し、リストア時
+  には移行先の実 Pictures / Music / Videos に書き戻されるという混乱挙動を修正。
+  - 原因: Windows の XP 互換 junction (`Documents\My Pictures` →
+    `Pictures` 等) を robocopy `/E` が**既定で追跡**するため、recursion が
+    NTFS reparse point 越しに兄弟フォルダへ「滲み出して」いた。
+    target 側でも同じ junction が存在するため、`backup\data\My Pictures\foo.jpg`
+    を target の `Documents\My Pictures\foo.jpg` に書きに行くと NTFS が
+    透過的に `Pictures\foo.jpg` へ再ルーティング、これがユーザ体感の
+    「Documents に入っていたのに Pictures に移った」現象になっていた
+  - 修正: `userdata/backup.ps1` の robocopy 引数に **`/XJD`** (eXclude
+    Junction Directories) を追加。本物のサブフォルダは対象外なので副作用なし。
+    Documents 配下の `My Pictures`/`My Music`/`My Videos` だけでなく、
+    AppData 系の悪名高い再帰 junction (`AppData\Local\Application Data` →
+    `AppData\Local` 等) も同時に回避
+  - `userdata/restore.ps1` にも `/XJD` を defense-in-depth として追加。
+    新規 backup には対象 junction 既に無いので no-op、旧 backup
+    (Pictures content が混入したもの) に対しては誤書き込みを防止
+  - **注意**: 0.7.2 以前で取得した Documents バックアップは Pictures /
+    Music / Videos の内容を含んでいる可能性があるため、本パッチ適用後に
+    **再バックアップ推奨**
+
+- apps/fabriq_backuper v0.7.1 → v0.7.2 (Phase 2.7.2 / Browse mode printer list 不可視):
+  Browse for backup でバックアップフォルダを選択した後、printer 一覧が grid に
+  表示されない問題を 2 件の原因に分解して修正。
+  - **Bug A**: `Invoke-RestoreBrowse` で
+    `$script:RestoreExplicitDir = $chosen` を先にセットし、その直後に
+    `$script:RestoreTimestampCombo.SelectedIndex = -1` を呼んでいたが、combo
+    が以前 index 0 だった (= ローカルバックアップが存在する) 場合、
+    `SelectedIndexChanged` イベントが発火して **イベントハンドラ内で
+    `RestoreExplicitDir = $null` が呼ばれ、直前にセットした値が消去** され、
+    `Update-RestoreSelection` が grid を Rows.Clear() で空にしてしまっていた。
+    順序を入れ替えて combo を先に -1 にしてから ExplicitDir をセットする形に
+    変更。Start Restore 時に "Browse mode が忘れられている" 問題も同時に解消
+  - **Bug B**: `Show-RestorePrinterListFromAggregate` に `try { ... } catch { }`
+    の silent catch があり、JSON parse 失敗 / `$pm.items.printers` が null /
+    その他の例外がすべて握り潰され、grid が空のまま原因がわからない状態に
+    なっていた。silent catch を撤廃し、エラー内容を `RestoreManifestLabel` に
+    表示するよう変更。さらに manifest が空のケース / printer 件数 (shown / hidden /
+    total) もラベルに出すよう改善
+- apps/fabriq_backuper v0.7.0 → v0.7.1 (Phase 2.7.1 hotfix / layout clipping):
+  Phase 2.7 で form を 900px のまま据え置いたが、ユーザのディスプレイ可視領域
+  (タスクバー控除後 ~800px) より大きく **[Start Backup] / [Start Restore] /
+  [Done] ボタンが画面下端に隠れていた**。また Add userdata entry ダイアログが
+  640px 幅で **[Include ACL (/COPYALL)] checkbox が右端で見切れ、環境変数の
+  ヒスト文字列も "(reso..." で切れていた**。
+  - main_form.ps1: form 900 → **780** に縮小
+  - backup_view / restore_view / progress_view / mode_select_view: 全 view を
+    新 form 高さに合わせて再レイアウト。printer grid 高さを縮小 (216→140 backup
+    / 418→350 restore)、Y 位置をタイトな配置にシフト、Start/Done ボタンを Y=624 に移動
+  - userdata_edit_dialog: dialog 640 → **720** に拡張。SourcePath textbox /
+    Exclude / Description テキストボックスを 544px に拡張、Browse ボタンを
+    右シフト、IncludeAcl チェックボックスをダイアログ内に収まる位置に調整、
+    環境変数ヒント文字列を簡潔化 (1 行に収まる長さに)
+  - 内部: backup_view.ps1 の PSScriptAnalyzer warning も同時に解消
+    (`$null` を左辺へ、`$sender` を `$src` にリネーム)
+
+### Added
+- apps/fabriq_backuper v0.6.1 → v0.7.0 (Phase 2.7 / Userdata editor + per-user path resolution):
+  Userdata エントリの本格 GUI 編集機能と、移行元/先で paths に使用するユーザを
+  選択する仕組みを追加 (MINOR / 新規 UI 機能 + sections への後方互換オプション追加)。
+  - **新規ヘルパー**:
+    - `apps/fabriq_backuper/lib/ui/csv_io.ps1` — `Read-UserdataCsv` /
+      `Save-UserdataCsv`。書き込み時に 1-gen `.bak` rotation で破壊編集から保護
+    - `apps/fabriq_backuper/lib/ui/user_selector.ps1` — `Get-UserProfileList`
+      (Win32_UserProfile, Special 除外), `Get-LoggedOnInteractiveProfilePath`
+      (Resolve-HkcuRoot 経由で admin 昇格時の logged-on user を解決),
+      `Get-DefaultProfileIndex` (logged-on > current process > 0),
+      `Expand-PathWithUser` (case-insensitive 置換で
+      `%USERPROFILE%`/`%APPDATA%`/`%LOCALAPPDATA%`/`%USERNAME%` を選択ユーザに合わせて展開)
+    - `apps/fabriq_backuper/lib/ui/userdata_edit_dialog.ps1` — Add/Edit
+      モーダル (`Show-UserdataEditDialog`)。SourcePath / Folder Browse /
+      File Browse / Recurse / ExcludePattern / OnConflict (skip/overwrite/rename) /
+      IncludeAcl / Description / Enabled の全項目を扱う
+  - **Backup View 拡張**: User Data セクションを編集 UI に格上げ
+    - 行ごとの [On] checkbox は **ephemeral** (この実行回限りの enable/disable)
+    - [Add] / [Edit] / [Delete] ボタンは押下時に CSV 即時保存 (.bak 取得)
+    - [Save changes] ボタンで [On] toggle 状態を `userdata_list.csv` に書き戻し
+    - **[Source user] dropdown** (logged-on user 既定) で
+      `%USERPROFILE%` 等の展開先を選択可能に。admin 昇格による env var ずれを解消
+    - 行 double-click でも Edit dialog 起動
+  - **Restore View 拡張**: **[Target user] dropdown** を追加。
+    restore 側でも path resolution を別ユーザに向けられるよう拡張
+    (cross-user migration)
+  - **section logic 拡張** (後方互換 - SectionParams optional key):
+    - `userdata/backup.ps1`: `SourceUserProfilePath` を受け取り、
+      `Resolve-EntryPath` 内で `Expand-PathWithUser` を優先使用。
+      省略時は従来の `[Environment]::ExpandEnvironmentVariables` 動作。
+      manifest.json に `sourceUser` ブロックを追加 (trace/debug 用)
+    - `userdata/restore.ps1`: `TargetUserProfilePath` を受け取り、
+      manifest の `sourcePath` 再展開時に `Expand-PathWithUser` を優先使用。
+      省略時は従来通り `[Environment]::ExpandEnvironmentVariables`
+  - **3-tier 永続化セマンティクス** (toggle / immediate / explicit save) は
+    操作者の意図を反映: バックアップ実行直前の「今回だけこれを除外」と
+    CSV ベースラインの編集を明確に分離
+
+### Fixed
+- apps/fabriq_backuper v0.6.0 → v0.6.1 (Phase 2.6.1 hotfix / Start button cut-off):
+  Phase 2.6 で form height を 660 → 820 に拡張したが、Backup/Restore/Progress
+  view の Start ボタン (Y=718, height 44) が form content area (実効 730px)
+  を超えて**画面外にはみ出していた**。Form height を 820 → **900** に拡張して
+  Start ボタン + 下部マージンを確保。
+
+### Changed
+- apps/fabriq_backuper v0.5.2 → v0.6.0 (Phase 2.6 / GUI polish: layout + UNC dialog):
+  実機 UI 検証で指摘された 2 件を修正 (MINOR / 新規 dialog 追加 + layout 一新)。
+  - **Form size**: 760×660 → **960×820** (printer / userdata grid を贅沢に
+    取れるサイズ)。背景の理由: 旧サイズでは "Select All" ボタンが描画上
+    重なって消えかけて見えていた + userdata プレビューがほぼ無視できる
+    高さしかなかった
+  - **layout 一新**: Backup View で printer grid を高さ 270 に拡張、
+    userdata grid を 180 に拡張、Start ボタンを右下にきれいに配置。
+    ボタン幅も統一 (Select All 96 / None 80 / Refresh 96)。Restore View
+    も同形で再配置 (printer grid 440 高さ)
+  - **新規: `lib/ui/unc_connect_dialog.ps1`** + `Show-UncConnectDialog`:
+    Windows 標準 FolderBrowserDialog で UNC を直接入力できない問題に対応。
+    Backup View / Restore View 双方に [Connect UNC...] ボタンを追加し、
+    押すと専用 WinForms モーダル (UNC Path / Username / Password / Connect)
+    で資格情報入力を一括処理。`New-PSDrive -Credential` で一時マウント、
+    疎通確認後に destination root box に貼り付け (Backup 側) または
+    後続の [Browse for backup...] が UNC 配下を見られる状態に (Restore 側)
+  - lint: `Append-ProgressLog` → `Add-ProgressLog` (PowerShell approved verb)
+
+### Fixed
+- apps/fabriq_backuper v0.5.1 → v0.5.2 (Phase 2.5 / duplicate console 解消):
+  Fabriq_BackUper.exe を double-click すると **conhost ウィンドウが 2 つ表示**
+  されていた (launcher 起源の conhost #1 + self-spawn 起源の conhost #2) のを
+  修正。self-spawn の `Start-Process powershell.exe` に **`-NoNewWindow`**
+  を追加し、子プロセスが親の console window を共有するように変更
+  (process isolation は維持、console window だけ共有)。
+  fabriq main と同じ UX (conhost 1 つ + WinForms 1 つ) になる。
+
 ### Changed
 - apps/fabriq_backuper v0.5.0 → v0.5.1 (default OnConflict 変更):
   `apps/fabriq_backuper/data/userdata_list.csv` の OnConflict 既定値を
