@@ -16,6 +16,287 @@
 ## [Unreleased]
 
 ### Fixed
+- apps/fabriq_backuper v0.10.3 → v0.10.4 (Phase 2.10.2 hotfix / `reg.exe import` stderr 起因の false-error 修正):
+  実機 round-trip 検証 (`E:\test\outlookbktest\restorelog.txt`) で **reg import 自体は
+  成功 (registry にデータ着地) しているのに section が `[ERROR]` 扱い** となる症状を
+  確認。出力された message が "この操作を正しく終了しました。" という Japanese
+  localized success message そのものだったため stream 経路を切り分け検証 (`e:/tmp/
+  test_reg_import_stderr.ps1`) した結果、**`reg.exe import` は成功時の message を
+  STDERR に出力**するという非対称仕様が判明。
+  - **根本原因**: `& reg.exe import $RegPath 2>&1` の `2>&1` で stderr が PS error
+    stream にマージ → fabriq engine が section に対して設定する
+    `$ErrorActionPreference = 'Stop'` 環境下で ErrorRecord 検出 → 即 terminating
+    error 化、本来 verify ステップに進むはずだった処理が手前で死んでいた
+  - **修正**: `Invoke-RegImport` を `Start-Process -RedirectStandardOutput
+    $tempOut -RedirectStandardError $tempErr` 方式に変更。stream を file 経由で
+    完全分離捕捉、PS stream merging を回避。stdout / stderr を combine して
+    diagnostic 用 Output 文字列を組み立てる
+  - **対称性メモ**: backup 側の `reg.exe export` は実機検証で問題なし
+    (success message が STDOUT) のため未修正。reg.exe コマンド内非対称が原因なので
+    backup.ps1 は touch しない
+  - **再検証**: 同 patch で round-trip し直して `strategy: 'B (reg-import)'` +
+    completion popup `Outlook POP - Restore Complete` まで進むことを確認したい
+
+### Added
+- apps/fabriq_backuper v0.10.2 → v0.10.3 (Phase 2.10.2 / outlook_pop restore に Strategy B 自動 reg import を実装):
+  Phase 2.10.1 で採取した profile registry hive (`profile_<name>.reg`) を target user
+  の HKCU に自動 import する経路を restore.ps1 に統合。実機 PoC で実証された
+  「reg import → PST 配置 → Outlook 起動 → password 入力のみ」の経路を fabriq から
+  ワンクリックで再現できるようになった。
+  - **新フロー (5 stage)**:
+    - **Stage 1**: manifest.json 読み込み + planned accounts flatten
+    - **Stage 2** (Strategy A/B 共通): PST を target user `Documents\<localized>\<email>.pst`
+      に rename 配置 (idempotent、userdata section が事前配置済前提)
+    - **Stage 3** (Strategy B 主動線): `items.regExports[]` 各 profile について
+      - 1. `Get-RegFileSourceHive` で .reg の hive prefix を検出
+        (`HKEY_CURRENT_USER` または `HKEY_USERS\<src_SID>`)
+      - 2. `Resolve-HkcuRoot.RegExePath` で target hive prefix を取得
+      - 3. `Convert-RegFileToTargetHive` で source/target prefix が異なれば
+        .reg を temp file に書き換え (`[HKEY_*\...]` ヘッダ置換、UTF-16LE BOM 維持)
+      - 4. `reg.exe import` で target hive に注入、temp file は cleanup
+    - **Stage 4** (verification): `Test-AccountImported` で
+      `HKCU\…\Profiles\<name>\9375CFF…\<NN>` の `POP3 Server` が manifest と
+      一致するか確認、全 account verify pass で Strategy B 確定
+    - **Stage 5a** (Strategy B 成功): MessageBox 「Outlook 起動 → password 入力のみ」
+    - **Stage 5b** (Strategy A fallback): 既存の `RESTORE_INSTRUCTIONS.txt` 生成
+      + notepad popup ロジックを温存 (操作者が wizard で手入力する経路)
+  - **fallback gate** (Strategy A 行きを決める条件、いずれかで発火):
+    - `items.regExports[]` が空または欠落 (2.10.0 以前の旧 backup)
+    - `Resolve-HkcuRoot` が null/empty を返す
+    - .reg の source hive prefix が検出不能
+    - `reg.exe import` 非ゼロ終了
+    - 任意 account の verify が NG
+  - **未実装の判断停止点**:
+    - .reg 内 binary 値の PST path 書き換え (Outlook の path forgiveness が
+      PoC で確認済のため省略)
+    - IMAP account の自動移行 (Phase 2.9.x で skip 設計、別 phase で検討)
+    - Contacts (`CONTAB`) の post-import 可視性検証 (PoC で目視確認だが
+      個別 verify は未実装、reg import 一括の副作用に乗せる)
+  - **新規 helper 関数** (restore.ps1 内、 module-local):
+    `Get-RegFileSourceHive`, `Convert-RegFileToTargetHive`, `Invoke-RegImport`,
+    `Test-AccountImported`
+  - **Summary 拡張**: `Summary.strategy` で B / A-fallback / A-no-regExports を
+    明示、`Summary.regProfilesImported` で import 成功 profile 数を記録
+  - **検証想定**: 1 PC round-trip (OLD-PC-02 y_suzuki backup → NEW PC Administrator
+    restore) で `strategy: 'B (reg-import)'` が出ること + Outlook 起動 →
+    password popup → 完了が実機確認できれば release 可
+
+### Fixed
+- apps/fabriq_backuper v0.10.1 → v0.10.2 (Phase 2.10.1 hotfix / `notes` 文字列の Japanese 由来 mojibake 修正):
+  Phase 2.10.1 で追記した manifest `notes[2]` の string literal に Japanese 文字
+  ("ファイル") を含めていたため、`.ps1` の encoding が cp932 解釈されて
+  manifest.json 内で `"Outlook 繝輔ぃ繧､繝ｫ"` に化けていた (実機 backup 実行で確認)。
+  - **修正**: notes 文字列を完全 English 化、localized folder 名は
+    `items.profiles[].accounts[].pst.sourcePath` から restore 時に派生させる旨に
+    書き換え。`feedback_scripts_english_only` ルール準拠
+  - **影響範囲**: 表示用 notes フィールドのみ。reg export 本体や
+    `items.regExports[]` のデータ取得は無影響 (実機テストで正常確認済)
+
+### Added
+- apps/fabriq_backuper v0.10.0 → v0.10.1 (Phase 2.10.1 / outlook_pop backup に profile registry hive export を追加 — Strategy B 基礎データ採取):
+  ユーザ実機 PoC で「source の profile registry hive (`HKCU\…\Outlook\Profiles\<name>`)
+  を `reg export` → target user の HKCU に `reg import` → PST を target の標準
+  Documents\Outlook ファイル\ 配下に手動配置 → Outlook 起動でパスワード入力のみで
+  完了」という Strategy B の実用性が確認された (cross-user s_suzuki → Administrator,
+  cross-version 365 → 2019)。backup 側でその基礎データ (.reg ファイル) を採取する
+  ステップを追加。
+  - **新規動作** (`outlook_pop/backup.ps1`):
+    - 既存の profile walk + manifest 生成に加えて、accounts.Count > 0 の各 profile
+      について `reg.exe export "<RegExePath>\…\Profiles\<name>" profile_<name>.reg /y`
+      を実行
+    - `RegExePath` は `Resolve-HkcuRoot` から得るため cross-user backup
+      (admin elevation + 別ユーザ hive) にも対応
+    - profile 名は filesystem-safe にサニタイズ (`[\\/:\*\?"<>\|]` を `_` 置換)
+    - 失敗時 (`reg.exe` 非ゼロ終了 or ファイル未生成) は warning 行追加のみ、
+      section は通常通り Success を返す (Strategy A fallback が依然有効なため)
+    - manifest の `items.regExports[]` に `{profileName, regFile, sourceKey,
+      sizeBytes}` を記録 (Strategy B restore がこれを読んで `reg import` する)
+  - **manifest schema 拡張** (`fabriq-outlook-pop-backup` schemaVersion=1):
+    - `items.regExports[]` 追加 (additive、schemaVersion 据え置き)
+    - `notes` から PRF 言及を削除し Strategy A / Strategy B の 2 行に置換
+  - **未着手**: restore.ps1 (Phase 2.10.2 で `reg import` 経路を追加予定。Strategy
+    A は fallback として残す。Contacts 可視性は実機検証で詰める)
+
+### Changed
+- apps/fabriq_backuper v0.9.10 → v0.10.0 (Phase 2.10.0 / outlook_pop restore を Strategy A に転換):
+  Phase 2.9.2c-h で試行錯誤した PRF / `ImportPRF` registry / first-run 抑止 /
+  Section 7 mapping / 自動検証 polling **すべての自動化試行を撤去**し、
+  「PST 配置 + 操作者向け手順書 popup」のシンプル設計に転換。
+  - **根拠**: Microsoft 公式 (plan-outlook-2016-deployment) で
+    "PRF files don't work and are no longer needed in Outlook 2016 and
+    later versions" と明文。試行 8 回 (Phase 2.9.2a-h) で全敗していた経緯と整合
+  - **新 restore.ps1 動作**:
+    - 各 POP account について PST が target に配置されているか確認
+      (userdata section が事前配置済前提)
+    - PST を `<email>.pst` に idempotent rename
+      (operator wizard 時の path-collision-attach のため)
+    - `<aggregate>/sections/outlook_pop/RESTORE_INSTRUCTIONS.txt` を生成
+      (server / port / SSL / username / SMTP 設定 / PST パス + step-by-step)
+    - MessageBox popup + notepad で instructions ファイルを自動表示
+  - **削除した dead code**:
+    - `Get-OutlookExePath` / `Stop-OutlookProcess`
+    - `Format-PrfLine` / `New-PrfContent` (Section 1-7 全部)
+    - `Get-OutlookSetupKeyPath` / `Set-OutlookFirstRunSuppress` /
+      `Set-OutlookImportPrfRegistry` / `Clear-OutlookImportPrfRegistry`
+    - `Get-PstPathsFromCurrentProfile` (自動検証 polling 用、不要に)
+  - **operator workflow**: notepad で開く INSTRUCTIONS.txt を見ながら
+    Outlook の Add Account wizard に server 設定を写し、"Existing Outlook
+    Data File" として印字された PST path を選択、password 入力で完了。
+    判断要素ゼロ (= feedback_no_operator_judgment 原則尊重)
+  - **将来の Strategy B (profile registry hive export/import) PoC** は
+    別途 1-2 時間で実機検証し、動けば次フェーズで実装する計画
+    (memory: project_outlook_pop_automation_limits 参照)
+
+### Changed
+- apps/fabriq_backuper v0.9.9 → v0.9.10 (Phase 2.9.2h / 失敗時の状態保存 + 診断強化):
+  Phase 2.9.2g (ImportPRF registry 経路) 実機検証で依然「Outlook 起動 →
+  アカウント wizard 表示 (= ImportPRF が consumed されていない or PRF reject)」
+  が再現。原因切り分けのため失敗時の証拠保全を全面強化。
+  - **失敗時に registry / PRF を保持** (以前は cleanup していたので post-mortem
+    inspection 不可だった)
+    - `ImportPRF` registry 値はそのまま (engineer が manual Outlook 起動で
+      live retry できる)
+    - PRF file は `$env:TEMP` 元位置に残置 (registry が指すパス)
+    - 同 PRF を `<aggregate>/sections/outlook_pop/debug/<profile>_<subKey>.prf`
+      にコピー (archival)
+  - **診断 log 強化** (`Set-OutlookImportPrfRegistry` 内):
+    - 解決された Setup key path を log
+    - `ImportPRF` 値 set 直後に read-back して値を確認、null なら warning
+  - 失敗時 error message に **engineer 用 4 行 hint** を出力:
+    - PRF live path / PRF archive path / ImportPRF registry path
+    - 「Outlook 手動起動で live retry / regedit で registry inspect」 hint
+  - `AccountResults` に `debugPrfCopy` / `importPrfRegistry` 追加
+
+### Changed
+- apps/fabriq_backuper v0.9.8 → v0.9.9 (Phase 2.9.2g / `/importprf` cmdline → `ImportPRF` registry 経路):
+  Phase 2.9.2f で PRF 構造を完全化したが、実機での `outlook.exe /importprf
+  <path>` 手動実行 (engineer による直接検証) で **「Outlook 起動するが import
+  されない」が再現**。原因は別だった: Outlook 2016+ の **first-run wizard が
+  PRF 処理を block** していた (Microsoft KB 0b0450b8 + robert365 確認)。
+  cmdline `/importprf` ではなく **registry 経由** が モダン Outlook の正攻法。
+  - **新規 helpers** (restore.ps1):
+    - `Get-OutlookSetupKeyPath` — HKCU\\Office\\<ver>\\Outlook\\Setup を 16.0/15.0 探索
+    - `Set-OutlookFirstRunSuppress` — first-run wizard / EULA を抑止:
+      - `HKCU\\Software\\Policies\\Microsoft\\Office\\<ver>\\Common\\General\\OptInDisable=1`
+      - `HKCU\\Software\\Microsoft\\Office\\<ver>\\Registration\\AcceptAllEulas=1`
+    - `Set-OutlookImportPrfRegistry -PrfPath <path>` — FirstRun/First-Run flag を
+      削除して `HKCU\\...\\Outlook\\Setup\\ImportPRF = <path>` (REG_SZ) を set。
+      Outlook 起動時に自動消費される
+    - `Clear-OutlookImportPrfRegistry` — verification 後 (success / failure 問わず)
+      `ImportPRF` を削除、次回 operator 起動時に re-import 暴発を防ぐ
+  - **invocation 変更**: `Start-Process outlook.exe /importprf <path>` →
+    `Set-OutlookFirstRunSuppress` + `Set-OutlookImportPrfRegistry` +
+    `Start-Process outlook.exe` (switch なし)
+  - これで fresh user (キッティング後の初回 Outlook 起動) でも PRF 処理が
+    動く想定
+
+### Fixed
+- apps/fabriq_backuper v0.9.7 → v0.9.8 (Phase 2.9.2f / PRF 構造修正: Section 7 追加 + canonical name):
+  Phase 2.9.2e で保存できるようになった PRF を engineer (= user) が手動で
+  `outlook.exe /importprf` 実行 → **「Outlook 起動するが import されない」を
+  実機確認**。生成 PRF と Microsoft KB Q259957 の正規 sample を比較した
+  結果、構造的に 2 件不足していた:
+  - **Section 7 (Internet Account property mapping) 完全欠落**
+    Microsoft 公式は「Section 6/7 は OCT 自動生成、編集禁止」と書いていたが
+    生成すら無かった。Section 7 は OCT alias / canonical name と MAPI
+    property ID の対応表で、Outlook 2016+ はこれが無いと Account section の
+    値を解釈できず silently reject する
+  - **Section 5 で OCT alias 名を使用** (`POP3UserName` / `POP3UseSSL` /
+    `SMTPEmailAddress` ではなく `EmailAddress` 等)。canonical name
+    (`POP3LogonName` / `POP3SSL` / `SMTPEmailAddress` etc.) に変更
+  - **修正内容**:
+    - Section 5 の key 名を全部 canonical 名に書き換え (9 件)
+    - Section 7 を新規追加。KB Q259957 verbatim の property mapping
+      (`AccountName=PT_STRING8,0x1235` 等 23 行) を埋め込み
+    - Internet Account alias を email 直書きから ASCII-safe `PopAcct1`
+      に変更 (`@` 等の special char が Section header 名として解決不能)
+  - **memory 反映**: PRF の Section 6/7 必須性 + canonical vs OCT alias の
+    使い分けは documented されていない罠だったので memory に残す予定
+
+### Changed
+- apps/fabriq_backuper v0.9.6 → v0.9.7 (Phase 2.9.2e / 失敗時 PRF 保存):
+  Phase 2.9.2d 適用後の実機検証で「PRF import が profile/account を作って
+  いない」という根本問題が見えてきた。原因切り分けには **生成された PRF
+  ファイル本体の inspection が必須** だが、現状コードは success/failure
+  関わらず PRF を即削除していた。
+  - **失敗時のみ PRF 保存**: 検証 fail 時に PRF を
+    `<aggregate>/sections/outlook_pop/debug/<profile>_<subKey>.prf` に
+    移動。manifest と一緒に travel するので engineer がどこからでも inspection 可能
+  - 成功時は従来通り削除
+  - `AccountResults` に `preservedPrfPath` を追加。engineer escalation 時に
+    そのまま渡せる
+  - error message にも保存 path + manual retry hint を組込:
+    "run outlook.exe once manually to dismiss [first-run dialogs], then retry"
+
+### Fixed
+- apps/fabriq_backuper v0.9.5 → v0.9.6 (Phase 2.9.2d / restore idempotent rename):
+  Phase 2.9.2c で診断 log 強化後の再検証で「前回失敗 restore が rename だけ
+  完了して残した `<email>.pst` ファイル」が次回 restore で collision 扱いに
+  なり retry 不能だった問題を修正。
+  - **idempotent rename**: `<email>.pst` が既に存在する場合、rename を skip
+    して PRF import に進む (前回 partial success の resume として扱う)
+  - 元名ファイル (`<original>.pst`) も並存している場合は **削除せず warning に
+    記録** (操作者が後で engineer 判断で手動 cleanup 可能、destructive
+    auto-delete は禁忌)
+  - 効果: 1 回目失敗 → 2 回目以降 retry がスムーズに完走する。collision で
+    詰む状態を解消
+
+### Fixed
+- apps/fabriq_backuper v0.9.4 → v0.9.5 (Phase 2.9.2c / restore 診断ログ + 検証 robust 化):
+  Phase 2.9.2b の実機検証で restore が「上手くいかなかった」が console log に
+  失敗情報が出ず "止まったように見える" 状態だった。3 件の改善で解消。
+  - **診断ログ強化**: 全 fail branch に `Show-Error` 追加。silent warning
+    array 蓄積だけだった箇所を console 可視化
+  - **`OverwriteProfile=Append` → `Yes`**: fresh target (kitting setup) で
+    "Outlook" プロファイル不在の状態でも import が profile を新規作成する
+    よう変更。Append は existing profile への追加専用、不在時は no-op だった
+  - **検証 polling 化**: 固定 15s sleep + 1 回チェックを **5s 刻みで最大 60s
+    poll** に変更。Outlook 365 first-run は PRF 処理に 20-40s かかるので
+    15s では足りなかった。早期確認できれば early-exit、タイムアウト時は最後の
+    registry 状態を engineer-actionable diagnostic として `Show-Error` 出力
+    (PRF 内容確認 / first-run dialog blocking / プロファイル登録状況の
+    切り分け hint も同梱)
+
+### Added
+- apps/fabriq_backuper v0.9.3 → v0.9.4 (Phase 2.9.2b / outlook_pop restore 自動 mode):
+  outlook_pop section の restore.ps1 を本実装。Phase A の backup-only stub から
+  「PST を rename 配置 → pure POP3 PRF を /importprf → registry 検証」フロー
+  に格上げ。`feedback_no_operator_judgment` 原則準拠で **operator 操作ゼロ**、
+  失敗時は engineer-actionable diagnostic で fail loud。
+  - **per-account restore flow**:
+    - 1. manifest の `pst.sourcePath` 不在 → Failed (backup 段階で検出失敗の累計)
+    - 2. cross-user rebase: source の user 部分を `TargetUserProfilePath` に
+        置換 (例: `C:\Users\y_suzuki\Documents\Outlook ファイル\foo.pst` →
+        `C:\Users\Administrator\Documents\Outlook ファイル\foo.pst`)
+    - 3. userdata section が事前配置した PST を `Test-Path` で確認、無ければ Failed
+    - 4. **`<email>.pst` に rename** (path-collision attach のため)
+    - 5. `OUTLOOK.EXE` を Stop-Process
+    - 6. pure POP3 PRF を `%TEMP%` に生成 (Service1 / DeliveryStoreNode 等の
+        細工なし、`OverwriteProfile=Append`)
+    - 7. `outlook.exe /importprf <prf>` 実行 + 15 秒 sleep + PRF 削除
+    - 8. **自動検証**: profile を再 subkey walk して `001f6700` 値の中に
+        rename 先 path が登録されているか確認 → 一致なら Success / 不一致なら
+        Failed with diagnostic (registry 内の全 PST path も warning に記録)
+  - **新規 helpers**:
+    - `Get-OutlookExePath` — Office16 標準 install path 4 候補を探索
+    - `Stop-OutlookProcess` — `Get-Process OUTLOOK | Stop-Process -Force` + 1.5s sleep
+    - `Format-PrfLine` — null/empty 値を skip して `Key=Value` 行を返す
+    - `New-PrfContent` — Microsoft canonical 7-section PRF を 1 account 分組立
+    - `Get-PstPathsFromCurrentProfile` — backup 側と同じ subkey walk を target
+      profile に対して実行、自動検証で使う
+  - **operator 視点**: Per-entry checklist (Phase 2.7.8) で各 account 単位の
+    InProgress → Done / Failed が表示される。判断要求は一切なし
+  - **未実装 / 既知制約**:
+    - PST 自動 attach 時の locale 対応 (`Outlook Files` vs `Outlook ファイル`)
+      は source manifest の path 由来でそのまま target に再現するロジックなので、
+      同言語環境 (キッティング業務の典型) では正しく動作
+    - cross-locale 移行 (英 source → 日 target 等) は別途設計検討
+      (memory: project_outlook_files_folder_localization)
+    - password は PRF に含めない (Outlook 2016+ で deploy 不可確認済) →
+      operator が Outlook 初回送受信時に手入力
+    - 複数 PST profile + EntryID parser 失敗 case の robust 化は後回し
+
+### Fixed
 - apps/fabriq_backuper v0.9.2 → v0.9.3 (Phase 2.9.2a-v2 / PST 検出を subkey walk に切替):
   Phase 2.9.2a で実装した EIDMSW EntryID parser が **本番 Outlook 環境では
   動作しない** ことが実機で判明 (Microsoft 公開 spec は sample wrapped PST
