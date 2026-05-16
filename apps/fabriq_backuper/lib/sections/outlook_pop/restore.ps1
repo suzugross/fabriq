@@ -291,6 +291,146 @@ function Convert-RegFileToStrategyBLight {
     return $tempReg
 }
 
+function New-OutlookAccountInfoText {
+    # Build a human-readable account-info text used by:
+    #   (a) Strategy A fallback -> aggregate/sections/outlook_pop/
+    #       RESTORE_INSTRUCTIONS.txt (engineer / operator)
+    #   (b) Always-on target-folder copy -> <target_user>\Documents\
+    #       <localized_outlook_files>\_account_settings.txt (operator
+    #       safety net, travels with the PST file)
+    #
+    # Content: source/target metadata, per-account email + PST file +
+    # POP3/SMTP server settings, and a manual setup procedure that an
+    # operator can follow if automatic restore ever has to be redone
+    # by hand. All English (feedback_scripts_english_only).
+    param(
+        [Parameter(Mandatory = $true)]$Manifest,
+        [Parameter(Mandatory = $true)][string]$TargetUserProfilePath,
+        [Parameter(Mandatory = $true)]$PlannedAccounts,
+        [Parameter(Mandatory = $true)]$ResultsByAccount,
+        [bool]$StrategyBAttempted = $false,
+        [bool]$StrategyBSucceeded = $false,
+        [string]$ProfileFilter = $null
+    )
+
+    # Optional per-profile filter: when writing the target-folder copy
+    # we want only the accounts whose PST sits in that profile's folder.
+    $effectiveResults = $ResultsByAccount
+    if (-not [string]::IsNullOrWhiteSpace($ProfileFilter)) {
+        $effectiveResults = @($ResultsByAccount | Where-Object { $_.profile -eq $ProfileFilter })
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add('========================================') | Out-Null
+    if ($StrategyBSucceeded) {
+        $lines.Add(' Outlook POP Account Settings (auto-restored)') | Out-Null
+    } else {
+        $lines.Add(' Outlook POP Account Restore - Manual Setup Required') | Out-Null
+    }
+    $lines.Add('========================================') | Out-Null
+    $lines.Add('') | Out-Null
+
+    if ($StrategyBAttempted -and -not $StrategyBSucceeded) {
+        $lines.Add('NOTE: Strategy B (automatic registry import) was attempted but') | Out-Null
+        $lines.Add('did not fully verify. Falling back to manual wizard setup.') | Out-Null
+        $lines.Add('See section warnings in the run summary for details.') | Out-Null
+        $lines.Add('') | Out-Null
+    }
+    if ($StrategyBSucceeded) {
+        $lines.Add('This file is a reference copy of the account-to-PST mapping and') | Out-Null
+        $lines.Add('the full server settings. Automatic restore succeeded; you only') | Out-Null
+        $lines.Add('need these settings if you ever have to manually reconfigure') | Out-Null
+        $lines.Add('the Outlook account from scratch.') | Out-Null
+        $lines.Add('') | Out-Null
+    }
+
+    $lines.Add("Source PC      : $($Manifest.computerName)") | Out-Null
+    if ($Manifest.sourceUser -and $Manifest.sourceUser.userName) {
+        $lines.Add("Source user    : $($Manifest.sourceUser.userName)") | Out-Null
+    }
+    $tgtUserName = Split-Path $TargetUserProfilePath -Leaf
+    $lines.Add("Target user    : $tgtUserName  ($TargetUserProfilePath)") | Out-Null
+    $lines.Add("Restore time   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')") | Out-Null
+    $lines.Add("Outlook version: $($Manifest.outlookVersion)") | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($ProfileFilter)) {
+        $lines.Add("Profile        : $ProfileFilter") | Out-Null
+    }
+    $lines.Add('') | Out-Null
+
+    $accountIndex = 0
+    foreach ($r in $effectiveResults) {
+        $accountIndex++
+        $acct = ($PlannedAccounts | Where-Object {
+            $_.ProfileName -eq $r.profile -and $_.Account.subKey -eq $r.accountSubKey
+        } | Select-Object -First 1).Account
+
+        $lines.Add('----------------------------------------') | Out-Null
+        $lines.Add(" Account $accountIndex : $($r.email)   [$($r.status)]") | Out-Null
+        $lines.Add('----------------------------------------') | Out-Null
+
+        if ($r.status -ne 'Success') {
+            $lines.Add('  ** NOT READY for manual setup **') | Out-Null
+            $lines.Add("  Reason: $($r.reason)") | Out-Null
+            $lines.Add('') | Out-Null
+            continue
+        }
+
+        $lines.Add('') | Out-Null
+        $lines.Add('  Wizard input (Display Name / Email / Server settings):') | Out-Null
+        $lines.Add("    Display name      : $($acct.displayName)") | Out-Null
+        $lines.Add("    Email address     : $($acct.email)") | Out-Null
+        $lines.Add('    Account type      : POP') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add('  Incoming server (POP3):') | Out-Null
+        $lines.Add("    Server            : $($acct.pop3.server)") | Out-Null
+        $lines.Add("    Port              : $($acct.pop3.port)") | Out-Null
+        $popSsl = if ($acct.pop3.useSSL -eq 1) { 'YES (required)' } else { 'No' }
+        $lines.Add("    SSL/TLS           : $popSsl") | Out-Null
+        $lines.Add("    Username          : $($acct.pop3.userName)") | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add('  Outgoing server (SMTP):') | Out-Null
+        $lines.Add("    Server            : $($acct.smtp.server)") | Out-Null
+        $lines.Add("    Port              : $($acct.smtp.port)") | Out-Null
+        $smtpSsl = if ($acct.smtp.useSSL -eq 1) { 'YES (required)' } else { 'No' }
+        $lines.Add("    SSL/TLS           : $smtpSsl") | Out-Null
+        $smtpAuth = if ($acct.smtp.useAuth -eq 1) { 'YES (required)' } else { 'No' }
+        $lines.Add("    Authentication    : $smtpAuth") | Out-Null
+        $smtpUser = if ($acct.smtp.userName) { $acct.smtp.userName } else { '(same as POP3)' }
+        $lines.Add("    SMTP username     : $smtpUser") | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add('  Existing data file (PST):') | Out-Null
+        $lines.Add("    $($r.targetPstPath)") | Out-Null
+        $lines.Add('') | Out-Null
+    }
+
+    $lines.Add('----------------------------------------') | Out-Null
+    $lines.Add(' Manual setup procedure (only if needed):') | Out-Null
+    $lines.Add('----------------------------------------') | Out-Null
+    $lines.Add('  1. Open Outlook') | Out-Null
+    $lines.Add('  2. File > Add Account') | Out-Null
+    $lines.Add('  3. Expand "Advanced options" and CHECK "Let me set up my') | Out-Null
+    $lines.Add('     account manually" (THIS STEP IS REQUIRED - otherwise') | Out-Null
+    $lines.Add('     Outlook will auto-pick IMAP, not POP)') | Out-Null
+    $lines.Add('  4. Enter the email address from above, click "Connect"') | Out-Null
+    $lines.Add('  5. Choose "POP" as the account type') | Out-Null
+    $lines.Add('  6. Enter the server settings exactly as printed above') | Out-Null
+    $lines.Add('  7. When asked about data file, choose "Existing Outlook') | Out-Null
+    $lines.Add('     Data File" and browse to the PST path printed above') | Out-Null
+    $lines.Add('  8. Complete the wizard') | Out-Null
+    $lines.Add('  9. Enter the password when Outlook prompts on first') | Out-Null
+    $lines.Add('     send/receive (DPAPI restriction: passwords are never') | Out-Null
+    $lines.Add('     deployable across machines)') | Out-Null
+    $lines.Add('') | Out-Null
+    $lines.Add(' If the email matches the PST filename (it should, since we') | Out-Null
+    $lines.Add(' renamed it to <email>.pst), Outlook attaches the existing') | Out-Null
+    $lines.Add(' PST automatically and all old emails / folders / contacts') | Out-Null
+    $lines.Add(' will be visible.') | Out-Null
+    $lines.Add('') | Out-Null
+    $lines.Add('========================================') | Out-Null
+
+    return ($lines -join "`r`n")
+}
+
 # ----------------------------------------------------------
 # Parse SectionParams
 # ----------------------------------------------------------
@@ -647,112 +787,25 @@ if ($strategyBSucceeded) {
                   "  2. Launch Outlook again. Enter the password when prompted for each account.`r`n" +
                   "     Send/receive will work after password entry.`r`n" +
                   "     (DPAPI restriction: passwords cannot be migrated across machines)`r`n`r`n" +
-                  "PST files and mail history are preserved. Contacts are visible from launch."
+                  "PST files and mail history are preserved. Contacts are visible from launch.`r`n`r`n" +
+                  "Account settings (server / port / username / PST path) are saved`r`n" +
+                  "as _account_settings.txt in the same folder as the PST file, in case`r`n" +
+                  "manual re-setup is ever needed."
     try {
         Show-CompletionPopup -Title $popupTitle -Body $popupBody -Status 'Success'
     } catch { }
 } else {
     # ---- Stage 5b: Strategy A fallback - RESTORE_INSTRUCTIONS.txt ----
     $instructionsPath = Join-Path $sectionDir 'RESTORE_INSTRUCTIONS.txt'
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add('========================================') | Out-Null
-    $lines.Add(' Outlook POP Account Restore - Manual Setup Required') | Out-Null
-    $lines.Add('========================================') | Out-Null
-    $lines.Add('') | Out-Null
-    if ($strategyBAttempted) {
-        $lines.Add('NOTE: Strategy B (automatic registry import) was attempted but') | Out-Null
-        $lines.Add('did not fully verify. Falling back to manual wizard setup.') | Out-Null
-        $lines.Add('See section warnings in the run summary for details.') | Out-Null
-        $lines.Add('') | Out-Null
-    }
-    $lines.Add("Source PC      : $($manifest.computerName)") | Out-Null
-    if ($manifest.sourceUser -and $manifest.sourceUser.userName) {
-        $lines.Add("Source user    : $($manifest.sourceUser.userName)") | Out-Null
-    }
-    $tgtUserName = Split-Path $targetUserProfilePath -Leaf
-    $lines.Add("Target user    : $tgtUserName  ($targetUserProfilePath)") | Out-Null
-    $lines.Add("Restore time   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')") | Out-Null
-    $lines.Add("Outlook version: $($manifest.outlookVersion)") | Out-Null
-    $lines.Add('') | Out-Null
-    $lines.Add("The following $($plannedAccounts.Count) POP3 account(s) need to be configured") | Out-Null
-    $lines.Add('manually in Outlook. PST files have been placed at the expected') | Out-Null
-    $lines.Add('paths so that Outlook''s "Add Account" wizard will attach the') | Out-Null
-    $lines.Add('existing PST automatically when the email matches.') | Out-Null
-    $lines.Add('') | Out-Null
-
-    $accountIndex = 0
-    foreach ($r in $resultsByAccount) {
-        $accountIndex++
-        $acct = ($plannedAccounts | Where-Object {
-            $_.ProfileName -eq $r.profile -and $_.Account.subKey -eq $r.accountSubKey
-        } | Select-Object -First 1).Account
-
-        $lines.Add('----------------------------------------') | Out-Null
-        $lines.Add(" Account $accountIndex : $($r.email)   [$($r.status)]") | Out-Null
-        $lines.Add('----------------------------------------') | Out-Null
-
-        if ($r.status -ne 'Success') {
-            $lines.Add('  ** NOT READY for manual setup **') | Out-Null
-            $lines.Add("  Reason: $($r.reason)") | Out-Null
-            $lines.Add('') | Out-Null
-            continue
-        }
-
-        $lines.Add('') | Out-Null
-        $lines.Add('  Wizard input (Display Name / Email / Server settings):') | Out-Null
-        $lines.Add("    Display name      : $($acct.displayName)") | Out-Null
-        $lines.Add("    Email address     : $($acct.email)") | Out-Null
-        $lines.Add('    Account type      : POP') | Out-Null
-        $lines.Add('') | Out-Null
-        $lines.Add('  Incoming server (POP3):') | Out-Null
-        $lines.Add("    Server            : $($acct.pop3.server)") | Out-Null
-        $lines.Add("    Port              : $($acct.pop3.port)") | Out-Null
-        $popSsl = if ($acct.pop3.useSSL -eq 1) { 'YES (required)' } else { 'No' }
-        $lines.Add("    SSL/TLS           : $popSsl") | Out-Null
-        $lines.Add("    Username          : $($acct.pop3.userName)") | Out-Null
-        $lines.Add('') | Out-Null
-        $lines.Add('  Outgoing server (SMTP):') | Out-Null
-        $lines.Add("    Server            : $($acct.smtp.server)") | Out-Null
-        $lines.Add("    Port              : $($acct.smtp.port)") | Out-Null
-        $smtpSsl = if ($acct.smtp.useSSL -eq 1) { 'YES (required)' } else { 'No' }
-        $lines.Add("    SSL/TLS           : $smtpSsl") | Out-Null
-        $smtpAuth = if ($acct.smtp.useAuth -eq 1) { 'YES (required)' } else { 'No' }
-        $lines.Add("    Authentication    : $smtpAuth") | Out-Null
-        $smtpUser = if ($acct.smtp.userName) { $acct.smtp.userName } else { '(same as POP3)' }
-        $lines.Add("    SMTP username     : $smtpUser") | Out-Null
-        $lines.Add('') | Out-Null
-        $lines.Add('  Existing data file (PST) - select in wizard:') | Out-Null
-        $lines.Add("    $($r.targetPstPath)") | Out-Null
-        $lines.Add('') | Out-Null
-    }
-
-    $lines.Add('----------------------------------------') | Out-Null
-    $lines.Add(' Operator step-by-step:') | Out-Null
-    $lines.Add('----------------------------------------') | Out-Null
-    $lines.Add('  1. Open Outlook') | Out-Null
-    $lines.Add('  2. File > Add Account') | Out-Null
-    $lines.Add('  3. Expand "Advanced options" and CHECK "Let me set up my') | Out-Null
-    $lines.Add('     account manually" (THIS STEP IS REQUIRED - otherwise') | Out-Null
-    $lines.Add('     Outlook will auto-pick IMAP, not POP)') | Out-Null
-    $lines.Add('  4. Enter the email address from above, click "Connect"') | Out-Null
-    $lines.Add('  5. Choose "POP" as the account type') | Out-Null
-    $lines.Add('  6. Enter the server settings exactly as printed above') | Out-Null
-    $lines.Add('  7. When asked about data file, choose "Existing Outlook') | Out-Null
-    $lines.Add('     Data File" and browse to the PST path printed above') | Out-Null
-    $lines.Add('  8. Complete the wizard') | Out-Null
-    $lines.Add('  9. Enter the password when Outlook prompts on first') | Out-Null
-    $lines.Add('     send/receive (password is intentionally NOT deployable') | Out-Null
-    $lines.Add('     via automation - DPAPI restriction)') | Out-Null
-    $lines.Add('') | Out-Null
-    $lines.Add(' If the email matches the PST filename (it should since we') | Out-Null
-    $lines.Add(' renamed it to <email>.pst), Outlook attaches the existing') | Out-Null
-    $lines.Add(' PST automatically and all old emails / folders / contacts') | Out-Null
-    $lines.Add(' will be visible.') | Out-Null
-    $lines.Add('') | Out-Null
-    $lines.Add('========================================') | Out-Null
-
     try {
-        $lines -join "`r`n" | Out-File -FilePath $instructionsPath -Encoding UTF8 -Force
+        $instructionsText = New-OutlookAccountInfoText `
+            -Manifest $manifest `
+            -TargetUserProfilePath $targetUserProfilePath `
+            -PlannedAccounts $plannedAccounts `
+            -ResultsByAccount $resultsByAccount `
+            -StrategyBAttempted $strategyBAttempted `
+            -StrategyBSucceeded $false
+        $instructionsText | Out-File -FilePath $instructionsPath -Encoding UTF8 -Force
         Show-Info "Wrote instruction file: $instructionsPath"
     } catch {
         $warnings += "Failed to write instructions file: $($_.Exception.Message)"
@@ -772,6 +825,50 @@ if ($strategyBSucceeded) {
     } catch { }
 }
 
+# ----------------------------------------------------------
+# Stage 5.5: always-on per-profile account-settings file in target
+# Outlook Files folder. Travels with the PST so the operator (or a
+# future engineer) can manually reconfigure the account if anything
+# goes wrong. Written regardless of Strategy B success / Strategy A
+# fallback. Filename: _account_settings.txt (leading underscore sorts
+# above the PST file in Explorer alphabetical view).
+# ----------------------------------------------------------
+$targetSettingsWritten = @()
+try {
+    $profileDirMap = @{}
+    foreach ($r in $resultsByAccount) {
+        if ([string]::IsNullOrWhiteSpace($r.targetPstPath)) { continue }
+        if ($r.status -ne 'Success') { continue }
+        $dir = Split-Path -Path $r.targetPstPath -Parent
+        if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+        if (-not $profileDirMap.ContainsKey($r.profile)) {
+            $profileDirMap[$r.profile] = $dir
+        }
+    }
+    foreach ($profName in $profileDirMap.Keys) {
+        $dir = $profileDirMap[$profName]
+        if (-not (Test-Path -LiteralPath $dir)) {
+            $warnings += "target dir missing for profile '$profName': $dir - skipping settings file"
+            continue
+        }
+        $settingsPath = Join-Path $dir '_account_settings.txt'
+        $settingsText = New-OutlookAccountInfoText `
+            -Manifest $manifest `
+            -TargetUserProfilePath $targetUserProfilePath `
+            -PlannedAccounts $plannedAccounts `
+            -ResultsByAccount $resultsByAccount `
+            -StrategyBAttempted $strategyBAttempted `
+            -StrategyBSucceeded $strategyBSucceeded `
+            -ProfileFilter $profName
+        $settingsText | Out-File -FilePath $settingsPath -Encoding UTF8 -Force
+        $targetSettingsWritten += $settingsPath
+        Show-Info "Wrote target settings file: $settingsPath"
+    }
+} catch {
+    $warnings += "Failed to write target settings file(s): $($_.Exception.Message)"
+    Show-Warning "Failed to write target settings file(s): $($_.Exception.Message)"
+}
+
 $sw.Stop()
 
 $status = if ($strategyBSucceeded) {
@@ -788,14 +885,15 @@ return [PSCustomObject]@{
     Status               = $status
     ElapsedMs            = [int]$sw.ElapsedMilliseconds
     Summary              = [ordered]@{
-        accountTotal       = $plannedAccounts.Count
-        accountReady       = $successCount
-        accountFail        = $failCount
-        strategy           = if ($strategyBSucceeded) { 'B (reg-import)' }
-                             elseif ($strategyBAttempted) { 'A (fallback after B failure)' }
-                             else { 'A (no regExports in manifest)' }
-        instructionsFile   = $instructionsPath
-        regProfilesImported= @($strategyBDetails | Where-Object { $_.importSucceeded }).Count
+        accountTotal         = $plannedAccounts.Count
+        accountReady         = $successCount
+        accountFail          = $failCount
+        strategy             = if ($strategyBSucceeded) { 'B (reg-import)' }
+                               elseif ($strategyBAttempted) { 'A (fallback after B failure)' }
+                               else { 'A (no regExports in manifest)' }
+        instructionsFile     = $instructionsPath
+        targetSettingsFiles  = @($targetSettingsWritten)
+        regProfilesImported  = @($strategyBDetails | Where-Object { $_.importSucceeded }).Count
     }
     Warnings             = $warnings
     ExternalOutputDir    = $null

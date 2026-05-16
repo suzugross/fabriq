@@ -16,6 +16,44 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_backuper v0.10.6 → v0.10.7 (outlook_pop restore で target Outlook Files フォルダに `_account_settings.txt` を常時配置):
+  Strategy B-light が成功して自動復元が通った場合でも、後で何らかの理由で手動再設定が
+  必要になるケースに備え、**email + PST file + POP3/SMTP server 設定 + 簡易 manual
+  setup procedure** を含む human-readable な reference ファイルを target user の
+  Outlook Files フォルダ (PST と同じ場所) に常時書き出すように変更。
+  - **新規 helper** `New-OutlookAccountInfoText`: 旧 Stage 5b の inline line-building
+    ロジックを関数化、`StrategyBSucceeded` / `StrategyBAttempted` / `ProfileFilter`
+    パラメータで header と内容を切替可能
+  - **Stage 5b リファクタ**: aggregate dir の `RESTORE_INSTRUCTIONS.txt` 生成を
+    上記関数呼び出しに置換 (内容同等、150 行のコード重複を解消)
+  - **Stage 5.5 (新規)**: per-profile で target user の Outlook Files フォルダ
+    (`<targetPstPath>` の親ディレクトリ) に `_account_settings.txt` を書き出し。
+    Strategy B 成功 / A fallback 関係なく常時実行 (Strategy B 成功時は header に
+    "auto-restored" 表示 + "reference copy" 注記)。leading underscore で Explorer
+    の alphabetical sort で PST の上に来る
+  - **Stage 5a popup 更新**: Strategy B 成功 popup の末尾に「Account settings
+    saved as _account_settings.txt next to the PST」を追記、discoverability 向上
+  - **Summary 拡張**: `targetSettingsFiles` field 追加 (書き出した settings file 一覧)
+  - **語句変更**: manual procedure heading を `Operator step-by-step:` →
+    `Manual setup procedure (only if needed):` に微調整 (auto-restore 成功時の
+    reference 用途を反映)
+
+### Changed
+- apps/fabriq_backuper v0.10.5 → v0.10.6 (sections.csv で outlook_pop を default ON、Phase 2.10.x 完成に伴う本番昇格):
+  Phase 2.10.3 (v0.10.5) で Strategy B-light による cross-PC 自動復元動線が確立、
+  実機 round-trip 検証 (y_suzuki @ source → Administrator @ target, 365 → 2019
+  cross-version) で「password + 1 再起動」運用可能と確認済のため、開発中扱いだった
+  outlook_pop section を sections.csv で `Enabled=0` → `Enabled=1` に flip。
+  - `outlook_pop` の Description も `Phase A backup-only` 表記から
+    `POP3/SMTP account settings + PST mapping + Strategy B-light restore (Phase 2.10.3)`
+    に更新
+  - 既存 backup aggregate との後方互換性は維持 (manifest schema 変更なし、
+    旧 v0.9.x 以前の backup でも Strategy A fallback で復元可能)
+  - userdata section との restore 順序は CSV 内順序 (printer → userdata →
+    outlook_pop) で確定、outlook_pop は userdata が PST を事前配置した状態で
+    動作する前提
+
+### Added
 - apps/fabriq_backuper v0.10.4 → v0.10.5 (Phase 2.10.3 / outlook_pop restore に Strategy B-light pre-processing を実装、0x8004010F 自動解決):
   Phase 2.10.2 の Strategy B (素のままの reg import) は実機で送受信時に
   `0x8004010F` (`MAPI_E_NOT_FOUND`) が発生する制約があった。原因は POP account の
