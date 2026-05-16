@@ -157,6 +157,140 @@ function Test-AccountImported {
     }
 }
 
+function Convert-RegFileToStrategyBLight {
+    # Phase 2.10.3: pre-process a profile .reg file to make Outlook's
+    # POP account delivery store binding cross-PC-portable.
+    #
+    # Background: Phase 2.10.2 demonstrated that a naive reg import
+    # produces 0x8004010F (MAPI_E_NOT_FOUND) at send/receive time
+    # because POP account "Delivery Store EntryID" contains a binary
+    # EntryID structure with the source PC's path embedded. Outlook
+    # cannot resolve that EntryID on the target PC, so even after the
+    # operator re-links the PST manually, account-to-store binding
+    # stays broken.
+    #
+    # Tier 1 (rewrite path bytes inside the EntryID binary) was tried
+    # and failed on real-machine PoC because the binary blobs carry
+    # internal offset tables that break when path length changes.
+    #
+    # Strategy B-light (this function, real-machine PoC confirmed
+    # working 2026-05-16):
+    #   1. STRIP the POP account's "Delivery Store EntryID" and
+    #      "Delivery Folder EntryID" values entirely. With no binding,
+    #      Outlook on first launch tells the operator "PST link requires
+    #      restart" and self-closes; second launch resolves to the
+    #      actually-attached PST and prompts only for password.
+    #   2. REWRITE the two plain-string UTF-16LE path values
+    #      ("001f6700" = PR_PST_PATH in the message store provider
+    #      subkey, "001f0433" = sharing.xml path in the general profile
+    #      subkey) from source user profile to target user profile.
+    #      These two values have no offset tables, so safe to extend.
+    #   3. LEAVE ALL OTHER BINARY BLOBS UNTOUCHED. Outlook treats
+    #      "1102022a", "11020434", "1102039b", "11026626", etc. as
+    #      caches it regenerates from the truth values once the store
+    #      is properly attached.
+    #
+    # Returns the path to a new temp .reg with the transforms applied.
+    # No-op (returns input path) if SourceUserName == TargetUserName.
+    param(
+        [Parameter(Mandatory = $true)][string]$SrcRegPath,
+        [Parameter(Mandatory = $true)][string]$SourceUserName,
+        [Parameter(Mandatory = $true)][string]$TargetUserName
+    )
+
+    $content = [System.IO.File]::ReadAllText($SrcRegPath, [System.Text.Encoding]::Unicode)
+
+    # Pre-fix: defensive patch for continuation lines missing trailing
+    # '\' (seen in some reg.exe export output edge cases)
+    $preLines = $content -split "`r?`n"
+    $preFixed = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $preLines.Count; $i++) {
+        $cur = $preLines[$i]
+        if ($cur -match '[0-9a-f]{2},?$' -and ($i + 1) -lt $preLines.Count) {
+            $next = $preLines[$i + 1]
+            if ($next -match '^\s+[0-9a-f]{2}' -and $cur -notmatch '\\$') {
+                $cur = $cur.TrimEnd() + '\'
+            }
+        }
+        $preFixed.Add($cur)
+    }
+    $content = $preFixed -join "`r`n"
+
+    # Collapse continuations into single logical lines
+    $normalized = $content -replace '\\\r?\n\s+', ''
+
+    # Build username UTF-16LE hex sequences for byte-level path rewrite
+    $srcUserBytes = [System.Text.Encoding]::Unicode.GetBytes($SourceUserName)
+    $dstUserBytes = [System.Text.Encoding]::Unicode.GetBytes($TargetUserName)
+    $srcUserHex = ($srcUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
+    $dstUserHex = ($dstUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
+
+    $stripCount = 0
+    $rewriteCount = 0
+    $processedLines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($normalized -split "`r?`n")) {
+        if ($line -match '^"Delivery Store EntryID"=' -or
+            $line -match '^"Delivery Folder EntryID"=') {
+            $stripCount++
+            continue
+        }
+        if ($line -match '^"001f6700"=hex:' -or $line -match '^"001f0433"=hex:') {
+            $before = $line
+            $line = $line -replace [regex]::Escape($srcUserHex), $dstUserHex
+            if ($before -ne $line) { $rewriteCount++ }
+        }
+        $processedLines.Add($line)
+    }
+
+    Show-Info "  [BL-transform] stripped delivery values: $stripCount, rewrote path values: $rewriteCount"
+
+    # Re-flow hex value lines back to <=80 cols with '\' continuation
+    $outputLines = New-Object System.Collections.Generic.List[string]
+    $maxLen = 80
+    foreach ($line in $processedLines) {
+        if ($line -match '^("[^"]+"=hex:)(.*)$') {
+            $header = $matches[1]
+            $body   = $matches[2]
+            $bytes  = @($body -split ',')
+            $singleLine = $header + ($bytes -join ',')
+            if ($singleLine.Length -le $maxLen) {
+                $outputLines.Add($singleLine)
+                continue
+            }
+            $currentLine = $header
+            $indent      = '  '
+            $i = 0
+            while ($i -lt $bytes.Count) {
+                $tok = $bytes[$i]
+                $sep = if ($currentLine -eq $header -or $currentLine -eq $indent) { '' } else { ',' }
+                $needed = $sep.Length + $tok.Length
+                $isLast = ($i -eq ($bytes.Count - 1))
+                $reserved = if ($isLast) { 0 } else { 2 }
+                if (($currentLine.Length + $needed + $reserved) -le $maxLen) {
+                    $currentLine = $currentLine + $sep + $tok
+                    $i++
+                } else {
+                    $outputLines.Add($currentLine + ',\')
+                    $currentLine = $indent
+                }
+            }
+            $outputLines.Add($currentLine)
+        } else {
+            $outputLines.Add($line)
+        }
+    }
+
+    $finalText = $outputLines -join "`r`n"
+
+    $tempBase = [System.IO.Path]::GetTempFileName()
+    $tempReg = [System.IO.Path]::ChangeExtension($tempBase, '.reg')
+    if (Test-Path -LiteralPath $tempBase) {
+        Remove-Item -LiteralPath $tempBase -Force -ErrorAction SilentlyContinue
+    }
+    [System.IO.File]::WriteAllText($tempReg, $finalText, [System.Text.Encoding]::Unicode)
+    return $tempReg
+}
+
 # ----------------------------------------------------------
 # Parse SectionParams
 # ----------------------------------------------------------
@@ -361,6 +495,20 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
         $outlookVersion = "$($manifest.outlookVersion)"
         if ([string]::IsNullOrWhiteSpace($outlookVersion)) { $outlookVersion = '16.0' }
 
+        # Phase 2.10.3: derive source/target user names for B-light path
+        # rewrite. Defaults are safe: if either side is missing the
+        # transform's path-rewrite step becomes a no-op (delivery-strip
+        # step still runs).
+        $blSrcUserName = $null
+        if ($manifest.sourceUser -and $manifest.sourceUser.userName) {
+            $blSrcUserName = "$($manifest.sourceUser.userName)"
+        } elseif ($null -ne $sourceUserProfile) {
+            $blSrcUserName = Split-Path -Path $sourceUserProfile -Leaf
+        }
+        $blDstUserName = Split-Path -Path $targetUserProfilePath -Leaf
+        if ([string]::IsNullOrWhiteSpace($blSrcUserName)) { $blSrcUserName = $blDstUserName }
+        Show-Info "  [BL-transform] user rewrite: $blSrcUserName -> $blDstUserName"
+
         $allProfilesVerified = $true
         foreach ($re in $regExports) {
             $profName = "$($re.profileName)"
@@ -370,6 +518,7 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
             $perProfile = [ordered]@{
                 profileName     = $profName
                 regFile         = $regFile
+                blTransformed   = $false
                 hiveRewrite     = $null
                 importSucceeded = $false
                 importExitCode  = $null
@@ -386,11 +535,22 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
                 break
             }
 
-            $sourcePrefix = Get-RegFileSourceHive -RegPath $regPath
+            # Phase 2.10.3: apply B-light pre-processing
+            #   (strip Delivery Store/Folder EntryID, rewrite plain-string paths)
+            $blPath = Convert-RegFileToStrategyBLight `
+                -SrcRegPath $regPath `
+                -SourceUserName $blSrcUserName `
+                -TargetUserName $blDstUserName
+            $perProfile.blTransformed = $true
+
+            $sourcePrefix = Get-RegFileSourceHive -RegPath $blPath
             if ([string]::IsNullOrWhiteSpace($sourcePrefix)) {
                 $msg = "Strategy B: could not detect source hive prefix in $regFile - falling back"
                 $warnings += $msg
                 Show-Warning "  $msg"
+                if ($blPath -ne $regPath -and (Test-Path -LiteralPath $blPath)) {
+                    Remove-Item -LiteralPath $blPath -Force -ErrorAction SilentlyContinue
+                }
                 $allProfilesVerified = $false
                 $strategyBDetails += $perProfile
                 break
@@ -400,7 +560,7 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
             Show-Info "  [$profName] hive rewrite: $($perProfile.hiveRewrite)"
 
             $importPath = Convert-RegFileToTargetHive `
-                -SrcRegPath $regPath `
+                -SrcRegPath $blPath `
                 -SourcePrefix $sourcePrefix `
                 -TargetPrefix $targetHivePrefix
 
@@ -409,9 +569,11 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
             $perProfile.importOutput   = $importResult.Output
             $perProfile.importSucceeded = $importResult.Success
 
-            # Cleanup temp .reg if we created one
-            if ($importPath -ne $regPath -and (Test-Path -LiteralPath $importPath)) {
-                Remove-Item -LiteralPath $importPath -Force -ErrorAction SilentlyContinue
+            # Cleanup temp .reg files (both BL-transformed and hive-rewritten)
+            foreach ($tmp in @($blPath, $importPath)) {
+                if ($tmp -ne $regPath -and (Test-Path -LiteralPath $tmp)) {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                }
             }
 
             if (-not $importResult.Success) {
@@ -479,11 +641,13 @@ if ($strategyBSucceeded) {
                ForEach-Object { $_.email }) -join ', '
     $popupTitle = 'Outlook POP - Restore Complete'
     $popupBody  = "$($plannedAccounts.Count) POP3 account(s) restored automatically:`r`n  $emails`r`n`r`n" +
-                  "Operator action required:`r`n" +
-                  "  1. Launch Outlook (it will start with the accounts configured)`r`n" +
-                  "  2. When prompted, enter the password for each account on first send/receive`r`n" +
+                  "Operator action required (2 Outlook launches):`r`n" +
+                  "  1. Launch Outlook. A 'restart required to link PST' notice will appear`r`n" +
+                  "     and Outlook will close itself. This is expected behaviour - just close.`r`n" +
+                  "  2. Launch Outlook again. Enter the password when prompted for each account.`r`n" +
+                  "     Send/receive will work after password entry.`r`n" +
                   "     (DPAPI restriction: passwords cannot be migrated across machines)`r`n`r`n" +
-                  "PST files have been placed at the target paths. Mail history is preserved."
+                  "PST files and mail history are preserved. Contacts are visible from launch."
     try {
         Show-CompletionPopup -Title $popupTitle -Body $popupBody -Status 'Success'
     } catch { }

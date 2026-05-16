@@ -15,6 +15,43 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_backuper v0.10.4 → v0.10.5 (Phase 2.10.3 / outlook_pop restore に Strategy B-light pre-processing を実装、0x8004010F 自動解決):
+  Phase 2.10.2 の Strategy B (素のままの reg import) は実機で送受信時に
+  `0x8004010F` (`MAPI_E_NOT_FOUND`) が発生する制約があった。原因は POP account の
+  `Delivery Store EntryID` 内に source PC で生成された store instance UID + path が
+  binary で embedded されており、target PC の Outlook がこれを resolve できないため。
+  Tier 1 (binary 内 path 部のみ byte 書換) は実機 PoC で失敗 (`1102022a` 等の blob は
+  internal offset table を持つため path 伸長で構造破壊)、Tier 2 PoC で「特定 value
+  strip + plain-string path のみ rewrite」方式 (= Strategy B-light) の有効性確認済。
+  - **新規 helper** `Convert-RegFileToStrategyBLight`:
+    - POP account 内の `Delivery Store EntryID` / `Delivery Folder EntryID` を **strip**
+      (削除)。これにより Outlook 初回起動時 "PST link requires restart" を通知して
+      自動 close、2 回目起動で active PST に正しく re-bind される
+    - `001f6700` (`PR_PST_PATH`、message store provider subkey 内) と
+      `001f0433` (sharing.xml path、general profile subkey 内) を source user 名
+      → target user 名で **byte rewrite**。両 value は plain UTF-16 LE 文字列で
+      offset table 無しのため byte 伸長安全
+    - 巨大 binary blob (`1102022a`, `11020434`, `1102039b`, `01020409`, `01020fff`,
+      `11026626` 等) は **据置** (touch 厳禁、internal offset 破壊リスク)。Outlook が
+      初回起動後に truth value (`001f6700` + 実 PST) から regenerate する
+  - **flow 変更** (Stage 3): reg import 経路を
+    `source.reg → BL-transformed.reg → hive-prefix-rewritten.reg → reg.exe import`
+    の 2 段 transform 構成に変更。temp file は両 stage で cleanup
+  - **operator 動線変化**:
+    - 旧 (v0.10.4): Outlook 起動 → password (期待値、実際は 0x8004010F)
+    - 新 (v0.10.5): Outlook 起動 → "再起動が必要" 自動 close → Outlook 再起動 → password 入力 → 送受信 OK
+    - 操作者の手順 step が 1 増えるが `feedback_no_operator_judgment` 原則は維持
+      (画面指示通り再起動するだけ、判断要素ゼロ)
+  - **完了 popup 文言更新**: 2-launch flow を明示、`Contacts are visible from launch`
+    を補足
+  - **manifest schema**: 変更なし (backup 側は素の reg のまま採取、transform は
+    restore 時に施す)
+  - **検証**: 2026-05-16 実機 PoC (y_suzuki @ source / Administrator @ target,
+    365 → 2019 cross-version) で上記 flow + 送受信 + アドレス帳表示まで確認済
+  - **新規 perProfile field**: `Summary.regProfilesImported` の各 detail に
+    `blTransformed = $true/false` を追加 (将来のトラブルシュート用)
+
 ### Fixed
 - apps/fabriq_backuper v0.10.3 → v0.10.4 (Phase 2.10.2 hotfix / `reg.exe import` stderr 起因の false-error 修正):
   実機 round-trip 検証 (`E:\test\outlookbktest\restorelog.txt`) で **reg import 自体は
