@@ -15,6 +15,109 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_backuper v0.9.2 → v0.9.3 (Phase 2.9.2a-v2 / PST 検出を subkey walk に切替):
+  Phase 2.9.2a で実装した EIDMSW EntryID parser が **本番 Outlook 環境では
+  動作しない** ことが実機で判明 (Microsoft 公開 spec は sample wrapped PST
+  provider 用、production の PST provider は `MAPIUID + 2 nulls + "mspst.dll" +
+  undocumented bytes + path` という別 format)。検出戦略を二段構えに変更。
+  - **新規 helper**: `Get-PstPathsFromProfile -ProfileKeyPath <path>` —
+    profile registry を recursive 走査して `001f6700` (REG_BINARY UTF-16LE)
+    を持つ subkey をすべて列挙 → PST file paths のリストを返す。これは
+    deterministic で EntryID format に依存しない
+  - **検出戦略**:
+    - profile に PST 1 つ → そのまま採用 (`detectionMethod: profile-subkey-walk`)
+    - profile に PST 複数 → EntryID parser で disambiguate 試行、成功なら採用
+      (`detectionMethod: entryid-parse-confirmed-by-walk`)、失敗なら fail loud
+    - profile に PST 0 個 → EntryID parser 単独試行
+      (`detectionMethod: entryid-parse-only`)、失敗なら fail loud
+  - **manifest 拡張**: `pst.profileCandidates` (profile 内 PST 一覧) 追加。
+    multi-PST 環境の engineer 解析用
+  - **diagnostic 強化**: EntryID hex dump を 32 → 128 bytes に拡大。
+    将来 production EntryID format を offline 解析する時の参考データ用
+  - operator 視点は不変: 失敗 = engineer escalate、判断要求なし
+
+### Added
+- apps/fabriq_backuper v0.9.1 → v0.9.2 (Phase 2.9.2a / outlook_pop PST mapping detection):
+  Backup 時に各 POP3 アカウントが使用している **PST file path を deterministic
+  に検出** して manifest に記録するように拡張。Phase B (restore 自動化) の
+  「PST を `<email>.pst` に rename して path-collision attach」設計の前提を
+  実装したもの。
+  - **新規 helper**: `Get-PstPathFromDeliveryStoreEntryId -EntryIdBytes <byte[]>`
+    - POP アカウントの `Delivery Store EntryID` (REG_BINARY) を Microsoft
+      公式の wrapped PST store provider EIDMS / EIDMSW format に従って parse
+    - byte 21 が 0x00 なら EIDMSW (Unicode) / それ以外なら EIDMS (ASCII) と
+      判別、それぞれ対応する null-terminator (0x00 / 0x00 0x00) まで読む
+    - validation: 抽出パスが drive letter で始まり `.pst` で終わる場合のみ
+      採用、それ以外は `$null` を返す
+  - **manifest 拡張**: 各 account に `pst` ブロック追加
+    - `sourcePath` / `sourceFileName` / `detectionMethod` /
+      `detectionStatus` (`present` / `path-only` / `unavailable`) /
+      `detectionReason`
+  - **失敗時挙動**: parse 失敗時は section 全体は `Success` のまま、当該
+    account のみ `pst: { sourcePath: null }` で記録 + warnings に EntryID
+    先頭 32 bytes の hex dump を残す (engineer 解析用)。restore 側は
+    sourcePath 不在の account を `Failed` で扱う
+  - operator 視点: 何も求められない (失敗しても section 全体は Success、
+    restore 段階で初めて該当 account 単位で fail / engineer escalate)。
+    `feedback_no_operator_judgment` 原則準拠
+
+### Fixed
+- apps/fabriq_backuper v0.9.0 → v0.9.1 (Phase 2.9.0a / outlook_pop value 名修正 + SectionParam 配線):
+  Phase 2.9.0 Phase A 実機テスト (`E:\test\outlook_pop\manifest.json`) で
+  pop3.userName / smtp.userName / smtp.useAuth が null となっていた問題を修正。
+  - 修正した registry value 名 (実機 Outlook 16.0 で動作確認):
+    - `POP3 User Name` → **`POP3 User`**
+    - `SMTP User Name` → **`SMTP User`**
+    - `SMTP Use Sicily` → **`SMTP Use Auth`**
+    - (`POP3 Use Sicily` は SPA 認証フラグとして正しいので維持)
+  - backup_view.ps1: `outlook_pop` セクションへ `SourceUserProfilePath`
+    SectionParam を渡すよう拡張。これまで printer/userdata のみだったため
+    cross-user 時に sourceUser メタデータが null だった (今回はローカル
+    admin = HKCU 同一ユーザだったので実害なし)
+  - Phase A 実機検証ログ:
+    - 1 POP アカウント (`suzuki@e-cri.co.jp` @ sv3061.xserver.jp:995 SSL) を
+      正常採取
+    - 同一プロファイル下の subKey 00000001/00000003 (POP3/IMAP どちらの
+      Server 値も持たない、LDAP/AddressBook 等の補助 entry) は意図通り
+      `otherSkipped` として除外
+
+### Added
+- apps/fabriq_backuper v0.8.0 → v0.9.0 (Phase 2.9.0 Phase A / Outlook POP アカウント backup):
+  Outlook (classic 2016/2019/2021/365、registry version 16.0) の **POP3
+  アカウント設定を registry から JSON manifest にダンプする** 新セクション
+  `outlook_pop` を追加。**Phase A は backup のみ** (restore は次フェーズ)。
+  - **新規セクション**:
+    - `data/sections.csv` に `outlook_pop` 追加 (既定 Enabled=0、明示選択方式)
+    - `lib/sections/outlook_pop/backup.ps1` (新規 ~250 行) — HKCU 配下の
+      `Software\Microsoft\Office\16.0\Outlook\Profiles\<prof>\
+      9375CFF0413111d3B88A00104B2A6676\<NN>` を walk、各 POP3 アカウントから:
+        - 文字列値 (REG_BINARY UTF-16LE) → `[Text.Encoding]::Unicode.GetString` で decode + 末尾 null 除去
+        - 数値 (REG_DWORD) → そのまま整数として取得
+        - Account Name / Display Name / Email / POP3 Server,User,Port,SSL,Sicily / SMTP Server,User,Port,SSL,Sicily,AuthMethod を採取
+      manifest schema: `fabriq-outlook-pop-backup` v1。`items.profiles[].accounts[]` 構造
+    - `lib/sections/outlook_pop/restore.ps1` (Phase B 用 stub、`Status='Skipped'`)
+  - **意図的な除外**:
+    - Password (DPAPI per-user/per-machine 暗号化、cross-PC 復号不可) は **manifest に含めない**。
+      ただし `passwordStored` boolean (POP3/SMTP それぞれ存在フラグ) は trace 目的で記録
+    - IMAP アカウントは検出 + count するが backup 対象外 (Phase A スコープ外、IMAP Server 値で判定)
+    - 新 Outlook (2024〜、クラウド設定) は対象外
+  - **fabriq 既存パターン踏襲**:
+    - `Resolve-HkcuRoot` で admin 昇格 / cross-user の HKCU redirect に対応
+    - `SourceUserProfilePath` SectionParam (userdata セクションと同じ命名) で
+      target user の registry 経路を選択可能
+    - Outlook 16.0 が見つからなければ 15.0 (Outlook 2013) を fallback 検索
+  - **Phase A 検証手順**: backup 実行 → `sections/outlook_pop/manifest.json` を
+    確認 → 手書きで Microsoft canonical 7-section PRF を組み立て → 別 PC で
+    `outlook.exe /importprf <path>` テスト → 動作確認できたら Phase B (restore
+    自動化、PRF 動的生成 + Stop-Process OUTLOOK + importprf + cleanup) へ
+  - **PRF 仕様調査結果** (CHANGELOG memo): 元 AI 提案にあった `[ServiceEGS]` /
+    `ServiceName=MSEMS` は **Exchange 専用** で POP3 では使えない。POP3 は
+    `[Service List]` に `ServiceN=Internet E-mail`、本体は `[AccountN]`
+    セクション。また password を PRF に書く方式は **Outlook 2016+ では機能しない**
+    (Slipstick / Microsoft KB Q259957 確認済)。Phase B 設計はこの正解情報に
+    沿って実装する
+
 ### Added
 - apps/fabriq_backuper v0.7.10 → v0.8.0 (Phase 2.8.0 / Folder/File Browse 時の env-var 自動変換):
   Add/Edit userdata エントリダイアログで [Folder...] / [File...] からパスを

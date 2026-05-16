@@ -480,6 +480,10 @@ function Invoke-BackupStart {
             IncludeEntries        = $selectedEntries
             SourceUserProfilePath = $sourceUserProfilePath
         }
+        # Phase 2.9.0a: outlook_pop reads HKCU under the selected user too
+        outlook_pop = @{
+            SourceUserProfilePath = $sourceUserProfilePath
+        }
     }
 
     $destRoot = $script:BackupDestinationBox.Text
