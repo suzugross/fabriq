@@ -462,6 +462,55 @@ foreach ($profKey in $profileKeys) {
 }
 
 # ----------------------------------------------------------
+# Phase 2.10.1: profile registry hive export (Strategy B data)
+#
+# For every profile that captured at least one POP3 account, dump the
+# entire profile registry subtree to a .reg file via reg.exe export.
+# This is the raw data the restore path (Phase 2.10.2) imports into
+# the target user's HKCU to reconstitute POP3 + SMTP + Contacts +
+# message-store wiring without operator-typed settings (only the
+# password remains user-entered on first send/receive).
+#
+# Failure is recorded as a warning; the section still returns its
+# normal status because the manifest + PST placement path (Strategy A,
+# Phase 2.10.0) remains viable as a fallback.
+# ----------------------------------------------------------
+$regExports = @()
+foreach ($prof in $manifestProfiles) {
+    if (@($prof.accounts).Count -le 0) { continue }
+    $profName = $prof.name
+    $sanitizedName = ($profName -replace '[\\/:\*\?"<>\|]', '_').Trim()
+    if ([string]::IsNullOrWhiteSpace($sanitizedName)) { $sanitizedName = 'unnamed' }
+
+    $regFileName = "profile_$sanitizedName.reg"
+    $regOutPath  = Join-Path $sectionDir $regFileName
+    $regSrcPath  = "$($hkcuInfo.RegExePath)\Software\Microsoft\Office\$outlookVersion\Outlook\Profiles\$profName"
+
+    Show-Info "[reg-export] $regSrcPath"
+    Show-Info "[reg-export] -> $regFileName"
+
+    $regStdout = & reg.exe export $regSrcPath $regOutPath /y 2>&1
+    $regExitCode = $LASTEXITCODE
+
+    if ($regExitCode -ne 0 -or -not (Test-Path -LiteralPath $regOutPath)) {
+        $msg = "reg.exe export failed for profile '$profName' (exit=$regExitCode): $regStdout"
+        $warnings += $msg
+        Show-Warning "  reg.exe export failed (exit=$regExitCode)"
+        continue
+    }
+
+    $regSize = (Get-Item -LiteralPath $regOutPath).Length
+    Show-Success "  reg.exe export OK ($regSize bytes)"
+
+    $regExports += [ordered]@{
+        profileName = $profName
+        regFile     = $regFileName
+        sourceKey   = $regSrcPath
+        sizeBytes   = [int]$regSize
+    }
+}
+
+# ----------------------------------------------------------
 # Build manifest (fabriq-outlook-pop-backup schemaVersion=1)
 # ----------------------------------------------------------
 $hwUid = $null
@@ -507,12 +556,16 @@ $manifest = [ordered]@{
         imapAccountSkipped= $totalImap
         otherSkipped      = $totalOther
     }
-    items               = [ordered]@{ profiles = @($manifestProfiles) }
+    items               = [ordered]@{
+        profiles   = @($manifestProfiles)
+        regExports = @($regExports)
+    }
     warnings            = @($warnings)
     notes               = @(
         'Passwords are DPAPI-encrypted per-user/per-machine and excluded from this manifest.',
         'IMAP / Exchange accounts are intentionally skipped in Phase A.',
-        'Restore is not yet implemented (Phase B). Use this manifest to manually craft a PRF and run: outlook.exe /importprf <prf>'
+        'Strategy A restore: derive the localized "Outlook Files" folder name from items.profiles[].accounts[].pst.sourcePath, recreate it under the target user Documents, place each PST as <email>.pst, and let Outlook path-collision-attach on first launch (operator copies POP/SMTP settings from RESTORE_INSTRUCTIONS.txt).',
+        'Strategy B restore: import items.regExports[].regFile into target user HKCU via reg.exe import, then place PST, then Outlook prompts only for password on first launch.'
     )
 }
 
