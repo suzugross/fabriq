@@ -213,15 +213,19 @@ function Invoke-RegImport {
 }
 
 function Test-AccountImported {
-    # Walk the target hive to verify a specific POP3 account subkey
-    # exists with the expected POP3 Server value. Returns
+    # Walk the target hive to verify a specific account subkey exists
+    # with the expected server value. Returns
     # @{ Verified=$true/$false; Reason=<string-or-null> }.
+    #
+    # Phase 2.13.0: ServerValueName parameterised to support both POP3
+    # ('POP3 Server') and IMAP ('IMAP Server') accounts.
     param(
         [Parameter(Mandatory = $true)][string]$HiveDrivePath,
         [Parameter(Mandatory = $true)][string]$OutlookVersion,
         [Parameter(Mandatory = $true)][string]$ProfileName,
         [Parameter(Mandatory = $true)][string]$SubKey,
-        [Parameter(Mandatory = $true)][string]$ExpectedPop3Server
+        [Parameter(Mandatory = $true)][string]$ExpectedServer,
+        [string]$ServerValueName = 'POP3 Server'
     )
     $accountKey = "$HiveDrivePath\Software\Microsoft\Office\$OutlookVersion\Outlook\Profiles\" +
                   "$ProfileName\9375CFF0413111d3B88A00104B2A6676\$SubKey"
@@ -230,17 +234,17 @@ function Test-AccountImported {
     }
     try {
         $rk = Get-Item -LiteralPath $accountKey -ErrorAction Stop
-        $raw = $rk.GetValue('POP3 Server', $null)
+        $raw = $rk.GetValue($ServerValueName, $null)
         if ($null -eq $raw) {
-            return @{ Verified = $false; Reason = 'POP3 Server value missing at imported subkey' }
+            return @{ Verified = $false; Reason = "$ServerValueName value missing at imported subkey" }
         }
         $imported = if ($raw -is [byte[]]) {
             [System.Text.Encoding]::Unicode.GetString([byte[]]$raw).TrimEnd([char]0)
         } else { [string]$raw }
-        if ($imported -eq $ExpectedPop3Server) {
+        if ($imported -eq $ExpectedServer) {
             return @{ Verified = $true; Reason = $null }
         }
-        return @{ Verified = $false; Reason = "POP3 Server mismatch: expected '$ExpectedPop3Server', imported '$imported'" }
+        return @{ Verified = $false; Reason = "$ServerValueName mismatch: expected '$ExpectedServer', imported '$imported'" }
     } catch {
         return @{ Verified = $false; Reason = "verify exception: $($_.Exception.Message)" }
     }
@@ -602,19 +606,35 @@ function New-OutlookAccountInfoText {
             continue
         }
 
+        $isImap = ("$($acct.type)" -eq 'imap')
+
         $lines.Add('') | Out-Null
         $lines.Add('  Wizard input (Display Name / Email / Server settings):') | Out-Null
         $lines.Add("    Display name      : $($acct.displayName)") | Out-Null
         $lines.Add("    Email address     : $($acct.email)") | Out-Null
-        $lines.Add('    Account type      : POP') | Out-Null
+        $lines.Add("    Account type      : $(if ($isImap) { 'IMAP' } else { 'POP' })") | Out-Null
         $lines.Add('') | Out-Null
-        $lines.Add('  Incoming server (POP3):') | Out-Null
-        $lines.Add("    Server            : $($acct.pop3.server)") | Out-Null
-        $lines.Add("    Port              : $($acct.pop3.port)") | Out-Null
-        $popSsl = if ($acct.pop3.useSSL -eq 1) { 'YES (required)' } else { 'No' }
-        $lines.Add("    SSL/TLS           : $popSsl") | Out-Null
-        $lines.Add("    Username          : $($acct.pop3.userName)") | Out-Null
+
+        if ($isImap) {
+            $lines.Add('  Incoming server (IMAP):') | Out-Null
+            $lines.Add("    Server            : $($acct.imap.server)") | Out-Null
+            $lines.Add("    Port              : $($acct.imap.port)") | Out-Null
+            $imapSsl = if ($acct.imap.useSSL -eq 1) { 'YES (required)' } else { 'No' }
+            $lines.Add("    SSL/TLS           : $imapSsl") | Out-Null
+            $lines.Add("    Username          : $($acct.imap.userName)") | Out-Null
+            if (-not [string]::IsNullOrWhiteSpace("$($acct.imap.folderPath)")) {
+                $lines.Add("    Root folder path  : $($acct.imap.folderPath)") | Out-Null
+            }
+        } else {
+            $lines.Add('  Incoming server (POP3):') | Out-Null
+            $lines.Add("    Server            : $($acct.pop3.server)") | Out-Null
+            $lines.Add("    Port              : $($acct.pop3.port)") | Out-Null
+            $popSsl = if ($acct.pop3.useSSL -eq 1) { 'YES (required)' } else { 'No' }
+            $lines.Add("    SSL/TLS           : $popSsl") | Out-Null
+            $lines.Add("    Username          : $($acct.pop3.userName)") | Out-Null
+        }
         $lines.Add('') | Out-Null
+
         $lines.Add('  Outgoing server (SMTP):') | Out-Null
         $lines.Add("    Server            : $($acct.smtp.server)") | Out-Null
         $lines.Add("    Port              : $($acct.smtp.port)") | Out-Null
@@ -622,11 +642,21 @@ function New-OutlookAccountInfoText {
         $lines.Add("    SSL/TLS           : $smtpSsl") | Out-Null
         $smtpAuth = if ($acct.smtp.useAuth -eq 1) { 'YES (required)' } else { 'No' }
         $lines.Add("    Authentication    : $smtpAuth") | Out-Null
-        $smtpUser = if ($acct.smtp.userName) { $acct.smtp.userName } else { '(same as POP3)' }
+        $sameAsLabel = if ($isImap) { '(same as IMAP)' } else { '(same as POP3)' }
+        $smtpUser = if ($acct.smtp.userName) { $acct.smtp.userName } else { $sameAsLabel }
         $lines.Add("    SMTP username     : $smtpUser") | Out-Null
         $lines.Add('') | Out-Null
-        $lines.Add('  Existing data file (PST):') | Out-Null
-        $lines.Add("    $($r.targetPstPath)") | Out-Null
+
+        if ($isImap) {
+            $lines.Add('  Local data file (OST):') | Out-Null
+            $lines.Add('    NOT migrated. OST is per-machine DPAPI-encrypted and') | Out-Null
+            $lines.Add('    cannot be transferred across PCs. On first IMAP sync,') | Out-Null
+            $lines.Add('    Outlook will create a fresh OST at the default location') | Out-Null
+            $lines.Add('    and re-download all folders from the IMAP server.') | Out-Null
+        } else {
+            $lines.Add('  Existing data file (PST):') | Out-Null
+            $lines.Add("    $($r.targetPstPath)") | Out-Null
+        }
         $lines.Add('') | Out-Null
     }
 
@@ -636,22 +666,32 @@ function New-OutlookAccountInfoText {
     $lines.Add('  1. Open Outlook') | Out-Null
     $lines.Add('  2. File > Add Account') | Out-Null
     $lines.Add('  3. Expand "Advanced options" and CHECK "Let me set up my') | Out-Null
-    $lines.Add('     account manually" (THIS STEP IS REQUIRED - otherwise') | Out-Null
-    $lines.Add('     Outlook will auto-pick IMAP, not POP)') | Out-Null
+    $lines.Add('     account manually" (REQUIRED for POP accounts; Outlook') | Out-Null
+    $lines.Add('     will otherwise auto-pick IMAP. For an IMAP account this') | Out-Null
+    $lines.Add('     step is still recommended for explicit control.)') | Out-Null
     $lines.Add('  4. Enter the email address from above, click "Connect"') | Out-Null
-    $lines.Add('  5. Choose "POP" as the account type') | Out-Null
-    $lines.Add('  6. Enter the server settings exactly as printed above') | Out-Null
-    $lines.Add('  7. When asked about data file, choose "Existing Outlook') | Out-Null
-    $lines.Add('     Data File" and browse to the PST path printed above') | Out-Null
+    $lines.Add('  5. Choose the account type matching the "Account type"') | Out-Null
+    $lines.Add('     printed for that account in the section above') | Out-Null
+    $lines.Add('     (POP or IMAP)') | Out-Null
+    $lines.Add('  6. Enter the server settings exactly as printed above.') | Out-Null
+    $lines.Add('     For IMAP, set the Root folder path as well if listed.') | Out-Null
+    $lines.Add('  7. POP only: when asked about data file, choose "Existing') | Out-Null
+    $lines.Add('     Outlook Data File" and browse to the PST path printed.') | Out-Null
+    $lines.Add('     IMAP: no data file step (OST auto-created).') | Out-Null
     $lines.Add('  8. Complete the wizard') | Out-Null
     $lines.Add('  9. Enter the password when Outlook prompts on first') | Out-Null
     $lines.Add('     send/receive (DPAPI restriction: passwords are never') | Out-Null
     $lines.Add('     deployable across machines)') | Out-Null
     $lines.Add('') | Out-Null
-    $lines.Add(' If the email matches the PST filename (it should, since we') | Out-Null
-    $lines.Add(' renamed it to <email>.pst), Outlook attaches the existing') | Out-Null
-    $lines.Add(' PST automatically and all old emails / folders / contacts') | Out-Null
-    $lines.Add(' will be visible.') | Out-Null
+    $lines.Add(' POP only: if the email matches the PST filename (it should,') | Out-Null
+    $lines.Add(' since we renamed it to <email>.pst), Outlook attaches the') | Out-Null
+    $lines.Add(' existing PST automatically and all old emails / folders /') | Out-Null
+    $lines.Add(' contacts will be visible.') | Out-Null
+    $lines.Add('') | Out-Null
+    $lines.Add(' IMAP only: Outlook will create a new OST under') | Out-Null
+    $lines.Add(' AppData\Local\Microsoft\Outlook\ and re-download all folders') | Out-Null
+    $lines.Add(' from the server on first sync (this can take a while for') | Out-Null
+    $lines.Add(' large mailboxes).') | Out-Null
     $lines.Add('') | Out-Null
 
     if ($IsCrossVersion) {
@@ -856,19 +896,28 @@ if (-not [string]::IsNullOrWhiteSpace($srcRegVer) -and
 }
 
 # ----------------------------------------------------------
-# Phase 2.12.3: detect IMAP presence in source profile.
-# Backup (Phase A) intentionally skips IMAP accounts from the enumerated
-# items.profiles[].accounts[] list but records the count in
-# counts.imapAccountSkipped, which is the easiest no-cost detector.
-# Used downstream to surface an operator note about POP delivery target
-# rebinding (Outlook may auto-pick OST over PST when both stores exist).
+# Phase 2.12.3 / 2.13.0: detect IMAP presence in source profile.
+# Primary path (Phase 2.13.0+ backup): manifest.items.profiles[].accounts[]
+# now includes IMAP entries with type='imap', alongside counts.imapAccount.
+# Legacy path (pre-2.13.0 backup): IMAP was skipped from enumeration but
+# counted in counts.imapAccountSkipped; still consulted for backward
+# compatibility so older backups continue to trigger the operator note.
 # ----------------------------------------------------------
 $imapPresent = $false
-if ($manifest.counts -and `
-    $null -ne $manifest.counts.imapAccountSkipped -and `
-    [int]$manifest.counts.imapAccountSkipped -gt 0) {
+$imapEnumerated = @()
+foreach ($prof in @($manifest.items.profiles)) {
+    foreach ($acct in @($prof.accounts)) {
+        if ("$($acct.type)" -eq 'imap') { $imapEnumerated += $acct }
+    }
+}
+if ($imapEnumerated.Count -gt 0) {
     $imapPresent = $true
-    Show-Info ("Source profile contains IMAP account(s) (count=$($manifest.counts.imapAccountSkipped))")
+    Show-Info ("Source profile contains IMAP account(s) enumerated in manifest (count=$($imapEnumerated.Count))")
+} elseif ($manifest.counts -and `
+          $null -ne $manifest.counts.imapAccountSkipped -and `
+          [int]$manifest.counts.imapAccountSkipped -gt 0) {
+    $imapPresent = $true
+    Show-Info ("Source profile contains IMAP account(s) (legacy schema, skipped count=$($manifest.counts.imapAccountSkipped))")
 }
 
 $plannedAccounts = @()
@@ -923,11 +972,25 @@ foreach ($pa in $plannedAccounts) {
     $accountResult = [ordered]@{
         profile       = $profileName
         accountSubKey = $a.subKey
+        accountType   = "$($a.type)"
         email         = $a.email
         status        = 'Failed'
         reason        = $null
         targetPstPath = $null
         verifyResult  = $null
+    }
+
+    # Phase 2.13.0: IMAP accounts have no PST to place (OST is per-machine
+    # encrypted, not migrated). Skip Stage 2 PST logic entirely and mark
+    # ready for Strategy B reg-import + first-launch IMAP sync.
+    if ("$($a.type)" -eq 'imap') {
+        Show-Info '  [imap] no PST placement (OST will auto-recreate on first IMAP sync)'
+        $accountResult.status = 'Success'
+        $accountResult.targetPstPath = $null
+        $resultsByAccount += $accountResult
+        $successCount++
+        try { Set-EntryStatus -Id $entryId -Status 'Done' } catch { }
+        continue
     }
 
     if (-not $a.pst -or [string]::IsNullOrWhiteSpace($a.pst.sourcePath)) {
@@ -1133,21 +1196,27 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
             }
             Show-Success "  [$profName] reg import OK"
 
-            # Per-account verify
+            # Per-account verify (Phase 2.13.0: dispatch on account type)
             $profileAccounts = @($plannedAccounts | Where-Object { $_.ProfileName -eq $profName })
             foreach ($pa in $profileAccounts) {
                 $a = $pa.Account
+                $expectedServer = if ("$($a.type)" -eq 'imap') { "$($a.imap.server)" }
+                                  else { "$($a.pop3.server)" }
+                $serverValueName = if ("$($a.type)" -eq 'imap') { 'IMAP Server' }
+                                   else { 'POP3 Server' }
                 $vr = Test-AccountImported `
                     -HiveDrivePath $targetHivePsDrive `
                     -OutlookVersion $outlookVersion `
                     -ProfileName $profName `
                     -SubKey $a.subKey `
-                    -ExpectedPop3Server $a.pop3.server
+                    -ExpectedServer $expectedServer `
+                    -ServerValueName $serverValueName
                 $perProfile.verifyResults += [ordered]@{
-                    subKey   = $a.subKey
-                    email    = $a.email
-                    verified = $vr.Verified
-                    reason   = $vr.Reason
+                    subKey    = $a.subKey
+                    type      = "$($a.type)"
+                    email     = $a.email
+                    verified  = $vr.Verified
+                    reason    = $vr.Reason
                 }
                 if ($vr.Verified) {
                     Show-Success "    [verify] $($a.email): OK"
@@ -1186,8 +1255,11 @@ if ($strategyBSucceeded) {
     # ---- Stage 5a: Strategy B success popup ----
     $emails = ($resultsByAccount | Where-Object { $_.verifyResult -eq 'verified' } |
                ForEach-Object { $_.email }) -join ', '
-    $popupTitle = 'Outlook POP - Restore Complete'
-    $popupBody  = "$($plannedAccounts.Count) POP3 account(s) restored automatically:`r`n  $emails`r`n`r`n" +
+    $popCount  = @($plannedAccounts | Where-Object { "$($_.Account.type)" -ne 'imap' }).Count
+    $imapCount = @($plannedAccounts | Where-Object { "$($_.Account.type)" -eq 'imap' }).Count
+    $countLabel = if ($imapCount -gt 0) { "POP=$popCount  IMAP=$imapCount" } else { "$popCount POP3" }
+    $popupTitle = 'Outlook POP/IMAP - Restore Complete'
+    $popupBody  = "$countLabel account(s) restored automatically:`r`n  $emails`r`n`r`n" +
                   "Operator action required (2 Outlook launches):`r`n" +
                   "  1. Launch Outlook. A 'restart required to link PST' notice will appear`r`n" +
                   "     and Outlook will close itself. This is expected behaviour - just close.`r`n" +
@@ -1242,7 +1314,7 @@ if ($strategyBSucceeded) {
     }
 
     try {
-        $popupBody = "Manual setup is required for $($plannedAccounts.Count) Outlook POP account(s).`r`n`r`n" +
+        $popupBody = "Manual setup is required for $($plannedAccounts.Count) Outlook account(s) (POP / IMAP).`r`n`r`n" +
                      "PST file(s) have been placed at the target paths so that Outlook's wizard " +
                      "will attach them automatically when the operator adds the matching email account.`r`n`r`n" +
                      "Please open the instruction file and follow the steps:`r`n$instructionsPath"
