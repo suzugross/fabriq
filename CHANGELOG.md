@@ -15,6 +15,56 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_backuper v0.12.3 → v0.13.0 (Phase 2.13.0 / outlook_pop に IMAP account
+  visibility scope を追加 — backup 列挙 + restore で human-readable 出力):
+  Phase A 設計で意図的に inventory から除外していた IMAP account を、POP3 と並んで
+  `items.profiles[].accounts[]` に列挙し、restore 側で `_account_settings.txt` /
+  `RESTORE_INSTRUCTIONS.txt` に POP と同等の設定情報を表示するように拡張。Strategy B
+  自動復元は Phase 2.12.x 以前から (raw .reg 全体 import 経路で) IMAP も対象だったが、
+  operator 視点で「何が含まれているか」が見えなかった状態を解消。実装は backup +
+  restore 両側、検証は実機 backup (POP+IMAP 混合構成、O365BusinessRetail、OLD-PC-03) を
+  使用予定。
+  - **backup.ps1**:
+    - IMAP account を `items.profiles[].accounts[]` に `type='imap'` で列挙
+    - IMAP entry shape: `imap` block (server / userName / port / useSSL / folderPath) +
+      `smtp` block (POP と同形式) + `passwordStored.imap` (DPAPI 暗号化 IMAP password
+      存在のみ記録、復号せず) + `pst` block は **省略** (OST は per-machine 暗号化のため
+      migration 不可)
+    - manifest counts schema 更新: `imapAccountSkipped` → `imapAccount` に rename
+      (旧名は legacy backup 互換のため restore 側で fallback 検出する)、`profileWithImap`
+      を新規追加
+    - manifest `notes` から「Phase A skip」記述を削除、IMAP は OST 不携行 + server 再
+      sync 前提である旨を新規追加
+    - section result Summary `imapSkipped` → `imapAccountCount` rename
+    - final log line `IMAP skipped` → `IMAP captured` 表現に更新
+  - **restore.ps1**:
+    - `Test-AccountImported` ヘルパーを `ServerValueName` パラメータで一般化、
+      `POP3 Server` / `IMAP Server` 両方の verify に対応
+    - Stage 2 (PST 配置) で `type == 'imap'` account は無条件 skip + Success (OST は
+      初回 IMAP sync で auto-recreate される設計通り)
+    - Stage 3/4 (Strategy B per-account verify) で account type に応じて
+      `IMAP Server` / `POP3 Server` の expected value を切り替え
+    - `New-OutlookAccountInfoText` に type 別 section 描画追加: IMAP は IMAP/SMTP
+      server settings + folderPath + 「OST 非携行で初回 sync 時 server から再 download」
+      注記、POP は従来通り
+    - Manual setup procedure section: POP/IMAP どちらの wizard 経路でも使える表現に
+      微修正 (Account type 選択時に確認、data file step は POP のみ)
+    - Phase 2.12.3 で導入した `ImapPresent` 検知ロジックを、新 schema (manifest 内に
+      `type='imap'` 発見) を primary に、`counts.imapAccountSkipped` (legacy) を
+      fallback に更新
+    - Stage 5a 成功 popup 文言を `POP=N  IMAP=M` 形式 (IMAP 有り時) に切替、title も
+      `Outlook POP/IMAP - Restore Complete` に変更
+    - Stage 5b 手動セットアップ popup の文言を `POP/IMAP` 両対応表現に微修正
+  - **backward compat**: pre-2.13.0 backup (manifest に `imapAccountSkipped > 0` /
+    IMAP entry 無し) で restore しても、Phase 2.12.3 の operator note は legacy
+    fallback 経路で従来通り表示される
+  - **既知の edge case** (今回 fix 範囲外): IMAP-only profile (POP account 無し) で
+    Strategy B 成功時、target user の PST 配置ディレクトリが存在しないため
+    `_account_settings.txt` 配置が skip される。実用上は POP+IMAP 混合 / POP-only が
+    大多数なので影響軽微、必要なら次 phase で fallback location を実装
+  - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
+
 ### Fixed
 - apps/fabriq_backuper v0.12.2 → v0.12.3 (Phase 2.12.3 hotfix / same-version IMAP-present
   profile で POP 配信先が OST に auto-bind される ambiguity の operator 通知追加):

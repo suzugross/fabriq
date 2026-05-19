@@ -19,7 +19,9 @@
 #     them). This section therefore intentionally skips password
 #     blobs entirely — the operator re-enters on first send/receive.
 #   - IMAP accounts (POP3 Server value absent, IMAP Server present)
-#     are detected, counted, and intentionally skipped in Phase A.
+#     are enumerated with type='imap' (Phase 2.13.0+); no pst block is
+#     emitted because OST files are per-machine DPAPI-encrypted and not
+#     migrated (Outlook re-syncs from server on first launch).
 #
 # SectionParams (hashtable, all optional):
 #   SourceUserProfilePath : profile path of the user whose HKCU to
@@ -461,14 +463,49 @@ foreach ($profKey in $profileKeys) {
         $imapServer = Get-RegValueString -RegKey $rk -Name 'IMAP Server'
 
         if ([string]::IsNullOrWhiteSpace($pop3Server) -and `
-            -not [string]::IsNullOrWhiteSpace($imapServer)) {
-            $totalImap++
-            Show-Skip "  [$subKeyName] IMAP account - skipping (Phase A: POP3 only)"
-            continue
-        }
-        if ([string]::IsNullOrWhiteSpace($pop3Server)) {
+            [string]::IsNullOrWhiteSpace($imapServer)) {
             $totalOther++
             Show-Skip "  [$subKeyName] no POP3/IMAP server value - skipping"
+            continue
+        }
+
+        # Phase 2.13.0: IMAP enumeration. Build IMAP entry separately (no
+        # pst block; OST is per-machine encrypted, not migrated).
+        if (-not [string]::IsNullOrWhiteSpace($imapServer) -and `
+            [string]::IsNullOrWhiteSpace($pop3Server)) {
+            $imapEntry = [ordered]@{
+                subKey       = $subKeyName
+                type         = 'imap'
+                accountName  = (Get-RegValueString -RegKey $rk -Name 'Account Name')
+                displayName  = (Get-RegValueString -RegKey $rk -Name 'Display Name')
+                email        = (Get-RegValueString -RegKey $rk -Name 'Email')
+                replyEmail   = (Get-RegValueString -RegKey $rk -Name 'Reply E-mail')
+                organization = (Get-RegValueString -RegKey $rk -Name 'Organization')
+                imap         = [ordered]@{
+                    server     = $imapServer
+                    userName   = (Get-RegValueString -RegKey $rk -Name 'IMAP User')
+                    port       = (Get-RegValueDword  -RegKey $rk -Name 'IMAP Port')
+                    useSSL     = (Get-RegValueDword  -RegKey $rk -Name 'IMAP Use SSL')
+                    folderPath = (Get-RegValueString -RegKey $rk -Name 'IMAP Folder Path')
+                }
+                smtp         = [ordered]@{
+                    server     = (Get-RegValueString -RegKey $rk -Name 'SMTP Server')
+                    userName   = (Get-RegValueString -RegKey $rk -Name 'SMTP User')
+                    port       = (Get-RegValueDword  -RegKey $rk -Name 'SMTP Port')
+                    useSSL     = (Get-RegValueDword  -RegKey $rk -Name 'SMTP Use SSL')
+                    useAuth    = (Get-RegValueDword  -RegKey $rk -Name 'SMTP Use Auth')
+                    authMethod = (Get-RegValueDword  -RegKey $rk -Name 'SMTP Auth Method')
+                }
+                passwordStored = [ordered]@{
+                    imap = ($null -ne (Get-RegValueRaw -RegKey $rk -Name 'IMAP Password'))
+                    smtp = ($null -ne (Get-RegValueRaw -RegKey $rk -Name 'SMTP Password'))
+                }
+            }
+            Show-Success ("  [$subKeyName] $($imapEntry.accountName)  <$($imapEntry.email)>  " +
+                          "imap=$($imapEntry.imap.server):$($imapEntry.imap.port)")
+            Show-Info    '             ost=(not migrated; Outlook re-syncs from server on first launch)'
+            $accountEntries += $imapEntry
+            $totalImap++
             continue
         }
 
@@ -666,7 +703,8 @@ if (-not [string]::IsNullOrWhiteSpace($sourceUserProfilePath)) {
     try { $sourceUserName = Split-Path $sourceUserProfilePath -Leaf } catch { }
 }
 
-$profileCountWithPop = @($manifestProfiles | Where-Object { $_.accounts.Count -gt 0 }).Count
+$profileCountWithPop  = @($manifestProfiles | Where-Object { @($_.accounts | Where-Object { $_.type -eq 'pop3' }).Count -gt 0 }).Count
+$profileCountWithImap = @($manifestProfiles | Where-Object { @($_.accounts | Where-Object { $_.type -eq 'imap' }).Count -gt 0 }).Count
 
 $manifest = [ordered]@{
     schemaVersion       = 1
@@ -698,8 +736,9 @@ $manifest = [ordered]@{
     counts              = [ordered]@{
         profile           = @($manifestProfiles).Count
         profileWithPop    = $profileCountWithPop
+        profileWithImap   = $profileCountWithImap
         popAccount        = $totalPop
-        imapAccountSkipped= $totalImap
+        imapAccount       = $totalImap
         otherSkipped      = $totalOther
     }
     items               = [ordered]@{
@@ -709,8 +748,9 @@ $manifest = [ordered]@{
     warnings            = @($warnings)
     notes               = @(
         'Passwords are DPAPI-encrypted per-user/per-machine and excluded from this manifest.',
-        'IMAP / Exchange accounts are intentionally skipped in Phase A.',
-        'Strategy A restore: derive the localized "Outlook Files" folder name from items.profiles[].accounts[].pst.sourcePath, recreate it under the target user Documents, place each PST as <email>.pst, and let Outlook path-collision-attach on first launch (operator copies POP/SMTP settings from RESTORE_INSTRUCTIONS.txt).',
+        'POP3 and IMAP accounts are both enumerated (Phase 2.13.0+). Exchange / Office365 OAuth accounts are still excluded.',
+        'IMAP entries (type=imap) have no pst block: OST files are per-machine DPAPI-encrypted and not migrated. Outlook re-syncs all folders from the IMAP server on first launch.',
+        'Strategy A restore: derive the localized "Outlook Files" folder name from items.profiles[].accounts[].pst.sourcePath (POP entries only), recreate it under the target user Documents, place each PST as <email>.pst, and let Outlook path-collision-attach on first launch (operator copies POP/SMTP settings from RESTORE_INSTRUCTIONS.txt).',
         'Strategy B restore: import items.regExports[].regFile into target user HKCU via reg.exe import, then place PST, then Outlook prompts only for password on first launch.'
     )
 }
@@ -720,8 +760,8 @@ $manifest | ConvertTo-Json -Depth 8 | Out-File -FilePath $manifestPath -Encoding
 
 $sw.Stop()
 
-$status = if ($totalPop -eq 0) { 'Skipped' } else { 'Success' }
-Show-Info "POP accounts captured: $totalPop  (IMAP skipped: $totalImap, other skipped: $totalOther)"
+$status = if (($totalPop + $totalImap) -eq 0) { 'Skipped' } else { 'Success' }
+Show-Info "Accounts captured: POP=$totalPop  IMAP=$totalImap  (other skipped: $totalOther)"
 
 return [PSCustomObject]@{
     Status               = $status
@@ -729,7 +769,7 @@ return [PSCustomObject]@{
     Summary              = [ordered]@{
         profileCount        = @($manifestProfiles).Count
         popAccountCount     = $totalPop
-        imapSkipped         = $totalImap
+        imapAccountCount    = $totalImap
         otherSkipped        = $totalOther
         outlookVersion      = $outlookVersion
         installedFamily     = $outlookInstallInfo.ProductFamily
