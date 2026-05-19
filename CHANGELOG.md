@@ -15,6 +15,79 @@
 
 ## [Unreleased]
 
+### Fixed
+- apps/fabriq_backuper v0.12.2 → v0.12.3 (Phase 2.12.3 hotfix / same-version IMAP-present
+  profile で POP 配信先が OST に auto-bind される ambiguity の operator 通知追加):
+  v0.12.2 で 365 → 365 + IMAP の restore が起動エラー無しで通るようになった結果、新たに
+  「POP account の `新しいメッセージを次の場所に配信します` が IMAP OST を指してしまう」
+  ambiguity を実機検出。原因は Strategy B-light の T2 strip (`Delivery Store EntryID`
+  削除) で POP の delivery binding が空になり、Outlook が profile open 時に default
+  store を auto-pick する際、IMAP OST subkey の metadata (last-modified 等) が PST より
+  新しいと判定されて OST が選ばれることがあるため。
+  - **背景**: cross-version restore では T5 で OST subkey 丸ごと drop しているので候補が
+    PST のみ → 自動的に PST 選択、顕在化しない。same-version restore では OST subkey を
+    保持する設計のためこの ambiguity が残る (binary EntryID rewrite は Tier 1 PoC で
+    破綻実証済、自動 rebind は技術的に非現実的)
+  - **fix**: 自動化を諦めて operator 通知を強化。`New-OutlookAccountInfoText` に
+    `ImapPresent` パラメータ追加、**same-version + IMAP-present の時のみ** 末尾に
+    「POP delivery target check (IMAP-present profile)」セクションを追記。手順:
+    Account Settings → Email tab → POP account → 配信先確認 → 必要なら Change Folder で
+    PST Inbox 指定。cross-version 時は既存の cleanup section B-5 step で同じ手順が
+    カバー済のため重複表示を抑止
+  - **IMAP 検知ロジック**: backup の `manifest.counts.imapAccountSkipped` (Phase A 由来、
+    IMAP account は inventory から除外しつつ件数だけ記録していたもの) を見て > 0 で判定。
+    既存 backup 形式の活用、新規 backup フィールド追加なし
+  - **Stage 5a 完了 popup**: same-version + IMAP-present の時に「IMAP account present
+    in source profile」セクションを popup 末尾に追加、_account_settings.txt の該当
+    セクション参照を誘導
+  - **影響範囲**: app 内部のみ。POP-only profile / IMAP-absent profile では何も変わらない
+    (`ImapPresent = $false` で section 非表示)
+
+- apps/fabriq_backuper v0.12.1 → v0.12.2 (Phase 2.12.2 hotfix / same-version IMAP restore で
+  Outlook が「データファイルを設定できません」と source-user 由来 OST path を訴える bug):
+  Phase 2.12.1 で T5 (OST service-def subkey drop) を cross-version 限定にした結果、
+  same-version では OST subkey をそのまま残す方針になったが、OST subkey 内には 001f6700
+  以外にも source-user の OST path を含む値が複数あり (`001f6610` plain UTF-16LE path、
+  `01020fff` PR_ENTRYID binary、`01020ffb` 関連 binary)、T4 が 001f6700 だけ rewrite して
+  他を放置していたため Outlook が stale path を読んで「ファイルパスが無効」エラーになる
+  bug を実機検出。simulator で v0.12.1 transform 出力を検査して原因確定 (`b04917cf...` OST
+  subkey の 001f6610 が `C:\Users\y_suzuki\...` のまま残存等)。
+  - **T4 拡張**: `001f6610` を path rewrite 対象に追加 (001f6700 と同形式の plain
+    UTF-16LE path、binary offset table なしで安全に rewrite 可能)
+  - **T6 (新規、same-version OST subkey 限定)**: `01020fff` (PR_ENTRYID) / `01020ffb`
+    (関連 PR_RECORD_KEY 系) の binary 値を strip。これらは wrapped binary EntryID 内に
+    source-user OST path を embed しており、内部 offset table 起因で安全な rewrite 不可
+    (Phase 2.10.x Tier 1 PoC で実証済)。strip 後は Outlook が初回 open 時に surviving
+    001f6700 / 001f6610 から PR_ENTRYID を auto-regenerate する想定
+  - **副次効果なし**: T6 は OST subkey のみ対象 (PST subkey は対象外)、cross-version では
+    T5 で subkey 丸ごと drop 済みなので T6 は skipped。同 version POP-only profile には
+    OST subkey が存在しないため影響なし
+  - **検証**: simulator で M365 same-version (16.0 → 16.0) + 2013 cross-version (15.0 → 16.0)
+    両方の transform 出力を inspect、OST subkey 内 path 系値が全て target user に rewrite
+    or strip されることを確認
+  - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
+
+- apps/fabriq_backuper v0.12.0 → v0.12.1 (Phase 2.12.1 hotfix / same-version IMAP restore で
+  「フォルダーセットを開けません」profile load fail を修正):
+  Phase 2.12.0 で導入した T5 (OST service-def subkey drop) が **same-version 365 → 365 IMAP**
+  復元で profile loader を破綻させる bug を実機で検出。
+  - **症状**: 365 + IMAP の backup を別 365 PC で restore → Outlook 起動時「Microsoft Outlook
+    を起動できません. Outlook ウインドウを開けません. このフォルダーセットは開けません.
+    予期しないエラーが発生しました」エラーで profile が開けない
+  - **原因**: T5 で drop した OST service-def subkey の MAPIUID が、IMAP account の
+    `Service UID` 値や MAPI section provider (`0a0d020000000000c000000000000046`) 等から
+    binary level で参照されていた → drop 後に dangling reference が残る。
+    Outlook 365 が **import された .reg の schema が自身と一致**すると判定すると strict
+    検証モードに入り、dangling refs を検出して profile open fail。
+    cross-version (2013 → 365) では schema 不一致を検出して lenient migration path に
+    入るため dangling refs を tolerate していた、という非対称挙動が原因
+  - **fix**: T5 を **cross-version 時のみ active** に gate。same-version restore では
+    T5 inactive (OST service-def subkey をそのまま残す)、Outlook の通常 IMAP cross-PC
+    挙動 (OST auto-recreate on first sync) に任せる方針。T1/T2/T3/T4 は always-on のまま
+  - **副次効果なし**: cross-version 動線は変更なし (T5 は従来通り active)。same-version
+    POP-only は元から T5 が無関係 (POP profile に OST subkey が存在しないため)
+  - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
+
 ### Added
 - apps/fabriq_backuper v0.11.2 → v0.12.0 (Phase 2.12.0 / outlook_pop restore に cross-version 対応 + IMAP cross-PC 対応):
   Phase 2.11.0 で導入した source/target Outlook installation 検知を **restore 動線の自動分岐**に

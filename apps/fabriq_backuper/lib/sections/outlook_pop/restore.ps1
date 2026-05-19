@@ -276,19 +276,52 @@ function Convert-RegFileToStrategyBLight {
     #     Similarly, do NOT strip "Preferences UID" (also present in POP
     #     account subkey, would risk POP regression).
     #
-    #   T4 (Phase 2.10.3 baseline):
-    #     Rewrite "001f6700" (PR_PST_PATH-like) and "001f0433"
-    #     (sharing.xml path) UTF-16LE hex values, replacing source
-    #     username with target username. These two value names have no
-    #     binary offset tables so are safe to extend.
+    #   T4 (Phase 2.10.3 baseline / extended in Phase 2.12.2):
+    #     Rewrite plain UTF-16LE hex path values, replacing source
+    #     username with target username. Targets:
+    #       - "001f6700" (PR_PST_PATH-like, primary local store path)
+    #       - "001f0433" (sharing.xml path)
+    #       - "001f6610" (additional store path, present in OST
+    #         service-def subkeys alongside 001f6700; added Phase 2.12.2
+    #         after same-version IMAP restore exposed Outlook reading
+    #         this value with the stale source-user path)
+    #     All three are plain UTF-16LE strings with no binary offset
+    #     tables, safe to extend.
     #
-    #   T5 (Phase 2.12.0, OST cross-PC support):
+    #   T6 (Phase 2.12.2, OST cross-PC support) -- SAME-VERSION ONLY:
+    #     For OST-bearing service-def subkeys (identified by 001f6700
+    #     ending in ".ost"), strip "01020fff" (PR_ENTRYID) and "01020ffb"
+    #     (related PR_RECORD_KEY-style binary). These contain wrapped
+    #     binary EntryIDs with the source-user OST path embedded in
+    #     internal offsets; they cannot be safely rewritten (binary
+    #     offset tables break when path length changes -- empirically
+    #     confirmed via Tier 1 PoC). Stripping is safe because Outlook
+    #     regenerates these properties on first open from the surviving
+    #     001f6700 / 001f6610 path values (which T4 has rewritten to the
+    #     target user).
+    #
+    #     Same-version only because cross-version drops the entire OST
+    #     subkey via T5; T6 would be redundant there.
+    #
+    #   T5 (Phase 2.12.0, OST cross-PC support) -- CROSS-VERSION ONLY:
     #     Drop any subkey whose "001f6700" value decodes to a path ending
     #     in ".ost". These are MAPI service-def subkeys for IMAP message
     #     stores; their OST file references point to source PC paths that
     #     either don't exist or can't be DPAPI-decrypted on the target.
-    #     Dropping them lets Outlook auto-create a new OST on first IMAP
-    #     sync (the normal IMAP cross-PC behaviour).
+    #
+    #     Gated on cross-version (Phase 2.12.1 hotfix). The drop creates
+    #     dangling MAPIUID references in surviving subkeys (IMAP account
+    #     "Service UID", MAPI section provider 0a0d02..., other service
+    #     definitions). Outlook 365 importing a 2013 (15.0) reg goes
+    #     through a lenient "schema migration" path that tolerates these,
+    #     but Outlook 365 importing its own (16.0) reg validates strictly
+    #     and fails to open the profile ("cannot open this folder set").
+    #
+    #     For same-version restore, leave OST service-def subkeys intact;
+    #     Outlook's normal IMAP cross-PC behaviour (OST auto-recreate on
+    #     first sync) handles the missing file case. T4 path rewrites
+    #     keep the subkey content internally consistent with the target
+    #     user's directory layout.
     #
     # Returns the path to a new temp .reg with the transforms applied.
     param(
@@ -334,10 +367,16 @@ function Convert-RegFileToStrategyBLight {
         $normalized = $normalized -replace $pathPattern, $pathReplace
     }
 
-    # ---- T5 pre-scan: identify OST-bearing service-def subkeys ----
+    # ---- Pre-scan: identify OST-bearing service-def subkeys.
+    # Always scanned; the resulting set is consumed differently per
+    # version mode (T5 drops them when cross-version, T6 strips internal
+    # binary path values when same-version). ----
+    $isCrossVersion = -not [string]::IsNullOrWhiteSpace($SourceVersion) -and
+                      -not [string]::IsNullOrWhiteSpace($TargetVersion) -and
+                      $SourceVersion -ne $TargetVersion
     $lines = $normalized -split "`r?`n"
-    $currentKey = $null
     $ostSections = New-Object System.Collections.Generic.HashSet[string]
+    $currentKey = $null
     foreach ($line in $lines) {
         if ($line -match '^\[(.+)\]\s*$') {
             $currentKey = $matches[1]
@@ -361,20 +400,25 @@ function Convert-RegFileToStrategyBLight {
     $srcUserHex = ($srcUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
     $dstUserHex = ($dstUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
 
-    # ---- Main pass: T2/T3/T4 inline, T5 section drop ----
+    # ---- Main pass: T2/T3/T4 inline, T5 section drop (cross-ver),
+    # T6 binary EntryID strip in OST subkey (same-ver) ----
     $processedLines = New-Object System.Collections.Generic.List[string]
-    $currentKey   = $null
-    $inAcctSubkey = $false
-    $dropSection  = $false
-    $stripPop     = 0
-    $stripImap    = 0
-    $rewritePath  = 0
-    $droppedSec   = 0
+    $currentKey    = $null
+    $inAcctSubkey  = $false
+    $inOstSubkey   = $false
+    $dropSection   = $false
+    $stripPop      = 0
+    $stripImap     = 0
+    $rewritePath   = 0
+    $droppedSec    = 0
+    $stripOstBin   = 0
     foreach ($line in $lines) {
         if ($line -match '^\[(.+)\]\s*$') {
             $currentKey = $matches[1]
             $inAcctSubkey = $currentKey -match $intAcctRe
-            if ($ostSections.Contains($currentKey)) {
+            $inOstSubkey  = $ostSections.Contains($currentKey)
+            # T5: drop entire section when cross-version
+            if ($inOstSubkey -and $isCrossVersion) {
                 $dropSection = $true
                 $droppedSec++
                 continue
@@ -385,6 +429,16 @@ function Convert-RegFileToStrategyBLight {
             continue
         }
         if ($dropSection) { continue }
+
+        # T6: same-version OST binding strip (binary EntryID values
+        # carrying source-user OST path embedded; Outlook regenerates).
+        if ($inOstSubkey -and -not $isCrossVersion) {
+            if ($line -match '^"01020fff"=hex:' -or
+                $line -match '^"01020ffb"=hex:') {
+                $stripOstBin++
+                continue
+            }
+        }
 
         if ($inAcctSubkey) {
             if ($line -match '^"Delivery Store EntryID"=' -or
@@ -397,7 +451,9 @@ function Convert-RegFileToStrategyBLight {
                 continue
             }
         }
-        if ($line -match '^"001f6700"=hex:' -or $line -match '^"001f0433"=hex:') {
+        if ($line -match '^"001f6700"=hex:' -or
+            $line -match '^"001f0433"=hex:' -or
+            $line -match '^"001f6610"=hex:') {
             $before = $line
             $line = $line -replace [regex]::Escape($srcUserHex), $dstUserHex
             if ($before -ne $line) { $rewritePath++ }
@@ -405,8 +461,12 @@ function Convert-RegFileToStrategyBLight {
         $processedLines.Add($line)
     }
 
+    $t5Label = if ($isCrossVersion) { "T5 OST-drop=$droppedSec" }
+               else { 'T5 OST-drop=0 (skipped: same-version)' }
+    $t6Label = if ($isCrossVersion) { 'T6 OST-bin-strip=0 (skipped: cross-version)' }
+               else { "T6 OST-bin-strip=$stripOstBin" }
     Show-Info ("  [BL-transform] T1 version-path=$t1Count  T2 POP-strip=$stripPop  " +
-               "T3 IMAP-strip=$stripImap  T4 path-rewrite=$rewritePath  T5 OST-drop=$droppedSec")
+               "T3 IMAP-strip=$stripImap  T4 path-rewrite=$rewritePath  $t5Label  $t6Label")
 
     # Re-flow hex value lines back to <=80 cols with '\' continuation
     $outputLines = New-Object System.Collections.Generic.List[string]
@@ -476,7 +536,8 @@ function New-OutlookAccountInfoText {
         [bool]$StrategyBSucceeded = $false,
         [string]$ProfileFilter = $null,
         [bool]$IsCrossVersion = $false,
-        [string]$CrossVersionDirection = $null
+        [string]$CrossVersionDirection = $null,
+        [bool]$ImapPresent = $false
     )
 
     # Optional per-profile filter: when writing the target-folder copy
@@ -636,6 +697,41 @@ function New-OutlookAccountInfoText {
         $lines.Add('') | Out-Null
     }
 
+    # Same-version IMAP-present: POP delivery target sometimes auto-binds
+    # to the IMAP OST instead of the migrated PST after Strategy B-light
+    # strips Delivery Store EntryID. Cross-version cleanup section already
+    # covers the same fix step (under "B. Outlook.pst cleanup"), so this
+    # section is suppressed when IsCrossVersion is true to avoid redundancy.
+    if ($ImapPresent -and -not $IsCrossVersion) {
+        $lines.Add('========================================') | Out-Null
+        $lines.Add(' POP delivery target check (IMAP-present profile)') | Out-Null
+        $lines.Add('========================================') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' The source profile contained an IMAP account in addition to') | Out-Null
+        $lines.Add(' the POP account(s) above. After Strategy B-light strips the') | Out-Null
+        $lines.Add(' explicit POP delivery binding (Delivery Store EntryID), Outlook') | Out-Null
+        $lines.Add(' on the target PC auto-picks a delivery store from all available') | Out-Null
+        $lines.Add(' message stores in the profile. When both the migrated PST and') | Out-Null
+        $lines.Add(' the freshly-recreated IMAP OST are present, Outlook sometimes') | Out-Null
+        $lines.Add(' picks the OST instead of the PST, so new POP mail gets dropped') | Out-Null
+        $lines.Add(' into the IMAP folder set.') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' To verify and fix:') | Out-Null
+        $lines.Add('   1. File > Account Settings > Account Settings > Email tab') | Out-Null
+        $lines.Add('   2. Select each POP account') | Out-Null
+        $lines.Add('   3. Look at the bottom: "Selected account delivers new') | Out-Null
+        $lines.Add('      messages to the following location:" (or the Japanese') | Out-Null
+        $lines.Add('      equivalent)') | Out-Null
+        $lines.Add('   4. If the target is the IMAP OST (or any wrong location),') | Out-Null
+        $lines.Add('      click "Change Folder", select the migrated PST') | Out-Null
+        $lines.Add('      (<email>.pst under Outlook Files folder) and pick its') | Out-Null
+        $lines.Add('      Inbox, then OK') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' This is a one-time correction; the binding persists across') | Out-Null
+        $lines.Add(' subsequent launches.') | Out-Null
+        $lines.Add('') | Out-Null
+    }
+
     $lines.Add('========================================') | Out-Null
 
     return ($lines -join "`r`n")
@@ -757,6 +853,22 @@ if (-not [string]::IsNullOrWhiteSpace($srcRegVer) -and
                       '365-only profile values may not be accepted by Outlook 2013. ' +
                       'Manual operator cleanup or Strategy A fallback may be required.')
     }
+}
+
+# ----------------------------------------------------------
+# Phase 2.12.3: detect IMAP presence in source profile.
+# Backup (Phase A) intentionally skips IMAP accounts from the enumerated
+# items.profiles[].accounts[] list but records the count in
+# counts.imapAccountSkipped, which is the easiest no-cost detector.
+# Used downstream to surface an operator note about POP delivery target
+# rebinding (Outlook may auto-pick OST over PST when both stores exist).
+# ----------------------------------------------------------
+$imapPresent = $false
+if ($manifest.counts -and `
+    $null -ne $manifest.counts.imapAccountSkipped -and `
+    [int]$manifest.counts.imapAccountSkipped -gt 0) {
+    $imapPresent = $true
+    Show-Info ("Source profile contains IMAP account(s) (count=$($manifest.counts.imapAccountSkipped))")
 }
 
 $plannedAccounts = @()
@@ -1095,6 +1207,15 @@ if ($strategyBSucceeded) {
                       "  - Enter POP/IMAP passwords on first send/receive`r`n" +
                       "See _account_settings.txt 'Cross-version restore cleanup steps'`r`n" +
                       "section for the full step-by-step procedure."
+    } elseif ($imapPresent) {
+        $popupBody += "`r`n`r`n*** IMAP account present in source profile ***`r`n" +
+                      "After first launch, verify each POP account's delivery target:`r`n" +
+                      "  File > Account Settings > Email tab > select POP account`r`n" +
+                      "  -> bottom shows 'delivers new messages to ...'`r`n" +
+                      "  If it points to the IMAP OST instead of the migrated PST,`r`n" +
+                      "  click 'Change Folder' and pick the PST Inbox.`r`n" +
+                      "See _account_settings.txt 'POP delivery target check' section`r`n" +
+                      "for the full procedure."
     }
     try {
         Show-CompletionPopup -Title $popupTitle -Body $popupBody -Status 'Success'
@@ -1111,7 +1232,8 @@ if ($strategyBSucceeded) {
             -StrategyBAttempted $strategyBAttempted `
             -StrategyBSucceeded $false `
             -IsCrossVersion $isCrossVersion `
-            -CrossVersionDirection $crossVersionDirection
+            -CrossVersionDirection $crossVersionDirection `
+            -ImapPresent $imapPresent
         $instructionsText | Out-File -FilePath $instructionsPath -Encoding UTF8 -Force
         Show-Info "Wrote instruction file: $instructionsPath"
     } catch {
@@ -1168,7 +1290,8 @@ try {
             -StrategyBSucceeded $strategyBSucceeded `
             -ProfileFilter $profName `
             -IsCrossVersion $isCrossVersion `
-            -CrossVersionDirection $crossVersionDirection
+            -CrossVersionDirection $crossVersionDirection `
+            -ImapPresent $imapPresent
         $settingsText | Out-File -FilePath $settingsPath -Encoding UTF8 -Force
         $targetSettingsWritten += $settingsPath
         Show-Info "Wrote target settings file: $settingsPath"
