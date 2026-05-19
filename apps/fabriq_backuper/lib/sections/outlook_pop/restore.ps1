@@ -43,6 +43,95 @@ $warnings = @()
 # Strategy B helper functions
 # ----------------------------------------------------------
 
+function Get-OutlookInstallInfo {
+    # Phase 2.11.0: detect Outlook installation on the local machine.
+    # Mirror of the helper in backup.ps1 (identical implementation).
+    # Currently used for diagnostic / Summary recording only; no branching
+    # decisions are made on the result. Future phases (per-version restore
+    # behaviour, e.g. Outlook 2013 PRF fallback) will key off these fields.
+    #
+    # Returns a hashtable with:
+    #   Installed         : $true/$false
+    #   RegistryVersion   : '15.0' / '16.0' / $null   (highest version present)
+    #   ProductFamily     : 'Outlook 2013' / 'Outlook 2016/2019/365' / $null
+    #   InstallType       : 'ClickToRun' / 'MSI' / $null
+    #   ProductReleaseIds : raw value from C2R Configuration (or $null)
+    #   OutlookExePath    : full path to OUTLOOK.EXE (or $null)
+    #   OutlookExeVersion : FileVersion of OUTLOOK.EXE (or $null)
+    #   AllVersionsFound  : array of every detected version ('16.0','15.0')
+    $result = @{
+        Installed         = $false
+        RegistryVersion   = $null
+        ProductFamily     = $null
+        InstallType       = $null
+        ProductReleaseIds = $null
+        OutlookExePath    = $null
+        OutlookExeVersion = $null
+        AllVersionsFound  = @()
+    }
+
+    $versionsToProbe = @('16.0', '15.0')
+    $found = @()
+    foreach ($v in $versionsToProbe) {
+        $candidateKeys = @(
+            "HKLM:\SOFTWARE\Microsoft\Office\$v\Outlook\InstallRoot",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\$v\Outlook\InstallRoot"
+        )
+        $exePath = $null
+        foreach ($k in $candidateKeys) {
+            if (-not (Test-Path -LiteralPath $k)) { continue }
+            try {
+                $p = (Get-ItemProperty -LiteralPath $k -ErrorAction Stop).Path
+                if ([string]::IsNullOrWhiteSpace($p)) { continue }
+                $candidate = Join-Path $p 'OUTLOOK.EXE'
+                if (Test-Path -LiteralPath $candidate) {
+                    $exePath = $candidate
+                    break
+                }
+            } catch { }
+        }
+        if ($null -ne $exePath) {
+            $found += [PSCustomObject]@{ Version = $v; ExePath = $exePath }
+        }
+    }
+
+    if ($found.Count -eq 0) { return $result }
+
+    $result.Installed = $true
+    $result.AllVersionsFound = @($found | ForEach-Object { $_.Version })
+
+    $primary = $found[0]
+    $result.RegistryVersion = $primary.Version
+    $result.OutlookExePath  = $primary.ExePath
+
+    try {
+        $vi = (Get-Item -LiteralPath $primary.ExePath).VersionInfo
+        if ($vi) { $result.OutlookExeVersion = $vi.FileVersion }
+    } catch { }
+
+    if ($primary.Version -eq '15.0') {
+        $result.ProductFamily = 'Outlook 2013'
+    } else {
+        $result.ProductFamily = 'Outlook 2016/2019/365'
+    }
+
+    $c2rKey = 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration'
+    if (Test-Path -LiteralPath $c2rKey) {
+        try {
+            $cfg = Get-ItemProperty -LiteralPath $c2rKey -ErrorAction Stop
+            if (-not [string]::IsNullOrWhiteSpace("$($cfg.ProductReleaseIds)")) {
+                $result.ProductReleaseIds = "$($cfg.ProductReleaseIds)"
+                $result.InstallType = 'ClickToRun'
+            }
+        } catch { }
+    }
+    if ($null -eq $result.InstallType) {
+        $result.InstallType = 'MSI'
+    }
+
+    return $result
+}
+
 function Get-RegFileSourceHive {
     # Inspect a .reg file (UTF-16LE) and return the hive prefix used by
     # its first [HIVE\...] header. Examples:
@@ -158,45 +247,59 @@ function Test-AccountImported {
 }
 
 function Convert-RegFileToStrategyBLight {
-    # Phase 2.10.3: pre-process a profile .reg file to make Outlook's
-    # POP account delivery store binding cross-PC-portable.
+    # Phase 2.10.3 / extended in Phase 2.12.0 for cross-version + IMAP.
     #
-    # Background: Phase 2.10.2 demonstrated that a naive reg import
-    # produces 0x8004010F (MAPI_E_NOT_FOUND) at send/receive time
-    # because POP account "Delivery Store EntryID" contains a binary
-    # EntryID structure with the source PC's path embedded. Outlook
-    # cannot resolve that EntryID on the target PC, so even after the
-    # operator re-links the PST manually, account-to-store binding
-    # stays broken.
+    # Pre-process a profile .reg file to make Outlook's account-to-store
+    # binding cross-PC-portable. Five transforms, all section-aware where
+    # needed:
     #
-    # Tier 1 (rewrite path bytes inside the EntryID binary) was tried
-    # and failed on real-machine PoC because the binary blobs carry
-    # internal offset tables that break when path length changes.
+    #   T1 (Phase 2.12.0, cross-version only):
+    #     Rewrite '\Office\<srcVer>\Outlook\' -> '\Office\<dstVer>\Outlook\'
+    #     in every section header and value path. Applied only when
+    #     SourceVersion -ne TargetVersion. No-op for same-version restore.
     #
-    # Strategy B-light (this function, real-machine PoC confirmed
-    # working 2026-05-16):
-    #   1. STRIP the POP account's "Delivery Store EntryID" and
-    #      "Delivery Folder EntryID" values entirely. With no binding,
-    #      Outlook on first launch tells the operator "PST link requires
-    #      restart" and self-closes; second launch resolves to the
-    #      actually-attached PST and prompts only for password.
-    #   2. REWRITE the two plain-string UTF-16LE path values
-    #      ("001f6700" = PR_PST_PATH in the message store provider
-    #      subkey, "001f0433" = sharing.xml path in the general profile
-    #      subkey) from source user profile to target user profile.
-    #      These two values have no offset tables, so safe to extend.
-    #   3. LEAVE ALL OTHER BINARY BLOBS UNTOUCHED. Outlook treats
-    #      "1102022a", "11020434", "1102039b", "11026626", etc. as
-    #      caches it regenerates from the truth values once the store
-    #      is properly attached.
+    #   T2 (Phase 2.10.3 baseline):
+    #     Strip "Delivery Store EntryID" / "Delivery Folder EntryID" from
+    #     POP/IMAP account subkeys (\9375CFF0...\NNNNNNNN). Scope-limited
+    #     so 365's native service-def subkeys are not affected.
+    #
+    #   T3 (Phase 2.12.0, IMAP cross-PC support):
+    #     Strip "IMAP Store EID" from POP/IMAP account subkeys
+    #     (\9375CFF0...\NNNNNNNN). IMAP Store EID encodes a binary MAPI
+    #     EntryID pointing to the source PC's OST file via per-machine
+    #     MAPIUID -> unresolvable on target. Scope-limited same as T2.
+    #
+    #     IMPORTANT: do NOT strip "Service UID" -- it is load-bearing for
+    #     the MAPI service-def loader (Phase 2.12.0 PoC v3 corrupted the
+    #     profile this way: Account Settings dialog won't open, dialog
+    #     buttons unresponsive, UAC prompts on Profile Management).
+    #     Similarly, do NOT strip "Preferences UID" (also present in POP
+    #     account subkey, would risk POP regression).
+    #
+    #   T4 (Phase 2.10.3 baseline):
+    #     Rewrite "001f6700" (PR_PST_PATH-like) and "001f0433"
+    #     (sharing.xml path) UTF-16LE hex values, replacing source
+    #     username with target username. These two value names have no
+    #     binary offset tables so are safe to extend.
+    #
+    #   T5 (Phase 2.12.0, OST cross-PC support):
+    #     Drop any subkey whose "001f6700" value decodes to a path ending
+    #     in ".ost". These are MAPI service-def subkeys for IMAP message
+    #     stores; their OST file references point to source PC paths that
+    #     either don't exist or can't be DPAPI-decrypted on the target.
+    #     Dropping them lets Outlook auto-create a new OST on first IMAP
+    #     sync (the normal IMAP cross-PC behaviour).
     #
     # Returns the path to a new temp .reg with the transforms applied.
-    # No-op (returns input path) if SourceUserName == TargetUserName.
     param(
         [Parameter(Mandatory = $true)][string]$SrcRegPath,
         [Parameter(Mandatory = $true)][string]$SourceUserName,
-        [Parameter(Mandatory = $true)][string]$TargetUserName
+        [Parameter(Mandatory = $true)][string]$TargetUserName,
+        [string]$SourceVersion = $null,
+        [string]$TargetVersion = $null
     )
+
+    $intAcctRe = '\\9375CFF0413111d3B88A00104B2A6676\\[0-9A-Fa-f]{8}$'
 
     $content = [System.IO.File]::ReadAllText($SrcRegPath, [System.Text.Encoding]::Unicode)
 
@@ -219,30 +322,91 @@ function Convert-RegFileToStrategyBLight {
     # Collapse continuations into single logical lines
     $normalized = $content -replace '\\\r?\n\s+', ''
 
-    # Build username UTF-16LE hex sequences for byte-level path rewrite
+    # ---- T1: version path rewrite (only when versions differ) ----
+    $t1Count = 0
+    if (-not [string]::IsNullOrWhiteSpace($SourceVersion) -and
+        -not [string]::IsNullOrWhiteSpace($TargetVersion) -and
+        $SourceVersion -ne $TargetVersion) {
+        $srcVerEsc   = [regex]::Escape($SourceVersion)
+        $pathPattern = "\\Office\\$srcVerEsc\\Outlook\\"
+        $pathReplace = "\Office\$TargetVersion\Outlook\"
+        $t1Count = ([regex]::Matches($normalized, $pathPattern)).Count
+        $normalized = $normalized -replace $pathPattern, $pathReplace
+    }
+
+    # ---- T5 pre-scan: identify OST-bearing service-def subkeys ----
+    $lines = $normalized -split "`r?`n"
+    $currentKey = $null
+    $ostSections = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($line in $lines) {
+        if ($line -match '^\[(.+)\]\s*$') {
+            $currentKey = $matches[1]
+            continue
+        }
+        if ($null -ne $currentKey -and $line -match '^"001f6700"=hex:(.*)$') {
+            $hex = $matches[1] -split ','
+            try {
+                $bytes = $hex | ForEach-Object { [byte]("0x$_") }
+                $s = [System.Text.Encoding]::Unicode.GetString([byte[]]$bytes).TrimEnd([char]0)
+                if ($s -match '\.ost$') {
+                    [void]$ostSections.Add($currentKey)
+                }
+            } catch { }
+        }
+    }
+
+    # Username UTF-16LE hex for T4 rewrite
     $srcUserBytes = [System.Text.Encoding]::Unicode.GetBytes($SourceUserName)
     $dstUserBytes = [System.Text.Encoding]::Unicode.GetBytes($TargetUserName)
     $srcUserHex = ($srcUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
     $dstUserHex = ($dstUserBytes | ForEach-Object { '{0:x2}' -f $_ }) -join ','
 
-    $stripCount = 0
-    $rewriteCount = 0
+    # ---- Main pass: T2/T3/T4 inline, T5 section drop ----
     $processedLines = New-Object System.Collections.Generic.List[string]
-    foreach ($line in ($normalized -split "`r?`n")) {
-        if ($line -match '^"Delivery Store EntryID"=' -or
-            $line -match '^"Delivery Folder EntryID"=') {
-            $stripCount++
+    $currentKey   = $null
+    $inAcctSubkey = $false
+    $dropSection  = $false
+    $stripPop     = 0
+    $stripImap    = 0
+    $rewritePath  = 0
+    $droppedSec   = 0
+    foreach ($line in $lines) {
+        if ($line -match '^\[(.+)\]\s*$') {
+            $currentKey = $matches[1]
+            $inAcctSubkey = $currentKey -match $intAcctRe
+            if ($ostSections.Contains($currentKey)) {
+                $dropSection = $true
+                $droppedSec++
+                continue
+            } else {
+                $dropSection = $false
+                $processedLines.Add($line)
+            }
             continue
+        }
+        if ($dropSection) { continue }
+
+        if ($inAcctSubkey) {
+            if ($line -match '^"Delivery Store EntryID"=' -or
+                $line -match '^"Delivery Folder EntryID"=') {
+                $stripPop++
+                continue
+            }
+            if ($line -match '^"IMAP Store EID"=') {
+                $stripImap++
+                continue
+            }
         }
         if ($line -match '^"001f6700"=hex:' -or $line -match '^"001f0433"=hex:') {
             $before = $line
             $line = $line -replace [regex]::Escape($srcUserHex), $dstUserHex
-            if ($before -ne $line) { $rewriteCount++ }
+            if ($before -ne $line) { $rewritePath++ }
         }
         $processedLines.Add($line)
     }
 
-    Show-Info "  [BL-transform] stripped delivery values: $stripCount, rewrote path values: $rewriteCount"
+    Show-Info ("  [BL-transform] T1 version-path=$t1Count  T2 POP-strip=$stripPop  " +
+               "T3 IMAP-strip=$stripImap  T4 path-rewrite=$rewritePath  T5 OST-drop=$droppedSec")
 
     # Re-flow hex value lines back to <=80 cols with '\' continuation
     $outputLines = New-Object System.Collections.Generic.List[string]
@@ -310,7 +474,9 @@ function New-OutlookAccountInfoText {
         [Parameter(Mandatory = $true)]$ResultsByAccount,
         [bool]$StrategyBAttempted = $false,
         [bool]$StrategyBSucceeded = $false,
-        [string]$ProfileFilter = $null
+        [string]$ProfileFilter = $null,
+        [bool]$IsCrossVersion = $false,
+        [string]$CrossVersionDirection = $null
     )
 
     # Optional per-profile filter: when writing the target-folder copy
@@ -426,6 +592,50 @@ function New-OutlookAccountInfoText {
     $lines.Add(' PST automatically and all old emails / folders / contacts') | Out-Null
     $lines.Add(' will be visible.') | Out-Null
     $lines.Add('') | Out-Null
+
+    if ($IsCrossVersion) {
+        $dirLabel = if ($CrossVersionDirection) { " ($CrossVersionDirection)" } else { '' }
+        $lines.Add('========================================') | Out-Null
+        $lines.Add(" Cross-version restore cleanup steps$dirLabel") | Out-Null
+        $lines.Add('========================================') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' The source and target Outlook are different major versions') | Out-Null
+        $lines.Add(' (e.g. 2013 -> 2016/2019/365). Outlook on first launch will') | Out-Null
+        $lines.Add(' show some prompts that need operator action. These are') | Out-Null
+        $lines.Add(' Microsoft behaviours that cannot be suppressed via registry.') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' A. "IMAP Search Folder" warning popup (one-time)') | Out-Null
+        $lines.Add('    Outlook tells you old IMAP search folders no longer') | Out-Null
+        $lines.Add('    apply to the new OST. Press OK to dismiss; it will') | Out-Null
+        $lines.Add('    not appear again.') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' B. An empty "Outlook.pst" gets auto-created') | Out-Null
+        $lines.Add('    With cross-version reg-import, the imported profile') | Out-Null
+        $lines.Add('    has no "default delivery store" pointer, so Outlook') | Out-Null
+        $lines.Add('    creates a fresh empty Outlook.pst and uses it as the') | Out-Null
+        $lines.Add('    default. To rebind to the migrated PST:') | Out-Null
+        $lines.Add('      1. File > Account Settings > Account Settings') | Out-Null
+        $lines.Add('         > Data Files tab') | Out-Null
+        $lines.Add('      2. Select the migrated PST') | Out-Null
+        $lines.Add('         (<email>.pst under Outlook Files folder)') | Out-Null
+        $lines.Add('         and click "Set as Default"') | Out-Null
+        $lines.Add('      3. Close Outlook completely, then relaunch') | Out-Null
+        $lines.Add('      4. Same Data Files tab: select Outlook.pst and') | Out-Null
+        $lines.Add('         click "Remove"') | Out-Null
+        $lines.Add('      5. Email tab: select the POP account, click') | Out-Null
+        $lines.Add('         "Change Folder", select the Inbox of the') | Out-Null
+        $lines.Add('         migrated PST, click OK') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' C. Password input') | Out-Null
+        $lines.Add('    On first send/receive, enter the POP and IMAP') | Out-Null
+        $lines.Add('    passwords (DPAPI restriction: passwords are never') | Out-Null
+        $lines.Add('    portable across machines, this is unavoidable).') | Out-Null
+        $lines.Add('') | Out-Null
+        $lines.Add(' After these steps, all subsequent launches and send/receive') | Out-Null
+        $lines.Add(' will work normally.') | Out-Null
+        $lines.Add('') | Out-Null
+    }
+
     $lines.Add('========================================') | Out-Null
 
     return ($lines -join "`r`n")
@@ -465,6 +675,87 @@ if ($manifest.manifestType -ne 'fabriq-outlook-pop-backup') {
     return [PSCustomObject]@{
         Status = 'Failed'; ElapsedMs = [int]$sw.ElapsedMilliseconds
         Summary = [ordered]@{}; Warnings = @("Unexpected manifestType: $($manifest.manifestType)")
+    }
+}
+
+# ----------------------------------------------------------
+# Phase 2.11.0: log source-side install info (from manifest, if backup
+# was taken with Phase 2.11.0+ backup.ps1) and probe target-side install.
+# Detection only - no branching on these values yet.
+# ----------------------------------------------------------
+$sourceInstall = $null
+if ($manifest.PSObject.Properties.Name -contains 'installedOutlook' -and `
+    $null -ne $manifest.installedOutlook) {
+    $sourceInstall = $manifest.installedOutlook
+    $srcFam  = if ($sourceInstall.productFamily) { $sourceInstall.productFamily } else { 'unknown' }
+    $srcType = if ($sourceInstall.installType) { $sourceInstall.installType } else { 'unknown' }
+    $srcExe  = if ($sourceInstall.outlookExeVersion) { $sourceInstall.outlookExeVersion } else { 'unknown' }
+    Show-Info ("Source Outlook (from manifest): $srcFam (type=$srcType, exeVer=$srcExe)")
+} else {
+    Show-Info 'Source Outlook (from manifest): not recorded (pre-2.11.0 backup)'
+}
+
+$targetInstall = Get-OutlookInstallInfo
+if ($targetInstall.Installed) {
+    Show-Info ("Target Outlook (this PC): $($targetInstall.ProductFamily) " +
+               "(reg=$($targetInstall.RegistryVersion), " +
+               "type=$($targetInstall.InstallType), " +
+               "exeVer=$($targetInstall.OutlookExeVersion))")
+    if ($targetInstall.ProductReleaseIds) {
+        Show-Info ("  ProductReleaseIds: $($targetInstall.ProductReleaseIds)")
+    }
+    if (@($targetInstall.AllVersionsFound).Count -gt 1) {
+        Show-Info ("  side-by-side detected: " +
+                   ($targetInstall.AllVersionsFound -join ', '))
+    }
+} else {
+    Show-Warning 'Target Outlook (this PC): not detected via HKLM probe'
+}
+
+# Cross-family advisory (logged only; no branching). The Strategy B path
+# was empirically verified across the 365 -> 2019 case; other cross-family
+# combinations may require a future fallback path.
+if ($sourceInstall -and $sourceInstall.productFamily -and `
+    $targetInstall.Installed -and `
+    $sourceInstall.productFamily -ne $targetInstall.ProductFamily) {
+    Show-Warning ("Outlook family mismatch: source=$($sourceInstall.productFamily) " +
+                  "target=$($targetInstall.ProductFamily) " +
+                  "(continuing with current restore path)")
+}
+
+# ----------------------------------------------------------
+# Phase 2.12.0: cross-version detection.
+# Manifest schema 1 records source registry version both at the top level
+# (manifest.outlookVersion, present since Phase 2.9.0) and inside
+# installedOutlook.registryVersion (Phase 2.11.0+). Target is probed live
+# above. When the two registry versions differ, Strategy B-light is
+# invoked with version args -> activates T1 (path rewrite) and triggers
+# the cross-version operator cleanup section in _account_settings.txt.
+# ----------------------------------------------------------
+$srcRegVer = "$($manifest.outlookVersion)"
+if ($sourceInstall -and $sourceInstall.registryVersion) {
+    $srcRegVer = "$($sourceInstall.registryVersion)"
+}
+$tgtRegVer = $null
+if ($targetInstall.Installed) { $tgtRegVer = "$($targetInstall.RegistryVersion)" }
+
+$isCrossVersion = $false
+$crossVersionDirection = $null
+if (-not [string]::IsNullOrWhiteSpace($srcRegVer) -and
+    -not [string]::IsNullOrWhiteSpace($tgtRegVer) -and
+    $srcRegVer -ne $tgtRegVer) {
+    $isCrossVersion = $true
+    $crossVersionDirection = "$srcRegVer -> $tgtRegVer"
+    Show-Info ("Cross-version restore detected: $crossVersionDirection " +
+               "(Strategy B-light T1 path rewrite will be applied)")
+    # 16.0 -> 15.0 direction is unvalidated; 365-only values (Account UID,
+    # New Signature, etc.) may confuse 2013. Emit a warning so the operator
+    # is aware. Same caveat for 15.0 -> 15.0 (unanticipated equal-version
+    # case but logically should reduce to same-version B-light).
+    if ($srcRegVer -eq '16.0' -and $tgtRegVer -eq '15.0') {
+        Show-Warning ('Cross-version direction 16.0 -> 15.0 is unvalidated. ' +
+                      '365-only profile values may not be accepted by Outlook 2013. ' +
+                      'Manual operator cleanup or Strategy A fallback may be required.')
     }
 }
 
@@ -675,12 +966,16 @@ if ($regExports.Count -gt 0 -and $successCount -gt 0) {
                 break
             }
 
-            # Phase 2.10.3: apply B-light pre-processing
-            #   (strip Delivery Store/Folder EntryID, rewrite plain-string paths)
+            # Phase 2.10.3 / extended in Phase 2.12.0: apply B-light pre-processing.
+            # The 5 transforms inside cover: POP+IMAP binding strip (T2/T3),
+            # user-path rewrite (T4), OST service-def drop (T5), and -- only
+            # when version args differ -- cross-version path rewrite (T1).
             $blPath = Convert-RegFileToStrategyBLight `
                 -SrcRegPath $regPath `
                 -SourceUserName $blSrcUserName `
-                -TargetUserName $blDstUserName
+                -TargetUserName $blDstUserName `
+                -SourceVersion $srcRegVer `
+                -TargetVersion $tgtRegVer
             $perProfile.blTransformed = $true
 
             $sourcePrefix = Get-RegFileSourceHive -RegPath $blPath
@@ -791,6 +1086,16 @@ if ($strategyBSucceeded) {
                   "Account settings (server / port / username / PST path) are saved`r`n" +
                   "as _account_settings.txt in the same folder as the PST file, in case`r`n" +
                   "manual re-setup is ever needed."
+    if ($isCrossVersion) {
+        $popupBody += "`r`n`r`n*** Cross-version restore ($crossVersionDirection) ***`r`n" +
+                      "Additional manual cleanup steps are required on first launch:`r`n" +
+                      "  - 'IMAP Search Folder' warning popup -> press OK`r`n" +
+                      "  - Auto-created empty Outlook.pst -> set the migrated PST as default,`r`n" +
+                      "    remove Outlook.pst, and use 'Change Folder' on the POP account`r`n" +
+                      "  - Enter POP/IMAP passwords on first send/receive`r`n" +
+                      "See _account_settings.txt 'Cross-version restore cleanup steps'`r`n" +
+                      "section for the full step-by-step procedure."
+    }
     try {
         Show-CompletionPopup -Title $popupTitle -Body $popupBody -Status 'Success'
     } catch { }
@@ -804,7 +1109,9 @@ if ($strategyBSucceeded) {
             -PlannedAccounts $plannedAccounts `
             -ResultsByAccount $resultsByAccount `
             -StrategyBAttempted $strategyBAttempted `
-            -StrategyBSucceeded $false
+            -StrategyBSucceeded $false `
+            -IsCrossVersion $isCrossVersion `
+            -CrossVersionDirection $crossVersionDirection
         $instructionsText | Out-File -FilePath $instructionsPath -Encoding UTF8 -Force
         Show-Info "Wrote instruction file: $instructionsPath"
     } catch {
@@ -859,7 +1166,9 @@ try {
             -ResultsByAccount $resultsByAccount `
             -StrategyBAttempted $strategyBAttempted `
             -StrategyBSucceeded $strategyBSucceeded `
-            -ProfileFilter $profName
+            -ProfileFilter $profName `
+            -IsCrossVersion $isCrossVersion `
+            -CrossVersionDirection $crossVersionDirection
         $settingsText | Out-File -FilePath $settingsPath -Encoding UTF8 -Force
         $targetSettingsWritten += $settingsPath
         Show-Info "Wrote target settings file: $settingsPath"
@@ -885,15 +1194,21 @@ return [PSCustomObject]@{
     Status               = $status
     ElapsedMs            = [int]$sw.ElapsedMilliseconds
     Summary              = [ordered]@{
-        accountTotal         = $plannedAccounts.Count
-        accountReady         = $successCount
-        accountFail          = $failCount
-        strategy             = if ($strategyBSucceeded) { 'B (reg-import)' }
-                               elseif ($strategyBAttempted) { 'A (fallback after B failure)' }
-                               else { 'A (no regExports in manifest)' }
-        instructionsFile     = $instructionsPath
-        targetSettingsFiles  = @($targetSettingsWritten)
-        regProfilesImported  = @($strategyBDetails | Where-Object { $_.importSucceeded }).Count
+        accountTotal           = $plannedAccounts.Count
+        accountReady           = $successCount
+        accountFail            = $failCount
+        strategy               = if ($strategyBSucceeded) { 'B (reg-import)' }
+                                 elseif ($strategyBAttempted) { 'A (fallback after B failure)' }
+                                 else { 'A (no regExports in manifest)' }
+        instructionsFile       = $instructionsPath
+        targetSettingsFiles    = @($targetSettingsWritten)
+        regProfilesImported    = @($strategyBDetails | Where-Object { $_.importSucceeded }).Count
+        sourceOutlookFamily    = if ($sourceInstall) { $sourceInstall.productFamily } else { $null }
+        targetOutlookFamily    = $targetInstall.ProductFamily
+        targetOutlookType      = $targetInstall.InstallType
+        targetOutlookExeVer    = $targetInstall.OutlookExeVersion
+        crossVersionTransform  = [bool]$isCrossVersion
+        crossVersionDirection  = $crossVersionDirection
     }
     Warnings             = $warnings
     ExternalOutputDir    = $null

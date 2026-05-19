@@ -16,6 +16,85 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_backuper v0.11.2 → v0.12.0 (Phase 2.12.0 / outlook_pop restore に cross-version 対応 + IMAP cross-PC 対応):
+  Phase 2.11.0 で導入した source/target Outlook installation 検知を **restore 動線の自動分岐**に
+  初めて活用、2013 ↔ 2016/2019/365 間の cross-version 復元と、IMAP account の cross-PC
+  復元 (per-machine 暗号化 OST の課題解決) を Strategy B-light の拡張として実装。実機 PoC
+  (2013 → 365、Administrator → test ユーザ) で検証済。
+  - **`Convert-RegFileToStrategyBLight` 拡張** (restore.ps1)、5 transforms に整理:
+    - T1 version path rewrite (`\Office\<src>\Outlook\` → `\Office\<dst>\Outlook\`) —
+      `SourceVersion ≠ TargetVersion` の時のみ適用、同 version 時は no-op
+    - T2 POP binding strip (`Delivery Store EntryID` / `Delivery Folder EntryID`) —
+      既存、scope を `\9375CFF0...\NNNNNNNN` 内に限定 (365 native service-def 保護)
+    - **T3 IMAP binding strip** (`IMAP Store EID`) — 新規、IMAP account subkey 内のみ。
+      Service UID / Preferences UID は **load-bearing なので絶対に触らない** (v3 PoC で
+      profile loader 破損を実証済 — Account Settings 開かない / UAC 要求 / dialog 無反応)
+    - T4 user-path rewrite (`001f6700` / `001f0433` UTF-16LE hex の username 部分) — 既存
+    - **T5 OST service-def drop** — 新規、`001f6700` 値が `.ost` 拡張子で終わる subkey を
+      丸ごと削除。Outlook が初回 IMAP sync 時に新規 OST を auto-create する経路を強制 (IMAP の
+      normal cross-PC 挙動)
+  - **動線自動分岐**: Stage 3 で `srcRegVer != tgtRegVer` 検出時に cross-version モード起動、
+    検知のみで operator に追加判断を求めない (feedback_no_operator_judgment と整合)。
+    16.0 → 15.0 方向は unvalidated、warning をログ出力したうえで transform は試行 (block しない)
+  - **`New-OutlookAccountInfoText` 拡張**: `IsCrossVersion` / `CrossVersionDirection`
+    パラメータ追加、cross-version 時のみ `_account_settings.txt` 末尾に「Cross-version
+    restore cleanup steps」セクション (IMAP 検索フォルダー popup / Outlook.pst 整理 /
+    password 入力 の 3 ステップ手順) を追記
+  - **Stage 5a 成功 popup**: cross-version 成功時に追加の手動 cleanup 要点を popup 末尾に
+    追記、詳細手順は `_account_settings.txt` を参照
+  - **Summary 拡張**: `crossVersionTransform` (bool) と `crossVersionDirection` (string、
+    例 "15.0 -> 16.0") を section result Summary に追加 (trace 用)
+  - **同 version restore への副次効果**: B-light 本体が T3 + T5 で IMAP cross-PC 対応を獲得、
+    365 → 365 等で source profile に IMAP account があった場合の OST binding 問題も同時解決
+  - **PoC 過程の知見**: cross-version で完全自動化できない 2 ステップ (IMAP 検索フォルダー
+    popup OK / Outlook.pst 整理) は Microsoft Outlook の inherent 挙動と判明、自動化を諦めて
+    operator 手順として `_account_settings.txt` に明文化する設計選択を採用
+  - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
+
+- apps/fabriq_backuper v0.10.7 → v0.11.2 (Phase 2.11.0 / Outlook インストール版数検知の追加 — 検知のみ、分岐ロジックなし):
+  source/target 双方の Outlook インストール状態を probe する診断機能を `outlook_pop`
+  section の backup / restore に組み込み。`HKLM:\SOFTWARE\Microsoft\Office\<15.0|16.0>\
+  Outlook\InstallRoot.Path` (+ `WOW6432Node` 変種) を probe し、`OUTLOOK.EXE` の実在で
+  確定。registry version 15.0 = `Outlook 2013`、16.0 = `Outlook 2016/2019/365` の
+  two-tier 分類 + ClickToRun Configuration の `ProductReleaseIds` / `OUTLOOK.EXE
+  FileVersion` を補助情報として記録。**現状は検知 + ログ + manifest/Summary への
+  記録のみ。restore 動線への分岐は将来 phase に持ち越し** (e.g., 2013 専用の PRF
+  fallback path、family mismatch 時の追加 warning 等)。
+  - **新規 helper** `Get-OutlookInstallInfo`: backup.ps1 / restore.ps1 双方に
+    inline (同一実装)。返却 hashtable は `Installed` / `RegistryVersion` /
+    `ProductFamily` / `InstallType` (`ClickToRun` or `MSI`) / `ProductReleaseIds` /
+    `OutlookExePath` / `OutlookExeVersion` / `AllVersionsFound` (side-by-side 検出)
+  - **backup.ps1**: profile walk 直前で probe、`Show-Info` で family / type /
+    exeVersion をログ。manifest に **新フィールド** `installedOutlook` を追加
+    (`installed` / `registryVersion` / `productFamily` / `installType` /
+    `productReleaseIds` / `outlookExePath` / `outlookExeVersion` /
+    `allVersionsFound`)。section Summary にも `installedFamily` / `installedType` /
+    `installedExeVersion` を追加
+  - **restore.ps1**: manifest 読み込み直後に **source 側情報** (`manifest.installedOutlook`、
+    pre-2.11.0 backup なら "not recorded" 表示) と **target 側 probe 結果** を
+    両方ログ。family mismatch 検出時は **warning として記録のみ** (動線分岐なし、
+    現行 Strategy B-light で継続)。section Summary に `sourceOutlookFamily` /
+    `targetOutlookFamily` / `targetOutlookType` / `targetOutlookExeVer` を追加
+  - **後方互換**: 旧 manifest (`installedOutlook` 欠損) で restore しても
+    "not recorded (pre-2.11.0 backup)" と表示するだけで動作不変
+  - **0.11.0 → 0.11.1 hotfix**: backup.ps1 で `Get-OutlookInstallInfo` の
+    呼び出しが function 定義より前にあり、PowerShell script の sequential
+    execution で `用語 'Get-OutlookInstallInfo' は認識されません` が出る
+    bug を pre-release (2013 PC での実機テスト) で検出。call site を Helpers
+    ブロックの後ろ ("Walk profiles" 直前) に移動して解決。restore.ps1 側は
+    全 helper が main flow より前にまとめて定義されており影響なし
+  - **0.11.1 → 0.11.2 hotfix**: 2013 PC で `outlook_pop/manifest.json` の
+    `accountName`/`email`/`pop3.server` 等の string 系 field が
+    `"115 0 117 0 ..."` (UTF-16LE bytes の未 decode 形式) で記録される bug を
+    実機で検出。原因は `Get-RegValueString` が `Get-RegValueRaw` 経由で
+    REG_BINARY を受け取る際、Windows PowerShell 5.1 の function-return
+    enumeration が `[byte[]]` を `[System.Object[]]` に変換し、`$v -is [byte[]]`
+    チェックが false になっていた (16.0 hive は偶然 round-trip 成功)。fix:
+    `Get-RegValueString` で `$RegKey.GetValue()` を inline 呼び出しに変更 +
+    `[System.Array]` 経由の `[byte[]]` defensive coerce 追加。`Get-RegValueRaw`
+    は password 存在 check (`$null -ne ...`) で利用継続のため保持
+  - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
+
 - apps/fabriq_backuper v0.10.6 → v0.10.7 (outlook_pop restore で target Outlook Files フォルダに `_account_settings.txt` を常時配置):
   Strategy B-light が成功して自動復元が通った場合でも、後で何らかの理由で手動再設定が
   必要になるケースに備え、**email + PST file + POP3/SMTP server 設定 + 簡易 manual
