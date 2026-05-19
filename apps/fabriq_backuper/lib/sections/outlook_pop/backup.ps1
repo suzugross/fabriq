@@ -118,6 +118,101 @@ Show-Info "Profiles root  : $profilesKeyPath"
 # ----------------------------------------------------------
 $INTERNET_ACCOUNT_GUID = '9375CFF0413111d3B88A00104B2A6676'
 
+function Get-OutlookInstallInfo {
+    # Phase 2.11.0: detect Outlook installation on the local machine.
+    # Currently used for diagnostic / manifest recording only; no branching
+    # decisions are made on the result. Future phases (per-version restore
+    # behaviour, e.g. Outlook 2013 PRF fallback) will key off these fields.
+    #
+    # Returns a hashtable with:
+    #   Installed         : $true/$false
+    #   RegistryVersion   : '15.0' / '16.0' / $null   (highest version present)
+    #   ProductFamily     : 'Outlook 2013' / 'Outlook 2016/2019/365' / $null
+    #   InstallType       : 'ClickToRun' / 'MSI' / $null
+    #   ProductReleaseIds : raw value from C2R Configuration (or $null)
+    #   OutlookExePath    : full path to OUTLOOK.EXE (or $null)
+    #   OutlookExeVersion : FileVersion of OUTLOOK.EXE (or $null)
+    #   AllVersionsFound  : array of every detected version ('16.0','15.0')
+    #
+    # Detection probes (in order):
+    #   1. HKLM:\SOFTWARE\Microsoft\Office\<ver>\Outlook\InstallRoot.Path
+    #      and the WOW6432Node sibling. OUTLOOK.EXE must exist under .Path.
+    #   2. HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration to
+    #      distinguish C2R installs (365 / 2019 / 2016 Retail) from MSI.
+    $result = @{
+        Installed         = $false
+        RegistryVersion   = $null
+        ProductFamily     = $null
+        InstallType       = $null
+        ProductReleaseIds = $null
+        OutlookExePath    = $null
+        OutlookExeVersion = $null
+        AllVersionsFound  = @()
+    }
+
+    $versionsToProbe = @('16.0', '15.0')
+    $found = @()
+    foreach ($v in $versionsToProbe) {
+        $candidateKeys = @(
+            "HKLM:\SOFTWARE\Microsoft\Office\$v\Outlook\InstallRoot",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\$v\Outlook\InstallRoot"
+        )
+        $exePath = $null
+        foreach ($k in $candidateKeys) {
+            if (-not (Test-Path -LiteralPath $k)) { continue }
+            try {
+                $p = (Get-ItemProperty -LiteralPath $k -ErrorAction Stop).Path
+                if ([string]::IsNullOrWhiteSpace($p)) { continue }
+                $candidate = Join-Path $p 'OUTLOOK.EXE'
+                if (Test-Path -LiteralPath $candidate) {
+                    $exePath = $candidate
+                    break
+                }
+            } catch { }
+        }
+        if ($null -ne $exePath) {
+            $found += [PSCustomObject]@{ Version = $v; ExePath = $exePath }
+        }
+    }
+
+    if ($found.Count -eq 0) { return $result }
+
+    $result.Installed = $true
+    $result.AllVersionsFound = @($found | ForEach-Object { $_.Version })
+
+    # Probe order is 16.0 then 15.0, so $found[0] is the highest present.
+    $primary = $found[0]
+    $result.RegistryVersion = $primary.Version
+    $result.OutlookExePath  = $primary.ExePath
+
+    try {
+        $vi = (Get-Item -LiteralPath $primary.ExePath).VersionInfo
+        if ($vi) { $result.OutlookExeVersion = $vi.FileVersion }
+    } catch { }
+
+    if ($primary.Version -eq '15.0') {
+        $result.ProductFamily = 'Outlook 2013'
+    } else {
+        $result.ProductFamily = 'Outlook 2016/2019/365'
+    }
+
+    $c2rKey = 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration'
+    if (Test-Path -LiteralPath $c2rKey) {
+        try {
+            $cfg = Get-ItemProperty -LiteralPath $c2rKey -ErrorAction Stop
+            if (-not [string]::IsNullOrWhiteSpace("$($cfg.ProductReleaseIds)")) {
+                $result.ProductReleaseIds = "$($cfg.ProductReleaseIds)"
+                $result.InstallType = 'ClickToRun'
+            }
+        } catch { }
+    }
+    if ($null -eq $result.InstallType) {
+        $result.InstallType = 'MSI'
+    }
+
+    return $result
+}
+
 function ConvertFrom-RegBinaryUtf16 {
     # REG_BINARY containing UTF-16LE text, often with a trailing null
     # pair (0x00 0x00). Strip nulls and return the resulting string.
@@ -142,13 +237,29 @@ function Get-RegValueString {
     # POP3-account string values are stored as REG_BINARY UTF-16LE.
     # Some installations store them as REG_SZ (rare but seen);
     # accept both.
+    #
+    # Phase 2.11.2 hotfix: read the value directly via $RegKey.GetValue()
+    # instead of going through Get-RegValueRaw. Windows PowerShell 5.1's
+    # function-return semantics enumerate [byte[]] across the function
+    # boundary and re-collect into [System.Object[]], breaking the
+    # `-is [byte[]]` type check. Outlook 2013 hives reproduced this
+    # consistently (manifest stored "115 0 117 0 ..." in place of the
+    # decoded UTF-16LE string); 2016+ hives happened to slip through but
+    # the fix is uniform. A defensive [byte[]] coercion is also added for
+    # the array-but-not-typed-[byte[]] case to cover any remaining edge.
     param(
         [Parameter(Mandatory = $true)]$RegKey,
         [Parameter(Mandatory = $true)][string]$Name
     )
-    $v = Get-RegValueRaw -RegKey $RegKey -Name $Name
+    $v = $null
+    try { $v = $RegKey.GetValue($Name, $null) } catch { return $null }
     if ($null -eq $v) { return $null }
     if ($v -is [byte[]]) { return (ConvertFrom-RegBinaryUtf16 -Value $v) }
+    if ($v -is [System.Array]) {
+        try {
+            return (ConvertFrom-RegBinaryUtf16 -Value ([byte[]]$v))
+        } catch { }
+    }
     return [string]$v
 }
 
@@ -256,6 +367,31 @@ function Get-PstPathFromDeliveryStoreEntryId {
     if ($path -notmatch '^[A-Za-z]:\\') { return $null }
     if ($path -notmatch '\.pst$') { return $null }
     return $path
+}
+
+# ----------------------------------------------------------
+# Phase 2.11.0: probe local Outlook installation for diagnostic recording.
+# Called here (after the helpers block) so the function definition is in
+# scope - PowerShell scripts are sequential and a function called before
+# its definition raises "term not recognized" at runtime.
+# No decisions branch on this yet; the data is recorded into the manifest
+# so that future restore-side logic (e.g. 2013 fallback path) can read it.
+# ----------------------------------------------------------
+$outlookInstallInfo = Get-OutlookInstallInfo
+if ($outlookInstallInfo.Installed) {
+    Show-Info ("Outlook install: $($outlookInstallInfo.ProductFamily) " +
+               "(reg=$($outlookInstallInfo.RegistryVersion), " +
+               "type=$($outlookInstallInfo.InstallType), " +
+               "exeVer=$($outlookInstallInfo.OutlookExeVersion))")
+    if ($outlookInstallInfo.ProductReleaseIds) {
+        Show-Info ("  ProductReleaseIds: $($outlookInstallInfo.ProductReleaseIds)")
+    }
+    if (@($outlookInstallInfo.AllVersionsFound).Count -gt 1) {
+        Show-Info ("  side-by-side detected: " +
+                   ($outlookInstallInfo.AllVersionsFound -join ', '))
+    }
+} else {
+    Show-Warning "Outlook install: not detected via HKLM probe (profile registry still found, continuing)"
 }
 
 # ----------------------------------------------------------
@@ -543,6 +679,16 @@ $manifest = [ordered]@{
     osVersion           = $osVersion
     osArch              = $osArch
     outlookVersion      = $outlookVersion
+    installedOutlook    = [ordered]@{
+        installed         = [bool]$outlookInstallInfo.Installed
+        registryVersion   = $outlookInstallInfo.RegistryVersion
+        productFamily     = $outlookInstallInfo.ProductFamily
+        installType       = $outlookInstallInfo.InstallType
+        productReleaseIds = $outlookInstallInfo.ProductReleaseIds
+        outlookExePath    = $outlookInstallInfo.OutlookExePath
+        outlookExeVersion = $outlookInstallInfo.OutlookExeVersion
+        allVersionsFound  = @($outlookInstallInfo.AllVersionsFound)
+    }
     sourceUser          = [ordered]@{
         profilePath = $sourceUserProfilePath
         userName    = $sourceUserName
@@ -581,11 +727,14 @@ return [PSCustomObject]@{
     Status               = $status
     ElapsedMs            = [int]$sw.ElapsedMilliseconds
     Summary              = [ordered]@{
-        profileCount    = @($manifestProfiles).Count
-        popAccountCount = $totalPop
-        imapSkipped     = $totalImap
-        otherSkipped    = $totalOther
-        outlookVersion  = $outlookVersion
+        profileCount        = @($manifestProfiles).Count
+        popAccountCount     = $totalPop
+        imapSkipped         = $totalImap
+        otherSkipped        = $totalOther
+        outlookVersion      = $outlookVersion
+        installedFamily     = $outlookInstallInfo.ProductFamily
+        installedType       = $outlookInstallInfo.InstallType
+        installedExeVersion = $outlookInstallInfo.OutlookExeVersion
     }
     Warnings             = $warnings
     ExternalOutputDir    = $null
