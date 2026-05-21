@@ -15,6 +15,42 @@
 
 ## [Unreleased]
 
+### Removed
+- **apps/fabriq_backuper を fabriq main repo から分離独立** (2026-05-21、
+  fabriq_checksheet と同形の code-detached + runtime-data-hybrid satellite
+  pattern を採用):
+  - 分離先: `E:\fabriq_backuper\` (独立 git repo、初回 commit `2d5bb47`、
+    分離時点 v0.13.0 継続)
+  - 分離理由: backuper の release cycle を kernel / 他 app から独立させ、
+    開発・配布・customer 配備それぞれを単純化するため
+  - **本 repo から削除されたもの**:
+    - `apps/fabriq_backuper/` ディレクトリ (27 files / 395 KB、code + data + lib + sections)
+    - `Fabriq_BackUper.exe` (ルートの旧 launcher binary、`apps\fabriq_backuper\fabriq_backuper.ps1`
+      を hardcode していたため新 layout では動作しない)
+    - `dev/launcher/Launcher_BackUper.cs` (旧 launcher の C# source)
+    - `dev/launcher/app_backuper.manifest` (旧 launcher の UAC マニフェスト)
+    - `dev/launcher/build_backuper.ps1` (旧 launcher の csc.exe ビルド script)
+    分離先 repo に最新版を持ち込み済 (path 調整 + 新 layout 向け再ビルド済 .exe を含む)。
+  - **修正されたもの**:
+    - `apps/fabriq_operator/lib/apps_dialog.ps1` L27: app discovery loop の
+      exclusion list から `"fabriq_backuper"` を除去 (dead code 化のため cleanup、
+      `fabriq_operator` / `fabriq_ios` の 2 件は維持)
+    - `README.md` ディレクトリ構成: `Fabriq_BackUper.exe` 行 + `fabriq_backuper/`
+      サブツリー記載 + `dev/launcher/` 説明を分離先 repo を反映した記述に更新
+  - **保持されたもの** (絶対に触らない):
+    - 過去の `apps/fabriq_backuper v0.x.y` CHANGELOG 履歴 (Phase 2.9 〜 2.13、計 60 件、
+      開発文脈の historical record として永続化)
+    - `dev/launcher/build.ps1` + `Launcher.cs` + `app.manifest` (= `Fabriq.exe` 用)
+    - `dev/launcher/build_ios.ps1` + `Launcher_IOS.cs` + `app_ios.manifest` (= `Fabriq_IOS.exe` 用)
+    - `dev/launcher/fabriq.ico` (3 launcher 共有)
+  - **動作影響**: main fabriq への runtime / kernel API / module / profile への
+    波及ゼロ (apps/fabriq_backuper は他 module から呼ばれていない leaf consumer
+    だったため)。`run_tests.ps1` / `check_version.ps1` / `build_framework_patch.ps1`
+    も backuper への参照無し、無修正で動作継続。
+  - **backup/restore 機能の入手方法 (本日以降)**: `E:\fabriq_backuper\Fabriq_BackUper.exe`
+    をダブルクリック (新 repo の独立 launcher、UAC 自動昇格、本 repo の
+    kernel/csv/hostlist.csv + kernel/txt/passphrase_verify.txt を auto-discovery で読取)
+
 ### Added
 - apps/fabriq_backuper v0.12.3 → v0.13.0 (Phase 2.13.0 / outlook_pop に IMAP account
   visibility scope を追加 — backup 列挙 + restore で human-readable 出力):

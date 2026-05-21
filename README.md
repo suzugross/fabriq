@@ -49,7 +49,6 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 fabriq/
 ├── Fabriq.exe              # エントリーポイント（管理者自動昇格、GUI 起動）
 ├── Fabriq_IOS.exe          # fabriq_ios サブプロジェクト用ランチャ（独立 SemVer）
-├── Fabriq_BackUper.exe     # fabriq_backuper satellite 用ランチャ（独立 SemVer、backup/restore 専業）
 ├── Deploy.bat              # USB から対象 PC へのデプロイツール
 ├── kernel/
 │   ├── main.ps1            # メインスクリプト（Fabriq.exe から呼び出し）
@@ -72,7 +71,6 @@ fabriq/
 │   ├── system_launcher/    # OS 機能ランチャ
 │   ├── bloatware_exporter/ # インストール済みアプリ一覧エクスポート
 │   ├── desktop_icon_backup_app/
-│   ├── fabriq_backuper/     # backup/restore 専業 satellite（Fabriq_BackUper.exe から起動）
 │   ├── local_user_setup/
 │   ├── storeapp_editor/
 │   └── winget_gui/
@@ -81,7 +79,8 @@ fabriq/
 ├── logs/                   # ログ出力先（Transcript + 実行履歴 CSV）
 └── dev/                    # 開発用ツールチェーン
     ├── template/           # 新規モジュール用テンプレート（VERSION/REQUIRES_KERNEL 含む）
-    ├── launcher/           # Fabriq.exe / Fabriq_IOS.exe / Fabriq_BackUper.exe の C# ソース
+    ├── launcher/           # Fabriq.exe / Fabriq_IOS.exe の C# ソース
+    │                       # (fabriq_backuper の launcher は分離先 E:\fabriq_backuper\ 側で管理)
     ├── ico/                # ランチャーアイコン素材
     ├── framework_overlay_rules.json  # 更新オーバーレイ契約（KERNEL_API.md §9）
     ├── build_framework_patch.ps1     # フレームワーク更新パッチ生成
