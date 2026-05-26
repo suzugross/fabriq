@@ -15,6 +15,35 @@
 
 ## [Unreleased]
 
+### Fixed
+- **JP-NO-BOM cleanup batch 1 (Tier 1: functional bug)** — `dev/check_ps1_encoding.ps1`
+  (v3.4.1 で追加) の検出結果のうち、`-match` regex に Japanese を含む 3 ファイルに
+  UTF-8 BOM を付与し、日本語版 Windows で broken だった機能を修復:
+  - **modules/standard/evidence_config v1.7.0 → v1.7.1**
+    (line 534: `net localgroup` 出力末尾の「コマンドは正常に完了しました。」を検知できず
+    偽メンバーが evidence に混入する bug。kitting workflow の検証エビデンス integrity に
+    直接影響していた可能性)
+  - **modules/extended/server_feature_config v0.1.0 → v0.1.1**
+    (line 257: `Install-WindowsFeature` 失敗時の「ソース ファイルを見つけることが
+    できません」検知が非機能、payload-removed feature 時の sources/sxs ヒントが
+    出ていなかった。HResult `0x800F081F` / `0x800F0954` の string match による
+    部分救済はあった)
+  - **modules/standard/windows_feature_config v0.1.0 → v0.1.1**
+    (line 294: server_feature_config と同型の bug、Windows client SKU 側)
+  - **共通パターン**: いずれも `$msg -match 'english|日本語'` 形式で、BOM 無し
+    のため PowerShell 5.1 が Japanese 半分を CP932 mojibake として decode、
+    結果として日本語版 Windows で発生する localized error message との照合に失敗。
+    v3.4.1 で kernel/common.ps1 / printer_driver_install.ps1 を直したのと完全に
+    同種の bug が module 群に残存していたものを発掘
+  - **修正手段**: source code は 1 文字も変更せず、ファイル先頭に UTF-8 BOM (3 bytes)
+    を付与のみ。kernel/common.ps1 と同じ「D 案」(機能修復優先、規約準拠は warning レベル
+    で許容) を踏襲
+  - **検証**: PowerShell AST parse 全 3 ファイル OK。`dev/check_ps1_encoding.ps1`
+    の分類が JP-NO-BOM → JP+BOM (warning) に変化、JP-NO-BOM 残数は 8 → 5
+  - **残課題**: Tier 2 (parser.tests.ps1 / ssid_config.ps1) と Tier 3 (comment-only:
+    firewall_rule_export/import / interface.ps1) は実害が軽微または無いため、本コミット
+    では据え置き。memory に「JP-NO-BOM cleanup 残作業」として記録
+
 ## [3.4.1] - 2026-05-26
 
 ### Removed
