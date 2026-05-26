@@ -1,4 +1,4 @@
-# ========================================
+﻿# ========================================
 # Printer Driver Installation Script
 # ========================================
 # Supports two modes:
@@ -110,43 +110,52 @@ function Install-DriverFromInf {
 
     $alreadyExists = $pnpOutput -match 'already exists|既にシステムに存在'
 
-    if ($pnpExitCode -ne 0 -and -not $alreadyExists) {
+    # exit 259 (ERROR_NO_MORE_ITEMS) is pnputil's locale-independent signal for
+    # "package already in driver store, nothing to add" — treat as success.
+    $pnpAlreadyInStore = $alreadyExists -or ($pnpExitCode -eq 259)
+    $pnpOk = ($pnpExitCode -eq 0) -or $pnpAlreadyInStore
+
+    if (-not $pnpOk) {
         Show-Error "Failed to register driver with pnputil: $($InfInfo.Name)"
         foreach ($line in $pnpResult) {
-            Write-Host "  $line" -ForegroundColor Gray
+            Show-Warning "  $line"
         }
         $result.Fail++
         return $result
     }
 
-    if ($alreadyExists) {
+    if ($pnpAlreadyInStore) {
         Show-Skip "Driver already exists in Driver Store"
     }
     else {
         Show-Success "Registered to Driver Store"
     }
 
-    # --- Resolve INF Path in Driver Store ---
+    # --- Resolve INF Path in Driver Store (best effort) ---
+    # If the resolution fails (e.g. a pre-staged package occupies a folder named
+    # after a different INF basename), we do NOT early-return. Strategy 2 in the
+    # model loop below will rescue via -Name only.
     $infBaseName = $InfInfo.Name.ToLower() -replace '\.inf$', ''
-    $storeDir = Get-ChildItem "C:\WINDOWS\System32\DriverStore\FileRepository" -Directory -Filter "${infBaseName}.inf_amd64_*" |
+    $storeDir = Get-ChildItem "C:\WINDOWS\System32\DriverStore\FileRepository" -Directory -Filter "${infBaseName}.inf_amd64_*" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
-    if (-not $storeDir) {
-        Show-Error "INF not found in Driver Store"
-        $result.Fail++
-        return $result
+    $storeInfPath = $null
+    if ($storeDir) {
+        $candidatePath = Join-Path $storeDir.FullName $InfInfo.Name
+        if (Test-Path $candidatePath) {
+            $storeInfPath = $candidatePath
+            Show-Info "Store Path: $storeInfPath"
+        }
+        else {
+            Show-Info "INF file not present at expected store path: $candidatePath"
+            Show-Info "Will use -Name only fallback for each model"
+        }
     }
-
-    $storeInfPath = Join-Path $storeDir.FullName $InfInfo.Name
-
-    if (-not (Test-Path $storeInfPath)) {
-        Show-Error "INF file not found in Driver Store: $storeInfPath"
-        $result.Fail++
-        return $result
+    else {
+        Show-Info "Store folder for '$infBaseName' not found in DriverStore FileRepository"
+        Show-Info "Will use -Name only fallback (driver may be in DriverStore under a different INF basename)"
     }
-
-    Show-Info "Store Path: $storeInfPath"
 
     # --- Register Each Model with Add-PrinterDriver ---
     $targetModels = if ($FilterDriverNames -and $FilterDriverNames.Count -gt 0) {
@@ -167,14 +176,36 @@ function Install-DriverFromInf {
             continue
         }
 
-        try {
-            Add-PrinterDriver -Name $driverName -InfPath $storeInfPath -ErrorAction Stop
-            Show-Success "Registration complete: $driverName"
-            $result.Success++
+        $registered = $false
+
+        # Strategy 1: -Name -InfPath (preferred — pins registration to a specific INF in the store)
+        if ($storeInfPath) {
+            try {
+                Add-PrinterDriver -Name $driverName -InfPath $storeInfPath -ErrorAction Stop
+                Show-Success "Registration complete: $driverName"
+                $result.Success++
+                $registered = $true
+            }
+            catch {
+                Show-Warning "Add-PrinterDriver -InfPath failed for ${driverName}: $($_.Exception.Message)"
+                Show-Info "Falling back to -Name only"
+            }
         }
-        catch {
-            Show-Error "Registration failed: $driverName - $_"
-            $result.Fail++
+
+        # Strategy 2: -Name only (rescues from pre-staged DriverStore packages whose
+        # repository folder name differs from this INF's basename — e.g. drivers
+        # placed by Windows Update or OEM image)
+        if (-not $registered) {
+            try {
+                Add-PrinterDriver -Name $driverName -ErrorAction Stop
+                Show-Success "Registration complete (from DriverStore global): $driverName"
+                $result.Success++
+                $registered = $true
+            }
+            catch {
+                Show-Error "Registration failed: $driverName - $($_.Exception.Message)"
+                $result.Fail++
+            }
         }
     }
 
