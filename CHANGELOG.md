@@ -102,6 +102,40 @@
   - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
 
 ### Fixed
+- **modules/standard/printer_driver_config v1.0.0 → v1.1.0** (Printer Drivers モジュールが
+  DriverStore に pre-staged された OEM / Windows Update 由来のプリンタドライバを認識できず
+  「ドライバ登録失敗」になっていた bug を修正、加えて 3 層の多層防御を実装):
+  - **根本原因**: `printer_driver_install.ps1` が **UTF-8 BOM 無し**で保存されており、
+    Windows PowerShell 5.1 が Japanese 含む正規表現リテラル `'既にシステムに存在'` を
+    システム既定 CP932 として誤デコード → pnputil の `"既にシステムに存在します"` 出力との
+    照合に失敗 → pnputil exit 259 (`ERROR_NO_MORE_ITEMS` = 既に store に有り、追加すべき
+    新規なし) を hard failure と誤判定して早期 return → `Add-PrinterDriver` が一度も呼ばれず
+    Spooler の `Get-PrinterDriver` 棚に橋渡しされない → 後続の `Register Printers` でも
+    「ドライバが見つかりません」で連鎖失敗。実機 (POSXXX-J、RICOH IM C300 JPN RPCS) で
+    完全な原因チェーンを確定済
+  - **fix 1 (根治 / Phase 1)**: ファイルを UTF-8 BOM 付き (CRLF 維持) で保存し直し。
+    project 規約 (memory `feedback_ps1_utf8_bom`) に照らした規約違反の是正
+  - **fix 2 (多層防御 / locale 非依存 / Phase 2)**: pnputil exit code 259 を
+    `$pnpAlreadyInStore = $alreadyExists -or ($pnpExitCode -eq 259)` で locale 非依存に
+    "already in store" として success 経路に流すロジックを追加。BOM が将来再び失われても
+    再発しない構造
+  - **fix 3 (観測性 / Phase 3)**: pnputil 出力を `Write-Host -ForegroundColor Gray` →
+    `Show-Warning` に変更。失敗時の pnputil 生メッセージが JSONL telemetry の `show.warning`
+    として記録され、次の診断はコンソール画面取得不要で完結
+  - **fix 4 (救済路 / pre-staged package 対応 / Phase 4)**: `Add-PrinterDriver -InfPath` で
+    詰まった場合の `-Name` only フォールバックを追加 (2-strategy 構造)。Windows Update /
+    OEM image で DriverStore に既に同名 package がありながら repository folder 名が
+    当該 INF の basename と異なるケース (今回の Ricoh ケースに該当) を救う。これに伴い
+    「storeDir not found」「store INF file not found」の 2 つの早期 return を撤廃、
+    best-effort 解決 + fallback で機能を継続する設計に変更
+  - **検証想定**: DriverStore に同名パッケージが pre-stage された target PC を
+    `Remove-PrinterDriver` で B 棚クリア後に再現テスト (A 倉庫保持)。修正前は同じ
+    "regex miss → Fail" 経路で失敗、修正後は Phase 2 で exit 259 検知 → Phase 4 で
+    `-Name` fallback 成功 → Status=Success / Verified=PASS となる想定
+  - **影響範囲**: 公開 API サーフェスへの影響なし (KERNEL_API.md / module.csv / CSV スキーマ /
+    環境変数契約すべて不変)。kernel touched なし、他 module への波及ゼロ。
+    REQUIRES_KERNEL は 2.0.0 据え置き (新規 kernel API 不要)
+
 - apps/fabriq_backuper v0.12.2 → v0.12.3 (Phase 2.12.3 hotfix / same-version IMAP-present
   profile で POP 配信先が OST に auto-bind される ambiguity の operator 通知追加):
   v0.12.2 で 365 → 365 + IMAP の restore が起動エラー無しで通るようになった結果、新たに
