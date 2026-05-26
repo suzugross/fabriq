@@ -52,6 +52,22 @@
     kernel/csv/hostlist.csv + kernel/txt/passphrase_verify.txt を auto-discovery で読取)
 
 ### Added
+- **dev/check_ps1_encoding.ps1** — `.ps1` ファイルの Japanese 含有 / UTF-8 BOM 有無を
+  スキャンする規約チェッカーを新規追加。memory `feedback_scripts_english_only` (英語
+  オンリー規約) と `feedback_ps1_utf8_bom` (Japanese 含む `.ps1` は BOM 必須) の運用を
+  自動検出可能に。
+  - **分類**: OK / BOM-ONLY (cosmetic) / JP+BOM (規約違反だが encoding-safe、warning) /
+    JP-NO-BOM (規約違反 + encoding fragile、error)
+  - **Lenient mode (既定)**: JP-NO-BOM のみ exit 1。JP+BOM は warning として可視化
+    するが fail せず (legacy 4 件 + 今回追加の `kernel/common.ps1` を許容)
+  - **メタ罠回避設計**: スクリプト自身のソースは ASCII-only。Unicode 範囲を
+    `[char]0xXXXX` の codepoint composition で構築するため、checker 自身が
+    検出対象の罠 (Japanese in BOM-less `.ps1`) を踏まない
+  - **初回スキャン結果** (2026-05-26): 184 files / OK 164 / BOM-ONLY 7 /
+    JP+BOM 4 (legacy) / JP-NO-BOM 9 (内 kernel/common.ps1 は本コミットで BOM 付与済、
+    残 8 は将来修正候補)
+  - **Usage**: `pwsh ./dev/check_ps1_encoding.ps1`、optional `-Root <path>`
+
 - apps/fabriq_backuper v0.12.3 → v0.13.0 (Phase 2.13.0 / outlook_pop に IMAP account
   visibility scope を追加 — backup 列挙 + restore で human-readable 出力):
   Phase A 設計で意図的に inventory から除外していた IMAP account を、POP3 と並んで
@@ -124,6 +140,28 @@
   - **影響範囲**: printer_driver_install.ps1 のみ。module 公開 API・他 module への波及ゼロ
 
 ### Fixed
+- **kernel/common.ps1** に UTF-8 BOM を付与し、日本語版 Windows での
+  `Clear-Logs` / `Clear-Evidence` の「ファイル使用中」検出を機能修復:
+  本コミットで追加した `dev/check_ps1_encoding.ps1` のスキャンで発見した kernel 側の
+  同種 bug。line 3229 / 3317 の `Remove-Item` catch block に
+  `$_.Exception.Message -match 'used by another process|別のプロセス'` という regex が
+  あったが、ファイルが BOM 無しで保存されていたため Windows PowerShell 5.1 が日本語
+  リテラルを CP932 として誤デコード → 日本語版 Windows で発生する
+  「別のプロセスが使用中のため、プロセスはファイルにアクセスできません」エラー
+  メッセージとマッチせず、本来 `[SKIP] In use` 扱いになるべきケースが
+  `[FAIL] Failed to delete` に分類されていた (致命傷ではないが UX ミスリード)。
+  - **fix**: ファイル先頭に UTF-8 BOM (3 bytes) を付与。source code は 1 文字も変更せず
+  - **挙動の改善**: 日本語版 Windows で `Remove-Item` 失敗時の「使用中」検出が
+    initial 実装以来初めて正しく動作するようになった
+  - **規約上の取り扱い**: 「Japanese を含む `.ps1` には BOM 必須」という memory
+    `feedback_ps1_utf8_bom` の規約に沿った修正だが、「kernel/ に BOM 付き file が混入」
+    という慣習破りでもある。checker の JP+BOM カテゴリで warning として可視化、
+    将来的に Win32 HResult ベースの locale 非依存検出への置き換え (B 案) を残課題
+  - **影響範囲**: kernel 公開 API への影響なし。技術的に BOM は PowerShell 5.1+ で
+    透過処理されるため、`check_version.ps1` 等の line 番号ベース読み取りも無事
+  - **KERNEL_VERSION**: ユーザー指示なしに昇格しない方針 (CLAUDE.md ルール J) のため
+    [Unreleased] に記録し、リリース時に PATCH (3.4.0 → 3.4.1) として処理する想定
+
 - **modules/standard/printer_driver_config v1.0.0 → v1.1.0** (Printer Drivers モジュールが
   DriverStore に pre-staged された OEM / Windows Update 由来のプリンタドライバを認識できず
   「ドライバ登録失敗」になっていた bug を修正、加えて 3 層の多層防御を実装):
