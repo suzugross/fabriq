@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-05-26
+
 ### Removed
 - **apps/fabriq_backuper を fabriq main repo から分離独立** (2026-05-21、
   fabriq_checksheet と同形の code-detached + runtime-data-hybrid satellite
