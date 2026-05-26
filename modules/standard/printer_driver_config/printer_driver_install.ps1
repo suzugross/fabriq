@@ -106,13 +106,10 @@ function Install-DriverFromInf {
 
     $pnpResult = & pnputil /add-driver "$($InfInfo.Path)" /install 2>&1
     $pnpExitCode = $LASTEXITCODE
-    $pnpOutput = ($pnpResult | Out-String)
-
-    $alreadyExists = $pnpOutput -match 'already exists|既にシステムに存在'
 
     # exit 259 (ERROR_NO_MORE_ITEMS) is pnputil's locale-independent signal for
     # "package already in driver store, nothing to add" — treat as success.
-    $pnpAlreadyInStore = $alreadyExists -or ($pnpExitCode -eq 259)
+    $pnpAlreadyInStore = ($pnpExitCode -eq 259)
     $pnpOk = ($pnpExitCode -eq 0) -or $pnpAlreadyInStore
 
     if (-not $pnpOk) {
