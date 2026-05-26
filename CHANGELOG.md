@@ -101,6 +101,28 @@
     大多数なので影響軽微、必要なら次 phase で fallback location を実装
   - 影響範囲: app 内部のみ。kernel / modules 公開 API への影響なし
 
+### Changed
+- **modules/standard/printer_driver_config v1.1.0 → v1.1.1** (printer_driver_install.ps1
+  の pnputil "already-exists" 判定を exit code 259 単独に縮約、規約違反の Japanese
+  リテラルと未検証の English regex を撤去):
+  v1.1.0 で多層防御として残していた `$pnpOutput -match 'already exists|既にシステムに存在'`
+  を全削除し、検証済の `$pnpExitCode -eq 259` (ERROR_NO_MORE_ITEMS / Win32 標準定数 /
+  locale 非依存) 単独に集約。Windows NT 4.0 以来 27 年安定している定数のため、単一層でも
+  証拠強度として十分。
+  - **撤去理由**:
+    - `既にシステムに存在` (Japanese) — memory `feedback_scripts_english_only` の
+      「.ps1 内 string literal は English only」規約違反
+    - `already exists` (English) — 英語版 Windows での実機検証履歴なし。英語版 Windows
+      は事業スコープ外 (B2B/B2G 日本語キッティング) で保険を残す business value もない
+  - **dead code 除去**: regex 削除に伴い不要となった `$pnpResult | Out-String` →
+    `$pnpOutput` 代入も併せて削除
+  - **BOM**: 残置 (将来 Japanese が誤って紛れ込んだ際の defensive marker として保留、
+    規約上は ASCII-only ファイルに BOM は不要だが害もないため温存)
+  - **挙動への影響**: なし。v1.1.0 検証時 (POSXXX-J) と同じ Status=Success / Verified=PASS
+    が継続する想定 (exit 259 経路は v1.1.0 から既に動作している)
+  - **規約整合**: .ps1 内に Japanese 文字 0、ASCII-only 化完了
+  - **影響範囲**: printer_driver_install.ps1 のみ。module 公開 API・他 module への波及ゼロ
+
 ### Fixed
 - **modules/standard/printer_driver_config v1.0.0 → v1.1.0** (Printer Drivers モジュールが
   DriverStore に pre-staged された OEM / Windows Update 由来のプリンタドライバを認識できず
