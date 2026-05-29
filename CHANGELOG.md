@@ -16,6 +16,33 @@
 ## [Unreleased]
 
 ### Fixed
+- apps/fabriq_operator/lib/execution_toolbar.ps1: Execution Toolbar の
+  PC Info Comparison パネルの 2 件のバグを修正 (当該パネル自体が
+  [Unreleased] のため未リリース機能への畳み込み。kernel 公開 API §1〜§5
+  影響なし、`Show-/Hide-/Update-ExecutionToolbar` シグネチャ不変、
+  KERNEL_VERSION 3.4.1 据置)。`Get-CurrentPCInfo` は参照のみ・改変なし。
+  - **B1 サブネット誤判定**: target サブネット (hostlist の `255.255.0.0`
+    等のドット10進マスク) を `[int]::TryParse` で CIDR prefix 扱いしていたため
+    parse=0 となり実 PrefixLength と永久に不一致 → 常に `[!!]`。current の
+    PrefixLength を新ヘルパー `ConvertTo-SubnetMask` でドットマスクへ変換し
+    マスク同士の文字列比較へ修正 (旧 status_monitor.ps1 + Get-CurrentPCInfo と
+    同一挙動)。表示も `/16` 形式からドットマスクへ。境界 (prefix <=0 / >32 → '')
+    ガード付き。
+  - **B2 ゲートウェイ誤 [OK]**: `Get-NetRoute -DestinationPrefix '0.0.0.0/0'`
+    のグローバルなゲートウェイ集合を Ethernet/Wi-Fi 両セクションで共用していたため、
+    Ethernet リンクダウン時に稼働中 Wi-Fi の GW を借用して誤 `[OK]` を表示
+    (IP は `[!!]` なのに GW だけ `[OK]` という矛盾)。GW を interface index 単位で
+    取得 (`EthGateway`/`WifiGateway` スカラ) し IF 別のスカラ等値比較へ修正。
+    down IF は IP・サブネット・GW すべて `[!!]` で整合。
+  - **付随修正 (adversarial review で検出)**: アダプタ分類を `InterfaceAlias`
+    (ロケール依存。日本語版 Windows の既定 Ethernet 接続名が英語 "Ethernet" に
+    一致せず、Hyper-V "vEthernet (...)" には過剰一致) から `Get-NetAdapter
+    -Physical` + `InterfaceDescription` (常に英語・物理アダプタ限定) ベースへ変更。
+    これも旧 `Get-CurrentPCInfo` (kernel/common.ps1) の手法に準拠。
+  - polling 周期 (hostname 1s / network 3s / printer 10s)、プリンタ照合
+    (名前+ドライバ+ポート)、DNS 部分一致、PIN 行、レイアウト、TopMost は不変。
+    検証: `ConvertTo-SubnetMask` 10/10 + 実機 network-tier snapshot smoke
+    (例外なし、Eth を InterfaceDescription で正分類)。
 - **JP-NO-BOM cleanup batch 1 (Tier 1: functional bug)** — `dev/check_ps1_encoding.ps1`
   (v3.4.1 で追加) の検出結果のうち、`-match` regex に Japanese を含む 3 ファイルに
   UTF-8 BOM を付与し、日本語版 Windows で broken だった機能を修復:

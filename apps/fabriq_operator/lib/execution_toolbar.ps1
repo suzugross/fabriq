@@ -347,6 +347,24 @@ function Show-ExecutionToolbar {
                 return "$Content$(' ' * $padding)$Marker"
             }
 
+            # PrefixLength -> dotted-decimal subnet mask, mirroring the
+            # conversion in Get-CurrentPCInfo (kernel/common.ps1). The
+            # hostlist stores masks as dotted decimal (e.g. 255.255.0.0),
+            # so the comparison is mask-vs-mask. Returns '' for an
+            # out-of-range prefix so a bogus value can never yield a
+            # spurious mask match. Defined here (before Update-PCInfoDisplay)
+            # so it exists for the first display call at startup.
+            function ConvertTo-SubnetMask {
+                param([int]$PrefixLength)
+                if ($PrefixLength -le 0 -or $PrefixLength -gt 32) { return '' }
+                $maskInt = [uint32]([math]::Pow(2, 32) - [math]::Pow(2, 32 - $PrefixLength))
+                return "{0}.{1}.{2}.{3}" -f `
+                    (($maskInt -shr 24) -band 0xFF),
+                    (($maskInt -shr 16) -band 0xFF),
+                    (($maskInt -shr 8) -band 0xFF),
+                    ($maskInt -band 0xFF)
+            }
+
             function Set-ColorizedText {
                 param(
                     [System.Windows.Forms.RichTextBox]$RichTextBox,
@@ -382,12 +400,13 @@ function Show-ExecutionToolbar {
             }
 
             $script:cachedCurrent = @{
-                Hostname = $env:COMPUTERNAME
-                EthIPs   = @()
-                WifiIPs  = @()
-                Gateways = @()
-                DNS      = @()
-                Printers = @()
+                Hostname    = $env:COMPUTERNAME
+                EthIPs      = @()
+                WifiIPs     = @()
+                EthGateway  = ''
+                WifiGateway = ''
+                DNS         = @()
+                Printers    = @()
             }
 
             function Update-CurrentSnapshot {
@@ -399,13 +418,37 @@ function Show-ExecutionToolbar {
 
                 if ($Tier -eq 'network' -or $Tier -eq 'all') {
                     try {
-                        $allIPs = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-                            Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' })
-                        $script:cachedCurrent.EthIPs  = @($allIPs | Where-Object { $_.InterfaceAlias -match 'Ethernet|Local Area' })
-                        $script:cachedCurrent.WifiIPs = @($allIPs | Where-Object { $_.InterfaceAlias -match 'Wi-?Fi|Wireless' })
-
-                        $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue)
-                        $script:cachedCurrent.Gateways = @($routes | Select-Object -ExpandProperty NextHop -Unique | Where-Object { $_ -and $_ -ne '0.0.0.0' })
+                        # Adapter classification ported from Get-CurrentPCInfo
+                        # (kernel/common.ps1): iterate PHYSICAL adapters and
+                        # classify by InterfaceDescription (always English,
+                        # locale-independent) instead of InterfaceAlias. The
+                        # alias is localized on Japanese Windows (the default
+                        # Ethernet connection name is not the English word
+                        # "Ethernet"), and an unfiltered alias match would also
+                        # over-match Hyper-V "vEthernet (...)". The default
+                        # gateway is read per interface index so a down adapter
+                        # cannot borrow a live adapter's gateway. Reset first so
+                        # a link-down transition clears stale values.
+                        $script:cachedCurrent.EthIPs      = @()
+                        $script:cachedCurrent.WifiIPs     = @()
+                        $script:cachedCurrent.EthGateway  = ''
+                        $script:cachedCurrent.WifiGateway = ''
+                        foreach ($ad in @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'Disabled' })) {
+                            $ips = @(Get-NetIPAddress -InterfaceIndex $ad.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                                Where-Object { $_.PrefixOrigin -ne 'WellKnown' })
+                            if ($ips.Count -eq 0) { continue }
+                            $gw = ''
+                            $cfg = Get-NetIPConfiguration -InterfaceIndex $ad.ifIndex -ErrorAction SilentlyContinue
+                            if ($cfg -and $cfg.IPv4DefaultGateway) { $gw = [string]@($cfg.IPv4DefaultGateway.NextHop)[0] }
+                            if ($ad.InterfaceDescription -match 'Wi-Fi|Wireless|WLAN|802\.11') {
+                                $script:cachedCurrent.WifiIPs     = $ips
+                                $script:cachedCurrent.WifiGateway = $gw
+                            }
+                            elseif ($script:cachedCurrent.EthIPs.Count -eq 0) {
+                                $script:cachedCurrent.EthIPs     = $ips
+                                $script:cachedCurrent.EthGateway = $gw
+                            }
+                        }
 
                         $script:cachedCurrent.DNS = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                             ForEach-Object { $_.ServerAddresses } |
@@ -487,18 +530,18 @@ function Show-ExecutionToolbar {
                         }
                     }
                     if (-not [string]::IsNullOrWhiteSpace([string]$hi.EthSubnet)) {
-                        $prefix = 0; [void][int]::TryParse([string]$hi.EthSubnet, [ref]$prefix)
-                        $curPfx = if ($ethPfx.Count -gt 0) { "/$($ethPfx[0])" } else { "(none)" }
-                        if ($ethPfx -contains $prefix) {
-                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[OK]") + "`r`n"
+                        $curMask = if ($ethPfx.Count -gt 0) { ConvertTo-SubnetMask $ethPfx[0] } else { '' }
+                        $curDisp = if ($curMask) { $curMask } else { "(none)" }
+                        if ($curMask -eq [string]$hi.EthSubnet) {
+                            $pcText += (Format-StatusLine "  Subnet:  $curDisp" "[OK]") + "`r`n"
                         } else {
-                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[!!]") + "`r`n"
-                            $pcText += "           -> /$($hi.EthSubnet)`r`n"
+                            $pcText += (Format-StatusLine "  Subnet:  $curDisp" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.EthSubnet)`r`n"
                         }
                     }
                     if (-not [string]::IsNullOrWhiteSpace([string]$hi.EthGateway)) {
-                        $curVal = if ($cur.Gateways.Count -gt 0) { $cur.Gateways[0] } else { "(none)" }
-                        if ($cur.Gateways -contains $hi.EthGateway) {
+                        $curVal = if (-not [string]::IsNullOrWhiteSpace([string]$cur.EthGateway)) { $cur.EthGateway } else { "(none)" }
+                        if ($cur.EthGateway -eq $hi.EthGateway) {
                             $pcText += (Format-StatusLine "  GW:      $curVal" "[OK]") + "`r`n"
                         } else {
                             $pcText += (Format-StatusLine "  GW:      $curVal" "[!!]") + "`r`n"
@@ -527,18 +570,18 @@ function Show-ExecutionToolbar {
                         }
                     }
                     if (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiSubnet)) {
-                        $prefix = 0; [void][int]::TryParse([string]$hi.WifiSubnet, [ref]$prefix)
-                        $curPfx = if ($wifiPfx.Count -gt 0) { "/$($wifiPfx[0])" } else { "(none)" }
-                        if ($wifiPfx -contains $prefix) {
-                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[OK]") + "`r`n"
+                        $curMask = if ($wifiPfx.Count -gt 0) { ConvertTo-SubnetMask $wifiPfx[0] } else { '' }
+                        $curDisp = if ($curMask) { $curMask } else { "(none)" }
+                        if ($curMask -eq [string]$hi.WifiSubnet) {
+                            $pcText += (Format-StatusLine "  Subnet:  $curDisp" "[OK]") + "`r`n"
                         } else {
-                            $pcText += (Format-StatusLine "  Subnet:  $curPfx" "[!!]") + "`r`n"
-                            $pcText += "           -> /$($hi.WifiSubnet)`r`n"
+                            $pcText += (Format-StatusLine "  Subnet:  $curDisp" "[!!]") + "`r`n"
+                            $pcText += "           -> $($hi.WifiSubnet)`r`n"
                         }
                     }
                     if (-not [string]::IsNullOrWhiteSpace([string]$hi.WifiGateway)) {
-                        $curVal = if ($cur.Gateways.Count -gt 0) { $cur.Gateways[0] } else { "(none)" }
-                        if ($cur.Gateways -contains $hi.WifiGateway) {
+                        $curVal = if (-not [string]::IsNullOrWhiteSpace([string]$cur.WifiGateway)) { $cur.WifiGateway } else { "(none)" }
+                        if ($cur.WifiGateway -eq $hi.WifiGateway) {
                             $pcText += (Format-StatusLine "  GW:      $curVal" "[OK]") + "`r`n"
                         } else {
                             $pcText += (Format-StatusLine "  GW:      $curVal" "[!!]") + "`r`n"
