@@ -17,7 +17,7 @@
 
 ### Fixed
 - apps/fabriq_operator/lib/execution_toolbar.ps1: Execution Toolbar の
-  PC Info Comparison パネルの 2 件のバグを修正 (当該パネル自体が
+  PC Info Comparison パネルの 3 件のバグを修正 (当該パネル自体が
   [Unreleased] のため未リリース機能への畳み込み。kernel 公開 API §1〜§5
   影響なし、`Show-/Hide-/Update-ExecutionToolbar` シグネチャ不変、
   KERNEL_VERSION 3.4.1 据置)。`Get-CurrentPCInfo` は参照のみ・改変なし。
@@ -39,10 +39,18 @@
     一致せず、Hyper-V "vEthernet (...)" には過剰一致) から `Get-NetAdapter
     -Physical` + `InterfaceDescription` (常に英語・物理アダプタ限定) ベースへ変更。
     これも旧 `Get-CurrentPCInfo` (kernel/common.ps1) の手法に準拠。
-  - polling 周期 (hostname 1s / network 3s / printer 10s)、プリンタ照合
-    (名前+ドライバ+ポート)、DNS 部分一致、PIN 行、レイアウト、TopMost は不変。
-    検証: `ConvertTo-SubnetMask` 10/10 + 実機 network-tier snapshot smoke
-    (例外なし、Eth を InterfaceDescription で正分類)。
+  - **B3 プリンタポート誤判定 (port)**: target の Port (hostlist は素の IP/値) を
+    `Get-Printer.PortName` と完全一致比較していたが、`printer_driver_config` は
+    Standard TCP/IP ポートを `IP_<値>` で作成する (printer_config.ps1) ため
+    `"IP_192.168.0.1" -eq "192.168.0.1"` が常に false → 正しく登録済でも `(port) [!!]`。
+    `($cp -eq $tpp) -or ((cp の先頭 IP_ を除去) -eq $tpp)` へ修正 (両辺 Trim 済、
+    モジュールの自己検証 expected `IP_<Port>` を鏡写し)。当初検討した正規表現 IP 抽出案は
+    adversarial review で部分文字列誤検知 (`IP_x-192.168.0.1-y` を誤 `[OK]`) が判明し撤去。
+  - polling 周期 (hostname 1s / network 3s / printer 10s)、プリンタの名前+ドライバ照合、
+    DNS 部分一致、PIN 行、レイアウト、TopMost は不変。
+    検証: `ConvertTo-SubnetMask` 10/10 + port-match 15/15 + 実機 network-tier /
+    Get-Printer snapshot smoke (例外なし、Eth を InterfaceDescription で正分類、
+    実機プリンタ PortName `IP_192.168.0.x` を確認)。
 - **JP-NO-BOM cleanup batch 1 (Tier 1: functional bug)** — `dev/check_ps1_encoding.ps1`
   (v3.4.1 で追加) の検出結果のうち、`-match` regex に Japanese を含む 3 ファイルに
   UTF-8 BOM を付与し、日本語版 Windows で broken だった機能を修復:

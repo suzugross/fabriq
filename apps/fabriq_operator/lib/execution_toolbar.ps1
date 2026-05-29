@@ -620,7 +620,16 @@ function Show-ExecutionToolbar {
                         $found = $cur.Printers | Where-Object { $_.Name -eq $tp.Name } | Select-Object -First 1
                         if ($null -ne $found) {
                             $driverOk = [string]::IsNullOrWhiteSpace([string]$tp.Driver) -or ($found.DriverName -eq $tp.Driver)
-                            $portOk   = [string]::IsNullOrWhiteSpace([string]$tp.Port)   -or ($found.PortName   -eq $tp.Port)
+                            $portOk = [string]::IsNullOrWhiteSpace([string]$tp.Port)
+                            if (-not $portOk) {
+                                # printer_driver_config names Standard TCP/IP ports "IP_<value>"
+                                # (printer_config.ps1) while the hostlist stores the bare value;
+                                # accept an exact match or the leading "IP_" stripped, mirroring the
+                                # module's own post-apply check (expected PortName = "IP_<Port>").
+                                $cp  = ([string]$found.PortName).Trim()
+                                $tpp = ([string]$tp.Port).Trim()
+                                $portOk = ($cp -eq $tpp) -or (($cp -replace '^IP_', '') -eq $tpp)
+                            }
                             if ($driverOk -and $portOk) {
                                 $pcText += (Format-StatusLine "  $pName" "[OK]") + "`r`n"
                             } else {
