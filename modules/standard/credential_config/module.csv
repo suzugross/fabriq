@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Credential Manager Config,Security,credential_config.ps1,44,1

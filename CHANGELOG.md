@@ -15,6 +15,19 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/credential_config: 新規モジュール。Windows 資格情報マネージャー
+  へ Generic / Domain Password / RDP (TERMSRV) の資格情報をネイティブ cmdkey で
+  CSV 駆動一括登録する (current-user vault への kitting-session staging)。冪等
+  (last-write-wins の無言上書き)、パスワードはログでマスク、CredType / 算出後 target /
+  user / password の事前バリデーション (不正行は副作用前に全体 Error)、SYSTEM
+  (S-1-5-18) 実行は dead vault 回避のため拒否。適用後検証は cmdkey がパスワードを
+  読み返せず presence ベースだと false PASS になるため非実装 (`-Verified=$null`・
+  検証除外リスト)。注意点 (per-user vault scope / `/pass:` の 4688・Sysmon 平文
+  露出 / sysprep 順序 / 後始末) は Guide.txt に明記。VERSION 0.1.0 /
+  REQUIRES_KERNEL 2.0.0 (公開 API への新規依存なし、KERNEL_VERSION 3.4.1 据置、
+  KERNEL_API.md 影響なし)。
+
 ### Fixed
 - apps/fabriq_operator/lib/execution_toolbar.ps1: Execution Toolbar の
   PC Info Comparison パネルの 3 件のバグを修正 (当該パネル自体が
