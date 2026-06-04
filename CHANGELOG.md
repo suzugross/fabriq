@@ -16,6 +16,17 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/group_config v1.0.0 → v1.1.0 (Added: メンバー除去サブモジュール
+  group_remove.ps1): 既存 group_config.ps1 (メンバー追加) の論理的逆操作として、同一の
+  group_list.csv を共有してローカルグループからメンバーを除去するスクリプトを追加。
+  module.csv に menu "Local Group Member Remove" (Order 16) を追加。
+  - 冪等性を反転 (既に非メンバー = Skip)、グループ不在も Skip (除去対象なし=目的達成、
+    [No Group] 表示)
+  - 現ログオンユーザーの自己除去は warn-only (dry-run + 適用の両方で Show-Warning。
+    Administrators からの自己除去は昇格セッション喪失を明示警告。ブロックはしない)
+  - ヘルパー4関数は group_config.ps1 から複製 (fabriq は sibling .ps1 の dot-source 非採用)
+  - 公開 API は 2.0.0 のみ使用、REQUIRES_KERNEL 2.0.0 据置
+  - 付随: Guide.txt の環境変数誤記 SELECTED_SEGMENT → FABRIQ_SEGMENT を修正
 - modules/standard/credential_config: 新規モジュール。Windows 資格情報マネージャー
   へ Generic / Domain Password / RDP (TERMSRV) の資格情報をネイティブ cmdkey で
   CSV 駆動一括登録する (current-user vault への kitting-session staging)。冪等
