@@ -1,2 +1,3 @@
 MenuName,Category,Script,Order,Enabled
 Local Group Member Config,User Management,group_config.ps1,15,1
+Local Group Member Remove,User Management,group_remove.ps1,16,1
