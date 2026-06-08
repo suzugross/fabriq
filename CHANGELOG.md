@@ -16,6 +16,25 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/reg_hkcu_config v1.0.0 → v1.1.0 / modules/standard/reg_hklm_config
+  v1.0.0 → v1.1.0 (Added: key-only registry creation — 空 KeyName でキーのみ作成):
+  CSV の KeyName 列が空（または空白のみ）の行を「値なしでキーだけ作成」するモードとして
+  解釈する（`reg add "<key>" /f` 相当）。従来は空 KeyName が `New-ItemProperty -Name ""`
+  で例外となり Failed 扱いだった (reg_hkcu では HKCU キーだけ副作用で作られ HIVE 未作成・
+  検証失敗・プロファイル全体 Error に波及)。
+  - 発火条件は `[string]::IsNullOrWhiteSpace(KeyName)` のみ。非空 KeyName（既定値慣習
+    `@` を含む）は従来の value-mode を完全に踏襲（value-mode はバイト単位で不変・回帰ゼロ）。
+  - 冪等: キー不在なら New-Item、存在すれば Skip。FORCE_OVERWRITE は値の上書き概念のため
+    key-only には非適用（常に冪等）。
+  - reg_hkcu は HKCU と Default プロファイルハイブ (HKU:\Hive) の両方にキーを作成。
+    Post-Apply Verification は key-only 行を Test-Path で検証。
+  - プレビュー(Step3)・適用・検証・Active Setup/Startup Batch 生成すべてに key-only 分岐。
+    空 KeyName ＋ Value/Type が入っている矛盾行はプレビューで Show-Warning（Value を無視
+    する旨を operator に明示。no-operator-judgment / no-silent-ambiguity 原則）。空白のみの
+    KeyName は IsNullOrWhiteSpace で key-only 扱い（引用付き空白で value-mode に落ちて
+    " " 名のゴミ値を黙って作る罠を回避）。
+  - 公開 API は 2.0.0 のみ使用、両モジュール REQUIRES_KERNEL 2.0.0 据置、KERNEL_VERSION
+    3.4.1 据置、KERNEL_API.md 影響なし。
 - modules/extended/group_config v1.0.0 → v1.1.0 (Added: メンバー除去サブモジュール
   group_remove.ps1): 既存 group_config.ps1 (メンバー追加) の論理的逆操作として、同一の
   group_list.csv を共有してローカルグループからメンバーを除去するスクリプトを追加。
