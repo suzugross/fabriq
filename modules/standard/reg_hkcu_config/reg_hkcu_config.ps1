@@ -121,21 +121,36 @@ if ($FORCE_OVERWRITE) {
 
 foreach ($item in $regItems) {
     $checkPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
-    $checkType = switch ($item.'Type') {
-        'REG_SZ' { 'String' }; 'REG_DWORD' { 'DWord' }; 'REG_QWORD' { 'QWord' }
-        'REG_BINARY' { 'Binary' }; 'REG_MULTI_SZ' { 'MultiString' }; 'REG_EXPAND_SZ' { 'ExpandString' }
-        default { 'String' }
+    $isKeyOnly = [string]::IsNullOrWhiteSpace($item.'KeyName')
+
+    if ($isKeyOnly) {
+        $isMatch = (Test-Path $checkPath)
     }
-    $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    else {
+        $checkType = switch ($item.'Type') {
+            'REG_SZ' { 'String' }; 'REG_DWORD' { 'DWord' }; 'REG_QWORD' { 'QWord' }
+            'REG_BINARY' { 'Binary' }; 'REG_MULTI_SZ' { 'MultiString' }; 'REG_EXPAND_SZ' { 'ExpandString' }
+            default { 'String' }
+        }
+        $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    }
 
     $marker = if ($isMatch) { "[Current]" } else { "[Change]" }
     $markerColor = if ($isMatch) { "Gray" } else { "White" }
 
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')  $marker" -ForegroundColor $markerColor
     Write-Host "  Path:  $($item.'KeyPath')"
-    Write-Host "  Key:   $($item.'KeyName')"
-    Write-Host "  Type:  $($item.'Type')"
-    Write-Host "  Value: $($item.'Value')"
+    if ($isKeyOnly) {
+        Write-Host "  Key:   (key only - no value)"
+        if ((-not [string]::IsNullOrWhiteSpace($item.'Value')) -or (-not [string]::IsNullOrWhiteSpace($item.'Type'))) {
+            Show-Warning "KeyName empty -> key-only mode; supplied Value '$($item.'Value')' (Type '$($item.'Type')') will be ignored"
+        }
+    }
+    else {
+        Write-Host "  Key:   $($item.'KeyName')"
+        Write-Host "  Type:  $($item.'Type')"
+        Write-Host "  Value: $($item.'Value')"
+    }
     Write-Host ""
 }
 
@@ -190,6 +205,63 @@ foreach ($item in $regItems) {
     $regPathOriginal = $item.'KeyPath'
     $regKey = $item.'KeyName'
     $regValue = $item.'Value'
+
+    # ----------------------------------------
+    # Key-only mode: empty KeyName creates the key with no value
+    # (equivalent to: reg add "<key>" /f) on both HKCU and Default
+    # Profile hive. FORCE_OVERWRITE does not apply (a value-less key
+    # has nothing to overwrite); always idempotent.
+    # ----------------------------------------
+    if ([string]::IsNullOrWhiteSpace($regKey)) {
+        $keyChanged = $false
+        $keyError   = $false
+
+        # HKCU (logged-on user)
+        $hkcuKeyPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', $hkcuRoot
+        if (Test-Path $hkcuKeyPath) {
+            Write-Host "  [HKCU] Key already exists (Skip)" -ForegroundColor Gray
+        }
+        else {
+            try {
+                New-Item -Path $hkcuKeyPath -Force | Out-Null
+                Write-Host "  [HKCU] Key created" -ForegroundColor Green
+                $keyChanged = $true
+            }
+            catch {
+                Write-Host "  [HKCU] Error: $_" -ForegroundColor Red
+                $keyError = $true
+            }
+        }
+
+        # Default Profile hive
+        if ($hiveLoaded) {
+            $hiveKeyPath = $regPathOriginal -replace '^HKEY_CURRENT_USER', 'HKU:\Hive'
+            if (Test-Path $hiveKeyPath) {
+                Write-Host "  [HIVE] Key already exists (Skip)" -ForegroundColor Gray
+            }
+            else {
+                try {
+                    New-Item -Path $hiveKeyPath -Force | Out-Null
+                    Write-Host "  [HIVE] Key created" -ForegroundColor Green
+                    $keyChanged = $true
+                }
+                catch {
+                    Write-Host "  [HIVE] Error: $_" -ForegroundColor Red
+                    $keyError = $true
+                }
+            }
+        }
+        else {
+            Write-Host "  [HIVE] Skipped (Hive not loaded)" -ForegroundColor Gray
+        }
+
+        if ($keyError) { $failCount++ }
+        elseif ($keyChanged) { $successCount++ }
+        else { $skipCount++ }
+
+        Write-Host ""
+        continue
+    }
 
     # Convert Type
     $regType = switch ($item.'Type') {
@@ -328,10 +400,11 @@ foreach ($item in $regItems) {
         default         { 'String' }
     }
     $displayName = $item.'SettingTitle'
+    $isKeyOnly = [string]::IsNullOrWhiteSpace($item.'KeyName')
 
     # Verify HKCU (current user)
     $hkcuPath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', $hkcuRoot
-    $hkcuMatch = Test-RegistryValueMatch -Path $hkcuPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    $hkcuMatch = if ($isKeyOnly) { Test-Path $hkcuPath } else { Test-RegistryValueMatch -Path $hkcuPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType }
 
     if ($hkcuMatch) {
         Write-Host "  [VERIFIED] $displayName [HKCU]" -ForegroundColor Green
@@ -344,7 +417,7 @@ foreach ($item in $regItems) {
     # Verify HIVE (Default Profile) — only if hive is loaded
     if ($hiveLoaded) {
         $hivePath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKU:\Hive'
-        $hiveMatch = Test-RegistryValueMatch -Path $hivePath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+        $hiveMatch = if ($isKeyOnly) { Test-Path $hivePath } else { Test-RegistryValueMatch -Path $hivePath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType }
 
         if ($hiveMatch) {
             Write-Host "  [VERIFIED] $displayName [HIVE]" -ForegroundColor Green
@@ -408,6 +481,11 @@ if ($ENABLE_ACTIVE_SETUP) {
     # Generate reg add commands from CSV items
     $regAddLines = @()
     foreach ($item in $regItems) {
+        if ([string]::IsNullOrWhiteSpace($item.KeyName)) {
+            # Key-only: create the key with no value
+            $regAddLines += "reg add `"$($item.KeyPath)`" /f"
+            continue
+        }
         $cmd = "reg add `"$($item.KeyPath)`" /t $($item.Type) /f"
         if ($item.KeyName -eq '@') {
             $cmd += " /ve"

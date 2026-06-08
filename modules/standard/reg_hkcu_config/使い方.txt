@@ -28,6 +28,8 @@
                     HKLM例: HKEY_LOCAL_MACHINE\SOFTWARE\Policies\...
                     HKCU例: HKEY_CURRENT_USER\SOFTWARE\...
   キー名        ... レジストリ値の名前
+                    ※ 空欄(または空白のみ)にすると値を作らずキーのみを作成します
+                       (reg add "<キー>" /f 相当)。型/値は無視されます。
   型            ... 以下のいずれか
                     REG_DWORD     ... 32ビット整数 (最もよく使う)
                     REG_SZ        ... 文字列

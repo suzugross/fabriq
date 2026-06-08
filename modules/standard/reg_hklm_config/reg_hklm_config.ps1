@@ -107,21 +107,36 @@ if ($FORCE_OVERWRITE) {
 foreach ($item in $regItems) {
     $checkPath = $item.'KeyPath' -replace '^HKEY_LOCAL_MACHINE', 'HKLM:'
     $checkPath = $checkPath -replace '^HKEY_CURRENT_USER', 'HKCU:'
-    $checkType = switch ($item.'Type') {
-        'REG_SZ' { 'String' }; 'REG_DWORD' { 'DWord' }; 'REG_QWORD' { 'QWord' }
-        'REG_BINARY' { 'Binary' }; 'REG_MULTI_SZ' { 'MultiString' }; 'REG_EXPAND_SZ' { 'ExpandString' }
-        default { 'String' }
+    $isKeyOnly = [string]::IsNullOrWhiteSpace($item.'KeyName')
+
+    if ($isKeyOnly) {
+        $isMatch = (Test-Path $checkPath)
     }
-    $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    else {
+        $checkType = switch ($item.'Type') {
+            'REG_SZ' { 'String' }; 'REG_DWORD' { 'DWord' }; 'REG_QWORD' { 'QWord' }
+            'REG_BINARY' { 'Binary' }; 'REG_MULTI_SZ' { 'MultiString' }; 'REG_EXPAND_SZ' { 'ExpandString' }
+            default { 'String' }
+        }
+        $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    }
 
     $marker = if ($isMatch) { "[Current]" } else { "[Change]" }
     $markerColor = if ($isMatch) { "Gray" } else { "White" }
 
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')  $marker" -ForegroundColor $markerColor
     Write-Host "  Path:  $($item.'KeyPath')"
-    Write-Host "  Key:   $($item.'KeyName')"
-    Write-Host "  Type:  $($item.'Type')"
-    Write-Host "  Value: $($item.'Value')"
+    if ($isKeyOnly) {
+        Write-Host "  Key:   (key only - no value)"
+        if ((-not [string]::IsNullOrWhiteSpace($item.'Value')) -or (-not [string]::IsNullOrWhiteSpace($item.'Type'))) {
+            Show-Warning "KeyName empty -> key-only mode; supplied Value '$($item.'Value')' (Type '$($item.'Type')') will be ignored"
+        }
+    }
+    else {
+        Write-Host "  Key:   $($item.'KeyName')"
+        Write-Host "  Type:  $($item.'Type')"
+        Write-Host "  Value: $($item.'Value')"
+    }
     Write-Host ""
 }
 
@@ -144,6 +159,41 @@ $failCount = 0
 foreach ($item in $regItems) {
     Write-Host "[$($item.'AdminID')] $($item.'SettingTitle')" -ForegroundColor Yellow
     Write-Host "  Path: $($item.'KeyPath')"
+
+    # ----------------------------------------
+    # Key-only mode: empty KeyName creates the key with no value
+    # (equivalent to: reg add "<key>" /f). FORCE_OVERWRITE does not
+    # apply (a value-less key has nothing to overwrite); idempotent.
+    # ----------------------------------------
+    if ([string]::IsNullOrWhiteSpace($item.'KeyName')) {
+        Write-Host "  Key:  (key only - no value)"
+        try {
+            $keyOnlyPath = $item.'KeyPath'
+            $keyOnlyPath = $keyOnlyPath -replace '^HKEY_LOCAL_MACHINE', 'HKLM:'
+            $keyOnlyPath = $keyOnlyPath -replace '^HKEY_CURRENT_USER', 'HKCU:'
+            $keyOnlyPath = $keyOnlyPath -replace '^HKEY_CLASSES_ROOT', 'HKCR:'
+            $keyOnlyPath = $keyOnlyPath -replace '^HKEY_USERS', 'HKU:'
+            $keyOnlyPath = $keyOnlyPath -replace '^HKEY_CURRENT_CONFIG', 'HKCC:'
+
+            if (Test-Path $keyOnlyPath) {
+                Show-Skip "Key already exists"
+                $skipCount++
+            }
+            else {
+                Write-Host "  -> Creating registry key" -ForegroundColor Gray
+                New-Item -Path $keyOnlyPath -Force | Out-Null
+                Show-Success "Key created"
+                $successCount++
+            }
+        }
+        catch {
+            Show-Error "$_"
+            $failCount++
+        }
+        Write-Host ""
+        continue
+    }
+
     Write-Host "  Key:  $($item.'KeyName') = $($item.'Value') ($($item.'Type'))"
 
     try {
@@ -235,7 +285,12 @@ foreach ($item in $regItems) {
     }
     $displayName = if ($item.'Description') { $item.'Description' } else { $item.'SettingTitle' }
 
-    $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    if ([string]::IsNullOrWhiteSpace($item.'KeyName')) {
+        $isMatch = (Test-Path $checkPath)
+    }
+    else {
+        $isMatch = Test-RegistryValueMatch -Path $checkPath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType
+    }
 
     if ($isMatch) {
         Write-Host "  [VERIFIED] $displayName" -ForegroundColor Green

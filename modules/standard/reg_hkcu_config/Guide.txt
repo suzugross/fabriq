@@ -23,6 +23,9 @@ Startup Batch による追加の補完機構も利用できます。
   SettingTitle : 設定タイトル（表示用）
   KeyPath      : レジストリパス（HKEY_CURRENT_USER\... のフルパス）
   KeyName      : レジストリ値の名前（既定値は @）
+                 ※ 空欄（または空白のみ）にすると値を作らずキーだけを作成します
+                   （reg add "<キー>" /f 相当）。この場合 Type / Value は無視され、
+                   HKCU と Default プロファイルの両方にキーが作られます。
   Type         : 型（REG_DWORD / REG_SZ / REG_EXPAND_SZ / REG_QWORD /
                      REG_BINARY / REG_MULTI_SZ）
   Value        : 設定する値
