@@ -1,4 +1,4 @@
 ﻿"Enabled","LocalGroup","MemberType","MemberName","Domain","Description","Segment"
-"1","Administrators","DomainGroup","Client Administrators","city.osaka.example.jp","ドメイン管理者グループ追加",
+"1","Administrators","DomainGroup","Client Administrators","town.twinpeaks.blacklodge.local","ドメイン管理者グループ追加",
 "1","Power Users","DomainGroup","Client Power Users","town.twinpeaks.blacklodge.local","ドメインパワーユーザ追加",
 "0","Remote Desktop Users","DomainGroup","RDP Users","town.twinpeaks.blacklodge.local","RDPユーザ追加(サンプル)",
