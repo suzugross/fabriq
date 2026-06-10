@@ -80,10 +80,71 @@ function Load-HostList {
 function Set-SelectedHostEnvironment {
     param([object]$SelectedHost)
 
-    # Helper: Decrypt ENC: prefixed values if master passphrase is available
+    # Self-referencing mode: a cell whose value is the literal __SELF__
+    # token resolves to THIS PC's live value for that column's semantic
+    # ("always correct" - the current machine is always the answer). Used
+    # for hostlist-free kitting / terminal investigation, e.g. evidence
+    # file names that carry the actual PC name. Resolution happens once
+    # here (kitting-screen entry, after passphrase). The resolved concrete
+    # value is baked into the SELECTED_* env var, which Save-ResumeState
+    # snapshots and Restore-HostEnvironment restores verbatim across a
+    # __RESTART__ - so a later hostname/IP change does NOT re-follow (by
+    # design; the token never reaches the resume state).
+    $SELF_TOKEN = '__SELF__'
+
+    # Query live PC info only when at least one __SELF__ token is present,
+    # so plain hostlists pay zero overhead (Get-CurrentPCInfo enumerates
+    # all network adapters and printers).
+    $hasSelf = $false
+    foreach ($prop in $SelectedHost.PSObject.Properties) {
+        if ($prop.Value -is [string] -and $prop.Value -eq $SELF_TOKEN) { $hasSelf = $true; break }
+    }
+    $live = $null
+    if ($hasSelf) {
+        try { $live = Get-CurrentPCInfo } catch { $live = $null }
+    }
+
+    # Helper: resolve a single hostlist cell.
+    #   1. __SELF__  -> this PC's live value for $SelfKind. Empty + warning
+    #                   if the column has no self-source (e.g. PIN/printer)
+    #                   or the live value is unavailable (e.g. no Wi-Fi
+    #                   adapter, fewer DNS servers than the slot index).
+    #   2. ENC:...   -> transparent decryption when a passphrase is loaded.
+    #   3. otherwise -> literal passthrough.
     function Resolve-HostValue {
-        param([string]$Value)
+        param(
+            [string]$Value,
+            [object]$Live = $null,
+            [string]$SelfKind = ''
+        )
         if ([string]::IsNullOrEmpty($Value)) { return $Value }
+
+        if ($Value -eq '__SELF__') {
+            if ([string]::IsNullOrEmpty($SelfKind) -or $null -eq $Live) {
+                Show-Warning "Self-reference (__SELF__) is not supported for this field; leaving empty"
+                return ""
+            }
+            $resolved = switch ($SelfKind) {
+                'ComputerName'    { $Live.ComputerName }
+                'EthernetIP'      { $Live.EthernetIP }
+                'EthernetSubnet'  { $Live.EthernetSubnet }
+                'EthernetGateway' { $Live.EthernetGateway }
+                'WifiIP'          { $Live.WifiIP }
+                'WifiSubnet'      { $Live.WifiSubnet }
+                'WifiGateway'     { $Live.WifiGateway }
+                'DNS1'            { if (@($Live.DNS).Count -ge 1) { @($Live.DNS)[0] } else { "" } }
+                'DNS2'            { if (@($Live.DNS).Count -ge 2) { @($Live.DNS)[1] } else { "" } }
+                'DNS3'            { if (@($Live.DNS).Count -ge 3) { @($Live.DNS)[2] } else { "" } }
+                'DNS4'            { if (@($Live.DNS).Count -ge 4) { @($Live.DNS)[3] } else { "" } }
+                default           { "" }
+            }
+            if ([string]::IsNullOrEmpty($resolved)) {
+                Show-Warning "Self-reference (__SELF__) could not be resolved for $SelfKind on this PC; leaving empty"
+                return ""
+            }
+            return $resolved
+        }
+
         if ($Value.StartsWith('ENC:') -and -not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) {
             try {
                 return (Unprotect-FabriqValue -EncryptedValue $Value -Passphrase $global:FabriqMasterPassphrase)
@@ -98,21 +159,21 @@ function Set-SelectedHostEnvironment {
 
     # Note: These keys must match your CSV headers
     $env:SELECTED_KANRI_NO   = Resolve-HostValue $SelectedHost.'AdminID'
-    $env:SELECTED_OLD_PCNAME = Resolve-HostValue $SelectedHost.'OldPCName'
-    $env:SELECTED_NEW_PCNAME = Resolve-HostValue $SelectedHost.'NewPCName'
+    $env:SELECTED_OLD_PCNAME = Resolve-HostValue $SelectedHost.'OldPCName' -Live $live -SelfKind 'ComputerName'
+    $env:SELECTED_NEW_PCNAME = Resolve-HostValue $SelectedHost.'NewPCName' -Live $live -SelfKind 'ComputerName'
 
-    $env:SELECTED_ETH_IP      = Resolve-HostValue $SelectedHost.'EthernetIP'
-    $env:SELECTED_ETH_SUBNET  = Resolve-HostValue $SelectedHost.'EthernetSubnet'
-    $env:SELECTED_ETH_GATEWAY = Resolve-HostValue $SelectedHost.'EthernetGateway'
+    $env:SELECTED_ETH_IP      = Resolve-HostValue $SelectedHost.'EthernetIP'      -Live $live -SelfKind 'EthernetIP'
+    $env:SELECTED_ETH_SUBNET  = Resolve-HostValue $SelectedHost.'EthernetSubnet'  -Live $live -SelfKind 'EthernetSubnet'
+    $env:SELECTED_ETH_GATEWAY = Resolve-HostValue $SelectedHost.'EthernetGateway' -Live $live -SelfKind 'EthernetGateway'
 
-    $env:SELECTED_WIFI_IP      = Resolve-HostValue $SelectedHost.'WifiIP'
-    $env:SELECTED_WIFI_SUBNET  = Resolve-HostValue $SelectedHost.'WifiSubnet'
-    $env:SELECTED_WIFI_GATEWAY = Resolve-HostValue $SelectedHost.'WifiGateway'
+    $env:SELECTED_WIFI_IP      = Resolve-HostValue $SelectedHost.'WifiIP'      -Live $live -SelfKind 'WifiIP'
+    $env:SELECTED_WIFI_SUBNET  = Resolve-HostValue $SelectedHost.'WifiSubnet'  -Live $live -SelfKind 'WifiSubnet'
+    $env:SELECTED_WIFI_GATEWAY = Resolve-HostValue $SelectedHost.'WifiGateway' -Live $live -SelfKind 'WifiGateway'
 
-    $env:SELECTED_DNS1 = Resolve-HostValue $SelectedHost.'DNS1'
-    $env:SELECTED_DNS2 = Resolve-HostValue $SelectedHost.'DNS2'
-    $env:SELECTED_DNS3 = Resolve-HostValue $SelectedHost.'DNS3'
-    $env:SELECTED_DNS4 = Resolve-HostValue $SelectedHost.'DNS4'
+    $env:SELECTED_DNS1 = Resolve-HostValue $SelectedHost.'DNS1' -Live $live -SelfKind 'DNS1'
+    $env:SELECTED_DNS2 = Resolve-HostValue $SelectedHost.'DNS2' -Live $live -SelfKind 'DNS2'
+    $env:SELECTED_DNS3 = Resolve-HostValue $SelectedHost.'DNS3' -Live $live -SelfKind 'DNS3'
+    $env:SELECTED_DNS4 = Resolve-HostValue $SelectedHost.'DNS4' -Live $live -SelfKind 'DNS4'
 
     $env:SELECTED_PIN = Resolve-HostValue $SelectedHost.'Pin'
 

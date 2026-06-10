@@ -284,4 +284,109 @@ Describe 'Set-SelectedHostEnvironment' {
             $env:SELECTED_KANRI_NO | Should -Be 'ENC:bad-cipher'
         }
     }
+
+    Context 'Self-referencing mode (__SELF__ -> live PC value)' {
+        # A cell value of __SELF__ resolves to THIS PC's live value for the
+        # column's semantic, sourced once from Get-CurrentPCInfo. Resolution
+        # is column-contextual (the same token means the hostname in a
+        # PC-name column and the live IP in an IP column). Unresolvable
+        # (no self-source column, or blank live value) -> empty + warning.
+        # Get-CurrentPCInfo is mocked so these tests are hardware-independent.
+
+        BeforeEach {
+            Mock Get-CurrentPCInfo {
+                @{
+                    ComputerName    = 'SELF-PC'
+                    EthernetIP      = '10.1.1.10'
+                    EthernetSubnet  = '255.255.255.0'
+                    EthernetGateway = '10.1.1.1'
+                    WifiIP          = '10.2.2.20'
+                    WifiSubnet      = '255.255.0.0'
+                    WifiGateway     = '10.2.2.1'
+                    DNS             = @('9.9.9.9', '149.112.112.112')
+                    Printers        = @()
+                }
+            }
+        }
+
+        It 'resolves __SELF__ in OldPCName/NewPCName to the live computer name' {
+            $h = [PSCustomObject]@{ OldPCName = '__SELF__'; NewPCName = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_OLD_PCNAME | Should -Be 'SELF-PC'
+            $env:SELECTED_NEW_PCNAME | Should -Be 'SELF-PC'
+        }
+
+        It 'resolves __SELF__ in the Ethernet trio to live adapter values' {
+            $h = [PSCustomObject]@{ EthernetIP = '__SELF__'; EthernetSubnet = '__SELF__'; EthernetGateway = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_ETH_IP      | Should -Be '10.1.1.10'
+            $env:SELECTED_ETH_SUBNET  | Should -Be '255.255.255.0'
+            $env:SELECTED_ETH_GATEWAY | Should -Be '10.1.1.1'
+        }
+
+        It 'resolves __SELF__ in the Wifi trio to live adapter values' {
+            $h = [PSCustomObject]@{ WifiIP = '__SELF__'; WifiSubnet = '__SELF__'; WifiGateway = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_WIFI_IP      | Should -Be '10.2.2.20'
+            $env:SELECTED_WIFI_SUBNET  | Should -Be '255.255.0.0'
+            $env:SELECTED_WIFI_GATEWAY | Should -Be '10.2.2.1'
+        }
+
+        It 'maps __SELF__ DNS slots to live DNS servers by index' {
+            $h = [PSCustomObject]@{ DNS1 = '__SELF__'; DNS2 = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_DNS1 | Should -Be '9.9.9.9'
+            $env:SELECTED_DNS2 | Should -Be '149.112.112.112'
+        }
+
+        It 'leaves a DNS slot empty (with warning) when fewer live DNS servers exist than the slot index' {
+            Mock Show-Warning {}
+            $h = [PSCustomObject]@{ DNS3 = '__SELF__' }   # only 2 live DNS servers in the mock
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_DNS3 | Should -BeNullOrEmpty
+            Should -Invoke Show-Warning -Times 1 -Exactly
+        }
+
+        It 'leaves an unresolvable column empty (with warning) when the live value is blank (e.g. no Wi-Fi)' {
+            Mock Get-CurrentPCInfo {
+                @{ ComputerName = 'SELF-PC'; EthernetIP = '10.1.1.10'; EthernetSubnet = ''; EthernetGateway = '';
+                   WifiIP = ''; WifiSubnet = ''; WifiGateway = ''; DNS = @(); Printers = @() }
+            }
+            Mock Show-Warning {}
+            $h = [PSCustomObject]@{ WifiIP = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_WIFI_IP | Should -BeNullOrEmpty
+            Should -Invoke Show-Warning -Times 1 -Exactly
+        }
+
+        It 'leaves __SELF__ empty (with warning) for a column with no self-source (PIN)' {
+            Mock Show-Warning {}
+            $h = [PSCustomObject]@{ Pin = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_PIN | Should -BeNullOrEmpty
+            Should -Invoke Show-Warning -Times 1 -Exactly
+        }
+
+        It 'does NOT query live PC info when no __SELF__ token is present (zero overhead for plain rows)' {
+            $h = [PSCustomObject]@{ OldPCName = 'OLD-01'; EthernetIP = '192.168.1.10' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_OLD_PCNAME | Should -Be 'OLD-01'
+            Should -Invoke Get-CurrentPCInfo -Times 0 -Exactly
+        }
+
+        It 'queries live PC info exactly once even with multiple __SELF__ tokens (single cached snapshot)' {
+            $h = [PSCustomObject]@{ OldPCName = '__SELF__'; NewPCName = '__SELF__'; EthernetIP = '__SELF__'; DNS1 = '__SELF__' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            Should -Invoke Get-CurrentPCInfo -Times 1 -Exactly
+        }
+
+        It 'resolves __SELF__ and ENC: independently in the same row (no cross-interference)' {
+            $global:FabriqMasterPassphrase = 'master-pass'
+            Mock Unprotect-FabriqValue { return 'DECRYPTED' }
+            $h = [PSCustomObject]@{ OldPCName = '__SELF__'; NewPCName = 'ENC:opaque' }
+            Set-SelectedHostEnvironment -SelectedHost $h
+            $env:SELECTED_OLD_PCNAME | Should -Be 'SELF-PC'
+            $env:SELECTED_NEW_PCNAME | Should -Be 'DECRYPTED'
+        }
+    }
 }

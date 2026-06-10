@@ -163,10 +163,21 @@ function Show-SessionSetupForm {
     # filter redraws (DataGridView row indices shift when Rows.Clear()+rebuild).
     $autoSelectedHost = $null
     if ($HostList -and $HostList.Count -gt 0) {
+        # Pass 1: an explicit hostlist row whose NewPCName equals this PC wins.
         foreach ($h in $HostList) {
             if ($h.NewPCName -eq $CurrentPCName) {
                 $autoSelectedHost = $h
                 break
+            }
+        }
+        # Pass 2: fall back to a self-referencing row (__SELF__ is by definition
+        # "this PC"), so the operator does not have to hunt for it manually.
+        if ($null -eq $autoSelectedHost) {
+            foreach ($h in $HostList) {
+                if ($h.NewPCName -eq '__SELF__' -or $h.OldPCName -eq '__SELF__') {
+                    $autoSelectedHost = $h
+                    break
+                }
             }
         }
     }
@@ -194,7 +205,14 @@ function Show-SessionSetupForm {
                     $visible = ($adminId.Contains($needle)) -or ($newPc.Contains($needle))
                 }
                 if ($visible) {
-                    $rowIdx = $hostGrid.Rows.Add($h.AdminID, $h.OldPCName, $h.NewPCName, $h.EthernetIP, $h.Pin)
+                    # Display __SELF__ cells as a friendly placeholder so the
+                    # operator is not shown an opaque token; the raw object
+                    # stays in Row.Tag, so Start-time resolution is unaffected.
+                    $selfLabel = '(this PC)'
+                    $dispOld = if ($h.OldPCName  -eq '__SELF__') { $selfLabel } else { $h.OldPCName }
+                    $dispNew = if ($h.NewPCName  -eq '__SELF__') { $selfLabel } else { $h.NewPCName }
+                    $dispEth = if ($h.EthernetIP -eq '__SELF__') { $selfLabel } else { $h.EthernetIP }
+                    $rowIdx = $hostGrid.Rows.Add($h.AdminID, $dispOld, $dispNew, $dispEth, $h.Pin)
                     $hostGrid.Rows[$rowIdx].Tag = $h
                     $matched++
                 }
