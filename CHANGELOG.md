@@ -97,6 +97,23 @@
   - 新規テスト: `tests/kernel/Invoke-SafeCommand.tests.ps1`（fail-closed 4 / passthrough 6 /
     global fallback 1 / 例外 1 の計 12 ケース）。
 
+### Removed
+- kernel/common.ps1: 死荷重 10 関数を削除（内部実装のみ・公開 API §1〜§6 記載なし・
+  PATCH 相当 / TM t-0004）: `Show-Progress` / `Parse-MenuSelection` / `Test-BatchInput` /
+  `Show-ExecutionHistory` / `Clear-AllLogs` / `Clear-Evidence` / `Show-ProfileConfirmation` /
+  `Write-KitLog` / `Save-RollbackInfo` / `Get-ModuleBasePath`（計 450 行・5232 → 4782 行）。
+  - 由来（git 考古学で全件特定）: 6 本は af5b202（2026-04-16 GUI-only モード統一）で CUI
+    メニュー層（Enter-HistoryMode 等）ごと呼び出し元が消えた置き忘れ。Get-ModuleBasePath /
+    Save-RollbackInfo は初回コミットから孤児。Show-Progress は本体内では初回から孤児
+    （fabriq_backuper は自前 vendored コピーを保持し分離済みのため無関係）。Write-KitLog は
+    Save-RollbackInfo 削除に伴う連鎖孤児（唯一の呼び出し元が Save-RollbackInfo 内部）。
+  - 安全検証: 全ファイル種・大文字小文字無視の全リポジトリ走査で参照ゼロ / 動的呼び出し
+    （Invoke-Expression・scriptblock 生成・名前合成）経路ゼロ / 衛星 3 リポジトリ
+    （backuper / checksheet / evidence_manager）参照ゼロ / テスト 204 件無影響（全パス維持）/
+    連鎖孤児は Write-KitLog で打ち止めを確認（レベル 2 なし）。
+  - Clear-AllLogs / Clear-Evidence は CUI 廃止以降 55 日間機能不在のまま運用実績があり、
+    機能退役を追認（ユーザー裁定 A。復活させる場合は GUI への再配線が必要）。
+
 ### Fixed
 - apps/fabriq_operator/lib/execution_toolbar.ps1: Execution Toolbar の
   PC Info Comparison パネルの 3 件のバグを修正 (当該パネル自体が
