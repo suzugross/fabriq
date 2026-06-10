@@ -48,6 +48,14 @@
 | `Test-AdminPrivilege` | なし（bool 返却） | 管理者権限判定 |
 | `Unprotect-FabriqValue` | `-EncryptedValue <string> -Passphrase <string>` | `ENC:` 値の復号（`Import-ModuleCsv` で自動適用されるため通常不要） |
 
+### 1.6 破壊的削除ガード（since 3.5.0）
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `Test-FabriqProtectedPath` | `-Path <string>`（`{IsSafe; Reason; NormalizedPath}` 返却） | 再帰削除対象パスの検証。保護ルート（C:\Users 等）・保護ルートの親・3 セグメント未満・解決不能パスを `IsSafe=$false` でブロック。leaf がワイルドカード（`*`/`?`）の場合は親ディレクトリを検証（PS5.1 の GetFullPath はワイルドカードで throw するため）。字句検証のみ（junction/symlink は解決しない） |
+| `Test-FabriqSafePathComponent` | `-Value <string>`（bool 返却） | 固定ベース配下に Join-Path される単一パス成分の検証。空/空白・`.`/`..`・区切り文字・ワイルドカード等の不正ファイル名文字・末尾ドット/空白を拒否 |
+
+**契約**: CSV 由来のパスに対する `Remove-Item -Recurse` 等の再帰削除（CLAUDE.md §8）の前には、これらのガード（または同等の containment 検証）を確認ゲートの**外側**（AutoPilot 自動 Y でも有効な位置）に置くこと。ブロック行は Fail として計上する（fail-closed）。
+
 ---
 
 ## 2. 公開グローバル変数（モジュールから読み取り可）
@@ -306,6 +314,9 @@ formal SemVer の出発点。以下すべて利用可能:
   - 解決は入室時に1回・baked。resume は baked 値を復元するため `__RESTART__` 跨ぎや PC 名変更で再追従しない
   - 対応列: OldPCName/NewPCName・Ethernet/Wifi の {IP,Subnet,Gateway}・DNS1-4。非対応列（Pin/Printer）や解決不能は空＋警告
   - `SELECTED_*` の契約（名前/型/有無）は不変＝モジュール透過。本トークンを使う hostlist を配布する場合のみこの版を要求
+- **§1.6 破壊的削除ガード 2 関数追加（後方互換 / MINOR）**: `Test-FabriqProtectedPath` / `Test-FabriqSafePathComponent`
+  - directory_cleaner の実績ある `Test-ForbiddenPath` ゲートを common.ps1 へ昇格し、ワイルドカード leaf 対応（親ディレクトリ検証）を追加したもの。CLAUDE.md §8（再帰削除前のパス検証ガード必須）をコードで強制する共通部品
+  - 利用モジュール（history_destroyer / file_delete / profile_delete / driver_config）はこの版を要求（`REQUIRES_KERNEL` 3.5.0）。既存モジュールの挙動・他の公開 API への影響なし
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.4.1` 据置・本節は `[Unreleased]`）
 
 ### 判定ルール

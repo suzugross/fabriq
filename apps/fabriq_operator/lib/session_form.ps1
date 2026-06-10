@@ -366,13 +366,18 @@ function Show-SessionSetupForm {
             return
         }
 
-        if (-not [string]::IsNullOrWhiteSpace($VerifyTokenPath) -and (Test-Path $VerifyTokenPath)) {
-            if (-not (Test-MasterPassphrase -Passphrase $pp -VerifyTokenPath $VerifyTokenPath)) {
-                $msgLabel.Text = "Passphrase verification failed. Please try again."
-                $ppBox.SelectAll()
-                $ppBox.Focus()
-                return
-            }
+        # Fail-closed: a missing verification token must BLOCK the session,
+        # not skip verification — an unverified (possibly mistyped)
+        # passphrase silently breaks every ENC: decryption downstream.
+        if ([string]::IsNullOrWhiteSpace($VerifyTokenPath) -or -not (Test-Path $VerifyTokenPath)) {
+            $msgLabel.Text = "Verification token not found - cannot verify passphrase. Run Fabriq Studio to generate it."
+            return
+        }
+        if (-not (Test-MasterPassphrase -Passphrase $pp -VerifyTokenPath $VerifyTokenPath)) {
+            $msgLabel.Text = "Passphrase verification failed. Please try again."
+            $ppBox.SelectAll()
+            $ppBox.Focus()
+            return
         }
 
         $result.MasterPassphrase = $pp

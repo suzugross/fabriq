@@ -86,6 +86,19 @@ foreach ($item in $enabledItems) {
     else {
         Get-SafeModelName -RawName $systemModel
     }
+
+    # Destructive path guard (CLAUDE.md section 8): the CSV model value
+    # bypasses Get-SafeModelName, so validate it as a single path
+    # component. Reject (don't transform) - legitimate values stay
+    # byte-identical, keeping folder naming consistent with driver_import.
+    if (-not [string]::IsNullOrWhiteSpace($item.model) -and
+        -not (Test-FabriqSafePathComponent -Value $item.model)) {
+        Write-Host "  [INVALID] Id=$($item.Id) : '$($item.model)'" -ForegroundColor Red
+        Write-Host "    Reason: model is not a safe path component - will be recorded as Fail" -ForegroundColor Red
+        Write-Host ""
+        continue
+    }
+
     $destPath = Join-Path $driverDir $modelName
 
     # Switch the display based on whether the folder exists
@@ -135,6 +148,16 @@ foreach ($item in $enabledItems) {
     else {
         Get-SafeModelName -RawName $systemModel
     }
+
+    # Destructive path guard (CLAUDE.md section 8): same check as the
+    # preview - record Fail and never touch the filesystem.
+    if (-not [string]::IsNullOrWhiteSpace($item.model) -and
+        -not (Test-FabriqSafePathComponent -Value $item.model)) {
+        Show-Error "Invalid model name in CSV: '$($item.model)' (not a safe path component)"
+        $failCount++
+        continue
+    }
+
     $destPath = Join-Path $driverDir $modelName
 
     Write-Host "----------------------------------------" -ForegroundColor White
@@ -142,6 +165,14 @@ foreach ($item in $enabledItems) {
     Write-Host "----------------------------------------" -ForegroundColor White
 
     try {
+        # Containment assert: never delete anything outside the module's
+        # driver directory (belt-and-suspenders behind the guard above).
+        $dirFull  = [System.IO.Path]::GetFullPath($driverDir).TrimEnd('\').ToLowerInvariant()
+        $destFull = [System.IO.Path]::GetFullPath($destPath).TrimEnd('\').ToLowerInvariant()
+        if (-not $destFull.StartsWith($dirFull + '\')) {
+            throw "Destination escapes driver directory: $destPath"
+        }
+
         # Clear any existing folder
         if (Test-Path $destPath) {
             Show-Info "Clearing existing folder: $destPath"
