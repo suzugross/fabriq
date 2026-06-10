@@ -48,6 +48,19 @@
     削除前の driverDir 配下 containment assert を追加。
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
+### Fixed
+- modules/standard/windows_update v1.0.0 → v1.0.1 (Fixed: ダウンロード失敗のサイレント
+  Success 化を修正, TM t-0012): ダウンロード結果判定が `ResultCode -ge 2` だったため、
+  WUA が throw せず戻り値で返す OperationResultCode 4=Failed / 5=Aborted（USO 競合等で
+  実地発生を確認済み）を「Downloaded」扱いし、該当更新が install フェーズから無音で脱落
+  （IsDownloaded=false のためスキップ・fail 計上なし）。全ダウンロードが非 throw で失敗した
+  場合は成功 0・失敗 0 で最終 Status=Success になっていた。
+  (1) 判定を `-eq 2 -or -eq 3` に修正。(2) ダウンロード失敗（戻り値/throw 両方）を
+  `FailedKBs` {KB; Title; HResult} + FailedCount に計上（スキーマ不変）。
+  (3) 「All downloads failed」early-return を集計値ベースに修正（再スキャン反復 2 回目以降の
+  失敗時に既インストール分が報告から消えていた）。成功経路（code 2/3）は不変、
+  戻り値契約のフィールド構成不変（Invoke-WindowsUpdateLoop 側改修不要）。
+
 ### Added
 - kernel/common.ps1: 破壊的削除ガード公開関数 2 本追加 (TM t-0009 / 公開 API MINOR・
   次リリースで 3.5.0 予定): `Test-FabriqProtectedPath`（保護ルート・親・浅階層・解決不能を

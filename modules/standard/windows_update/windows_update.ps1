@@ -262,32 +262,58 @@ while ($true) {
             $null = $update.AcceptEula()
             Show-Info "[$dlIndex/$downloadNeeded] Downloading: $($update.Title)"
 
+            # KB number for failure accounting (same extraction as install phase)
+            $dlKb = ""
+            if ($update.Title -match '(KB\d+)') { $dlKb = $Matches[1] }
+
             try {
                 $singleDownload = New-Object -ComObject Microsoft.Update.UpdateColl
                 $singleDownload.Add($update) | Out-Null
                 $downloader.Updates = $singleDownload
                 $dlResult = $downloader.Download()
 
-                if ($dlResult.ResultCode -ge 2) {
+                # OperationResultCode 4=Failed / 5=Aborted are RETURNED (not
+                # thrown) by WUA under e.g. USO contention; only 2=Succeeded /
+                # 3=SucceededWithErrors mean the payload is on disk. A failed
+                # download must enter the failure accounting, otherwise the
+                # update silently drops out of the install phase (IsDownloaded
+                # stays false) and the module can finish as Success.
+                if ($dlResult.ResultCode -eq 2 -or $dlResult.ResultCode -eq 3) {
                     Show-Success "Downloaded"
                     $downloadDone++
                 }
                 else {
-                    Show-Error "Download failed (ResultCode: $($dlResult.ResultCode))"
+                    $dlHresult = "N/A"
+                    try { $dlHresult = "0x{0:X8}" -f $dlResult.HResult } catch { }
+                    Show-Error "Download failed (ResultCode: $($dlResult.ResultCode) | HResult: $dlHresult)"
                     $downloadFailed++
+                    $totalFailCount++
+                    $allFailedKBs += @{ KB = $dlKb; Title = $update.Title; HResult = $dlHresult }
                 }
             }
             catch {
                 Show-Error "Download error: $_"
                 $downloadFailed++
+                $totalFailCount++
+                $allFailedKBs += @{ KB = $dlKb; Title = $update.Title; HResult = "N/A" }
             }
         }
 
         Write-Host ""
         if ($downloadFailed -gt 0 -and $downloadDone -eq 0) {
             Show-Error "All downloads failed"
-    
-            return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = $downloadFailed; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = $availableUpdates.Count }
+
+            # Aggregate totals, not this iteration's counters: on a no-reboot
+            # re-scan iteration, earlier installs must survive into the report.
+            return @{
+                Status         = if ($totalSuccessCount -gt 0) { "Partial" } else { "Error" }
+                RebootRequired = $rebootRequired
+                InstalledCount = $totalSuccessCount
+                FailedCount    = $totalFailCount
+                InstalledKBs   = @($allInstalledKBs)
+                FailedKBs      = @($allFailedKBs)
+                UpdatesFound   = $availableUpdates.Count
+            }
         }
         elseif ($downloadFailed -gt 0) {
             Show-Warning "Download completed: $downloadDone succeeded, $downloadFailed failed"

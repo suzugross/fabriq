@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T20:25:00+09:00",
+  "updatedAt": "2026-06-10T23:05:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -106,10 +106,10 @@
       "id": "t-0012",
       "title": "[HIGH] windows_update: ダウンロード失敗が「完了」扱いになり最終Successに化ける",
       "content": "windows_update.ps1:271 の `ResultCode -ge 2` 判定が OperationResultCode の Failed(4)/Aborted(5) を Succeeded 扱いにしている（正: 2=Succeeded, 3=SucceededWithErrors のみ）。このため「全ダウンロード失敗」中断経路(:287)が ResultCode 経由では発火せず、install フェーズは IsDownloaded=false で黙ってスキップ、fail カウンタにも乗らず、恒常的にダウンロード失敗する更新があっても再スキャン3回後に Status=Success で終わる。判定を `-eq 2 -or -eq 3` に修正し、ダウンロード失敗を FailedKBs に計上する。",
-      "claudeNote": "全体監査(2026-06-10)で検出。キッティング中の更新未適用がチェックリスト上 Success になるサイレントミス。module PATCH。wu_state.json の FailedKBs 集計（main.ps1 側 Invoke-WindowsUpdateLoop）との整合も確認のこと。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。キッティング中の更新未適用がチェックリスト上 Success になるサイレントミス。module PATCH。wu_state.json の FailedKBs 集計（main.ps1 側 Invoke-WindowsUpdateLoop）との整合も確認のこと。\r\n追加調査(2026-06-10 windows_update.ps1 全445行精読): 指摘は妥当、かつ実態はより悪い。(1)L271 `-ge 2` 確認 — OperationResultCode 4=Failed/5=Aborted が「Downloaded」扱い。(2)増悪点: 全ダウンロードが非throwで失敗(code4)した場合、downloadFailed=0 のため L287 中断も発火せず、installTargetCount=0→L311 break→最終判定(L434-437)は totalSuccess=0/totalFail=0 の else 分岐で Status=**Success**(0件インストール・0件失敗・成功報告)。(3)緩和点: Download() は多くの失敗で COM throw するため catch 側(downloadFailed++)は正しく動く。バグは「throwせず ResultCode 4/5 で返る」ケースに限定されるが、これは部分失敗の集約等で現実に発生する。(4)同契約内の別不備を発見: L290 の early-return が InstalledCount=0/InstalledKBs=@() を返し、再スキャン反復2回目以降の失敗時に既インストール分が報告から消える。(5)install 側 L345 の `-eq 2` 厳密判定は SucceededWithErrors(3) を Fail 扱い=fail-closed 側なので今回不変更。\r\n修正設計: (a)L271 を `-eq 2 -or -eq 3` に修正 (b)download 失敗(else/catch 両方)で KB 抽出し $allFailedKBs += {KB;Title;HResult}・$totalFailCount++(FailedKBs スキーマ不変、HResult は $dlResult.HResult を 0x 形式整形・取得不能時 N/A。再スキャン反復で同一 KB が再失敗した場合は試行ごとに記録=重複は最大3・真実ベース) (c)L287-291 early-return を集計値ベースに修正(InstalledCount=$totalSuccessCount/InstalledKBs=@($allInstalledKBs)/FailedCount=$totalFailCount/FailedKBs=@($allFailedKBs)/Status=totalSuccess>0?Partial:Error)。成功経路(code2/3)は完全不変。戻り値契約のフィールド構成不変(Invoke-WindowsUpdateLoop 側改修不要、フィールド意味の正常化のみ)。テスト: COM 依存のモジュールスクリプトのため単体テスト対象外(本リポジトリにモジュールテストハーネス無し)、構文+既存スイート+実機 WU での確認。予想 module PATCH(1.0.0→1.0.1 想定、実版は実装時確認)・REQUIRES_KERNEL 据置。設計ゲート提示済み・実装承認待ち。\r\n実地傍証(2026-06-10 SZK-TEST01 の wu ログ): install フェーズで ResultCode 4 / 0x80240016 (WU_E_INSTALL_NOT_ALLOWED, USO 競合) が throw でなく戻り値として 4 件発生。install 側は -eq 2 厳密判定のため正しく ERROR 記録された(=設計どおり)。同じ「戻り値 code 4」が download 側で起きると現行 -ge 2 は Downloaded と誤判定し無音脱落する — バグの現実性を裏付ける実地証拠。USO 競合はキッティング現場の通常状態であり修正優先度は上がった。\r\n実装(2026-06-10): 完了・検証済(未コミット)。(a)L271 判定を -eq 2 -or -eq 3 化+失敗時は HResult を 0x 形式整形して表示 (b)download 失敗(戻り値/throw 両方)で KB 抽出し $allFailedKBs {KB;Title;HResult} + $totalFailCount 計上(スキーマ不変・throw 時 HResult=N/A) (c)All-downloads-failed early-return を集計値ベース化(InstalledCount=$totalSuccessCount 等・Status=既install有なら Partial)。検証: parse_check 6 ファイル OK(t-0009/t-0010 touched 分も再検証)・run_tests 229 passed/0 failed・encoding 新規違反ゼロ。VERSION 1.0.0→1.0.1・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。実機検証は次回キッティングの WU 実行ログで FailedKBs 計上を確認。コミット承認待ち。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-10T23:05:00+09:00"
     },
     {
       "id": "t-0013",
