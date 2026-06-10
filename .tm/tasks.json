@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T14:07:05+09:00",
+  "updatedAt": "2026-06-10T14:59:29+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -52,10 +52,10 @@
       "id": "t-0006",
       "title": "CLAUDE.md の Write-Host 規約文面を実態に同期",
       "content": "CLAUDE.md の「独自のログ出力（Write-Host 等）の記述を禁止」という文面が実態と全面乖離している（お手本モジュール reg_hklm_config 自身が36箇所、全モジュール主スクリプトが空行・バナー・色付きプレビュー表に Write-Host を使用）。de-facto 規約「Show-* ＝ステータス行 / Write-Host ＝レイアウト・バナー・プレビュー表」を明文化する。実装100%AIのプロジェクトのため、将来のAIセッションが現文面を真に受けて不要な一括修正を始めるリスクの除去が目的。",
-      "claudeNote": "構造監査(2026-06-10)で検出。ドキュメントのみの修正（設計ゲート適用外・CHANGELOG追記不要・版影響なし）。",
-      "status": "未着手",
+      "claudeNote": "構造監査(2026-06-10)で検出。ドキュメントのみの修正（設計ゲート適用外・CHANGELOG追記不要・版影響なし）。\r\n実施(2026-06-10): CLAUDE.md §2 の「独自のログ出力（Write-Host 等）禁止」1行を2項に置換。(1)ステータス通知ログ（情報/成功/警告/エラー/スキップ）の Write-Host 自前実装を禁止し Show-* 必須化（[TAG]整形+ArtPulse生存シグナル+テレメトリ内包が根拠）。独自エラーハンドリング整形も禁止（New-ModuleResult/New-BatchResult 契約）。(2)視覚的レイアウト目的（空行/バナー/区切り枠/項目別色分けのプレビュー表）の Write-Host は許容、お手本=reg_hklm_config、汎用区切りは Show-Separator/Show-CategorySeparator 優先。実態裏取り: Show-*=common.ps1:761-794 の Write-Host ラッパー、reg_hklm の Write-Host 36箇所は全てレイアウト/プレビュー/検証表用途と確認。diff clean(1削除2追加・周辺context正常)・BOM/改行保全。",
+      "status": "完了",
       "createdAt": "2026-06-10T14:07:05+09:00",
-      "updatedAt": "2026-06-10T14:07:05+09:00"
+      "updatedAt": "2026-06-10T14:59:29+09:00"
     },
     {
       "id": "t-0007",
