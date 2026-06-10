@@ -1538,11 +1538,15 @@ function Invoke-SafeCommand {
             $result.Verified = $moduleResult.Verified
         }
         else {
-            # Legacy path: module did not return a ModuleResult (all modules migrated)
-            Write-Verbose "[$OperationName] ModuleResult not returned (legacy module)"
-            $result.Success = $true
-            $result.Status = "Success"
-            $result.Message = "(legacy - unverified)"
+            # Fail-closed: a module that completes without returning a
+            # ModuleResult violates the result contract (KERNEL_API.md
+            # section 5). Do not assume success - record Error so the
+            # operator and the checklist see the violation instead of a
+            # silent false pass.
+            Show-Warning "[$OperationName] No ModuleResult returned - recording Error (module result contract violation)"
+            $result.Success = $false
+            $result.Status = "Error"
+            $result.Message = "No ModuleResult returned (module result contract violation)"
         }
     }
     catch {
@@ -1826,10 +1830,14 @@ function Invoke-SafeCommandAsync {
                 $result.Verified = $moduleResult.Verified
             }
             else {
-                # Legacy path mirrors Invoke-SafeCommand: no ModuleResult returned
-                $result.Status  = "Success"
-                $result.Success = $true
-                $result.Message = "(async legacy - unverified)"
+                # Fail-closed (mirrors Invoke-SafeCommand): no ModuleResult
+                # returned despite normal completion - record Error instead
+                # of assuming success (module result contract violation).
+                # Skip / Timeout never reach here ($interrupted branch).
+                Show-Warning "[$OperationName] No ModuleResult returned - recording Error (module result contract violation)"
+                $result.Status  = "Error"
+                $result.Success = $false
+                $result.Message = "No ModuleResult returned (module result contract violation)"
             }
         }
         else {

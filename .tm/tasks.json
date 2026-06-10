@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T14:59:29+09:00",
+  "updatedAt": "2026-06-10T16:54:40+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -43,10 +43,10 @@
       "id": "t-0005",
       "title": "Invoke-KittingScript の fail-open フォールバック解消",
       "content": "モジュールが ModuleResult を返さなかった場合、kernel/main.ps1 の Invoke-KittingScript が「Success (legacy - unverified)」として成功扱いで履歴・HTMLチェックリストに記録する legacy フォールバックを fail-closed（Error 等＋警告）に変更する。結果を返し損ねたモジュールが成功と誤記録される地雷の除去。",
-      "claudeNote": "構造監査(2026-06-10)で検出。証拠: main.ps1:268-277(legacy path、コメントは全モジュール移行済み前提)。現存する非準拠返却は windows_update.ps1:433(素のhashtable返却)のみだが、これは main.ps1 の Invoke-WindowsUpdateLoop 専用経路の設計仕様で、profiles/*.csv・module.csv からの参照ゼロを確認済み＝現状実害なし。将来 profile に windows_update を直書きされた場合や新規モジュールの返却漏れ時に常時 Success 誤記録となるリスクが対象。\r\n変更想定: kernel PATCH・設計ゲート軽量版。fail-closed 化時は test_harness 系モジュール/既存テストへの波及確認要。",
-      "status": "未着手",
+      "claudeNote": "構造監査(2026-06-10)で検出。証拠: main.ps1:268-277(legacy path、コメントは全モジュール移行済み前提)。現存する非準拠返却は windows_update.ps1:433(素のhashtable返却)のみだが、これは main.ps1 の Invoke-WindowsUpdateLoop 専用経路の設計仕様で、profiles/*.csv・module.csv からの参照ゼロを確認済み＝現状実害なし。将来 profile に windows_update を直書きされた場合や新規モジュールの返却漏れ時に常時 Success 誤記録となるリスクが対象。\r\n調査(2026-06-10): fail-open は同型3箇所と確定 — common.ps1:1540(Invoke-SafeCommand同期)/common.ps1:1828(Async)/main.ps1:268(Invoke-KittingScript=呼出ゼロのデッドコード。バッチループはSafeCommand系を直接使用)。リスク全数検証: モジュール内の生return 22箇所=全てヘルパー関数内/sysprepのexit=here-string内CMDテキスト(誤検知)/windows_updateはSafeCommand非経由(main.ps1:1098直接起動・$null/hashtable自前処理)/SafeCommand系の呼出元はmain.ps1の2箇所(モジュール実行)のみ=内部処理の誤Error化なし/asyncのSkip・Timeoutは$interruptedフラグが抽出ブロックを迂回/既存167テストにlegacy挙動のpinなし → 実装GO。\r\n実装(2026-06-10): 設計ゲート=フル版(stateDiagram+敵対検証10項+変更スコープ宣言)提示・承認済(遷移先変更のため軽量版から格上げ)。3箇所を Status=Error + No ModuleResult returned (module result contract violation) + Show-Warning へ変更(Invoke-KittingScriptは return $false 化も。一貫性のためデッドコードも同時修正)。新規テスト tests/kernel/Invoke-SafeCommand.tests.ps1 12ケース(fail-closed 4/passthrough 6/global fallback 1/例外1)。CHANGELOG [Unreleased] に Changed 追記。kernel PATCH相当・KERNEL_VERSION 3.4.1据置・KERNEL_API.md更新不要(§6内部実装のみ)。\r\n検証(2026-06-10): run_tests 179 passed/0 failed(167+12)。async実地検証3シナリオ(PS5.1実Runspace): no-result→Error+Show-Warning表示/Success+Verified=Trueパススルー不変/LastResult(runspace跨ぎglobal回収)でPartial回収不変。check_version OK。encoding新規違反ゼロ(FAIL 5件=既知Tier2/3キューのみ)。コミット承認・実施(2026-06-10)。",
+      "status": "完了",
       "createdAt": "2026-06-10T14:07:05+09:00",
-      "updatedAt": "2026-06-10T14:07:05+09:00"
+      "updatedAt": "2026-06-10T16:54:40+09:00"
     },
     {
       "id": "t-0006",

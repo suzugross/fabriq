@@ -76,6 +76,27 @@
   REQUIRES_KERNEL 2.0.0 (公開 API への新規依存なし、KERNEL_VERSION 3.4.1 据置、
   KERNEL_API.md 影響なし)。
 
+### Changed
+- kernel/common.ps1 :: Invoke-SafeCommand / Invoke-SafeCommandAsync、kernel/main.ps1 ::
+  Invoke-KittingScript (Changed: 結果契約を fail-open → fail-closed 化 / 内部実装のみ・
+  公開 API §1〜§5 不変・PATCH 相当 / TM t-0005): モジュールが ModuleResult を返さずに
+  正常完走した場合、従来は Status="Success" + "(legacy - unverified)" として成功扱いで
+  履歴・HTML チェックリストに記録していたが、Status="Error" + "No ModuleResult returned
+  (module result contract violation)" + Show-Warning に変更。壊れたモジュール（結果返却
+  漏れ・契約非準拠の返却値）が静かな偽 Success として通過する地雷を除去する。
+  - 正当経路はすべて不変: pipeline 捕捉 / `$global:_LastModuleResult`・`wrapper.LastResult`
+    フォールバック / モジュール申告 Status のパススルー / async の Skip・Timeout
+    （`$interrupted` 分岐が抽出を迂回するため本変更に不到達・専用文言の既存 Error のまま）/
+    例外 catch 経路。
+  - 全 78 モジュールにスクリプトレベルの無結果経路が無いことを静的検証済み（モジュール内の
+    生 `return` 22 箇所はすべてヘルパー関数内・sysprep_config の `exit` は here-string 内の
+    SetupComplete.cmd 用 CMD テキスト）。windows_update は Invoke-SafeCommand 非経由
+    （main.ps1 の Invoke-WindowsUpdateLoop が直接起動し $null/hashtable を自前処理）のため
+    影響なし。Invoke-KittingScript は現在呼び出し元ゼロのデッドコードだが、将来の復活時に
+    fail-open が再発しないよう一貫性のため同時に fail-closed 化。
+  - 新規テスト: `tests/kernel/Invoke-SafeCommand.tests.ps1`（fail-closed 4 / passthrough 6 /
+    global fallback 1 / 例外 1 の計 12 ケース）。
+
 ### Fixed
 - apps/fabriq_operator/lib/execution_toolbar.ps1: Execution Toolbar の
   PC Info Comparison パネルの 3 件のバグを修正 (当該パネル自体が

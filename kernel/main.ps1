@@ -266,14 +266,15 @@ function Invoke-KittingScript {
             return ($status -eq "Success")
         }
         else {
-            # Legacy path: module did not return a ModuleResult (all modules migrated)
+            # Fail-closed: no ModuleResult returned despite normal completion.
+            # Record Error instead of assuming success (module result contract
+            # violation; mirrors Invoke-SafeCommand / Invoke-SafeCommandAsync).
             Write-Host ""
-            Write-Verbose "ModuleResult not returned from: $ScriptPath"
-            Show-Warning "Script execution completed (status unverified)"
-            Add-ExecutionResult -Operation $ModuleName -Status "Success" -Message "(legacy - unverified)"
-            $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status "Success" -Message "(legacy - unverified)"
-            Capture-ScreenEvidence -ModuleName $ModuleName -Status "Success"
-            return $true
+            Show-Warning "No ModuleResult returned - recording Error (module result contract violation)"
+            Add-ExecutionResult -Operation $ModuleName -Status "Error" -Message "No ModuleResult returned (module result contract violation)"
+            $null = Write-ExecutionHistory -ModuleName $ModuleName -Category $Category -Status "Error" -Message "No ModuleResult returned (module result contract violation)"
+            Capture-ScreenEvidence -ModuleName $ModuleName -Status "Error"
+            return $false
         }
     }
     catch {
