@@ -2,7 +2,7 @@
 # Pester v5 unit tests for Resolve-ProfileModules
 # ========================================
 # Function: kernel/common.ps1 :: Resolve-ProfileModules
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Coverage targets (from CHANGELOG regression history):
 #   - kernel 3.1.3 : per-Order tracking

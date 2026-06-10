@@ -23,12 +23,12 @@
 #
 # Usage:
 #   # Mode 1: compare two arbitrary paths
-#   pwsh ./dev/verify_comments_only.ps1 `
+#   powershell.exe -File ./dev/verify_comments_only.ps1 `
 #       -Original kernel/common.ps1.bak `
 #       -Modified kernel/common.ps1
 #
 #   # Mode 2: compare working tree against git HEAD
-#   pwsh ./dev/verify_comments_only.ps1 -Path kernel/common.ps1
+#   powershell.exe -File ./dev/verify_comments_only.ps1 -Path kernel/common.ps1
 #
 # Exit codes:
 #   0 = PASS (only comment tokens differ)

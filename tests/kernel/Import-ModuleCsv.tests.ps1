@@ -2,7 +2,7 @@
 # Pester v5 unit tests for Import-ModuleCsv
 # ========================================
 # Function: kernel/common.ps1 :: Import-ModuleCsv
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the Segment-strict-match contract (KERNEL_API.md §1.2) and the
 # observable return-shape behavior at the caller boundary. Note the

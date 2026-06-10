@@ -346,8 +346,8 @@ Install-Module -Name Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -Ski
 ### 実行
 
 ```powershell
-pwsh ./dev/run_tests.ps1          # PowerShell 7+
-powershell -File ./dev/run_tests.ps1
+powershell.exe -File ./dev/run_tests.ps1   # Windows PowerShell 5.1（正・カーネル実運用と同一エンジン）
+pwsh ./dev/run_tests.ps1                   # PowerShell 7+ でも可（導入済み環境のみ）
 ```
 
 `tests/` と `apps/fabriq_ios/tests/` 以下の `*.tests.ps1` を一括実行します。

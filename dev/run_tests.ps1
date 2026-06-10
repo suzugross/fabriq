@@ -11,8 +11,12 @@
 # flag is required because v5 is signed by the Pester team.
 #
 # Usage:
-#   pwsh ./dev/run_tests.ps1     (preferred, PowerShell 7+)
-#   powershell -File ./dev/run_tests.ps1
+#   powershell.exe -File ./dev/run_tests.ps1    (canonical: Windows PowerShell 5.1)
+#   pwsh ./dev/run_tests.ps1                    (PowerShell 7+, where installed)
+#
+# Windows PowerShell 5.1 is the canonical test engine: the kernel ships on
+# 5.1, so running tests on 5.1 catches engine-specific regressions that a
+# 7-only run would hide. Judge pass/fail by the exit code, not the output.
 # Exit code: 0 = all pass, 1 = any failure or environment problem.
 # ========================================
 

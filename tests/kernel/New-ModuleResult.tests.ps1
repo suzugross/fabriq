@@ -2,7 +2,7 @@
 # Pester v5 unit tests for New-ModuleResult
 # ========================================
 # Function: kernel/common.ps1 :: New-ModuleResult
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the foundation result contract (KERNEL_API.md §1.3 / §5) that every
 # standard module returns through, either directly (Cancelled paths,

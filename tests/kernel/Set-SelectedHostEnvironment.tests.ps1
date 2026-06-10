@@ -2,7 +2,7 @@
 # Pester v5 unit tests for Set-SelectedHostEnvironment
 # ========================================
 # Function: kernel/main.ps1 :: Set-SelectedHostEnvironment
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the SELECTED_* env-var contract (KERNEL_API.md §3.1) that every
 # downstream module reads. Set-SelectedHostEnvironment is the single
