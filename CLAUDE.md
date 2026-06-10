@@ -14,7 +14,8 @@
 
 ### 2. `kernel/common.ps1` の徹底活用
 
-- 独自のログ出力（`Write-Host` 等）や独自のエラーハンドリング処理を記述することを禁止する。
+- **ステータス通知ログ**（情報・成功・警告・エラー・スキップ）を `Write-Host` で自前実装することを禁止する。必ず `Show-Info` / `Show-Success` / `Show-Warning` / `Show-Error` / `Show-Skip` を使う（これらは `[TAG]` 整形に加え ArtPulse 生存シグナルとテレメトリ追跡を内包しており、生の `Write-Host` では欠落する）。独自のエラーハンドリング結果整形も同様に禁止する（結果は `New-ModuleResult` / `New-BatchResult` の契約で返す）。
+- ただし**視覚的レイアウト目的の `Write-Host` は許容**する。Show-* に相当機能がない整形表示——空行・バナー見出し・区切り枠・複数行のプレビュー表（適用前の変更ダンプ等、項目ごとに `-ForegroundColor` を変える表示）——は `Write-Host` で書いてよい（お手本: `reg_hklm_config` の preview / verify 表示）。汎用の区切り線は共通の `Show-Separator` / `Show-CategorySeparator` を優先する。
 - 必ず `kernel/common.ps1` の共通関数（`Show-Info`, `Show-Error`, `Show-Success`, `New-ModuleResult` 等）を使用する。
 - **関数を新規実装する前に、必ず `kernel/common.ps1` の既存関数一覧を確認する。** 同等機能が既にあれば独自関数の作成は禁止（例: 管理者権限チェックは `Test-AdminPrivilege`）。
 - モジュール内ローカルヘルパーは、common.ps1 に該当関数が無いことを確認の上、既存モジュールの類似実装（例: `reg_hklm_config` の `Test-RegistryValueMatch`）を参考にする。
