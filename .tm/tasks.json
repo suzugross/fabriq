@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T18:07:25+09:00",
+  "updatedAt": "2026-06-10T20:10:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -74,6 +74,159 @@
       "status": "未着手",
       "createdAt": "2026-06-10T14:07:05+09:00",
       "updatedAt": "2026-06-10T14:07:05+09:00"
+    },
+    {
+      "id": "t-0009",
+      "title": "[CRITICAL] 破壊的削除のパス検証ガード共通化と4モジュール適用",
+      "content": "CLAUDE.md §8 違反の再帰削除が directory_cleaner 以外の削除系に残存。directory_cleaner の Test-ForbiddenPath（GetFullPath 正規化・禁止パス完全一致・親判定・3セグメント深度ゲート）を common.ps1 へ昇格し、以下4箇所に適用する:\r\n(1) profile_delete.ps1:103,135 — UserName 無検証で Join-Path → Remove-Item -Recurse。空欄 UserName で C:\\Users\\ に潰れ（PS5.1 実証済）、WMI 照合(-like \"*\\$userName\")も不一致になるため孤児フォルダ経路で C:\\Users 全体を削除。.. なら C:\\ へ遡上。UserName の空欄/./..//\\/ワイルドカード拒否 + 解決パスが C:\\Users より厳密に深いことの assert も必要。\r\n(2) history_destroyer.ps1:411 — DeletePath が CSV 由来+環境変数展開済みパスへガード皆無で Remove-Item -Force -Recurse。\r\n(3) driver_export_config.ps1:132-148 — CSV model 列が Get-SafeModelName を経由せず（自動検出値のみサニタイズ）、.. 系でモジュール外へ脱出削除。CSV 値もサニタイズ経由に。\r\n(4) file_delete.ps1:102 — ドライブルート/浅階層パスの拒否ガードなし。\r\nいずれも AutoPilot 時は Confirm-Execution が自動 Y のため人間ゲートも消える点が重大。",
+      "claudeNote": "全体監査(2026-06-10)で検出。CRITICAL 2件(profile_delete/history_destroyer)+HIGH 1件(driver_export)+MEDIUM 1件(file_delete)の統合タスク。過去の Desktop 削除事故(2026-04-25, Join-Path 失敗起因)と同クラス。directory_cleaner の実装が手本（監査でクリーン確認済み）。common.ps1 昇格は公開 API 追加=kernel MINOR、各モジュールは PATCH〜MINOR。設計ゲートはフル版。\r\n追加調査(2026-06-10): 指摘4件すべて原典コードで妥当性確認済み。重要発見=history_destroyer の出荷 destroy_list.csv は DeletePath 14行中全行がワイルドカード付きパス(%TEMP%\\* / thumbcache_*.db 等)で、.NET Framework(PS5.1)の [IO.Path]::GetFullPath はワイルドカードで throw するため、directory_cleaner 方式の素朴な移植は出荷行を全滅させる。ガードは「leaf にワイルドカードを含む場合は Split-Path で親ディレクトリを検証」する分岐が必須。\r\n設計確定: common.ps1 に公開関数2本追加 — Test-FabriqProtectedPath(forbidden 完全一致/parent-of/深度3未満/解決不能→blocked + wildcard-leaf 親検証、戻り値 {IsSafe,Reason,NormalizedPath}) と Test-FabriqSafePathComponent(単一パス成分: 空/./../区切り/InvalidFileNameChars/末尾ドット・空白を拒否)。適用: history_destroyer+file_delete=ProtectedPath 二重ゲート(プレビュー表示+実行時、blocked は Fail 計上=fail-closed。directory_cleaner の Skip 計上とは意図的に差別化) / profile_delete=SafePathComponent(UserName)+C:\\Users 配下 strict containment / driver_export=SafePathComponent(CSV model 検証・変換せず reject 方式で正当値はバイト同一=import 側との命名整合維持)+driverDir 配下 containment。\r\n既存動作影響の全数確認: 出荷CSV全行がガード通過することを机上検証済み(history_destroyer 14行の親パスは全て深度3以上かつ非forbidden / file_delete サンプルは全行 Enabled=0 / profile_delete test・defaultuser0 通過 / driver.csv model 空=auto-detect 経路不変)。directory_cleaner は今回不変更(実績優先、共通関数への再基盤化は任意の後続)。版影響: kernel MINOR(KERNEL_API §1+§8 を 3.5.0 Unreleased で同コミット更新)、4モジュール REQUIRES_KERNEL→3.5.0。新規テスト tests/kernel/PathGuards.tests.ps1(純関数 ~18ケース)。設計ゲート(フル版)提示済み・実装承認待ち。\r\n実装(2026-06-10): 完了・検証済(未コミット)。common.ps1 に Test-FabriqProtectedPath / Test-FabriqSafePathComponent 追加(Zone.Identifier セクション直後・新セクション Destructive Path Guards)。適用: history_destroyer=展開直後にガード一括評価(_GuardBlocked/_GuardReason を Add-Member)→プレビュー [BLOCKED] 表示+実行時 Fail 計上(switch 内 continue は既存 not-found 経路と同一意味論を確認済) / file_delete=同方式+検証ステップは blocked 行をスキップ(二重ペナルティ回避) / profile_delete=SafePathComponent+usersBase 配下 strict containment(プレビュー [BLOCKED]+実行 Fail) / driver_export_config=CSV model を reject 方式で検証(プレビュー [INVALID]+実行 Fail)+try 内に driverDir containment assert(throw→既存 catch→Fail)。KERNEL_API.md §1.6 新設+§8 3.5.0(Unreleased) 追記。VERSION: 4 モジュール→1.1.0 / REQUIRES_KERNEL→3.5.0。CHANGELOG Security+Added 追記。新規テスト tests/kernel/PathGuards.tests.ps1 20 ケース(出荷 CSV regression pin 含む: %APPDATA%\\...\\Recent\\* / %TEMP%\\* / %windir%\\Temp\\* / thumbcache_*.db 通過、C:\\Users\\* / 非 leaf ワイルドカード / 浅階層 / fabriq root ブロック)。検証: 229 passed/0 failed・check_version OK・encoding 新規違反ゼロ(既知 Tier2/3 5 件のみ)。コミット承認待ち。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T20:10:00+09:00"
+    },
+    {
+      "id": "t-0010",
+      "title": "[HIGH] kernel: resume起動セッションの NewSession がパスフレーズ無検証で通る",
+      "content": "$verifyTokenPath は main.ps1:1414（fresh-start 分岐内）でのみ定義されるため、resume 起動（DPAPI 復元成功）後に NewSession を実行すると main.ps1:1886 に $null が渡り、session_form.ps1:369 の IsNullOrWhiteSpace ガードにより検証そのものがスキップされる。誤入力パスフレーズが無検証で受理され、以降の ENC: 復号が全て失敗 → Resolve-HostValue の catch が ENC: 生文字列を SELECTED_* 環境変数へ流入させる fail-open。$verifyTokenPath の定義を分岐外（定数セクション）へ移動するのが最小修正。session_form 側の「トークン無し=検証スキップ」仕様自体も fail-closed 化（トークン欠損=エラー）を検討。",
+      "claudeNote": "全体監査(2026-06-10)で検出・コード裏取り済み。再現条件: __RESTART__ 跨ぎ resume で起動 → メインダッシュボードから NewSession。修正自体は数行（変数スコープ）。kernel PATCH 相当見込み。session_form の fail-closed 化まで踏み込む場合は apps 側も touched。\r\n追加調査(2026-06-10): Show-SessionSetupForm の呼出元は main.ps1 の2箇所のみ(1437 fresh-start / 1883 NewSession)であることを全リポジトリ grep で確認=影響面は閉じている。session_form は passphrase 自体は必須入力(364-366)のため、トークン検証 fail-closed 化で不可能になる正規フローは存在しない(正規配備では fresh-start が起動時にトークン存在を強制済み)。\r\n設計確定3点: (1)main.ps1 の $verifyTokenPath 定義を Constants セクション(〜L50)へ移動し、resume DPAPI フォールバック内のローカル定義(1364)は共通参照に置換 (2)NewSession ハンドラ先頭に Test-Path ガード追加(欠損時 Show-Error+Wait-KeyPress+continue=非致命) (3)session_form.ps1:369 を fail-closed 化(トークン空/欠損→エラーメッセージ表示で OK ブロック。現行は検証スキップで素通し)。既存動作影響: fresh-start 不変/resume 不変/NewSession は「無検証受理」が「検証実施」になる=修正意図そのもの。版影響: kernel PATCH + apps/fabriq_operator(CHANGELOG のみ・VERSION 体系外)。テスト: 対象が top-level コードと WinForms のため単体テスト不可、手動検証手順(resume 起動→NewSession→誤パスフレーズが拒否されること)で代替。設計ゲート提示済み・実装承認待ち。\r\n実装(2026-06-10): 完了・検証済(未コミット)。(1)main.ps1 Constants に $verifyTokenPath 定義(コメントで根拠明記)、fresh-start/resume フォールバックのローカル定義を共通参照化 (2)NewSession ハンドラ先頭に Test-Path ガード(欠損→Show-Error x2+Wait-KeyPress+continue) (3)session_form.ps1:369 を fail-closed 化(トークン空/欠損→「Verification token not found」表示で OK ブロック、検証スキップ分岐を削除)。kernel PATCH 相当・公開 API 不変。検証: 229 passed/0 failed(全体スイート)・check_version OK。手動検証(resume 起動→NewSession→誤パスフレーズ拒否)は次回 resume 環境で実施推奨。コミット承認待ち。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T20:10:00+09:00"
+    },
+    {
+      "id": "t-0011",
+      "title": "[HIGH] kernel: WUループの AutoLogon 平文資格情報が2経路で残置される",
+      "content": "Invoke-WindowsUpdateLoop で Clear-WindowsUpdateAutoLogon を経由しない離脱経路が2つあり、レジストリに DefaultPassword（平文）+ AutoLogonCount（最大10）が残る:\r\n(1) main.ps1:1133-1137 — Set-WindowsUpdateAutoLogon 実行後に Register-FabriqRunOnce が失敗すると wu_state 削除のみで return（資格情報未クリア）。\r\n(2) main.ps1:1101-1104 — 再開ループ中（前回 reboot で AutoLogon 設定済み）の操作者キャンセル（$result=Cancelled/$null）で wu_state 削除のみで return。\r\n両経路に Clear-WindowsUpdateAutoLogon 呼び出しを追加する（AutoLogon 有効時のみ）。",
+      "claudeNote": "全体監査(2026-06-10)で検出・コード裏取り済み。納品 PC に平文パスワード残置 + 無制御 autologon の可能性。なお Clear-WindowsUpdateAutoLogon は DefaultUserName/DefaultDomainName を残すが AutoAdminLogon=0 なので実害なし（現状維持で可）。kernel PATCH 相当。t-0004 の claudeNote にある「main.ps1 の WU 固有ロジックのモジュール側追い出し」を実施する場合は同時にやると一石二鳥。\r\n追加調査(2026-06-10): 全離脱経路を棚卸し — Clear 済み2経路(安全弁1078/自然完了1150)、Clear 漏れ2経路(RunOnce失敗1133/キャンセル1101)、対象外1経路(wuScript の未捕捉 throw=モジュール内部で catch 済みのため稀、既知残課題として記録)。\r\n設計確定: (1)RunOnce 失敗経路に if ($wuState.AutoLogon) { Clear-WindowsUpdateAutoLogon } 追加(直前 1128-1130 で同条件の Set が走った直後なので無条件 Clear が正当) (2)キャンセル経路は if ($wuState.AutoLogon -and $wuState.LoopCount -gt 0) { Clear } — LoopCount>0 ⇔ 再開ループ ⇔ 前回 reboot 前に WU 自身が Set 済み。初回パスのキャンセル(LoopCount=0)では WU は何も Set していないため registry 無接触とし、autologon_config が事前設定した正規 autologon を壊す新規副作用を回避。既存動作影響: 成功経路・完了経路は不変。自然完了時の無条件 Clear が autologon_config 設定と衝突しうる既存挙動は本タスクのスコープ外(変更しない)。版影響: kernel PATCH(内部実装のみ・API 不変)。テスト: Invoke-WindowsUpdateLoop は既存 AST ヘルパー(Get-FabriqMainFunctionScriptBlock)で抽出可能、新規3ケース(初回キャンセル=Clear 不発/再開キャンセル=Clear 発火/RunOnce 失敗=Clear 発火)を temp 偽モジュールツリー+throw スタブ(Invoke-CountdownRestart)方式で追加予定。設計ゲート(軽量版)提示済み・実装承認待ち。\r\n実装(2026-06-10): 完了・検証済(未コミット)。main.ps1 の 2 経路に Clear-WindowsUpdateAutoLogon 追加 — キャンセル経路は if ($wuState.AutoLogon -and $wuState.LoopCount -gt 0)(初回パスはレジストリ無接触で autologon_config 保護) / RunOnce 失敗経路は if ($wuState.AutoLogon)(直前 Set と同条件)。新規テスト tests/kernel/Invoke-WindowsUpdateLoop.tests.ps1 5 ケース(初回キャンセル=Clear/Set とも不発+wu_state 削除 / 再開キャンセル AutoLogon=true=Clear 1 回 / 同 false=不発 / RunOnce 失敗=Set 1+Clear 1+restart 不発+state 削除 / RunOnce 成功=Clear 不発+restart 1+state 残存)。方式: AST 抽出+temp 偽ツリー(CWD 依存パス対策)+stub windows_update.ps1(ファイル起動のため Mock 不可、Set-Content で per-test 生成)+HKLM 書込系の先制 throw スタブ。検証: 229 passed/0 failed。コミット承認待ち。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T20:10:00+09:00"
+    },
+    {
+      "id": "t-0012",
+      "title": "[HIGH] windows_update: ダウンロード失敗が「完了」扱いになり最終Successに化ける",
+      "content": "windows_update.ps1:271 の `ResultCode -ge 2` 判定が OperationResultCode の Failed(4)/Aborted(5) を Succeeded 扱いにしている（正: 2=Succeeded, 3=SucceededWithErrors のみ）。このため「全ダウンロード失敗」中断経路(:287)が ResultCode 経由では発火せず、install フェーズは IsDownloaded=false で黙ってスキップ、fail カウンタにも乗らず、恒常的にダウンロード失敗する更新があっても再スキャン3回後に Status=Success で終わる。判定を `-eq 2 -or -eq 3` に修正し、ダウンロード失敗を FailedKBs に計上する。",
+      "claudeNote": "全体監査(2026-06-10)で検出。キッティング中の更新未適用がチェックリスト上 Success になるサイレントミス。module PATCH。wu_state.json の FailedKBs 集計（main.ps1 側 Invoke-WindowsUpdateLoop）との整合も確認のこと。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0013",
+      "title": "[HIGH] office_license_install: OSPP.vbs の成否を exit code だけで判定（偽Success）",
+      "content": "office_license_install.ps1:220-237 が /inpkey の成否を cscript の exit code のみで判定している。OSPP.vbs は鍵登録失敗（例: 0xC004F050）をテキスト出力で報告しつつ exit 0 で終わるケースが多く、失敗した鍵登録が「Product key registered」Success として記録される。兄弟スクリプト office_license_auth.ps1 は exit code を信用せず /dstatus パースで検証する正しい実装済み（:214 付近）なので、同方式で /dstatus 読み返し→PartialProductKey 比較を install 側にも実装する。",
+      "claudeNote": "全体監査(2026-06-10)で検出。auth とのペア運用なら auth 側で露見するが、install 単独実行プロファイルでは出荷まで気付けない。module MINOR（Post-Apply Verification 追加）。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0014",
+      "title": "[HIGH] temp_ipaddress_config: DAD重複検出時に必ずクラッシュ（switch内continue）+ PS5.1非互換パラメータ",
+      "content": "(1) temp_ipaddress_config.ps1:524-537 — 'Duplicate' case 内の continue が while($true) でなく switch を継続し（PS仕様・実機確認済）、直後の無条件 break でループ脱出 → $selected=$null のまま Step 5 で Get-NetIPAddress -IPAddress $null となりモジュールがエラー終了。重複IP検出→再選択というこのモジュールの設計目的そのものが機能していない。if/elseif 化か labeled continue で修正。\r\n(2) 同 :568 — Test-Connection -TimeoutSeconds は PS5.1 に存在しないパラメータ。バインドエラーが try/catch に飲まれ $gwReachable が恒久 $false → GW 疎通済みでも常に「ICMP-blocked かも」表示。5.1 互換の呼び出しに修正。",
+      "claudeNote": "全体監査(2026-06-10)で検出。両方とも実行エンジン PS5.1 での実機検証済み（エージェント検証）。(1)は HIGH、(2)は operator 誤導のみで Verified には不影響。module PATCH。switch+continue は他モジュールにも同パターンがないか grep 推奨。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0015",
+      "title": "[HIGH] log_uploader: robocopy exit code 全無視（納品エビデンスのサイレント不完全）",
+      "content": "log_uploader.ps1:170-174（logs/）および :183,190（evidence/）の robocopy 呼び出しが exit code を一切確認せず無条件 Show-Success。共有切断・ACL 拒否（exit≥8）でもアップロード成功として報告され、納品エビデンスが不完全/欠落のまま完了扱いになる。robocopy の exit code 規約（0-7=成功系/8以上=失敗）で判定し、失敗時は Error/Partial を返す。net use 側は既に正しくチェック済み（:130）なので robocopy 側のみ。",
+      "claudeNote": "全体監査(2026-06-10)で検出。robocopy_config モジュールに正しい exit-code マッピング実装があるので流用可能。module PATCH。Complete-ProfileExecution の Auto モードは upload 失敗を warning しか出さない点も合わせて確認のこと。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0016",
+      "title": "[HIGH] history_destroyer: Invoke-Expression 排除と fail-open 群の修正",
+      "content": "t-0009（DeletePath ガード）とは別の history_destroyer 内残課題:\r\n(1) :453 — Command ActionType が `Invoke-Expression $item.TargetPath`。コードベース唯一の CSV 文字列 IEX で、失敗（非ゼロ $LASTEXITCODE / stderr）でも無条件 Show-Success。& 呼び出し化 + exit code/throw 判定に変更。\r\n(2) :439-447 — ClearRegistry が Remove-ItemProperty ... SilentlyContinue でアクセス拒否を握り潰し常時 Success。\r\n(3) :76-85 — Clear-RecycleBinSafe が全ての非ゼロ HRESULT を「already empty」扱い。\r\n(4) :163-180 — Clear-BrowserData がブラウザ停止失敗+全ターゲットロック（0件削除）でも Success。\r\n(5) :296 vs :367 — Explorer を確認前に kill しており、CSVロード失敗/0件/キャンセルの早期 return が管理された再起動（:491-506 の15秒ウォッチドッグ）を通らない。Explorer 停止を確認後に移動。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)はコード裏取り済み。t-0009 のガード適用と同時に着手するとモジュール touched が1回で済む。module MINOR 相当（挙動変更を含むため大きい側に倒す）。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0017",
+      "title": "[HIGH] power_config: 失敗カウンタ不在で Status が常に Success",
+      "content": "power_config.ps1 は powercfg ネイティブコマンドの失敗を検出できない構造: :454-456 ほか同パターン8箇所（474/505/525/545/565/669/689）で `& powercfg ... | Out-Null` を try/catch しているが、ネイティブコマンドの非ゼロ exit は throw しないため $LASTEXITCODE 未確認のまま Show-Success + ChangeCount++。さらに Set-PowerPlan の $false 戻りも Set-PowerConfigValue の失敗も fail カウンタに乗らず、:1041 の最終 Status は常に Success。Step 5.5 の読み返し検証が Verified=false を付けるのが唯一の防壁で、Status 契約としては fail-open。$LASTEXITCODE 判定 + fail カウンタ導入で Partial/Error を返せるようにする。",
+      "claudeNote": "全体監査(2026-06-10)で検出。Verified=false が出るため完全なサイレントではないが、New-BatchResult の Status 契約（Fail>0 → Partial/Error）に違反。module PATCH〜MINOR。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0018",
+      "title": "[HIGH] devツール3点: patch builderの無ガード削除 / check_versionのfail-open / encoding checkerのCP932盲点",
+      "content": "(1) dev/build_framework_patch.ps1:92-95 — `Remove-Item -Path $dst -Recurse -Force` で $dst=Join-Path $OutDir $PatchName、-PatchName 無検証。-PatchName \".\" で $OutDir（既定 Desktop）自体を再帰削除、..\\x で OutDir 外へ脱出。パス区切り/./.. を拒否し、解決パスが $OutDir の厳密な子であることを assert。CLAUDE.md §8 違反、2026-04-25 事故と同クラス。\r\n(2) dev/check_version.ps1:59-62 — 検証対象ファイルが欠損していると [SKIP] 表示のみで $mismatches に積まれず exit 0（green）。欠損は FAIL にする。\r\n(3) dev/check_ps1_encoding.ps1:72 — 全ファイルを UTF-8 として decode するため CP932 の日本語は U+FFFD になり全検出レンジ（最大 U+FFEF）の外 → CP932 の日本語入り .ps1 が OK 判定。U+FFFD 検出を追加（=デコード不能バイト列の検出）。CSV の「UTF-8 BOM + CRLF」規約のチェッカーが存在しない点も合わせて検討。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)はユーザーの Desktop が既定 OutDir である点が特に危険。dev/ 配下は CHANGELOG 対象（§A）だが版管理対象外。(3)の CP932 盲点は「BOM 無し日本語 .ps1 が CP932 で保存されていた場合に検出網をすり抜ける」という JP-NO-BOM cleanup（残5件）の検出基盤の穴でもある。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0019",
+      "title": "[MEDIUM] 冪等性違反4モジュール: 再実行で偽Error/偽Skip",
+      "content": "再実行（resume・リトライ）で壊れる冪等性違反のバッチ修正:\r\n(1) domain_join.ps1:70 — 参加済みチェックなしで Add-Computer → 再実行は常に Error（実失敗と区別不能）。Win32_ComputerSystem の PartOfDomain/Domain を見て Skipped を返す。\r\n(2) odt_install.ps1:192-201 — 事前チェック(f)が「C2R Office 存在=Error」のため、本モジュールが入れた Office があると成功後の再実行が Error。検出 ProductReleaseIds と XML の product ID 比較で「済み」と「異物」を区別。\r\n(3) autologon_config.ps1:112-127 — skip 判定が DefaultPassword を比較しないため、CSV のパスワード修正後の再実行が Skipped になり誤った旧パスワードが残存。無条件再適用（last-write-wins）が安全。\r\n(4) partition_config.ps1:248-263 — New-Partition 成功+Format-Volume 失敗の後、再実行はレター存在チェックで永久 Skip となり RAW ボリュームを自己修復できない。レター存在時に FS 状態も確認し、RAW なら Format を再試行。",
+      "claudeNote": "全体監査(2026-06-10)で検出。4モジュール個別 touched（各 PATCH〜MINOR）。partition_config は preview/execution の重複排除キー不一致（:126-127 SourceDriveLetter のみ vs :185-194 letter-size）という別件もあり、touched ついでに直すこと推奨。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0020",
+      "title": "[MEDIUM] 偽PASS・偽成功バンドル（検証が検証になっていない8モジュール）",
+      "content": "チェックリスト上 OK/PASS に見えるが実際は未適用・不完全になりうる箇所の一括修正:\r\n(1) firewall_rule_make_config.ps1:344-351 — 名前存在のみで Skipped+Verified $true。CSV 編集後の再実行が古いルールのまま PASS。内容（Direction/Action/ports/profile）比較を追加。\r\n(2) windows_license_install.ps1:184-207 — PartialProductKey と投入キー末尾5桁の比較なし+読取失敗でも Success（verification pending）。\r\n(3) restore_point.ps1:245-258 — Checkpoint-Computer の24hスロットルは WARNING のみで正常 return → 復元ポイント無しで Success。Get-ComputerRestorePoint 読み返しを追加。\r\n(4) spi_config.ps1:48-57,199-213 — GetValue が SystemParametersInfo の BOOL 戻りを無視、GET 失敗時バッファ=0 のため目標値0の行が偽 SKIP（未適用）。戻り値判定を追加。\r\n(5) userdata_backup（:488-489 周辺）— 全ソース欠落（0件バックアップ）でも Verified PASS。欠落ソースを verified に反映。\r\n(6) winget_update.ps1:85-89 — 未知の非ゼロ exit code を default で Success 扱い。\r\n(7) ppkg_uninstall_config.ps1:161-167 — Remove-ProvisioningPackage 失敗でもファイル削除成功で Success。startlayout_delete_config.ps1:125-136 の再クエリ方式を踏襲。\r\n(8) office_update.ps1:203-219 — 失敗時に version 不変+非timeout で Skipped（already up to date）に化ける。+ :74 の Wait-NetworkReady は無限ループ（タイムアウト無し）のため無人実行でハング。\r\n(9) acl_config（acl_restore.ps1:254-271 / acl_backup.ps1:238-256）— 個別フェーズ失敗が警告のみで Success 計上。indivFail>0 を Partial に。backup は失敗エントリを manifest に載せない。\r\n(10) fabriq_app_launcher.ps1:120-122 — wait モードの -PassThru 戻りを破棄し exit code 不問で Success。",
+      "claudeNote": "全体監査(2026-06-10)で検出。各モジュール個別 touched。優先度内訳: (1)(3)(4)(8) が実害度高め（顧客PCの最終状態に直結）。(5)acl/spi/userdata は project_verification_exclusions の既知除外モジュールと一部重なるが、ここで挙げたのは Verified の話ではなく Status/Skip 判定の fail-open。一括でなくモジュール単位で順次でも可。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0021",
+      "title": "[MEDIUM] reg系: DWORD≥0x80000000が恒久Fail / Defaultハイブunload失敗でもSuccess",
+      "content": "(1) reg_hklm_config.ps1:235-237 / reg_hkcu_config.ps1:279-281 — 値の [int] キャストにより DWORD ≥ 2^31（例: ポリシー頻出の 4294967295=0xFFFFFFFF）と Int32 超の QWORD が必ず throw → 該当行が恒久 Fail で適用不能。読み比較側の Test-RegistryValueMatch は [long] で正しく、書き込み側だけ不一致。DWord は [uint32]→[int32] ビット変換、QWord は [long]/[uint64] で処理。\r\n(2) reg_hkcu_config.ps1:448-463 / reg_hkcu_delete.ps1:223-238 — Default プロファイルハイブの reg unload が2回とも失敗しても Show-Error のみでモジュールは Success。ntuser.dat がロック残置され、同一キッティングパス内の後続 sysprep_config（CopyProfile）やプロファイル作成を壊しうる。unload 失敗を Partial/Verified=false に反映。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)は fail-closed（Fail として見える）だが設定をそもそも出荷できない実害。reg_hklm/reg_hkcu/reg_hkcu_delete の3スクリプト touched。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0022",
+      "title": "[MEDIUM] kernel: SELECTED_PIN の resume平文保存と Reset-FabriqState のクリア漏れ",
+      "content": "(1) common.ps1:3069（Save-ResumeState）— HostEnvironment スナップショットに SELECTED_PIN が平文で入り、resume_state.json として再起動を跨いでディスクに残る。パスフレーズは DPAPI 保護、テレメトリは PIN を hard-redact しているのに resume 経路だけ素通しの非対称。DPAPI 保護対象に含めるか、ENC: 値のまま保持し復元時に再解決する方式を検討。\r\n(2) common.ps1:3246-3252（Reset-FabriqState）— 環境変数クリアリストに SELECTED_PIN が無く、Refabriq/NewSession 後も前のターゲットPCの PIN がプロセス環境に残存。FABRIQ_WORKER_NAME / FABRIQ_SEGMENT も同様に未クリア。Save-ResumeState 側のリストとの対称性を保つこと。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(2)は数行修正の PATCH。(1)は resume スキーマに触るため設計ゲートフル版+resume roundtrip テスト（PassphraseProtection.tests.ps1 の隣）更新が必要。crypto review（A1-A3 済み）の残課題系列として扱うのが整合的。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0023",
+      "title": "[MEDIUM] 単発修正バンドル: sysprep XMLエスケープ / wallpaper SPIリダイレクト / プロファイル整合ほか",
+      "content": "独立した小修正の回収タスク:\r\n(1) sysprep_config.ps1:347-391 — unattend.xml へ AdminPassword/ComputerName/TestUserName を生埋め込み。& < > を含むパスワードで XML 破損。ssid_config で実績のある [System.Security.SecurityElement]::Escape を適用。+ :460 SetupComplete.cmd が -Encoding UTF8（BOM付き）で出力され cmd.exe の1行目（@echo off）が化ける。ASCII で出力。\r\n(2) wallpaper_config.ps1:238-257 — HKCU リダイレクト時（別管理者で昇格）に SystemParametersInfo が昇格管理者のセッションへ適用され、対象ユーザーには壁紙未設定のまま Success。リダイレクト時は SPI を スキップし deferred 適用（fabriq_user_setup 経路）に寄せる等の対処。\r\n(3) profiles/Master_Config02.csv 行40 — extended/desktop_icon_config/desktop_icon_backup.ps1 を Enabled=1 で参照するが、module.csv 側が Enabled=0 のため実行時 InvalidPaths 落ち（サイレント未実行）。どちらかの意図に揃える。\r\n(4) volume_config.ps1:116-129 — 有効0件時に @($enabledItems)[0] が $null → 「Invalid Volume value」Error。Skipped を返すべき。\r\n(5) printer_driver_uninstall.ps1:274-276 — pnputil /delete-driver 失敗時もサマリ行が「Store: ... deleted」と虚偽表示（直前の warning は正しい）。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)(2)が実害度高め。(3)はコード変更でなく CSV/module.csv の整合確認のみ（設計ゲート不要の可能性）。各モジュール個別 touched。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0024",
+      "title": "テスト空白の解消: Async実行経路 / ENC:復号 / 実行履歴→HTMLチェックリスト",
+      "content": "全体監査で判明したテストカバレッジの重大空白3部品（リスク順）:\r\n(1) Invoke-SafeCommandAsync（common.ps1:1615, 約255行）— ゼロテスト。DefaultAsync=true 出荷により現在の既定実行経路（全モジュールがここを通る）なのにテストは同期版のみ。Runspace 生成/global 注入/skip フラグ/timeout 中断/結果抽出を pin する。t-0005 で実施した async 実地検証3シナリオ（PS5.1 実 Runspace）が雛形になる。\r\n(2) Unprotect-FabriqValue / Test-MasterPassphrase — ゼロテスト。退化すると顧客 hostlist の全 ENC: 値が復号不能になる。roundtrip + 形式 pin（PBKDF2 100k/固定salt/AES-256-CBC）+ 誤パスフレーズ→throw を pin。同時に tests/kernel/Set-SelectedHostEnvironment.tests.ps1:222 の虚偽コメント（「専用テストでピン留め済み」→該当ファイル不存在）を修正。\r\n(3) 実行履歴→HTMLチェックリスト連鎖（Write/Import/Restore/Export-ExecutionHistory, Export-HtmlChecklist 約550行, Complete-ProfileExecution）— ゼロテスト。B2B 納品物そのもので、Restore-ExecutionHistory の SessionID フィルタは過去に実バグ実績あり（main.ps1:360-368 コメント）。CSV-in/CSV-out で単体テスト可能。",
+      "claudeNote": "全体監査(2026-06-10)で検出。t-0007（204テスト到達）の続編。tests/ のみ touched なら設計ゲート適用外・CHANGELOG 不要。(1)は kernel の修正タスク（t-0010/t-0011 等）着手前に整備しておくと回帰検知網として効く。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0025",
+      "title": "[LOW] 版表記ドリフト: 起動バナー ver2.1 / Fabriq.exe AssemblyVersion 2.1.0.0",
+      "content": "(1) main.ps1:1244 の起動バナー文字列が「Fabriq ver2.1」のまま（kernel 3.4.1 と2メジャー乖離）。check_version.ps1 は main.ps1 L3 コメントしか検証しないため検出されない。バナーを L3 と同じ X.Y に同期し、check_version.ps1 の検証対象に追加する。(2) dev/launcher/Launcher.cs の AssemblyVersion が 2.1.0.0 固定で、Fabriq.exe のファイルプロパティが 2.1 を報告。Export-HtmlChecklist のフッター（common.ps1:2885 付近「Generated by Fabriq ver2.1」）にも同じドリフトあり。次回リリース（3.5.0 / t-0008）の手順に同期箇所として組み込むのが低コスト。",
+      "claudeNote": "全体監査(2026-06-10)で検出。operator/納品物に見える表記のみで動作影響なし。CLAUDE.md §I の同期4箇所リストへの追加（バナー/HTMLフッター）も検討。Launcher.cs は exe 再ビルドが必要なため要ユーザー判断。",
+      "status": "未着手",
+      "createdAt": "2026-06-10T19:10:00+09:00",
+      "updatedAt": "2026-06-10T19:10:00+09:00"
     }
   ]
 }

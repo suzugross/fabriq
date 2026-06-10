@@ -29,6 +29,16 @@ foreach ($item in $items) {
     $item.TargetPath = Expand-UserEnvironmentVariables $item.TargetPath
 }
 
+# Destructive path guard (CLAUDE.md section 8): evaluate once per row;
+# consumed by the display, execution and verification steps. Blocked rows
+# are recorded as Fail (config error), never deleted - the guard sits
+# OUTSIDE the confirmation gate so it also holds under AutoPilot auto-Y.
+foreach ($item in $items) {
+    $guard = Test-FabriqProtectedPath -Path $item.TargetPath
+    $item | Add-Member -NotePropertyName "_GuardBlocked" -NotePropertyValue (-not $guard.IsSafe)
+    $item | Add-Member -NotePropertyName "_GuardReason"  -NotePropertyValue $guard.Reason
+}
+
 # ========================================
 # Step 2: Display deletion targets with status
 # ========================================
@@ -41,7 +51,11 @@ foreach ($item in $items) {
     $targetPath = $item.TargetPath
     $ifNotFound = if ($item.IfNotFound) { $item.IfNotFound } else { "Skip" }
 
-    if (Test-Path $targetPath) {
+    if ($item._GuardBlocked) {
+        $marker = "[BLOCKED]"
+        $markerColor = "Red"
+    }
+    elseif (Test-Path $targetPath) {
         $isDir = (Get-Item $targetPath -ErrorAction SilentlyContinue) -is [System.IO.DirectoryInfo]
         $typeLabel = if ($isDir) { "Dir" } else { "File" }
         $marker = "[$typeLabel][Exists]"
@@ -54,6 +68,9 @@ foreach ($item in $items) {
 
     Write-Host "  [$index] $($item.Description)  $marker" -ForegroundColor $markerColor
     Write-Host "      Path: $targetPath" -ForegroundColor DarkGray
+    if ($item._GuardBlocked) {
+        Write-Host "      Reason: $($item._GuardReason) - will be recorded as Fail" -ForegroundColor Red
+    }
     if ($ifNotFound -eq "Error") {
         Write-Host "      IfNotFound: Error" -ForegroundColor DarkGray
     }
@@ -84,6 +101,15 @@ foreach ($item in $items) {
 
     Write-Host "[$current/$total] $($item.Description)" -ForegroundColor Cyan
     Write-Host "  Path: $targetPath" -ForegroundColor DarkGray
+
+    # Destructive path guard (CLAUDE.md section 8): blocked targets are
+    # config errors - record Fail, never delete.
+    if ($item._GuardBlocked) {
+        Show-Error "Blocked protected path: $targetPath ($($item._GuardReason))"
+        $failCount++
+        Write-Host ""
+        continue
+    }
 
     if (-not (Test-Path $targetPath)) {
         if ($ifNotFound -eq "Error") {
@@ -123,6 +149,13 @@ $verifyFail = 0
 foreach ($item in $items) {
     $targetPath = $item.TargetPath
     $ifNotFound = if ($item.IfNotFound) { $item.IfNotFound } else { "Skip" }
+
+    # Blocked rows were never deleted (already counted as Fail above);
+    # checking "still exists" here would double-penalize them.
+    if ($item._GuardBlocked) {
+        Write-Host "  [SKIPPED] $($item.Description) (blocked - not deleted)" -ForegroundColor DarkGray
+        continue
+    }
 
     if (-not (Test-Path $targetPath)) {
         Write-Host "  [VERIFIED] $($item.Description) (not found)" -ForegroundColor Green

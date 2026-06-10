@@ -50,6 +50,12 @@ Set-ConsoleSize -Columns 75 -Lines 35
 $HOSTLIST_CSV = ".\kernel\csv\hostlist.csv"
 $APPS_DIR = ".\apps"
 $script:AutoPilotMaxRetry = 5
+# Passphrase verification token (Studio-generated). Defined here at script
+# scope so EVERY Show-SessionSetupForm call site receives a real path —
+# defining it only inside the fresh-start branch left it $null on the
+# resume-entry path, and session_form silently SKIPS verification when the
+# token path is empty (any wrong passphrase was accepted via NewSession).
+$verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
 
 # ========================================
 # Function: Load hostlist.csv
@@ -1099,6 +1105,14 @@ function Invoke-WindowsUpdateLoop {
     $result = & $wuScript -SkipKBs $skipKBs -AutoConfirm:$autoConfirm
 
     if ($null -eq $result -or $result.Status -eq "Cancelled") {
+        # Operator aborted the loop. On a resumed loop (LoopCount > 0) the
+        # previous reboot leg configured AutoLogon via
+        # Set-WindowsUpdateAutoLogon, so clear those credentials here; on a
+        # fresh first pass (LoopCount = 0) WU has written nothing yet and
+        # the registry must stay untouched (autologon_config may own it).
+        if ($wuState.AutoLogon -and $wuState.LoopCount -gt 0) {
+            Clear-WindowsUpdateAutoLogon
+        }
         Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
         return
     }
@@ -1131,6 +1145,14 @@ function Invoke-WindowsUpdateLoop {
 
         # Register RunOnce (same function as Profile __RESTART__)
         if (-not (Register-FabriqRunOnce)) {
+            # Set-WindowsUpdateAutoLogon ran just above under the same
+            # AutoLogon condition; without RunOnce there is no resume leg
+            # to consume or clear the credentials, so clear them before
+            # bailing out (otherwise DefaultPassword stays in the registry
+            # with AutoLogonCount intact).
+            if ($wuState.AutoLogon) {
+                Clear-WindowsUpdateAutoLogon
+            }
             Remove-Item $wuStatePath -Force -ErrorAction SilentlyContinue
             Show-Error "Failed to register RunOnce for WU resume"
             return
@@ -1361,7 +1383,7 @@ if ($null -ne $resumeState) {
                 Write-Host ""
 
                 # Fallback: prompt for manual passphrase entry
-                $verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
+                # ($verifyTokenPath is defined in the Constants section)
                 if (-not (Test-Path $verifyTokenPath)) {
                     Show-Error "Passphrase verification token not found: $verifyTokenPath"
                     Show-Error "Cannot verify passphrase. Aborting."
@@ -1411,8 +1433,7 @@ if ($null -ne $resumeState) {
 # Master Passphrase + Worker + Host Selection
 # ========================================
 if (-not $isResuming) {
-    $verifyTokenPath = Join-Path $PSScriptRoot "txt\passphrase_verify.txt"
-
+    # ($verifyTokenPath is defined in the Constants section)
     if (-not (Test-Path $verifyTokenPath)) {
         Show-Error "Passphrase verification token not found: $verifyTokenPath"
         Show-Error "Run Fabriq Studio to generate the verification token."
@@ -1862,6 +1883,17 @@ $script:guiExitRequested = $false
             }
 
             "NewSession" {
+                # Fail-closed: never open the session form without a
+                # verification token — session_form refuses to verify
+                # against an empty/missing token, and an unverified
+                # passphrase silently breaks every ENC: decryption later.
+                if (-not (Test-Path $verifyTokenPath)) {
+                    Show-Error "Passphrase verification token not found: $verifyTokenPath"
+                    Show-Error "Cannot start a new session without it. Run Fabriq Studio to generate the token."
+                    Wait-KeyPress
+                    continue
+                }
+
                 # Full state reset (transcript, session, history, env vars)
                 Show-ConsoleWindow
                 Reset-FabriqState

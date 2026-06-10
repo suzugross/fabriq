@@ -3792,6 +3792,126 @@ function Remove-ZoneIdentifier {
 }
 
 # ========================================
+# Destructive Path Guards (CLAUDE.md section 8)
+# ========================================
+# Shared validation for modules that perform recursive deletion on
+# CSV-driven paths. Ported from directory_cleaner's field-proven
+# Test-ForbiddenPath gate, extended with wildcard-leaf handling:
+# PS 5.1 (.NET Framework) [IO.Path]::GetFullPath throws on * and ?,
+# and shipped CSVs (history_destroyer) use wildcard targets.
+# Lexical checks only — junction/symlink targets are not resolved.
+# ========================================
+
+function Test-FabriqSafePathComponent {
+    # Validates a single path component (folder/file name) that will be
+    # joined under a fixed base directory. Returns $false for anything
+    # that could escape the base or distort path resolution:
+    #   - empty / whitespace-only  (Join-Path collapses to the base itself)
+    #   - '.' / '..'               (traversal)
+    #   - path separators, wildcards, other invalid filename chars
+    #   - trailing dot / space     (silently trimmed by Win32 resolution,
+    #                               so the checked name and the touched
+    #                               folder would differ)
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    if ($Value -eq '.' -or $Value -eq '..') { return $false }
+    if ($Value.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0) { return $false }
+    if ($Value -ne $Value.TrimEnd('.', ' ')) { return $false }
+    return $true
+}
+
+function Test-FabriqProtectedPath {
+    # Verdict for a deletion target path. Returns:
+    #   IsSafe         : $false when the path must NOT be deleted
+    #   Reason         : human-readable block reason ("" when safe)
+    #   NormalizedPath : full lowercase path the checks ran against
+    # Blocks: empty/unresolvable paths, exact protected roots, parents of
+    # protected roots, and paths shallower than 3 segments (e.g. C:\Users).
+    # When the LEAF contains a wildcard (* or ?), the parent directory is
+    # validated instead — deleting "dir\*" has the blast radius of
+    # "contents of dir". Wildcards in non-leaf segments fail GetFullPath
+    # and are blocked (fail-closed).
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Empty path"; NormalizedPath = "" }
+    }
+
+    $protectedRoots = @(
+        "C:\",
+        "C:\Windows",
+        "C:\Windows\System32",
+        "C:\Windows\SysWOW64",
+        "C:\Windows\WinSxS",
+        "C:\Program Files",
+        "C:\Program Files (x86)",
+        "C:\ProgramData",
+        "C:\Users",
+        "C:\Recovery",
+        "C:\Boot",
+        "$env:SystemRoot",
+        "$env:SystemRoot\System32",
+        "$env:ProgramFiles",
+        "${env:ProgramFiles(x86)}",
+        "$env:USERPROFILE",
+        "$env:PUBLIC"
+    )
+
+    $normalizedForbidden = @()
+    foreach ($fp in $protectedRoots) {
+        try {
+            $expanded = [System.Environment]::ExpandEnvironmentVariables($fp)
+            $normalizedForbidden += [System.IO.Path]::GetFullPath($expanded).TrimEnd('\').ToLowerInvariant()
+        }
+        catch { }
+    }
+    # The fabriq root itself. $PSScriptRoot here = kernel\ (resolved from
+    # the file DEFINING this function), which holds in async child
+    # runspaces too because common.ps1 is re-dot-sourced by absolute path.
+    try {
+        $normalizedForbidden += [System.IO.Path]::GetFullPath("$PSScriptRoot\..").TrimEnd('\').ToLowerInvariant()
+    }
+    catch { }
+    $normalizedForbidden = @($normalizedForbidden | Select-Object -Unique)
+
+    # Wildcard leaf: validate the parent directory instead (GetFullPath
+    # throws on * / ? under .NET Framework).
+    $checkTarget = $Path
+    $sepIdx = $Path.LastIndexOfAny(@('\', '/'))
+    $leaf = if ($sepIdx -ge 0) { $Path.Substring($sepIdx + 1) } else { $Path }
+    if ($leaf -match '[\*\?]') {
+        if ($sepIdx -le 0) {
+            return [PSCustomObject]@{ IsSafe = $false; Reason = "Wildcard with no parent directory"; NormalizedPath = "" }
+        }
+        $checkTarget = $Path.Substring(0, $sepIdx)
+    }
+
+    $normalizedTarget = ""
+    try {
+        $normalizedTarget = [System.IO.Path]::GetFullPath($checkTarget).TrimEnd('\').ToLowerInvariant()
+    }
+    catch {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Unresolvable path"; NormalizedPath = "" }
+    }
+
+    if ($normalizedForbidden -contains $normalizedTarget) {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Protected system path"; NormalizedPath = $normalizedTarget }
+    }
+    foreach ($fp in $normalizedForbidden) {
+        if ($fp.StartsWith($normalizedTarget + "\")) {
+            return [PSCustomObject]@{ IsSafe = $false; Reason = "Parent of a protected system path"; NormalizedPath = $normalizedTarget }
+        }
+    }
+    $segments = @($normalizedTarget.Split('\') | Where-Object { $_ -ne "" })
+    if ($segments.Count -lt 3) {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Path too shallow (fewer than 3 segments)"; NormalizedPath = $normalizedTarget }
+    }
+
+    return [PSCustomObject]@{ IsSafe = $true; Reason = ""; NormalizedPath = $normalizedTarget }
+}
+
+# ========================================
 # HKCU Root Resolution for Elevated Sessions
 # ========================================
 # When running elevated as a different admin account, HKCU: points to

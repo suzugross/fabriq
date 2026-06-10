@@ -53,6 +53,39 @@ if (-not (Test-Path $usersBase)) {
     return (New-ModuleResult -Status "Error" -Message "Users directory not found: $usersBase")
 }
 
+# Destructive path guard (CLAUDE.md section 8): an empty/whitespace
+# UserName makes Join-Path collapse to "C:\Users\" itself, and the WMI
+# LocalPath match fails for it, so the orphaned-folder fallback would
+# Remove-Item -Recurse the WHOLE Users tree. '..' walks to C:\.
+# Validate the UserName as a single path component and assert the
+# resolved path is strictly under $usersBase. Blocked rows are recorded
+# as Fail (config error) - the guard sits OUTSIDE the confirmation gate
+# so it also holds under AutoPilot auto-confirm.
+$usersBaseFull = [System.IO.Path]::GetFullPath($usersBase).TrimEnd('\').ToLowerInvariant()
+foreach ($entry in $profileList) {
+    $blocked = $false
+    $reason  = ""
+    if (-not (Test-FabriqSafePathComponent -Value $entry.UserName)) {
+        $blocked = $true
+        $reason  = "Invalid UserName (empty, '.', '..', separator, wildcard or trailing dot/space)"
+    }
+    else {
+        try {
+            $resolvedFull = [System.IO.Path]::GetFullPath((Join-Path $usersBase $entry.UserName)).TrimEnd('\').ToLowerInvariant()
+            if (-not $resolvedFull.StartsWith($usersBaseFull + '\')) {
+                $blocked = $true
+                $reason  = "Resolved path escapes $usersBase"
+            }
+        }
+        catch {
+            $blocked = $true
+            $reason  = "Unresolvable path"
+        }
+    }
+    $entry | Add-Member -NotePropertyName "_GuardBlocked" -NotePropertyValue $blocked
+    $entry | Add-Member -NotePropertyName "_GuardReason"  -NotePropertyValue $reason
+}
+
 
 # ========================================
 # Step 3: Pre-execution display
@@ -64,6 +97,15 @@ Write-Host ""
 
 foreach ($entry in $profileList) {
     $displayName = if ($entry.Description) { $entry.Description } else { $entry.UserName }
+
+    if ($entry._GuardBlocked) {
+        Write-Host "  [BLOCKED] $displayName" -ForegroundColor Red
+        Write-Host "    UserName: '$($entry.UserName)'" -ForegroundColor DarkGray
+        Write-Host "    Reason: $($entry._GuardReason) - will be recorded as Fail" -ForegroundColor Red
+        Write-Host ""
+        continue
+    }
+
     $profilePath = Join-Path $usersBase $entry.UserName
 
     if (Test-Path $profilePath) {
@@ -105,6 +147,14 @@ foreach ($entry in $profileList) {
     Write-Host "----------------------------------------" -ForegroundColor White
     Write-Host "Deleting Profile: $displayName" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
+
+    # --- Destructive path guard (CLAUDE.md section 8) ---
+    if ($entry._GuardBlocked) {
+        Show-Error "Blocked: UserName '$userName' ($($entry._GuardReason))"
+        Write-Host ""
+        $failCount++
+        continue
+    }
 
     # --- Existence check (outside try) ---
     if (-not (Test-Path $profilePath)) {

@@ -325,6 +325,19 @@ foreach ($item in $enabledItems) {
     }
 }
 
+# Destructive path guard (CLAUDE.md section 8): evaluate once per
+# DeletePath row here; consumed by both the preview display and the
+# execution loop. Blocked rows are recorded as Fail (config error),
+# never deleted — the guard sits OUTSIDE the confirmation gate so it
+# also holds under AutoPilot auto-confirm.
+foreach ($item in $enabledItems) {
+    if ($item.ActionType -eq "DeletePath") {
+        $guard = Test-FabriqProtectedPath -Path $item.TargetPath
+        $item | Add-Member -NotePropertyName "_GuardBlocked" -NotePropertyValue (-not $guard.IsSafe)
+        $item | Add-Member -NotePropertyName "_GuardReason"  -NotePropertyValue $guard.Reason
+    }
+}
+
 
 # ========================================
 # Step 2: Prerequisite check (early return)
@@ -351,8 +364,15 @@ foreach ($group in $groups) {
     Write-Host "  [$($group.Name)]" -ForegroundColor White
     foreach ($item in $group.Group) {
         $displayName = if ($item.Description) { $item.Description } else { $item.TargetName }
-        Write-Host "    [DESTROY] $displayName" -ForegroundColor Yellow
-        Write-Host "      $($item.ActionType): $($item.TargetPath)" -ForegroundColor DarkGray
+        if ($item._GuardBlocked) {
+            Write-Host "    [BLOCKED] $displayName" -ForegroundColor Red
+            Write-Host "      $($item.ActionType): $($item.TargetPath)" -ForegroundColor DarkGray
+            Write-Host "      Reason: $($item._GuardReason) - will be recorded as Fail" -ForegroundColor Red
+        }
+        else {
+            Write-Host "    [DESTROY] $displayName" -ForegroundColor Yellow
+            Write-Host "      $($item.ActionType): $($item.TargetPath)" -ForegroundColor DarkGray
+        }
     }
     Write-Host ""
 }
@@ -393,6 +413,15 @@ foreach ($item in $enabledItems) {
         switch ($item.ActionType) {
 
             "DeletePath" {
+                # Destructive path guard (CLAUDE.md section 8): blocked
+                # targets are config errors - record Fail, never delete.
+                if ($item._GuardBlocked) {
+                    Show-Error "Blocked protected path: $($item.TargetPath) ($($item._GuardReason))"
+                    $failCount++
+                    Write-Host ""
+                    continue
+                }
+
                 # Best-effort delete: probe -> delete what we can -> verify residue
                 if (-not (Test-Path $item.TargetPath)) {
                     if ($ifNotFound -eq "Error") {

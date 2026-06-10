@@ -15,7 +15,47 @@
 
 ## [Unreleased]
 
+### Security
+- kernel/main.ps1: WU リブートループの AutoLogon 資格情報残置 2 経路を修正 (TM t-0011)。
+  (1) `Register-FabriqRunOnce` 失敗時 — 直前に `Set-WindowsUpdateAutoLogon` が書いた平文
+  `DefaultPassword` + `AutoLogonCount` をクリアせず return していた。
+  (2) 再開ループ中の操作者キャンセル時 — 前回 reboot 前に WU が設定した資格情報が残置されていた。
+  どちらも `Clear-WindowsUpdateAutoLogon` を通すよう修正。キャンセル経路は `LoopCount > 0`
+  （= WU 自身が Set 済み）の場合のみクリアし、初回パスのキャンセルではレジストリに触れない
+  （autologon_config が事前設定した正規 AutoLogon を壊さない）。成功・完了経路は不変。
+- kernel/main.ps1 + apps/fabriq_operator/lib/session_form.ps1: resume 起動セッションからの
+  NewSession でパスフレーズが無検証受理される fail-open を修正 (TM t-0010)。
+  `$verifyTokenPath` が fresh-start 分岐内でのみ定義されていたため、resume 起動（DPAPI 復元成功）後の
+  NewSession では session_form に空パスが渡り検証そのものがスキップされていた（誤パスフレーズ受理 →
+  全 `ENC:` 復号失敗 → `ENC:` 生文字列が `SELECTED_*` に流入）。
+  (1) `$verifyTokenPath` を Constants セクションへ移動し全経路で定義保証。
+  (2) NewSession ハンドラ先頭にトークン存在ガード追加（欠損時はエラー表示で dashboard に戻る・非致命）。
+  (3) session_form をトークン空/欠損 = 検証スキップから fail-closed（エラー表示で OK ブロック）に変更。
+- modules/extended/history_destroyer v1.0.0 → v1.1.0 / modules/standard/file_delete
+  v1.0.0 → v1.1.0 / modules/standard/profile_delete v1.0.0 → v1.1.0 /
+  modules/standard/driver_config v1.0.1 → v1.1.0 (Security: 破壊的削除のパス検証ガード適用,
+  TM t-0009, 各 `REQUIRES_KERNEL` 2.0.0 → 3.5.0):
+  - history_destroyer / file_delete: CSV 由来 + 環境変数展開済みパスへの `Remove-Item -Recurse` が
+    無ガードだった（`%USERPROFILE%` 1 個の typo でプロファイル全消し）。`Test-FabriqProtectedPath` を
+    プレビュー表示と実行時の二重ゲートとして適用。ブロック行は Fail 計上（fail-closed）、出荷 CSV の
+    全行（ワイルドカード行含む）は通過することを検証済み。
+  - profile_delete: 空/不正 UserName で `Join-Path` が `C:\Users\` に潰れ、WMI 照合不一致 →
+    孤児フォルダ経路で C:\Users 全体を再帰削除しうる穴を修正。`Test-FabriqSafePathComponent` +
+    `C:\Users` 配下 strict containment でブロック（Fail 計上）。
+  - driver_config (driver_export_config): CSV `model` 値が `Get-SafeModelName` を経由せず
+    `..` 系でモジュール外へ脱出削除できた穴を修正。`Test-FabriqSafePathComponent` で検証
+    （変換せず reject 方式 = 正当値はバイト同一で driver_import との命名整合維持）+
+    削除前の driverDir 配下 containment assert を追加。
+  - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
+
 ### Added
+- kernel/common.ps1: 破壊的削除ガード公開関数 2 本追加 (TM t-0009 / 公開 API MINOR・
+  次リリースで 3.5.0 予定): `Test-FabriqProtectedPath`（保護ルート・親・浅階層・解決不能を
+  ブロック、ワイルドカード leaf は親ディレクトリを検証 — PS5.1 の GetFullPath は `*`/`?` で
+  throw するため）/ `Test-FabriqSafePathComponent`（単一パス成分の検証）。
+  directory_cleaner の実績ある `Test-ForbiddenPath` ゲートの昇格版（directory_cleaner 本体は不変更）。
+  `KERNEL_API.md` §1.6 新設 + §8 追記。新規テスト: `tests/kernel/PathGuards.tests.ps1`、
+  `tests/kernel/Invoke-WindowsUpdateLoop.tests.ps1`（AutoLogon クリーンアップ）。
 - kernel/main.ps1 :: Set-SelectedHostEnvironment (Added: 自己参照モード `__SELF__` /
   公開 API MINOR・次リリースで 3.5.0 予定): hostlist のセル値 `__SELF__` を入室時に実行中 PC の
   live 値へ**列文脈で解決**して `SELECTED_*` に流す。ホストリストに縛られないキッティング/端末調査や、
