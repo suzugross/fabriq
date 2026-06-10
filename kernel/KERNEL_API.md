@@ -74,6 +74,8 @@
 - `SELECTED_PIN`
 - `SELECTED_PRINTER_<N>_NAME` / `SELECTED_PRINTER_<N>_DRIVER` / `SELECTED_PRINTER_<N>_PORT`（N=1..10）
 
+**自己参照トークン `__SELF__`（since 3.5.0）**: hostlist のセル値が `__SELF__` の場合、`Set-SelectedHostEnvironment` がそのセルを入室時に実行中 PC の live 値へ**列文脈で解決**して対応する `SELECTED_*` に流す（OldPCName/NewPCName→ホスト名、EthernetIP→現 Ethernet IP 等）。解決は入室時（リスト選択＋パスフレーズ後）に**1回だけ**行われ、解決後の具体値が `SELECTED_*` に baked される（resume はこの baked 値を復元するため `__RESTART__` 跨ぎや以降の PC 名変更で**再追従しない**）。対応列は OldPCName/NewPCName・Ethernet{IP,Subnet,Gateway}・Wifi{IP,Subnet,Gateway}・DNS1-4。Pin/Printer は非対応（`__SELF__` を置くと空＋警告）。解決不能（該当アダプタ無し・DNS スロット超過等）も空＋警告。`SELECTED_*` の名前/型/有無の契約は不変＝モジュールは解決済みの値を読むだけでトークンを意識しない。
+
 ### 3.2 プロファイル実行パラメータ
 - `FABRIQ_SEGMENT` — `Import-ModuleCsv` の Segment フィルタ対象値
 - `FABRIQ_AUTOLOGON_USER` — `__AUTO_to_<User>__` マーカーで渡される User 名（autologon_config 専用）
@@ -296,6 +298,15 @@ formal SemVer の出発点。以下すべて利用可能:
   - 本変更を要求するのは "profile に `__ASYNC__` を書かなくても
     async が効くことを前提とした profile" を配布する場合のみ。
     マーカーを明示的に置く profile は引き続き 2.1.0 で動作可能
+
+### 3.5.0（Unreleased）
+
+- **§3.1 に自己参照トークン `__SELF__` 追加（後方互換 / MINOR）**
+  - hostlist のセル値 `__SELF__` を `Set-SelectedHostEnvironment` が入室時に実行中 PC の live 値（`Get-CurrentPCInfo`）へ列文脈で解決し `SELECTED_*` に流す
+  - 解決は入室時に1回・baked。resume は baked 値を復元するため `__RESTART__` 跨ぎや PC 名変更で再追従しない
+  - 対応列: OldPCName/NewPCName・Ethernet/Wifi の {IP,Subnet,Gateway}・DNS1-4。非対応列（Pin/Printer）や解決不能は空＋警告
+  - `SELECTED_*` の契約（名前/型/有無）は不変＝モジュール透過。本トークンを使う hostlist を配布する場合のみこの版を要求
+  - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.4.1` 据置・本節は `[Unreleased]`）
 
 ### 判定ルール
 

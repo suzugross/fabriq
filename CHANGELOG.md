@@ -16,6 +16,24 @@
 ## [Unreleased]
 
 ### Added
+- kernel/main.ps1 :: Set-SelectedHostEnvironment (Added: 自己参照モード `__SELF__` /
+  公開 API MINOR・次リリースで 3.5.0 予定): hostlist のセル値 `__SELF__` を入室時に実行中 PC の
+  live 値へ**列文脈で解決**して `SELECTED_*` に流す。ホストリストに縛られないキッティング/端末調査や、
+  エビデンスのファイル名に実 PC 名を使う用途。
+  - 解決源は `Get-CurrentPCInfo`（既存・再利用）。OldPCName/NewPCName→ホスト名、Ethernet/Wifi の
+    {IP,Subnet,Gateway}、DNS1-4 に対応。Pin/Printer は非対応（空＋警告）、解決不能（該当アダプタ無し・
+    DNS スロット超過）も空＋警告（operator にあいまいさを丸投げしない）。
+  - 解決は入室時（リスト選択＋パスフレーズ後）に1回・baked。`Save-ResumeState` が解決後の値を snapshot し
+    resume は `Restore-HostEnvironment` で baked 値を復元するため、`__RESTART__` 跨ぎや以降の PC 名変更で
+    再追従しない。`__SELF__` 未使用の hostlist は `Get-CurrentPCInfo` を呼ばず従来どおり（透過・回帰ゼロ）。
+  - `ENC:` 透過復号とは相互排他・独立。`SELECTED_*` の契約（名前/型/有無）不変＝全モジュール透過・改修不要。
+  - `kernel/csv/hostlist.csv` に AdminID=SELF のデフォルト `__SELF__` 行を追加（hostlist は overlay 除外の
+    site-specific のため新規配備テンプレート）。`KERNEL_API.md` §3.1/§8 に追記。
+  - `apps/fabriq_operator/lib/session_form.ps1`: host-picker を `__SELF__` 対応（グリッドは `__SELF__` セルを
+    `(this PC)` プレースホルダ表示・SELF 行を現 PC として auto-select。Row.Tag の生行は保持するため Start 時の
+    解決は不変）。敵対的レビューで検出した operator 向け表示/選択の改善（`SELECTED_*` 契約・解決経路に影響なし）。
+  - `KERNEL_VERSION` は 3.4.1 据置（実昇格はリリース指示時）。新規テスト: `Set-SelectedHostEnvironment.tests.ps1`
+    に `__SELF__` 10 ケース追加。
 - modules/standard/reg_hkcu_config v1.0.0 → v1.1.0 / modules/standard/reg_hklm_config
   v1.0.0 → v1.1.0 (Added: key-only registry creation — 空 KeyName でキーのみ作成):
   CSV の KeyName 列が空（または空白のみ）の行を「値なしでキーだけ作成」するモードとして
