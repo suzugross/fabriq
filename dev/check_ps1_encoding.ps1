@@ -26,8 +26,8 @@
 # memory feedback_scripts_english_only).
 #
 # Usage:
-#   pwsh ./dev/check_ps1_encoding.ps1
-#   pwsh ./dev/check_ps1_encoding.ps1 -Root e:\fabriq
+#   powershell.exe -File ./dev/check_ps1_encoding.ps1
+#   powershell.exe -File ./dev/check_ps1_encoding.ps1 -Root e:\fabriq
 #
 # Design note:
 #   This script's source is intentionally ASCII-only. The Japanese/CJK Unicode

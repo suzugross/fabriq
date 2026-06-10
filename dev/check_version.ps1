@@ -11,7 +11,7 @@
 #   - kernel/KERNEL_API.md L3 "**Current Kernel Version**: `{X.Y.Z}`" (full)
 #
 # Usage:
-#   pwsh ./dev/check_version.ps1
+#   powershell.exe -File ./dev/check_version.ps1
 #   (exits 0 on success, 1 on any mismatch)
 # ========================================
 

@@ -13,9 +13,9 @@
 #   e.g.  kernel/01_overview.md  ->  kernel__01_overview.md
 #
 # Usage:
-#   pwsh .\dev\build_brochure_flat.ps1
-#   pwsh .\dev\build_brochure_flat.ps1 -DryRun
-#   pwsh .\dev\build_brochure_flat.ps1 -SourceRoot "E:\other\source"
+#   powershell.exe -File .\dev\build_brochure_flat.ps1
+#   powershell.exe -File .\dev\build_brochure_flat.ps1 -DryRun
+#   powershell.exe -File .\dev\build_brochure_flat.ps1 -SourceRoot "E:\other\source"
 #
 # Safety policy:
 #   Target MUST be inside the user's Desktop AND its leaf name MUST

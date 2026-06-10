@@ -4,7 +4,7 @@
 # ========================================
 # Functions: kernel/common.ps1 :: Confirm-Execution / Wait-KeyPress /
 #            Confirm-ModuleExecution
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the AutoPilot / AutoConfirm short-circuit contract (KERNEL_API.md
 # §1.4 / §2). Both globals were introduced in different kernel cycles

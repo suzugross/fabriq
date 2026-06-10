@@ -2,7 +2,7 @@
 # Pester v5 unit tests for New-BatchResult
 # ========================================
 # Function: kernel/common.ps1 :: New-BatchResult
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the Status auto-determination matrix and Verified pass-through
 # behavior. New-BatchResult underpins almost every standard module's

@@ -2,7 +2,7 @@
 # Pester v5 unit tests for Invoke-SafeCommand
 # ========================================
 # Function: kernel/common.ps1 :: Invoke-SafeCommand
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the fail-closed result-contract behavior (TM t-0005): a module
 # script that completes WITHOUT returning a ModuleResult is recorded as

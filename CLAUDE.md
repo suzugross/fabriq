@@ -73,6 +73,7 @@ stateDiagram-v2
 ### 5. 検証方法の提示
 
 - 実装コードと共に、機能が正しく動作するか・既存機能を壊していないかを確認する具体的な「検証手順（テスト方法）」を必ず出力する。
+- テスト・検証ツール（`run_tests.ps1` / `check_version.ps1` / `check_ps1_encoding.ps1` 等）の実行エンジンは **Windows PowerShell 5.1（`powershell.exe -File`）を正とする**。カーネルの実運用エンジン（5.1）と一致させて 5.1 固有の退行を検出するため。開発機に pwsh 7 は導入されておらず、`pwsh` での起動はパイプ越しに command-not-found が握り潰されてサイレント失敗になる罠がある。成否判定は出力パースではなく**終了コード**（0=成功 / 非 0=失敗）で行う。
 
 ### 6. Post-Apply Verification（適用後検証）の推奨
 
@@ -87,7 +88,7 @@ stateDiagram-v2
 - `.ps1` のコードは**英語のみ**。コメント・文字列リテラル・UI ラベル・ログ文言すべて。日本語禁止（`Guide.txt` 等のドキュメントは日本語可）。
 - 日本語を含む `.ps1`／`.csv` が already-existing で残る場合は **UTF-8 BOM 付き必須**。BOM 無しだと PowerShell 5.1 が日本語版 Windows で CP932 mojibake を起こし、`-match` 等の文字列照合が壊れる実害がある。CSV は **UTF-8 BOM + CRLF**。
 - Write ツールの出力は BOM 無しのため、日本語を含む生成物は後処理で BOM を付与する。
-- 検出: `pwsh ./dev/check_ps1_encoding.ps1`。
+- 検出: `powershell.exe -File ./dev/check_ps1_encoding.ps1`。
 
 ### 8. 破壊的操作の安全ガード
 
@@ -159,7 +160,7 @@ stateDiagram-v2
 - 影響テスト: なし / <test path list>（common.ps1 や公開 API surface を
   touched する場合は必須記載）
 - 新規テスト追加: 不要 / <概要>
-- 実行予定: pwsh ./dev/run_tests.ps1（テスト touched / kernel touched 時は必ず実行）
+- 実行予定: powershell.exe -File ./dev/run_tests.ps1（テスト touched / kernel touched 時は必ず実行）
 ```
 
 ### D. 実装サマリでの最終報告（必須）
@@ -215,7 +216,7 @@ stateDiagram-v2
    - `kernel/common.ps1` L2 `# Easy Kitting Batch - Common Function Library v{X.Y}.Z`（X.Y.Z 完全形）
    - `kernel/main.ps1` L3 `# Fabriq ver{X.Y} - Manifeste du Surkitinisme -`（X.Y のみ）
    - `kernel/KERNEL_API.md` L3 `**Current Kernel Version**: \`{X.Y.Z}\``（X.Y.Z 完全形）
-4. `pwsh ./dev/check_version.ps1` を実行して整合性確認
+4. `powershell.exe -File ./dev/check_version.ps1` を実行して整合性確認
 5. `git tag` は **Claude 側で実行しない**。annotated 形式のコマンドを提示してユーザーに依頼する
    （カーネル: `git tag -a kernel-vX.Y.Z -m "..."` / モジュール単独: `git tag -a <module>-vX.Y.Z -m "..."`）
 
@@ -223,7 +224,7 @@ stateDiagram-v2
 
 ### J. 整合性チェック
 
-- `pwsh ./dev/check_version.ps1` で `KERNEL_VERSION` と各ファイル版表記の整合を検証。
+- `powershell.exe -File ./dev/check_version.ps1` で `KERNEL_VERSION` と各ファイル版表記の整合を検証。
 - 非 0 終了した場合は **必ず** 版表記を揃えてからコミットする。
 
 <!-- TM:BEGIN -->

@@ -2,7 +2,7 @@
 # Pester v5 unit tests for Save-ResumeState / Load-ResumeState
 # ========================================
 # Function: kernel/common.ps1 :: Save-ResumeState / Load-ResumeState
-# Run    : pwsh ./dev/run_tests.ps1
+# Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the on-disk JSON shape contract (FlexProfile schemaVersion=1
 # vs schemaVersion=2) and the Save -> reboot -> Load round-trip
