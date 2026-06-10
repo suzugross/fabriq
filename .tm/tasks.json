@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T16:54:40+09:00",
+  "updatedAt": "2026-06-10T17:35:34+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -61,10 +61,10 @@
       "id": "t-0007",
       "title": "実行経路の回帰テスト追加",
       "content": "既存167テストは契約系の純粋関数（Result/CSV/ResumeスキーマSave-Load/ProfileModules/SelectedHostEnv）に偏在しており、キッティング実行経路に単体テストがない。mock で分岐ロジックのみ pin する: (1) Invoke-BatchExecution の分岐（__RESTART__ 時の Save-ResumeState→Register-FabriqRunOnce 失敗時の Remove-ResumeState 連鎖、ErrorMode skip/retry、finally の LastBatchResults 公開） (2) Protect-/Unprotect-PassphraseForResume の roundtrip（resume 暗号形式のドリフト検知） (3) Register-FabriqRunOnce。WinForms・実再起動を伴う E2E は対象外。",
-      "claudeNote": "構造監査(2026-06-10)で検出。実装自体は健全（main.ps1:435-440 の RunOnce 失敗→Remove-ResumeState 連鎖は正しいことを読解で確認済み）で、欠けているのは回帰検知網のみ。Invoke-SafeCommandAsync の Runspace 経路は mock 困難度が高くスコープ外でも可。",
-      "status": "未着手",
+      "claudeNote": "構造監査(2026-06-10)で検出。実装自体は健全（main.ps1:435-440 の RunOnce 失敗→Remove-ResumeState 連鎖は正しいことを読解で確認済み）で、欠けているのは回帰検知網のみ。Invoke-SafeCommandAsync の Runspace 経路は mock 困難度が高くスコープ外でも可。\r\n見積(2026-06-10): 3部品に分解 — (1)Protect/Unprotect roundtrip ~30分・リスクほぼゼロ / (2)Register-FabriqRunOnce ~1時間・mock必須(HKLM実書込+Fabriq.exe実在のため漏れると次回起動でfabriq自動起動) / (3)Invoke-BatchExecution ~3-5時間・mock対象約12関数・Invoke-CountdownRestartのmock漏れ=実再起動ハザードのため先制throwスタブの安全レール前提。main.ps1関数の抽出はGet-FabriqMainFunctionScriptBlock(AST)が既存実績あり。\r\n実施(2026-06-10): (1)(2)完了。新規 tests/kernel/PassphraseProtection.tests.ps1 8ケース(roundtrip: ASCII/記号/多バイト=コードポイント構築でソースASCII維持/256字、Base64形式、改竄blob throw、garbage throw、空文字拒否) + Register-FabriqRunOnce.tests.ps1 6ケース(正規キー+FabriqAutoStart+String型、quoted値、キー既存時New-Item不発、キー欠損時作成、exe欠損→$false+レジストリ無接触、書込throw→$false)。安全設計: New-Item/New-ItemPropertyは無条件Mock(条件付きMockのフォールスルー罠を回避)、引数検証はShould -Invoke -ParameterFilter側。検証: 193 passed/0 failed(179+14)、実RunOnceにFabriqAutoStart不在を直接確認(リークゼロ)、encoding新規違反ゼロ。tests/のみ=設計ゲート適用外・CHANGELOG不要(§A対象外)・版影響なし。\r\n残: (3)Invoke-BatchExecution分岐(安全レールスタブ整備込み)。\r\n実施(2026-06-10): (3)完了。新規 tests/kernel/Invoke-BatchExecution.tests.ps1 11ケース — Cancel(確認拒否=実行ゼロ+LastBatchResults空publish) / __RESTART__ 3種(RunOnce成功=resume保存・ResumeAfterOrder=marker Order・CountdownRestart発火・後続未実行・finalize不発 / RunOnce失敗=Remove連鎖+[RESTART] Error記録+続行+restart不発 / 非profile=marker黙殺+Save不発) / AutoPilot ErrorMode 3種(retry=1+MaxRetry回で打止め+Error 1回記録 / skip=記録して次へ / 空=dialogフォールバック) / attended=notification 1回・dialog不発 / Finalize 2種(自然完了=Complete-ProfileExecution Mode Auto / FinalizeOnComplete:$false=不発) / finally契約(mid-throw でも部分snapshot publish+AutoPilotMode リセット)。\r\n方式: Get-FabriqMainFunctionScriptBlock(AST)でmain.ps1から抽出。安全2層=BeforeEachで機械影響系を全mock + BeforeAllに先制throwスタブ7本(CountdownRestart/RunOnce/Capture-ScreenEvidence/AutoPilotErrorDialog/Stop-Process/Start-Process/Restart-Computer。mock漏れ=実再起動等を即失敗で顕在化)。Save/Remove-ResumeStateはあえてreal(temp path注入)でon-disk roundtripごと検証。\r\n副産物修正: real Clear-ExecutionResults が Write-StatusFile 経由で repo に kernel/json/status.json を生成→Set-FabriqTestState -StatusFilePath で temp に隔離+AfterEach掃除(成果物削除済・再発なし確認)。\r\n検証: 204 passed/0 failed(193+11)・実RunOnceレジストリCLEAN・temp残骸ゼロ・encoding新規違反ゼロ。PSUseApprovedVerbs警告1件はスタブ名が本体関数名(Capture-ScreenEvidence)に一致必須のため許容。t-0007全部品完了。コミット承認・実施(2026-06-10)。",
+      "status": "完了",
       "createdAt": "2026-06-10T14:07:05+09:00",
-      "updatedAt": "2026-06-10T14:07:05+09:00"
+      "updatedAt": "2026-06-10T17:35:34+09:00"
     },
     {
       "id": "t-0008",
