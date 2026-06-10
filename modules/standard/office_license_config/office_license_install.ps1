@@ -48,6 +48,28 @@ function Find-OsppVbs {
     return $null
 }
 
+# ========================================
+# Helper: Query installed partial product keys via /dstatus
+# ========================================
+# Returns the "Last 5 characters of installed product key" values from
+# OSPP.vbs /dstatus as a string array (empty when no products or the
+# query fails). OSPP.vbs output literals are English regardless of OS
+# locale, so the pattern match is locale-safe.
+function Get-InstalledPartialKeys {
+    param([Parameter(Mandatory)][string]$OsppPath)
+    $partials = @()
+    try {
+        $statusOutput = & cscript //Nologo "$OsppPath" /dstatus 2>&1 | Out-String
+        foreach ($line in ($statusOutput -split "\r?\n")) {
+            if ($line -match 'Last 5 characters of installed product key:\s*([A-Za-z0-9]{5})') {
+                $partials += $Matches[1].ToUpperInvariant()
+            }
+        }
+    }
+    catch { }
+    return ,@($partials)
+}
+
 # Check Administrator Privileges
 if (-not (Test-AdminPrivilege)) {
     Show-Error "This script requires administrator privileges."
@@ -172,6 +194,8 @@ Write-Host ""
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
+$verifyPass   = 0
+$verifyFail   = 0
 
 foreach ($item in $enabledItems) {
     $displayName = if ($item.Description) { $item.Description } else { "Office Product Key" }
@@ -227,13 +251,36 @@ foreach ($item in $enabledItems) {
             }
         }
 
-        if ($exitCode -eq 0) {
-            Show-Success "Product key registered: $displayName"
-            $successCount++
-        }
-        else {
+        if ($exitCode -ne 0) {
             Show-Error "cscript failed (ExitCode=$exitCode): $displayName"
             $failCount++
+        }
+        else {
+            # OSPP.vbs reports /inpkey errors (e.g. 0xC004F050) as text
+            # while still exiting 0, so exit code 0 is not proof of
+            # registration. Read the state back via /dstatus and require
+            # the key's last 5 characters to be present (same
+            # distrust-the-exit-code stance as office_license_auth.ps1).
+            $keyLast5 = $item.ProductKey.Substring($item.ProductKey.Length - 5).ToUpperInvariant()
+            Show-Info "Verifying key registration via /dstatus..."
+            $installedKeys = @(Get-InstalledPartialKeys -OsppPath $osppPath)
+            if ($installedKeys -notcontains $keyLast5) {
+                # License state can lag a moment behind /inpkey; one retry.
+                Start-Sleep -Seconds 2
+                $installedKeys = @(Get-InstalledPartialKeys -OsppPath $osppPath)
+            }
+
+            if ($installedKeys -contains $keyLast5) {
+                Write-Host "  [VERIFIED] Key ...$keyLast5 present in /dstatus" -ForegroundColor Green
+                Show-Success "Product key registered: $displayName"
+                $successCount++
+                $verifyPass++
+            }
+            else {
+                Show-Error "Key ...$keyLast5 not present in /dstatus after /inpkey (registration did not take effect): $displayName"
+                $failCount++
+                $verifyFail++
+            }
         }
     }
     catch {
@@ -248,5 +295,10 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Result
 # ========================================
+# Verified covers the /dstatus read-back of keys that passed /inpkey:
+# $true = every applied key confirmed present, $false = at least one
+# missing, $null = nothing reached the read-back (all skipped/failed).
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "Office Product Key Installation Results")
+    -Title "Office Product Key Installation Results" -Verified $verified)

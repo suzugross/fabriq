@@ -49,6 +49,15 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- modules/standard/office_license_config v1.0.1 → v1.1.0 (Fixed + Post-Apply Verification 追加:
+  OSPP exit code 偽 Success を修正, TM t-0013): office_license_install.ps1 が /inpkey の成否を
+  cscript の exit code のみで判定していたが、OSPP.vbs は鍵登録エラー（例: 0xC004F050）を
+  テキスト出力しつつ exit 0 で終わるため、失敗した鍵登録が「Product key registered」Success
+  として記録されていた。exit=0 でも /dstatus を読み返し「Last 5 characters of installed
+  product key」に投入キー末尾 5 字が存在することを成功条件に変更（不在時は 2 秒後に 1 回
+  再クエリ）。読み返し結果を `-Verified` に集約（全 PASS=true / 不在あり=false / 適用 0 件=null）。
+  office_license_auth.ps1 と同じ「exit code を信用しない」設計に統一。正常系の判定は不変
+  （/dstatus 1〜2 回分の数秒が加算されるのみ）、キーのマスク方針（末尾 5 字のみ露出)も維持。
 - modules/standard/windows_update v1.0.0 → v1.0.1 (Fixed: ダウンロード失敗のサイレント
   Success 化を修正, TM t-0012): ダウンロード結果判定が `ResultCode -ge 2` だったため、
   WUA が throw せず戻り値で返す OperationResultCode 4=Failed / 5=Aborted（USO 競合等で

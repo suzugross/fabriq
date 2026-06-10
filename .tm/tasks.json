@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-10T23:15:00+09:00",
+  "updatedAt": "2026-06-11T00:05:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -115,10 +115,10 @@
       "id": "t-0013",
       "title": "[HIGH] office_license_install: OSPP.vbs の成否を exit code だけで判定（偽Success）",
       "content": "office_license_install.ps1:220-237 が /inpkey の成否を cscript の exit code のみで判定している。OSPP.vbs は鍵登録失敗（例: 0xC004F050）をテキスト出力で報告しつつ exit 0 で終わるケースが多く、失敗した鍵登録が「Product key registered」Success として記録される。兄弟スクリプト office_license_auth.ps1 は exit code を信用せず /dstatus パースで検証する正しい実装済み（:214 付近）なので、同方式で /dstatus 読み返し→PartialProductKey 比較を install 側にも実装する。",
-      "claudeNote": "全体監査(2026-06-10)で検出。auth とのペア運用なら auth 側で露見するが、install 単独実行プロファイルでは出荷まで気付けない。module MINOR（Post-Apply Verification 追加）。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。auth とのペア運用なら auth 側で露見するが、install 単独実行プロファイルでは出荷まで気付けない。module MINOR（Post-Apply Verification 追加）。\r\n追加調査(2026-06-10 install 252行 + auth 274行 精読): 指摘は妥当。install L220-237 は exit code 0 のみで Success 判定、出力パースも /dstatus 読み返しも無し。auth 側は L214-216 で exit code を警告のみに留め L221-274 で /dstatus パース(LICENSE STATUS 抽出)による検証を実装済み — 兄弟スクリプト自身が「OSPP の exit code は信用しない」設計思想を体現しており指摘と整合。前提(OSPP.vbs が /inpkey エラーでも exit 0)は OSPP.vbs の既知挙動 + auth の設計から妥当性高いが、開発機に Office 不在のため実行確認は不可。\r\n修正設計(前提非依存になる点が要点): per-item で (1)exit≠0 → 従来どおり Fail (2)exit=0 でも /dstatus を読み返し「Last 5 characters of installed product key:」行を抽出して投入キー末尾5字の存在を確認、不在なら 2 秒待って 1 回再クエリ、なお不在なら Fail(key not present after /inpkey)。読み返し結果を -Verified に集約(全 PASS=true / いずれか不在=false / 適用 0 件=null)。末尾5字のみログに出すのは既存 Get-MaskedKey のマスク方針と整合。OSPP.vbs の文字列リテラルは OS ロケール非依存(英語固定)のためパースは安全。この設計なら「exit 0 でエラー」前提が仮に外れていても誤動作しない(読み返しは確認にしかならない)。\r\n影響: 正常系は Success 判定そのまま(+/dstatus 1〜2 回分の数秒)、偽 Success だけが Fail 化。module MINOR(Post-Apply Verification 追加、§B 例示どおり)・REQUIRES_KERNEL 据置・kernel 不変。テスト: モジュールスクリプト+cscript 依存のためハーネス対象外、parse_check+既存スイート+実機(Office 機での次回キッティング)で確認。設計ゲート(フル版)提示済み・実装承認待ち。\r\n実装(2026-06-10): 完了・検証済(未コミット)。Get-InstalledPartialKeys ヘルパー新設(/dstatus から Last 5 characters 行を抽出・ロケール非依存・失敗時空配列)。実行ループを二段判定化: exit≠0→Fail(従来どおり) / exit=0→末尾5字の /dstatus 存在確認(不在時 2 秒後 1 回再クエリ)→存在で Success+[VERIFIED] 表示、不在で Fail。verifyPass/verifyFail を New-BatchResult -Verified に集約(適用 0 件は null)。auth 側は不変更。VERSION 1.0.1→1.1.0(MINOR/Post-Apply Verification 追加)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。実機確認は Office 機での次回キッティング(正常キーで Verified: PASS、誤キーで Fail+Verified: FAIL になること)。コミット承認待ち。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T00:05:00+09:00"
     },
     {
       "id": "t-0014",
