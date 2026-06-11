@@ -215,6 +215,7 @@ foreach ($item in $enabledItems) {
 
         # Phase B: Individual overrides (shallow-to-deep order)
         $manifest = $manifestData[$item.Id]
+        $indivFail = 0
 
         if ($null -eq $manifest -or $manifest.Count -eq 0) {
             # Check if manifest file exists but was empty
@@ -233,7 +234,6 @@ foreach ($item in $enabledItems) {
             Show-Info "Phase 2: Restoring $($sortedManifest.Count) individual non-inherited overrides..."
             $current = 0
             $indivSuccess = 0
-            $indivFail = 0
 
             foreach ($entry in $sortedManifest) {
                 $current++
@@ -267,8 +267,18 @@ foreach ($item in $enabledItems) {
             Show-Info "Individual restores: $indivSuccess succeeded, $indivFail failed"
         }
 
-        Show-Success "Completed: $displayName"
-        $successCount++
+        # A failed override means that subdir's non-inherited ACL may
+        # have been clobbered by inheritance propagation during the full
+        # restore - count the item as Fail instead of the previous
+        # unconditional Success.
+        if ($indivFail -gt 0) {
+            Show-Error "Completed with $indivFail failed overrides: $displayName"
+            $failCount++
+        }
+        else {
+            Show-Success "Completed: $displayName"
+            $successCount++
+        }
     }
     catch {
         Show-Error "Failed: $displayName : $_"

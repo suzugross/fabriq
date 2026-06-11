@@ -16,6 +16,68 @@
 ## [Unreleased]
 
 ### Fixed
+- modules/extended/userdata_backup v0.1.0 → v0.1.1 (Fixed: 0 件バックアップが Verified PASS
+  になる検証穴を修正, TM t-0020(5)): Step 5.6 の per-entry 検証が Skipped エントリを素通り
+  するため、全ソース欠落（別プロファイル指定ミス・ドライブ未マウント等）で 0 ファイルの
+  バックアップが PASS 表示だった — 「PASS = 旧 PC を初期化してよい」と読まれると不可逆の
+  データ喪失につながる最重量の偽 PASS。実バックアップ 0 件（全エントリ Skipped）のとき
+  VERIFY FAIL「no data was backed up」を加算し Verified=false に。一部欠落は設計どおり
+  PASS のまま（日常ケースで、warnings / manifest missingSource / Skip 数で可視化済み）。
+  userdata_restore は不変更。
+- modules/standard/acl_config v1.0.0 → v1.0.1 (Fixed: 個別フェーズ失敗の偽 Success と
+  manifest の幻エントリを修正, TM t-0020(9)): (1) backup/restore とも個別フェーズ
+  （非継承サブディレクトリの icacls /save / /restore）の失敗が Warning + 内部カウンタのみで
+  item は無条件 Success だった — 個別失敗は「継承伝播による非継承 ACL の上書き」を復元時に
+  残す実害があるため、indivFail>0 の item を Fail に計上（複数 item では BatchResult が
+  Partial を導出）。(2) backup の manifest 追記が icacls の成否に関係なく行われ、存在しない
+  BackupFile を主張する幻エントリが restore 時の not-found 警告として顕在化していた —
+  成功時のみ追記に変更（当該サブツリーは Phase 1 フルバックアップに含まれており欠落しない。
+  旧資産の幻エントリ入り manifest も restore 側の既存 not-found 処理で互換）。
+  acl_config の Verified 除外方針（偽 PASS リスク）は維持 — 今回は Status 計上のみの修正。
+- modules/standard/fabriq_app_launcher v1.0.0 → v1.0.1 (Fixed: wait モードの exit code 不問
+  Success を修正, TM t-0020(10)): `-PassThru` で取得したプロセスを `$null =` で捨てており、
+  アプリがクラッシュ（powershell -File は未捕捉例外で exit 1）しても「Completed」+ Success
+  だった。ExitCode 判定を追加 — 0 → Success / 非 0 → Fail「App exited with code N」。
+  background モード（fire-and-forget）と Skip / 起動失敗 catch は不変更。
+- modules/standard/ppkg_config v1.0.0 → v1.1.0 (Fixed: ppkg_uninstall の偽 Success/偽 Skip を
+  修正 — 再起動跨ぎ運用と両立する Verified ベースの正直化, TM t-0020(7)): フラグ推論の
+  Phase 3 が「cmdlet 失敗 + ファイル削除成功 → Success (Cleaned up)」「cmdlet 失敗 +
+  ファイル無し → Skip (Already clean)」と、ストアに登録が残ったままでも成功系を報告して
+  いた。実運用は __RESTART__ 前後の 2 回実行でロック解除→実態削除を行うため、単純な
+  fail-closed 化は実行①の正常な中間状態を偽 Fail 化してしまう。採った設計（案B改）:
+  (1) verdict をストア再クエリに変更 — エントリ残存（cmdlet throw 含む）は
+  Success + **Verified=false**「Pending - re-run after restart」（ErrorMode 非発火で
+  フロー互換、checklist VERIFY 欄で可視化、Fail への自動昇格はパッケージ依存の必要再起動
+  回数を決め打ちできないため仕様として持たない）/ 完遂のみ Verified=true。
+  (2) ファイルロック残存時は MoveFileEx(DELAY_UNTIL_REBOOT) で削除予約 — エントリ消滅後は
+  PackagePath が辿れなくなる「実態ファイル永久残留」経路（Wi-Fi キー等を含み得る）を、
+  パス既知のうちに OS へ削除委任して閉鎖。モジュール Verified は pending>0 → false +
+  MessageSuffix で件数明記 / 全完遂 → true / 処理ゼロ → null。
+- modules/standard/winget_install v1.0.0 → v1.1.0 (Fixed: winget_update の未知 exit code
+  無条件 Success と Wait-NetworkReady 無限ブロック×3 を修正, TM t-0020(6)):
+  (1) winget_update の default 分岐が任意の未知 exit code を Success 扱いしていた。背景には
+  「AppInstaller 自己更新が実行中の winget.exe を殺し、成功でも異常 code が返る」正当ケース
+  があるため、単純な Error 反転ではなく**バージョン読み返し判定**に変更 — 実行前に
+  `winget --version` を記録し、未知 code 時に再読（2 秒間隔×最大 3 回で MSIX 登録遅延を
+  吸収）: version 変化 → Success + Verified=true（自己更新 kill の救済）/ 不変・読取不能 →
+  Error（exit code 併記）。winget_install / winget_upgrade の exit code 処理は元々健全で不変更。
+  (2) 3 ファイルの Wait-NetworkReady（無限ループ）を有界プローブ（Test-Connection 2 発 →
+  Error 返却）に置換。Error は AutoPilot 既定（ErrorMode 空 = Ask）でブロッキングダイアログ
+  に捕捉され、無断で次工程に進まないことを kernel 実装（main.ps1 ErrorMode 分岐）で確認済み。
+- modules/standard/windows_update v1.0.1 → v1.1.0 (Changed: ネットワーク待ちを有界化,
+  TM t-0020(6)): Wait-NetworkReady（無限ループ）を猶予窓方式に置換 — 10 秒間隔で最大 120 秒
+  ポーリングし、未達なら既存の Error 契約（hashtable）で可視に失敗。WU はキッティングの
+  根幹ゲートのため、ダイアログを出す前に 2 分粘る設計。kernel の Wait-NetworkReady 本体は
+  公開 API のため据置（モジュール側の呼び出し元はゼロになった — 撤去は別途判断）。
+- modules/standard/windows_license_config v1.0.1 → v1.1.0 (Fixed + Post-Apply Verification
+  追加: 旧キー残留でも Success になる検証穴を修正, TM t-0020(2)): Step 6 が「Partial Key を
+  持つ Windows 製品の存在」しか見ておらず、旧キーが残っているだけでも Success、読み返し
+  失敗でも Success（verification pending）だった。投入キー末尾 5 桁（Get-MaskedKey が元々
+  可視にする部分 = 新規露出なし）と一致する PartialProductKey の製品を探す照合に変更 —
+  一致 → Success + Verified=true / 製品はあるが全不一致（旧キー残留の確定証拠）→ Error
+  （expected/actual 併記）/ 製品ゼロ（WMI 読取不能）→ Success + Verified=false（install は
+  throw しておらず失敗の証拠もないため）。WMI 反映遅延は 2 秒間隔×最大 3 回の再読で吸収
+  （固定 Sleep 1 を置換）。windows_license_auth.ps1 は不変更。
 - modules/standard/spi_config v1.0.1 → v1.1.1 (Fixed: GET 失敗時に目標値 0 の行が
   偽 SKIP（未適用のまま Skip 計上）になるバグを修正, TM t-0020(4)): C# ヘルパー GetValue
   が SystemParametersInfo の BOOL 戻り値を捨て、0 初期化バッファをそのまま返していたため、

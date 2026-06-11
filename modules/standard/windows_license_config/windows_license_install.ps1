@@ -177,31 +177,55 @@ catch {
 }
 
 # ========================================
-# Step 6: Verify Installation
+# Step 6: Verify Installation (read-back against the entered key)
 # ========================================
-Start-Sleep -Seconds 1
+# Mere existence of a Windows product with a PartialProductKey is not
+# verification - a leftover OLD key looks identical. Match the last 5
+# characters of the entered key (the part Get-MaskedKey keeps visible
+# by design, so no new exposure). Retry to absorb WMI refresh latency.
+$expectedPartial = $productKey.Substring($productKey.Length - 5).ToUpper()
+$matchedProduct  = $null
+$winProducts     = @()
 
-$finalCheck = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue |
-              Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" } |
-              Select-Object -First 1
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    Start-Sleep -Seconds 2
+    $winProducts = @(Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue |
+                     Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" })
+    $matchedProduct = $winProducts |
+        Where-Object { "$($_.PartialProductKey)".ToUpper() -eq $expectedPartial } |
+        Select-Object -First 1
+    if ($matchedProduct) { break }
+}
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor White
 Write-Host "Installation Result" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor White
 
-if ($finalCheck) {
-    $editionName = $finalCheck.Name.Split(',')[0]
+if ($matchedProduct) {
+    $editionName = $matchedProduct.Name.Split(',')[0]
     Write-Host "  Edition:        $editionName" -ForegroundColor Green
-    Write-Host "  Partial Key:    $($finalCheck.PartialProductKey)" -ForegroundColor Green
-    Write-Host "  License Status: $(Get-LicenseStatusText $finalCheck.LicenseStatus)"
+    Write-Host "  Partial Key:    $($matchedProduct.PartialProductKey) (matches entered key)" -ForegroundColor Green
+    Write-Host "  License Status: $(Get-LicenseStatusText $matchedProduct.LicenseStatus)"
     Write-Host "========================================" -ForegroundColor White
 
-    return (New-ModuleResult -Status "Success" -Message "Key installed (Partial: $($finalCheck.PartialProductKey))")
+    return (New-ModuleResult -Status "Success" -Message "Key installed (Partial: $($matchedProduct.PartialProductKey))" -Verified $true)
 }
-else {
-    Show-Warning "Could not verify installation"
+
+if ($winProducts.Count -gt 0) {
+    # Products are readable but none carries the entered key - the OLD
+    # key is still in effect. Definite contradiction -> fail closed.
+    $actualPartials = ($winProducts | ForEach-Object { $_.PartialProductKey }) -join ', '
+    Show-Error "Installed key mismatch (expected last5: $expectedPartial, actual: $actualPartials)"
     Write-Host "========================================" -ForegroundColor White
 
-    return (New-ModuleResult -Status "Success" -Message "Key installed (verification pending)")
+    return (New-ModuleResult -Status "Error" -Message "Key mismatch after install (expected: $expectedPartial, actual: $actualPartials)")
 }
+
+# No licensing product readable at all: the install itself did not throw,
+# so there is no evidence of failure - report Success but mark it
+# unverified so the checklist surfaces it.
+Show-Warning "Could not read back the installed key (WMI returned no Windows licensing product)"
+Write-Host "========================================" -ForegroundColor White
+
+return (New-ModuleResult -Status "Success" -Message "Key installed (read-back failed)" -Verified $false)
