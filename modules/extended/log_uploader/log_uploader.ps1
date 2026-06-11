@@ -99,6 +99,29 @@ if (-not [string]::IsNullOrWhiteSpace($transcriptPath)) {
 }
 
 # ========================================
+# Helper: robocopy with exit-code verdict
+# ========================================
+# Robocopy's exit code is a bitmask: 0-3 = success (1 copied, 2 extras),
+# 4-7 = completed with mismatches, >=8 = at least one file/dir could not
+# be copied. >=8 throws so the per-destination catch records the FAIL -
+# an evidence upload must never report Success on a partial copy.
+function Invoke-UploadCopy {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination,
+        [string[]]$ExtraArgs = @()
+    )
+    $null = robocopy $Source $Destination /E /NJH /NJS /NDL /NP /R:2 /W:1 @ExtraArgs 2>&1
+    $rc = $LASTEXITCODE
+    if ($rc -ge 8) {
+        throw "robocopy failed (ExitCode=$rc): $Source -> $Destination"
+    }
+    if ($rc -ge 4) {
+        Show-Warning "robocopy completed with mismatches (ExitCode=$rc): $Source -> $Destination"
+    }
+}
+
+# ========================================
 # Copy to each destination
 # ========================================
 $successCount = 0
@@ -167,9 +190,9 @@ foreach ($dest in $destinations) {
             $null = New-Item -ItemType Directory -Path $destLogs -Force
             $telemetryAbs = (Resolve-Path (Join-Path $logsDir "telemetry") -ErrorAction SilentlyContinue).Path
             if ($telemetryAbs) {
-                $null = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 /XD $telemetryAbs 2>&1
+                Invoke-UploadCopy -Source $logsDir -Destination $destLogs -ExtraArgs @('/XD', $telemetryAbs)
             } else {
-                $null = robocopy $logsDir $destLogs /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+                Invoke-UploadCopy -Source $logsDir -Destination $destLogs
             }
             Show-Success "logs/ copied (telemetry excluded)"
         }
@@ -180,14 +203,14 @@ foreach ($dest in $destinations) {
                 # Unified mode: copy session evidence directly into destBase/evidence/
                 $destEvidence = Join-Path $destBase "evidence"
                 $null = New-Item -ItemType Directory -Path $destEvidence -Force
-                $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+                Invoke-UploadCopy -Source $evidenceDir -Destination $destEvidence
                 Show-Success "evidence/ copied (session only)"
             }
             else {
                 # Fallback: copy entire evidence/ directory
                 $destEvidence = Join-Path $destBase "evidence"
                 $null = New-Item -ItemType Directory -Path $destEvidence -Force
-                $copyResult = robocopy $evidenceDir $destEvidence /E /NJH /NJS /NDL /NP /R:2 /W:1 2>&1
+                Invoke-UploadCopy -Source $evidenceDir -Destination $destEvidence
                 Show-Success "evidence/ copied"
             }
         }
