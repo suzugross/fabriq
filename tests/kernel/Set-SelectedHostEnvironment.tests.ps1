@@ -219,8 +219,9 @@ Describe 'Set-SelectedHostEnvironment' {
         # Set-SelectedHostEnvironment owns the routing decision: when
         # to invoke Unprotect-FabriqValue and when to pass the value
         # through. The Unprotect-FabriqValue algorithm itself
-        # (PBKDF2 + AES-256-CBC) is pinned by its own test file; here
-        # we only verify the routing branches via Mock.
+        # (PBKDF2 + AES-256-CBC) is pinned by
+        # UnprotectFabriqValue.tests.ps1; here we only verify the
+        # routing branches via Mock.
 
         It 'passes plain (non-ENC:) values straight through even with passphrase set' {
             $global:FabriqMasterPassphrase = 'master-pass'
