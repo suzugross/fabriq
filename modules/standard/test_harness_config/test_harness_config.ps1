@@ -11,10 +11,15 @@
 # Import-ModuleCsv).
 #
 # [NOTES]
-# - No registry / file system / process side effects (only Start-Sleep).
-# - Cross-invocation state lives in $global:FabriqTestHarnessState
-#   and is discarded when the PowerShell process exits (e.g. on
-#   __RESTART__ or session end).
+# - No registry / file system side effects (only Start-Sleep and
+#   process-scope environment variables).
+# - Cross-invocation state (FailFirstN attempt counters) lives in
+#   process-scope FABRIQ_TESTHARNESS_* environment variables: under
+#   DefaultAsync every execution runs in a fresh child runspace, so a
+#   runspace-global dies with each attempt (which froze retry_success
+#   at attempt=1 forever). Process env is shared by all runspaces in
+#   this fabriq process, persists nowhere, and is discarded when the
+#   process exits (e.g. on __RESTART__ or session end).
 # ========================================
 
 Write-Host ""
@@ -77,10 +82,6 @@ Write-Host ""
 # ========================================
 # Step 5: Process each scenario item
 # ========================================
-if ($null -eq $global:FabriqTestHarnessState) {
-    $global:FabriqTestHarnessState = @{}
-}
-
 # Resolve current segment from environment for state keying
 $currentSegment = if ([string]::IsNullOrWhiteSpace($env:FABRIQ_SEGMENT)) { "" } else { $env:FABRIQ_SEGMENT.Trim() }
 
@@ -116,13 +117,16 @@ foreach ($item in $enabledItems) {
         return (New-ModuleResult -Status "Cancelled" -Message "Simulated cancellation by test harness")
     }
 
-    # FailFirstN handling - bump per-(segment+testname) attempt counter
+    # FailFirstN handling - bump per-(segment+testname) attempt counter.
+    # Process-scope env var (see NOTES): survives the per-execution
+    # child runspace under DefaultAsync, dies with the fabriq process,
+    # never touches the registry.
     $stateKey = "${currentSegment}::$($item.TestName)"
-    if (-not $global:FabriqTestHarnessState.ContainsKey($stateKey)) {
-        $global:FabriqTestHarnessState[$stateKey] = 0
-    }
-    $global:FabriqTestHarnessState[$stateKey]++
-    $attempt = $global:FabriqTestHarnessState[$stateKey]
+    $envName  = "FABRIQ_TESTHARNESS_" + ($stateKey -replace '[^A-Za-z0-9]', '_')
+    $attempt  = 0
+    [void][int]::TryParse([Environment]::GetEnvironmentVariable($envName), [ref]$attempt)
+    $attempt++
+    [Environment]::SetEnvironmentVariable($envName, "$attempt")
 
     $failFirstN = 0
     if (-not [string]::IsNullOrWhiteSpace($item.FailFirstN)) {
@@ -130,9 +134,11 @@ foreach ($item in $enabledItems) {
     }
 
     $effectiveBehavior = $item.Behavior
+    $forcedFail = $false
     if ($failFirstN -gt 0 -and $attempt -le $failFirstN) {
         Show-Warning "[TEST] Forcing fail (attempt $attempt of FailFirstN=$failFirstN)"
         $effectiveBehavior = "fail"
+        $forcedFail = $true
     }
 
     # Apply behavior
@@ -145,7 +151,10 @@ foreach ($item in $enabledItems) {
         "fail" {
             Show-Error "Failed: $displayName"
             $failCount++
-            $verifiedValues += ,$item.Verified
+            # A forced FailFirstN failure mimics a module that failed
+            # mid-apply: Verified=false, NOT the CSV's success-row value
+            # (which made the Error result aggregate Verified=true).
+            $verifiedValues += ,$(if ($forcedFail) { "false" } else { $item.Verified })
         }
         "skip" {
             Show-Skip "Skipped: $displayName"

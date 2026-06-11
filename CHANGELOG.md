@@ -36,6 +36,16 @@
   旧形式平文 PIN の互換復元 / Reset クリアリストの AST 契約）。スイート 266 → 272。
 
 ### Fixed
+- modules/standard/test_harness_config v1.0.0 → v1.0.1 (Fixed: retry_success シナリオの
+  DefaultAsync 非互換と Error+Verified=true の矛盾を修正, TM t-0026): (1) FailFirstN の
+  試行カウンタが $global:FabriqTestHarnessState（プロセス内 global 前提）で、DefaultAsync
+  の子 Runspace では実行ごとに使い捨て → attempt が常に 1 で retry_success が永遠に
+  成功しない（auto-retry 15 連続 Error の実機報告で発覚。kernel のリトライ機構自体は正常）。
+  プロセススコープ環境変数 FABRIQ_TESTHARNESS_* に移設 — 同一プロセスの全 Runspace で共有、
+  レジストリ非接触、プロセス終了で消滅（ターゲット PC 残留物ゼロ）。(2) FailFirstN の
+  forced-fail が CSV の成功時用 Verified 値（true）をそのまま集約し Error+Verified=PASS
+  という実モジュールであり得ない組み合わせを生んでいた → forced-fail 時は "false" を
+  積む（リトライ系列が Error+VF → Error+VF → Success+Verified=true と自然になる）。
 - modules/standard/printer_driver_config v1.1.1 → v1.1.2 (Fixed: Driver Store 削除失敗時の
   虚偽サマリ行を修正, TM t-0023(5)): pnputil /delete-driver が失敗（INF 共有等）しても
   サマリが「Store: oemNN.inf deleted」を緑表示していた。exit code から $storeDeleted を
