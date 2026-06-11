@@ -1358,6 +1358,19 @@ if ($null -ne $resumeState) {
         $isResuming = $true
         Restore-HostEnvironment -HostEnv $resumeState.HostEnvironment
         Show-Success "Environment restored for: $($resumeState.HostEnvironment.SELECTED_NEW_PCNAME)"
+
+        # Restore the host PIN from its DPAPI-protected field. New-format
+        # resume states exclude the PIN from the HostEnvironment snapshot;
+        # old files with an inline plaintext PIN were restored verbatim
+        # above (backward compatible).
+        if (-not [string]::IsNullOrWhiteSpace($resumeState.ProtectedPin)) {
+            try {
+                $env:SELECTED_PIN = Unprotect-PassphraseFromResume -ProtectedBase64 $resumeState.ProtectedPin
+            }
+            catch {
+                Show-Warning "Failed to restore PIN from DPAPI: $_ (PIN unavailable this session)"
+            }
+        }
         $script:SessionID = $resumeState.SessionID
 
         # Restore evidence base path from resume state (or fallback to new generation)

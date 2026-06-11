@@ -15,6 +15,26 @@
 
 ## [Unreleased]
 
+### Security
+- kernel/common.ps1 + kernel/main.ps1: SELECTED_PIN が resume_state.json に平文で
+  再起動を跨いで残留する非対称を解消 (TM t-0022(1)): パスフレーズは DPAPI 保護・
+  テレメトリは PIN を hard-redact 済みの中、resume 経路だけ素通しだった。
+  Save-ResumeState の HostEnvironment スナップショットから SELECTED_PIN を除外し、
+  既存の Protect-PassphraseForResume（DPAPI LocalMachine）で `ProtectedPin` フィールド
+  として保存（暗号化失敗時は Warning + 平文フォールバックなし = fail-closed）。
+  main.ps1 の resume 復元で復号して env へ再設定。旧形式ファイル（平文 PIN 入り
+  HostEnvironment）は Restore-HostEnvironment が従来どおり復元（後方互換）。
+  状態 JSON スキーマ変更 = 公開 API 不変（KERNEL_API.md 更新なし、§B PATCH 相当）。
+- kernel/common.ps1: Reset-FabriqState の環境変数クリアリストに SELECTED_PIN /
+  FABRIQ_WORKER_NAME / FABRIQ_SEGMENT を追加 (TM t-0022(2)): Refabriq/NewSession 後も
+  前ターゲット PC の PIN 等がプロセス環境に残存していた。WORKER_NAME は直後の
+  Initialize-Session 強制再選択で再設定される。
+
+### Added
+- tests/kernel/ResumeState.tests.ps1: SELECTED_PIN 保護の回帰テスト 6 件追加
+  （平文不在 / スナップショット除外 / DPAPI round-trip / 空時の ProtectedPin 省略 /
+  旧形式平文 PIN の互換復元 / Reset クリアリストの AST 契約）。スイート 266 → 272。
+
 ### Fixed
 - modules/extended/userdata_backup v0.1.0 → v0.1.1 (Fixed: 0 件バックアップが Verified PASS
   になる検証穴を修正, TM t-0020(5)): Step 5.6 の per-entry 検証が Skipped エントリを素通り
