@@ -49,6 +49,24 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- modules/standard/temp_ipaddress_config v1.0.0 → v1.0.1 (Fixed: DAD 重複検出時の偽 Success と
+  PS5.1 非互換パラメータを修正, TM t-0014):
+  (1) DAD リトライの `continue` が switch 内にあり（PowerShell の `continue` は switch を継続し
+  enclosing while には効かない）、直後の無条件 `break` で選択ループを脱出 → `$selected=$null` の
+  まま検証へ進み、最終的に Status=Success（Message は空値入り・Verified=false のみが手掛かり）で
+  返っていた。重複 IP 検出 → ダイアログ再表示というこのモジュールの設計目的そのものが機能して
+  いなかった。switch を if/elseif/else に書き換えて遷移を復旧し、ループ直後に `$selected=$null`
+  防御ガード（Error 返却）を追加。
+  (2) GW 疎通チェックの `Test-Connection -TimeoutSeconds` は PS5.1 に存在せず（PS6+）、binding
+  エラーが try/catch に飲まれ恒久「ICMP-blocked かも」警告になっていた。パラメータを除去
+  （5.1 既定の echo timeout 1000ms ≒ 元の意図どおり）。OK/エラー/キャンセル/Sticky 経路は不変。
+  (3) DAD 待ちが固定 0.5s+1s（最大 1.5 秒）で、DAD 完了に 1〜3 秒+かかる環境（VM NIC 等）では
+  正常な空き IP 選択でも「AddressState is Tentative」Error になっていた（実機テストで検出。
+  IP 自体は直後に Preferred 化して使用可能になるため Error 報告と実態が乖離）。
+  500ms 間隔・最大 5 秒のポーリングに置換。5 秒超過の Tentative（リンク断等の真の異常）のみ
+  Error。既知の許容挙動として記録: Duplicate 検出時は DNS/GW のみ残り IP/サブネットが
+  空の中途状態になりうる（DAD 検出には一旦の設定が構造上必須のため改修見送り・operator は
+  ダイアログ再選択で次の IP を適用すれば上書きされる）。
 - modules/standard/office_license_config v1.0.1 → v1.1.0 (Fixed + Post-Apply Verification 追加:
   OSPP exit code 偽 Success を修正, TM t-0013): office_license_install.ps1 が /inpkey の成否を
   cscript の exit code のみで判定していたが、OSPP.vbs は鍵登録エラー（例: 0xC004F050）を
