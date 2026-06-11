@@ -2990,7 +2990,18 @@ function Complete-ProfileExecution {
                 Write-Host ""
                 Write-Host "[INFO] Auto-uploading logs and evidence..." -ForegroundColor Cyan
                 try {
-                    $null = & $logUploaderScript
+                    $uploadResult = & $logUploaderScript
+                    # Record non-Success outcomes: the result used to be
+                    # discarded here, so an incomplete evidence upload on
+                    # the Linear auto-finalize path vanished without a
+                    # history entry. Success stays unrecorded (legacy
+                    # behavior); failures surface in history and the next
+                    # [cl] checklist regeneration.
+                    if ($null -ne $uploadResult -and $uploadResult._IsModuleResult -and $uploadResult.Status -ne 'Success') {
+                        Show-Warning "Log upload reported $($uploadResult.Status): $($uploadResult.Message)"
+                        Add-ExecutionResult -Operation "Log Upload (auto)" -Status $uploadResult.Status -Message $uploadResult.Message -Order 0
+                        $null = Write-ExecutionHistory -ModuleName "Log Upload (auto)" -Category "System" -Status $uploadResult.Status -Message $uploadResult.Message -Order 0
+                    }
                 }
                 catch {
                     Show-Warning "Log upload failed: $($_.Exception.Message)"

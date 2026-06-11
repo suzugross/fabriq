@@ -49,6 +49,18 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- modules/extended/log_uploader v1.1.0 → v1.1.1 + kernel/common.ps1 (Fixed: robocopy exit code
+  無視による納品エビデンスのサイレント不完全を修正, TM t-0015):
+  (1) log_uploader の robocopy 3 呼出（logs/・evidence/）が `$LASTEXITCODE` を読まず無条件
+  Show-Success だったため、共有切断・ACL 拒否（exit≥8 = 1 件以上コピー失敗）でも
+  「Upload complete」と報告されていた。`Invoke-UploadCopy` ヘルパーを新設し
+  robocopy_config の実績マッピングを踏襲（≥8 = throw → 既存 per-destination catch が
+  FAIL 計上 / 4-7 = 警告で続行 / 0-3 = 成功）。未使用の `$copyResult` を撤去。
+  (2) kernel/common.ps1 :: Complete-ProfileExecution の Auto モード（Linear 自動 finalize）が
+  log_uploader の ModuleResult を破棄しており、(1) を直しても最頻経路では失敗が履歴に
+  残らなかった。非 Success 時のみ "Log Upload (auto)" として履歴・ExecutionResults に記録
+  （Manual モードの "Log Upload (cl)" 記録と対称。Success 時は従来どおり記録なし＝既存挙動不変）。
+  FlexProfile の [Complete] は元から Manual モードで記録済みのため (1) のみが効く。
 - modules/standard/temp_ipaddress_config v1.0.0 → v1.0.1 (Fixed: DAD 重複検出時の偽 Success と
   PS5.1 非互換パラメータを修正, TM t-0014):
   (1) DAD リトライの `continue` が switch 内にあり（PowerShell の `continue` は switch を継続し
