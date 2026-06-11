@@ -3,9 +3,11 @@
 # ========================================
 # [PURPOSE]
 # Create individual Windows Firewall rules from CSV definitions using
-# New-NetFirewallRule. Idempotent: rules whose DisplayName already exists
-# are skipped. Per-row validation rejects malformed entries before any
-# cmdlet call.
+# New-NetFirewallRule. Idempotent: a rule whose Name/DisplayName already
+# exists is skipped only when its content matches the CSV row; an
+# existing rule with different content is reported as a Mismatch failure
+# (fail-closed - never auto-recreated, see Step 2). Per-row validation
+# rejects malformed entries before any cmdlet call.
 #
 # [CSV SCHEMA]
 # See Guide.txt for the full column list (17 columns).
@@ -171,6 +173,9 @@ function Test-CreatedRule {
     if ($Row.Name -and $CreatedRule.Name -ne $Row.Name.Trim()) {
         $issues += "Name mismatch (expected=$($Row.Name), actual=$($CreatedRule.Name))"
     }
+    if ($CreatedRule.DisplayName -ne $Row.DisplayName.Trim()) {
+        $issues += "DisplayName mismatch (expected=$($Row.DisplayName), actual=$($CreatedRule.DisplayName))"
+    }
     if ($CreatedRule.Direction.ToString() -ne $Row.Direction.Trim()) {
         $issues += "Direction mismatch (csv=$($Row.Direction), actual=$($CreatedRule.Direction))"
     }
@@ -195,6 +200,36 @@ function Test-CreatedRule {
     if ($Row.EdgeTraversalPolicy) {
         if ($CreatedRule.EdgeTraversalPolicy.ToString() -ne $Row.EdgeTraversalPolicy.Trim()) {
             $issues += "EdgeTraversalPolicy mismatch (expected=$($Row.EdgeTraversalPolicy), actual=$($CreatedRule.EdgeTraversalPolicy))"
+        }
+    }
+
+    # Port filter: Protocol / LocalPort / RemotePort / IcmpType - the most
+    # commonly edited columns. An empty CSV cell means the cmdlet default
+    # 'Any'. Common numeric protocols are normalized to the names the
+    # firewall reports.
+    $pf = $CreatedRule | Get-NetFirewallPortFilter -ErrorAction SilentlyContinue
+    if ($pf) {
+        $expectedProtocol = if ([string]::IsNullOrWhiteSpace($Row.Protocol)) { 'Any' } else { $Row.Protocol.Trim() }
+        switch ($expectedProtocol) {
+            '6'  { $expectedProtocol = 'TCP' }
+            '17' { $expectedProtocol = 'UDP' }
+        }
+        if ("$($pf.Protocol)" -ne $expectedProtocol) {
+            $issues += "Protocol mismatch (expected=$expectedProtocol, actual=$($pf.Protocol))"
+        }
+
+        foreach ($pair in @(
+            @{ Csv = 'LocalPort';  Actual = $pf.LocalPort }
+            @{ Csv = 'RemotePort'; Actual = $pf.RemotePort }
+            @{ Csv = 'IcmpType';   Actual = $pf.IcmpType }
+        )) {
+            $expectedValues = Split-MultiValue -Value $Row.($pair.Csv)
+            if ($expectedValues.Count -eq 0) { $expectedValues = @('Any') }
+            $expectedSorted = ($expectedValues | Sort-Object) -join ','
+            $actualSorted   = (@($pair.Actual) | ForEach-Object { "$_".Trim() } | Where-Object { $_ } | Sort-Object) -join ','
+            if ($expectedSorted -ne $actualSorted) {
+                $issues += "$($pair.Csv) mismatch (expected=$expectedSorted, actual=$actualSorted)"
+            }
         }
     }
 
@@ -251,34 +286,53 @@ foreach ($row in $enabledItems) {
         $programWarning = "Program path not found (rule will still be created): $($row.Program)"
     }
 
-    # Idempotency: skip if a rule with this Name (when specified) OR
-    # DisplayName already exists. Name takes precedence because it is a
-    # strict identifier in Windows Firewall (DisplayName can collide).
-    $existsBy   = $null
-    $matchCount = 0
+    # Idempotency: a rule with this Name (when specified) OR DisplayName
+    # already exists. Name takes precedence because it is a strict
+    # identifier in Windows Firewall (DisplayName can collide).
+    $existsBy      = $null
+    $existingRules = @()
 
     if ($row.Name) {
-        $existingByName = Get-NetFirewallRule -Name $row.Name -ErrorAction SilentlyContinue
-        if ($existingByName) {
-            $existsBy   = "Name '$($row.Name)'"
-            $matchCount = @($existingByName).Count
-        }
+        $existingRules = @(Get-NetFirewallRule -Name $row.Name -ErrorAction SilentlyContinue)
+        if ($existingRules.Count -gt 0) { $existsBy = "Name '$($row.Name)'" }
     }
 
     if (-not $existsBy) {
-        $existingByDisplayName = Get-NetFirewallRule -DisplayName $row.DisplayName -ErrorAction SilentlyContinue
-        if ($existingByDisplayName) {
-            $existsBy   = "DisplayName '$($row.DisplayName)'"
-            $matchCount = @($existingByDisplayName).Count
-        }
+        $existingRules = @(Get-NetFirewallRule -DisplayName $row.DisplayName -ErrorAction SilentlyContinue)
+        if ($existingRules.Count -gt 0) { $existsBy = "DisplayName '$($row.DisplayName)'" }
     }
 
     if ($existsBy) {
-        $plans += [PSCustomObject]@{
-            Action         = 'Skip'
-            Row            = $row
-            Reasons        = @("$existsBy already exists ($matchCount match(es))")
-            ProgramWarning = $programWarning
+        # Existence alone is not idempotence: a name match with different
+        # content (CSV edited after the rule was created) used to Skip
+        # and report a verified PASS while the firewall kept the OLD
+        # rule. Compare content - one full match among the candidates
+        # means the desired state exists -> Skip. No match -> fail-closed
+        # Mismatch. Never auto-delete/recreate: a DisplayName can collide
+        # with a Windows built-in rule and ownership cannot be told apart.
+        $matchFound  = $false
+        $firstIssues = @()
+        foreach ($candidate in $existingRules) {
+            $contentIssues = Test-CreatedRule -Row $row -CreatedRule $candidate
+            if ($contentIssues.Count -eq 0) { $matchFound = $true; break }
+            if ($firstIssues.Count -eq 0) { $firstIssues = $contentIssues }
+        }
+
+        if ($matchFound) {
+            $plans += [PSCustomObject]@{
+                Action         = 'Skip'
+                Row            = $row
+                Reasons        = @("$existsBy already exists with matching content ($($existingRules.Count) match(es))")
+                ProgramWarning = $programWarning
+            }
+        }
+        else {
+            $plans += [PSCustomObject]@{
+                Action         = 'Mismatch'
+                Row            = $row
+                Reasons        = @("$existsBy exists with DIFFERENT content - align the CSV or remove the existing rule") + $firstIssues
+                ProgramWarning = $programWarning
+            }
         }
         continue
     }
@@ -291,9 +345,10 @@ foreach ($row in $enabledItems) {
     }
 }
 
-$createCount  = @($plans | Where-Object { $_.Action -eq 'Create' }).Count
-$skipCount    = @($plans | Where-Object { $_.Action -eq 'Skip' }).Count
-$invalidCount = @($plans | Where-Object { $_.Action -eq 'Invalid' }).Count
+$createCount   = @($plans | Where-Object { $_.Action -eq 'Create' }).Count
+$skipCount     = @($plans | Where-Object { $_.Action -eq 'Skip' }).Count
+$invalidCount  = @($plans | Where-Object { $_.Action -eq 'Invalid' }).Count
+$mismatchCount = @($plans | Where-Object { $_.Action -eq 'Mismatch' }).Count
 
 # ========================================
 # Step 3: Preview
@@ -320,6 +375,12 @@ foreach ($plan in $plans) {
                 Write-Host "    - $r" -ForegroundColor Red
             }
         }
+        'Mismatch' {
+            Write-Host "  [MISMATCH - exists with different content] $name" -ForegroundColor Red
+            foreach ($r in $plan.Reasons) {
+                Write-Host "    - $r" -ForegroundColor Red
+            }
+        }
     }
 
     if ($plan.Action -in @('Create', 'Skip')) {
@@ -341,20 +402,22 @@ foreach ($plan in $plans) {
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-# Quick exit: nothing to do (everything is Skip and no Invalid)
-if ($createCount -eq 0 -and $invalidCount -eq 0) {
-    Show-Info "All $skipCount rule(s) already exist. Nothing to create."
+# Quick exit: nothing to do - every row exists with matching content.
+# Verified $true is backed by the content comparison above, not by mere
+# name existence.
+if ($createCount -eq 0 -and $invalidCount -eq 0 -and $mismatchCount -eq 0) {
+    Show-Info "All $skipCount rule(s) already exist with matching content. Nothing to create."
     Write-Host ""
     return (New-ModuleResult -Status "Skipped" `
         -Message "All rules already exist (skipped: $skipCount)" `
         -Verified $true)
 }
 
-# Quick exit: only Invalid (nothing to create)
+# Quick exit: nothing creatable but problems found (invalid / mismatch)
 if ($createCount -eq 0) {
-    Show-Error "No valid rules to create (skip=$skipCount, invalid=$invalidCount)"
+    Show-Error "No valid rules to create (skip=$skipCount, invalid=$invalidCount, mismatch=$mismatchCount)"
     Write-Host ""
-    return (New-BatchResult -Success 0 -Skip $skipCount -Fail $invalidCount `
+    return (New-BatchResult -Success 0 -Skip $skipCount -Fail ($invalidCount + $mismatchCount) `
         -Title "Firewall Rule Maker Results")
 }
 
@@ -370,7 +433,7 @@ Write-Host ""
 # Step 5: Apply
 # ========================================
 $successCount = 0
-$failCount    = $invalidCount   # invalid rows count toward failures
+$failCount    = $invalidCount + $mismatchCount   # invalid/mismatch rows count toward failures
 $createdRules = @()
 
 foreach ($plan in $plans) {

@@ -247,9 +247,32 @@ foreach ($item in $enabledItems) {
                 $rpType = if ($item.Value) { $item.Value } else { "MODIFY_SETTINGS" }
                 $rpDesc = $item.Description
 
-                Checkpoint-Computer -Description $rpDesc -RestorePointType $rpType -ErrorAction Stop
-                Show-Success "Restore point created: $rpDesc"
-                $successCount++
+                # Checkpoint-Computer does NOT throw when the 24h throttle
+                # suppresses creation - it warns and returns normally,
+                # which used to count as Success with no restore point on
+                # disk. Record the latest SequenceNumber and read back.
+                $beforeSeq = 0
+                $latest = Get-ComputerRestorePoint -ErrorAction SilentlyContinue | Select-Object -Last 1
+                if ($latest) { $beforeSeq = [int64]$latest.SequenceNumber }
+
+                $cpWarnings = @()
+                Checkpoint-Computer -Description $rpDesc -RestorePointType $rpType -ErrorAction Stop -WarningVariable cpWarnings
+
+                # Fail-closed read-back: no new point (or an unreadable
+                # list) is a Fail, whatever the cause (throttle, VSS).
+                $created = Get-ComputerRestorePoint -ErrorAction SilentlyContinue |
+                    Where-Object { [int64]$_.SequenceNumber -gt $beforeSeq -and $_.Description -eq $rpDesc } |
+                    Select-Object -First 1
+
+                if ($created) {
+                    Show-Success "Restore point created: $rpDesc (SequenceNumber=$($created.SequenceNumber))"
+                    $successCount++
+                }
+                else {
+                    $warnText = if ($cpWarnings.Count -gt 0) { " ($($cpWarnings -join '; '))" } else { "" }
+                    Show-Error "Restore point was NOT created: $rpDesc$warnText"
+                    $failCount++
+                }
             }
             catch {
                 Show-Error "Failed to create restore point: $_"

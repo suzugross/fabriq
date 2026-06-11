@@ -44,12 +44,21 @@ public class SpiHelper {
     /// GET: Read current value via pvParam pointer.
     /// Works for all SPI types (bool returns 0/1, int returns value).
     /// GET action = SET action - 1 (standard SPI convention).
+    /// Throws Win32Exception when the GET itself fails - returning the
+    /// zero-initialized buffer instead made rows with target value 0
+    /// look "already set" (false Skip) on machines where the GET is
+    /// unsupported. The PowerShell side catches and treats it as
+    /// "current value unknown" -> Apply.
     /// </summary>
     public static int GetValue(uint getAction) {
         IntPtr ptr = Marshal.AllocHGlobal(4);
         try {
             Marshal.WriteInt32(ptr, 0);
-            SystemParametersInfo(getAction, 0, ptr, 0);
+            if (!SystemParametersInfo(getAction, 0, ptr, 0)) {
+                throw new System.ComponentModel.Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "SystemParametersInfo GET failed (action=0x" + getAction.ToString("X") + ")");
+            }
             return Marshal.ReadInt32(ptr);
         } finally {
             Marshal.FreeHGlobal(ptr);

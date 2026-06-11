@@ -16,6 +16,47 @@
 ## [Unreleased]
 
 ### Fixed
+- modules/standard/spi_config v1.0.1 → v1.1.1 (Fixed: GET 失敗時に目標値 0 の行が
+  偽 SKIP（未適用のまま Skip 計上）になるバグを修正, TM t-0020(4)): C# ヘルパー GetValue
+  が SystemParametersInfo の BOOL 戻り値を捨て、0 初期化バッファをそのまま返していたため、
+  GET 失敗端末で「現在値 0」と誤認 → 視覚効果 OFF 系（目標値 0）の行が Skip されていた。
+  戻り値 false で Win32Exception（エラーコード + アクション番号）を throw するよう修正 —
+  PS 側は既存の catch → null → APPLY 経路がそのまま機能（PS 側変更なし）。開発機で
+  実挙動検証済み（正常 GET=実値 / 無効 GET=throw、e:\tmp\verify_spi.ps1）。
+- modules/standard/restore_point v1.0.1 → v1.1.0 (Fixed: 24h スロットルで復元ポイント
+  未作成でも Success になる偽成功を修正, TM t-0020(3)): Checkpoint-Computer は throttle
+  抑止時に throw せず WARNING + 正常 return するため -ErrorAction Stop をすり抜けて
+  Success 計上されていた。作成前に Get-ComputerRestorePoint の最新 SequenceNumber を
+  記録し、作成後に「baseline 超の SequenceNumber + Description 一致」の新規ポイントを
+  読み返し確認 — 見つからなければ Fail（-WarningVariable で捕捉した throttle 警告文を
+  併記）。読み返し不能も Fail 側（fail-closed）。他 3 setting は変更なし。
+- modules/standard/firewall_rule_make_config v1.0.0 → v1.1.0 (Fixed: 名前存在のみで
+  Skipped+Verified=true を返す偽 PASS を修正, TM t-0020(1)): 冪等チェックが Name/DisplayName
+  の存在だけで Skip し、CSV 編集後の再実行が古い内容のルールのまま checklist PASS になって
+  いた。既存ルールに内容比較を適用 — 候補のうち 1 つでも完全一致 → Skip（真の冪等）/
+  全候補不一致 → 新プラン Mismatch（差分列挙 + fail-closed で Fail 計上、preview に
+  [MISMATCH] 表示）。自動再作成は不採用（DisplayName が Windows 組み込みルールと衝突した
+  場合に組み込みを削除する破壊リスクのため）。比較関数 Test-CreatedRule を拡張:
+  DisplayName 比較 + Get-NetFirewallPortFilter による Protocol/LocalPort/RemotePort/
+  IcmpType 比較（CSV 空欄='Any' 期待、6→TCP/17→UDP 正規化）— Step 5.5 の作成後検証も
+  同時に強化。全行 Skip 時の Verified=true は内容一致に裏打ちされた真の PASS になった。
+- modules/standard/office_update v1.0.0 → v1.1.0 (Fixed: 更新失敗が「already up to date」
+  Skipped に化ける fail-open と Wait-NetworkReady 無限ブロックを修正, TM t-0020(8)):
+  (1) idle 脱出 + バージョン不変の経路に post-mortem 検死を追加 —
+  `ClickToRun\Updates` キー（実機 2 台で値の実在/形式を確認、REG_SZ・端末依存）を読み、
+  UpdatesReadyToApply が非 '0' → Error「staged but not applied」/
+  UpdateDetectionLastRunTime がトリガ前後で不変 → Error「detection did not run」/
+  どちらでもない（または値欠損）→ Skipped（メッセージを "No version change (treated as
+  up to date)" に正直化 — 断言しない）。検出後ダウンロード中断の無痕跡クリーンアップは
+  `Scenario\UPDATE\LastUpdateError`（非 '0' → Error、実機発見）で捕捉。
+  (2) Wait-NetworkReady（無限ループ）を有界プローブに置換（Test-Connection 2 発 →
+  失敗で Error 返却、domain_join と同パターン）。
+  (3) 待機ループの Signal 3 が「Scenario キーの存在 = 実行中」と誤解釈しており、完了後も
+  恒久残留するキー（実機確認: 初回 ODT インストールの INSTALL シナリオが
+  TASKSTATE_COMPLETED 全件で残存）のため idle 脱出が到達不能 → 更新無し実行が毎回
+  60 分タイムアウトの偽 Error だった。状態認識型 `Test-C2RScenarioActive`（TasksState に
+  COMPLETED/FAILED/CANCELLED 以外があるときのみ active、未知状態は active 扱いで
+  タイムアウトが防壁）に置換。実機ポーリング 750 秒継続の現象報告で発覚。
 - modules/standard/partition_config v1.0.0 → v1.1.0 (Fixed: RAW ボリュームの自己修復不能と
   preview/実行の重複排除キー不一致を修正, TM t-0019④):
   (1) New-Partition 成功 + Format-Volume 失敗の半端状態（レター付き RAW）が、再実行で
