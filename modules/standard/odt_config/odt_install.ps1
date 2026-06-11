@@ -189,15 +189,61 @@ if ($disk) {
     }
 }
 
-# (f) Detect existing C2R Office — abort if found (cannot coexist)
+# (f) Detect existing C2R Office. A clean machine proceeds; an existing
+# install is judged by ProductReleaseIds (e.g. "O365BusinessRetail",
+# comma-separated): if the detected set EXACTLY matches the union of
+# Product IDs in this config's XMLs, the install already happened ->
+# idempotent Skip. Anything else (partial overlap, extras, unparsable
+# XML) keeps the original fail-closed abort - C2R products cannot
+# coexist and an ambiguous state must not be skipped silently.
+# Granularity is Product ID only (language/channel/edition differences
+# are not detected here).
 $c2rConfig = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration" -ErrorAction SilentlyContinue
 $productIds = if ($c2rConfig) { $c2rConfig.ProductReleaseIds } else { $null }
 if (-not [string]::IsNullOrWhiteSpace($productIds)) {
+    # Detected IDs: the Configuration value holds bare IDs (field-
+    # confirmed on an M365 Apps for Business machine), but strip a
+    # ".<digits>" version suffix defensively - the internal
+    # ProductReleaseIDs key tree decorates names like
+    # "O365BusinessRetail.16" and same-product false mismatches are
+    # worse than the widened match.
+    $detectedIds = @($productIds -split ',' | ForEach-Object { ($_.Trim() -replace '\.\d+$', '') } | Where-Object { $_ })
+
+    # Target IDs: union of <Product ID> across every enabled entry's XML.
+    # Parse failures contribute nothing -> empty target -> fail-closed.
+    $targetIds = @()
+    foreach ($e in $enabledEntries) {
+        $eAssetsDir = if (-not [string]::IsNullOrWhiteSpace($e.AssetsFolder)) {
+            if ([System.IO.Path]::IsPathRooted($e.AssetsFolder)) { $e.AssetsFolder } else { Join-Path $PSScriptRoot $e.AssetsFolder }
+        } else { $AssetsDir }
+        $eXmlPath = Join-Path $eAssetsDir $e.XmlFileName
+        if (Test-Path $eXmlPath) {
+            try {
+                $eXml = [xml](Get-Content $eXmlPath -Encoding UTF8)
+                foreach ($prod in @($eXml.Configuration.Add.Product)) {
+                    if ($prod -and $prod.ID) { $targetIds += "$($prod.ID)".Trim() }
+                }
+            }
+            catch { }
+        }
+    }
+    $targetIds = @($targetIds | Where-Object { $_ } | Select-Object -Unique)
+
+    $detectedKey = (@($detectedIds | Sort-Object) -join '|').ToLowerInvariant()
+    $targetKey   = (@($targetIds   | Sort-Object) -join '|').ToLowerInvariant()
+
+    if ($detectedKey -ne '' -and $detectedKey -eq $targetKey) {
+        Show-Skip "Office already installed by this configuration: $productIds"
+        Write-Host ""
+        return (New-ModuleResult -Status "Skipped" -Message "Already installed: $productIds" -Verified $true)
+    }
+
     Show-Error "Existing Click-to-Run Office detected: $productIds"
+    Show-Error "Target products of this config: $(if ($targetIds.Count -gt 0) { $targetIds -join ',' } else { '(none parsed from XML)' })"
     Show-Error "Please uninstall existing Office before running ODT."
     Show-Info "Use SaRA tool (https://aka.ms/SaRA-officeUninstallFromPC) or manual uninstall."
     Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Existing C2R Office detected: $productIds")
+    return (New-ModuleResult -Status "Error" -Message "Existing C2R Office detected: $productIds (target: $(if ($targetIds.Count -gt 0) { $targetIds -join ',' } else { 'none' }))")
 }
 Show-Info "No existing C2R Office detected. Environment is clean."
 

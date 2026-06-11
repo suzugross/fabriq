@@ -27,6 +27,24 @@ $PASS = $domainEntry.'pass'
 $DNS = $domainEntry.'dns'
 
 # ========================================
+# Idempotency Check (before the DNS probe - an already-joined machine
+# must Skip even when the kitting network is currently unreachable)
+# ========================================
+$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+if ($cs -and $cs.PartOfDomain) {
+    if ("$($cs.Domain)" -ieq "$DOMAIN") {
+        Show-Skip "Already a member of domain '$($cs.Domain)'"
+        Write-Host ""
+        return (New-ModuleResult -Status "Skipped" -Message "Already joined to $($cs.Domain)" -Verified $true)
+    }
+    # Joined to a DIFFERENT domain: a CSV/reality contradiction. Fail
+    # closed with both names instead of skipping or re-joining silently.
+    Show-Error "Machine is joined to a DIFFERENT domain (current: $($cs.Domain), target: $DOMAIN)"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Joined to different domain (current: $($cs.Domain), target: $DOMAIN)")
+}
+
+# ========================================
 # DNS Connectivity Pre-Check (bounded, fail-fast)
 # ========================================
 # Single bounded probe instead of Wait-NetworkReady (which blocks
@@ -71,8 +89,21 @@ try {
 
     Write-Host ""
     Show-Success "Domain join completed"
+
+    # Step 5.5: Post-Apply Verification - the join is reflected in
+    # Win32_ComputerSystem immediately (the reboot only completes it).
+    $verified = $null
+    $csAfter = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($csAfter) {
+        $verified = ($csAfter.PartOfDomain -and ("$($csAfter.Domain)" -ieq "$DOMAIN"))
+        if ($verified) {
+            Write-Host "  [VERIFIED] Member of $($csAfter.Domain) (reboot pending)" -ForegroundColor Green
+        } else {
+            Write-Host "  [VERIFY FAILED] PartOfDomain=$($csAfter.PartOfDomain), Domain=$($csAfter.Domain)" -ForegroundColor Red
+        }
+    }
     Write-Host ""
-    return (New-ModuleResult -Status "Success" -Message "Domain join completed")
+    return (New-ModuleResult -Status "Success" -Message "Domain join completed" -Verified $verified)
 }
 catch {
     $errorMsg = $_.Exception.Message

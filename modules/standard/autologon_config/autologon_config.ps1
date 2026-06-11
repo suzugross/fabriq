@@ -113,13 +113,26 @@ try {
     $currentAutoLogon = Get-ItemProperty -Path $WINLOGON_PATH -Name "AutoAdminLogon" -ErrorAction SilentlyContinue
     $currentUser = Get-ItemProperty -Path $WINLOGON_PATH -Name "DefaultUserName" -ErrorAction SilentlyContinue
     $currentCount = Get-ItemProperty -Path $WINLOGON_PATH -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+    # Password and domain must match too: skipping on a stale
+    # DefaultPassword (CSV corrected after a first run) or a stale
+    # DefaultDomainName (left by another configuration) ships an
+    # autologon that fails at the next boot while reporting Skipped.
+    $currentPass = Get-ItemProperty -Path $WINLOGON_PATH -Name "DefaultPassword" -ErrorAction SilentlyContinue
+    $currentDomain = Get-ItemProperty -Path $WINLOGON_PATH -Name "DefaultDomainName" -ErrorAction SilentlyContinue
+    $domainMatches = if ([string]::IsNullOrWhiteSpace($targetEntry.Domain)) {
+        [string]::IsNullOrEmpty($currentDomain.DefaultDomainName)
+    } else {
+        $currentDomain.DefaultDomainName -eq $targetEntry.Domain
+    }
 
     if ($currentAutoLogon.AutoAdminLogon -eq "1" -and
         $currentUser.DefaultUserName -eq $targetEntry.User -and
+        $currentPass.DefaultPassword -ceq $targetEntry.Password -and
+        $domainMatches -and
         $currentCount.AutoLogonCount -ge 1) {
         Show-Skip "AutoLogon already configured for '$displayUser' (Count=$($currentCount.AutoLogonCount))"
         Write-Host ""
-        return (New-ModuleResult -Status "Skipped" -Message "Already configured for $displayUser")
+        return (New-ModuleResult -Status "Skipped" -Message "Already configured for $displayUser" -Verified $true)
     }
 }
 catch {
@@ -183,6 +196,13 @@ if (-not [string]::IsNullOrWhiteSpace($targetEntry.Domain)) {
         $failCount++
     }
 }
+else {
+    # Clear a stale DefaultDomainName left by another configuration -
+    # with it present, a local-account autologon would try
+    # STALEDOMAIN\user at the next boot and fail.
+    Remove-ItemProperty -Path $WINLOGON_PATH -Name "DefaultDomainName" -Force -ErrorAction SilentlyContinue
+    Show-Info "DefaultDomainName cleared (local account)"
+}
 
 # AutoLogonCount (DWORD = 1 for one-time logon)
 try {
@@ -197,15 +217,43 @@ catch {
 Write-Host ""
 
 # ========================================
+# 6.5. Post-Apply Verification
+# ========================================
+$verified = $null
+try {
+    $v = Get-ItemProperty -Path $WINLOGON_PATH -ErrorAction Stop
+    $vDomainOk = if ([string]::IsNullOrWhiteSpace($targetEntry.Domain)) {
+        [string]::IsNullOrEmpty($v.DefaultDomainName)
+    } else {
+        $v.DefaultDomainName -eq $targetEntry.Domain
+    }
+    $verified = [bool]($v.AutoAdminLogon -eq "1" -and
+                 $v.DefaultUserName -eq $targetEntry.User -and
+                 $v.DefaultPassword -ceq $targetEntry.Password -and
+                 $vDomainOk -and
+                 $v.AutoLogonCount -ge 1)
+    if ($verified) {
+        Write-Host "  [VERIFIED] AutoLogon state matches the CSV entry" -ForegroundColor Green
+    } else {
+        Write-Host "  [VERIFY FAILED] AutoLogon state does not match the CSV entry" -ForegroundColor Red
+    }
+}
+catch {
+    $verified = $false
+    Write-Host "  [VERIFY FAILED] Could not read Winlogon values: $_" -ForegroundColor Red
+}
+Write-Host ""
+
+# ========================================
 # 7. Result
 # ========================================
 if ($failCount -gt 0) {
     Show-Warning "AutoLogon configuration completed with $failCount error(s)"
     Write-Host ""
-    return (New-ModuleResult -Status "Partial" -Message "AutoLogon for $displayUser ($failCount errors)")
+    return (New-ModuleResult -Status "Partial" -Message "AutoLogon for $displayUser ($failCount errors)" -Verified $verified)
 }
 
 Show-Success "One-time AutoLogon configured for '$displayUser'"
 Show-Info "AutoLogon will be cleared automatically after the next logon"
 Write-Host ""
-return (New-ModuleResult -Status "Success" -Message "AutoLogon configured for $displayUser (one-time)")
+return (New-ModuleResult -Status "Success" -Message "AutoLogon configured for $displayUser (one-time)" -Verified $verified)
