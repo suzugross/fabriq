@@ -1,6 +1,6 @@
 # Fabriq Kernel Public API
 
-**Current Kernel Version**: `3.4.1`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
+**Current Kernel Version**: `3.5.0`（`kernel/KERNEL_VERSION` を真のソースとする。CLAUDE.md ルール J step 3 で sync 対象）
 
 このドキュメントで「公開 API」として宣言されている要素のみが、モジュールから依存してよいカーネル機能です。ここに記載されていない `common.ps1` 関数・グローバル変数・内部状態ファイルは**内部実装**であり、PATCH バージョンでも予告なく変更される可能性があります。
 
@@ -148,15 +148,14 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Register-FabriqRunOnce` / `Invoke-CountdownRestart`
 - `Write-ExecutionHistory` / `Initialize-ExecutionHistory` / `Restore-ExecutionHistory` / `Export-ExecutionHistory` / `Export-HtmlChecklist`
 - `Capture-ScreenEvidence` / `Initialize-EvidenceBasePath`
-- `Write-StatusFile`
-- `Start-StatusMonitor` / `Stop-StatusMonitor` **(Deprecated since 3.4.0、削除予定 3.5.0)**: 旧 Status Monitor 起動・終了。3.4.0 で kernel/main.ps1 からの呼び出しを停止し、in-process な Execution Toolbar に役割移管。関数本体と `kernel/ps1/status_monitor.ps1` は緊急 rollback 用に 3.4.x 系では残置。
+- `Write-StatusFile` / `Remove-StatusFile`
 - `Show-ExecutionToolbar` / `Hide-ExecutionToolbar` / `Update-ExecutionToolbar` **(since 3.4.0)**: in-process 浮遊ツールバー (Skip / Gyotaq) のライフサイクル。実装は `apps/fabriq_operator/lib/execution_toolbar.ps1` の dedicated STA Runspace。kernel/main.ps1 が batch / 各モジュール開始 / 完了 / __RESTART__ / exit でこれらを呼ぶ。
 - `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`
 - 状態ファイル: `kernel/json/resume_state.json`, `status.json`, `session.json`, `art_pulse.txt`, `async_config.json`, `skip_request.flag`
 - オーケストレータ経由で設定される仕組み（`__ASYNC__` の Runspace 実装等）
-- Execution Toolbar の UI 構成・ボタン配置（旧 Status Monitor の UI 構成は 3.5.0 で削除予定）
+- Execution Toolbar の UI 構成・ボタン配置
 - HTML チェックリストのテンプレート
 
 ---
@@ -307,7 +306,7 @@ formal SemVer の出発点。以下すべて利用可能:
     async が効くことを前提とした profile" を配布する場合のみ。
     マーカーを明示的に置く profile は引き続き 2.1.0 で動作可能
 
-### 3.5.0（Unreleased）
+### 3.5.0
 
 - **§3.1 に自己参照トークン `__SELF__` 追加（後方互換 / MINOR）**
   - hostlist のセル値 `__SELF__` を `Set-SelectedHostEnvironment` が入室時に実行中 PC の live 値（`Get-CurrentPCInfo`）へ列文脈で解決し `SELECTED_*` に流す
@@ -317,6 +316,7 @@ formal SemVer の出発点。以下すべて利用可能:
 - **§1.6 破壊的削除ガード 2 関数追加（後方互換 / MINOR）**: `Test-FabriqProtectedPath` / `Test-FabriqSafePathComponent`
   - directory_cleaner の実績ある `Test-ForbiddenPath` ゲートを common.ps1 へ昇格し、ワイルドカード leaf 対応（親ディレクトリ検証）を追加したもの。CLAUDE.md §8（再帰削除前のパス検証ガード必須）をコードで強制する共通部品
   - 利用モジュール（history_destroyer / file_delete / profile_delete / driver_config）はこの版を要求（`REQUIRES_KERNEL` 3.5.0）。既存モジュールの挙動・他の公開 API への影響なし
+- **§6 deprecated 撤去（内部 / API 影響なし）**: 3.4.0 で deprecated 宣言済みの旧 Status Monitor（`Show-MonitorFailureDialog` / `Start-StatusMonitor` / `Stop-StatusMonitor`、`kernel/ps1/status_monitor.ps1`、`kernel/ps1/art_display.ps1`）を予定どおり削除。後継は in-process Execution Toolbar（3.4.0〜）で機能損失なし
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.4.1` 据置・本節は `[Unreleased]`）
 
 ### 判定ルール

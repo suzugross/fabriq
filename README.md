@@ -1,4 +1,4 @@
-# Fabriq ver3.4
+# Fabriq ver3.5
 
 **Manifeste du Surkitinisme**
 
@@ -58,7 +58,7 @@ fabriq/
 │   ├── EVIDENCE_MANIFEST.md # evidence manifest 公開契約（外部 consumer 向け）
 │   ├── csv/                # マスタ CSV（categories, hostlist, workers, log_destinations, manifesto）
 │   ├── json/               # ランタイム状態（session, status, resume_state, art_pulse, async_config）
-│   ├── ps1/                # カーネルサブスクリプト（manifesto, status_monitor, view_report, art_display）
+│   ├── ps1/                # カーネルサブスクリプト（manifesto, view_report）
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
 │   ├── standard/           # 標準モジュール群（60）

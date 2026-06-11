@@ -1,6 +1,6 @@
 # ========================================
 #
-# Fabriq ver3.4 - Manifeste du Surkitinisme -
+# Fabriq ver3.5 - Manifeste du Surkitinisme -
 #
 # ========================================
 
@@ -1263,7 +1263,7 @@ Start-Transcript -Path $logFile -Append | Out-Null
 
 Write-Host ""
 Show-Separator
-Write-Host "Fabriq ver2.1 - Manifeste du Surkitinisme - " -ForegroundColor Green
+Write-Host "Fabriq ver3.5 - Manifeste du Surkitinisme - " -ForegroundColor Green
 Show-Separator
 Write-Host ""
 Show-Info "Log file: $logFile"
@@ -1572,18 +1572,13 @@ $groupedModules = $moduleSystem.GroupedModules
 $null = Enable-FabriqVerboseCapture
 
 # ========================================
-# Execution Toolbar (replaces retired Status Monitor in 3.4.0)
+# Execution Toolbar
 # ========================================
-# Out-of-process Status Monitor (kernel/ps1/status_monitor.ps1, spawned
-# via Start-Process powershell.exe -WindowStyle Hidden) is retired
-# because recent Defender / ASR heuristics block that spawn pattern.
-# In-process toolbar runs on a dedicated STA Runspace within the kernel
-# powershell.exe, so those restrictions do not apply.
-#
-# Emergency rollback: uncomment the Start-StatusMonitor line below.
-# status_monitor.ps1 and Start/Stop-StatusMonitor stay in 3.4.x for
-# this purpose; scheduled removal in 3.5.0.
-#   $global:FabriqStatusMonitorProcess = Start-StatusMonitor
+# In-process toolbar on a dedicated STA Runspace within the kernel
+# powershell.exe. Replaced the out-of-process Status Monitor in 3.4.0
+# (Defender / ASR heuristics blocked its hidden-child spawn pattern);
+# the deprecated monitor (status_monitor.ps1, Start/Stop-StatusMonitor)
+# was removed in 3.5.0 as scheduled in KERNEL_API.md section 6.
 try {
     Show-ExecutionToolbar
 }
@@ -2086,7 +2081,7 @@ $script:guiExitRequested = $false
             "Refabriq" {
                 Show-Info "Restarting Fabriq..."
                 try { Hide-ExecutionToolbar } catch { }
-                Stop-StatusMonitor -MonitorProcess $global:FabriqStatusMonitorProcess
+                Remove-StatusFile
                 $fabriqRoot = (Resolve-Path ".").Path
                 $fabriqExe = Join-Path $fabriqRoot "Fabriq.exe"
                 if (Test-Path $fabriqExe) {
