@@ -1,4 +1,4 @@
-Enabled,SpiAction,ValueMode,Value,Description,Segment
+﻿Enabled,SpiAction,ValueMode,Value,Description,Segment
 1,0x1043,bool,0,Windows内のアニメーション コントロールと要素,
 1,0x1025,bool,0,ウィンドウの下に影を表示する,
 1,0x1005,bool,0,コンボボックスをスライドして開く,
