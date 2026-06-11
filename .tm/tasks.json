@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-11T21:15:00+09:00",
+  "updatedAt": "2026-06-11T22:50:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -187,10 +187,10 @@
       "id": "t-0021",
       "title": "[MEDIUM] reg系: DWORD≥0x80000000が恒久Fail / Defaultハイブunload失敗でもSuccess",
       "content": "(1) reg_hklm_config.ps1:235-237 / reg_hkcu_config.ps1:279-281 — 値の [int] キャストにより DWORD ≥ 2^31（例: ポリシー頻出の 4294967295=0xFFFFFFFF）と Int32 超の QWORD が必ず throw → 該当行が恒久 Fail で適用不能。読み比較側の Test-RegistryValueMatch は [long] で正しく、書き込み側だけ不一致。DWord は [uint32]→[int32] ビット変換、QWord は [long]/[uint64] で処理。\r\n(2) reg_hkcu_config.ps1:448-463 / reg_hkcu_delete.ps1:223-238 — Default プロファイルハイブの reg unload が2回とも失敗しても Show-Error のみでモジュールは Success。ntuser.dat がロック残置され、同一キッティングパス内の後続 sysprep_config（CopyProfile）やプロファイル作成を壊しうる。unload 失敗を Partial/Verified=false に反映。",
-      "claudeNote": "全体監査(2026-06-10)で検出。(1)は fail-closed（Fail として見える）だが設定をそもそも出荷できない実害。reg_hklm/reg_hkcu/reg_hkcu_delete の3スクリプト touched。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)は fail-closed（Fail として見える）だが設定をそもそも出荷できない実害。reg_hklm/reg_hkcu/reg_hkcu_delete の3スクリプト touched。\r\n追加調査(2026-06-11 3スクリプト精読): 両指摘確定+比較側の同根欠陥を新発見。(1)書込キャスト [int]: hklm L236 / hkcu L280。DWORD>=0x80000000(例 4294967295)で throw=恒久 Fail。QWord も Int32 超で throw。(1b)**新発見**: 比較側 Test-RegistryValueMatch(hklm L73-74 / hkcu L83-84)の [long]$currentValue 比較 — 0xFFFFFFFF の DWORD は registry から Int32 の -1 として読み返されるため [long](-1) != [long]4294967295 で恒久不一致。つまり reg.exe 等で既に正しく書かれている値に対しても冪等チェックが永遠に不発(毎回再書込を試みて (1) で Fail)+Step 5.5 検証が偽 FAIL。書込だけ直しても照合を直さないと『書けるが毎回 Verified FAIL』になる — 両方の修正が必須。(2)Default ハイブ unload 失敗: hkcu_config L438-465 / hkcu_delete L209-238。2 回試行後の最終失敗が Show-Error のみでカウンタ不変、summary は Success のまま。ntuser.dat ロック残置は後続 sysprep(CopyProfile)/新規プロファイル作成を壊す。reg load 側(L175-176/L104)は exit code 判定済みで健全。\r\n修正設計: (a)モジュールローカル変換ヘルパー ConvertTo-RegistryDWordValue/QWordValue を両モジュールに追加 — 10進/0x16進/負数リテラルを受け、unsigned 域(0x80000000-0xFFFFFFFF)は BitConverter でビット等価の Int32/Int64 に変換(.NET registry の DWORD=Int32 格納仕様に整合)。書込(2箇所)と Test-RegistryValueMatch の DWord/QWord 比較(2箇所、expected を変換して Int 同士比較)を置換。(b)unload 最終失敗時に $hiveUnloadFailed を立て、summary を New-BatchResult -Fail+1 + MessageSuffix '(hive unload FAILED - ntuser.dat may remain locked)' で返す(config 側は -Verified $false も強制)。Status は Partial(成功あり)/Error(成功なし)に自然落ち。リトライロジック自体は不変。(c)Active Setup の reg add 行は reg.exe が 10 進 4294967295 を受理するため不変更。ヘルパーは Test-RegistryValueMatch と同じ『モジュールローカル重複』方針(common 昇格は 2 モジュールのために kernel MINOR+REQUIRES bump になるため見送り)。\r\n版影響: reg_hklm_config 1.1.0→1.1.1 / reg_hkcu_config 1.1.0→1.1.1(config+delete 同梱)・PATCH・REQUIRES_KERNEL 据置・kernel 不変。テスト: モジュールハーネス無し、parse_check+既存スイート+実機(VM で HKCU 配下の無害キーに 4294967295 と 0xFFFFFFFF を適用→Verified PASS→再実行で Skip の冪等確認)。設計ゲート提示済み・実装承認待ち。\r\n実装(2026-06-11): 完了・検証済(未コミット)。設計どおり — (a)ConvertTo-RegistryDWordValue/QWordValue を両モジュールにローカル追加(10進/0x16進は [Convert]::ToUInt32/64(x,16) で明示パース/負数リテラル passthrough/unsigned 域は BitConverter ビット等価変換)、書込 2 箇所(hklm L236 相当/hkcu L280 相当)と Test-RegistryValueMatch の DWord/QWord 比較 2 箇所を置換。(b)config+delete の unload 最終失敗で $hiveUnloadFailed→summary を Fail+1+MessageSuffix 降格(config は Verified=false 強制)。(c)Active Setup reg add 行は不変更(reg.exe が 10 進受理)。\r\n検証: **出荷コードの AST 抽出検証 14 アサーション全 PASS**(e:/tmp/verify_regconv.ps1 — 境界値 0x80000000/0xFFFFFFFF/int.max/long.max、trim、負数、読み返し -1 vs 4294967295 の照合一致と非一致、非数値/2^32 オーバーフローの throw)。parse_check 3 OK・266 passed/0 failed・encoding 新規違反ゼロ。VERSION 両モジュール 1.1.0→1.1.1・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。実機確認(任意): VM の HKCU 無害キーに 4294967295/0xFFFFFFFF 行を適用→Verified PASS→再実行 Skip。コミット承認待ち。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T22:50:00+09:00"
     },
     {
       "id": "t-0022",
