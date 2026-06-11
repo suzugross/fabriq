@@ -138,6 +138,12 @@ public static class PowerWriteApi {
 # Idempotency counters
 $script:SkipCount = 0
 $script:ChangeCount = 0
+# Deterministic failures only (explicit powercfg non-zero exit / CSV config
+# errors). Hardware-dependent Win32 hr!=0 paths (power mode overlay, button
+# and lid writes) stay warnings by design: they fail benignly on machines
+# without the capability, and Step 5.5 verification (Verified) is the
+# backstop for them. See TM t-0017.
+$script:FailCount = 0
 
 # ========================================
 # Initialization Function
@@ -319,7 +325,9 @@ function Set-PowerPlan {
         $planGuid = $script:PowerPlanGuids[$PlanName]
 
         if (-not $planGuid) {
+            # CSV config error (deterministic) - counts as Fail
             Show-Warning "Unknown power plan: $PlanName"
+            $script:FailCount++
             return $false
         }
 
@@ -342,11 +350,13 @@ function Set-PowerPlan {
         }
         else {
             Show-Error "Failed to change power plan: $result"
+            $script:FailCount++
             return $false
         }
     }
     catch {
         Show-Error "Failed to set power plan - $($_.Exception.Message)"
+        $script:FailCount++
         return $false
     }
 }
@@ -364,7 +374,9 @@ function Set-PowerMode {
         $modeGuidStr = $script:PowerModeGuids[$ModeName]
 
         if (-not $modeGuidStr) {
+            # CSV config error (deterministic) - counts as Fail
             Show-Warning "Unknown power mode: $ModeName"
+            $script:FailCount++
             return $false
         }
 
@@ -403,6 +415,10 @@ function Set-PowerMode {
                 $script:ChangeCount++
             }
             else {
+                # Warning only (no FailCount): power mode overlays are
+                # unsupported on non-Modern-Standby machines, where this
+                # hr is a benign hardware limitation. Step 5.5 (Verified)
+                # is the backstop.
                 Show-Warning "Failed to set $description (error code: $hr)"
             }
         }
@@ -411,6 +427,7 @@ function Set-PowerMode {
     }
     catch {
         Show-Error "Failed to set power mode - $($_.Exception.Message)"
+        $script:FailCount++
         return $false
     }
 }
@@ -452,11 +469,18 @@ function Set-DisplaySettings {
         else {
             try {
                 & powercfg /CHANGE monitor-timeout-ac $acValue | Out-Null
-                Show-Success "Display Turn Off (AC): ${acValue} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Display Turn Off (AC): ${acValue} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Display Turn Off (AC) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set display (AC)"
+                $script:FailCount++
             }
         }
     }
@@ -472,11 +496,18 @@ function Set-DisplaySettings {
         else {
             try {
                 & powercfg /CHANGE monitor-timeout-dc $batteryValue | Out-Null
-                Show-Success "Display Turn Off (Battery): ${batteryValue} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Display Turn Off (Battery): ${batteryValue} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Display Turn Off (Battery) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set display (Battery)"
+                $script:FailCount++
             }
         }
     }
@@ -503,11 +534,18 @@ function Set-SleepSettings {
         else {
             try {
                 & powercfg /CHANGE standby-timeout-ac $sleepAc | Out-Null
-                Show-Success "Sleep After (AC): ${sleepAc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Sleep After (AC): ${sleepAc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Sleep After (AC) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set sleep (AC)"
+                $script:FailCount++
             }
         }
     }
@@ -523,11 +561,18 @@ function Set-SleepSettings {
         else {
             try {
                 & powercfg /CHANGE standby-timeout-dc $sleepDc | Out-Null
-                Show-Success "Sleep After (Battery): ${sleepDc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Sleep After (Battery): ${sleepDc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Sleep After (Battery) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set sleep (Battery)"
+                $script:FailCount++
             }
         }
     }
@@ -543,11 +588,18 @@ function Set-SleepSettings {
         else {
             try {
                 & powercfg /CHANGE hibernate-timeout-ac $hibernateAc | Out-Null
-                Show-Success "Hibernate After (AC): ${hibernateAc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Hibernate After (AC): ${hibernateAc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Hibernate After (AC) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set hibernate (AC)"
+                $script:FailCount++
             }
         }
     }
@@ -563,11 +615,18 @@ function Set-SleepSettings {
         else {
             try {
                 & powercfg /CHANGE hibernate-timeout-dc $hibernateDc | Out-Null
-                Show-Success "Hibernate After (Battery): ${hibernateDc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "Hibernate After (Battery): ${hibernateDc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "Hibernate After (Battery) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set hibernate (Battery)"
+                $script:FailCount++
             }
         }
     }
@@ -667,11 +726,18 @@ function Set-HardDiskSettings {
         else {
             try {
                 & powercfg /CHANGE disk-timeout-ac $hddAc | Out-Null
-                Show-Success "HDD Turn Off (AC): ${hddAc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "HDD Turn Off (AC): ${hddAc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "HDD Turn Off (AC) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set HDD (AC)"
+                $script:FailCount++
             }
         }
     }
@@ -687,11 +753,18 @@ function Set-HardDiskSettings {
         else {
             try {
                 & powercfg /CHANGE disk-timeout-dc $hddDc | Out-Null
-                Show-Success "HDD Turn Off (Battery): ${hddDc} min"
-                $script:ChangeCount++
+                if ($LASTEXITCODE -eq 0) {
+                    Show-Success "HDD Turn Off (Battery): ${hddDc} min"
+                    $script:ChangeCount++
+                }
+                else {
+                    Show-Error "HDD Turn Off (Battery) failed (ExitCode=$LASTEXITCODE)"
+                    $script:FailCount++
+                }
             }
             catch {
                 Show-Warning "Failed to set HDD (Battery)"
+                $script:FailCount++
             }
         }
     }
@@ -796,6 +869,9 @@ function Set-PowerConfigValue {
                 $script:ChangeCount++
             }
             else {
+                # Warning only (no FailCount): button/lid writes can fail
+                # benignly on hardware without the capability (e.g. lid
+                # settings on desktops). Step 5.5 (Verified) is the backstop.
                 Show-Warning "$Description (Win32 API failed: 0x$($hr.ToString('X8')))"
             }
         }
@@ -813,12 +889,15 @@ function Set-PowerConfigValue {
                 $script:ChangeCount++
             }
             else {
-                Show-Warning "$Description (failed)"
+                # Explicit powercfg non-zero exit = deterministic failure
+                Show-Error "$Description (failed, ExitCode=$LASTEXITCODE)"
+                $script:FailCount++
             }
         }
     }
     catch {
         Show-Error "$Description"
+        $script:FailCount++
     }
 }
 
@@ -863,6 +942,7 @@ function Main {
         # Reset counters
         $script:SkipCount = 0
         $script:ChangeCount = 0
+        $script:FailCount = 0
 
         # Change Power Plan
         $planValue = ConvertTo-SettingValue $selectedProfile.PowerPlan
@@ -889,6 +969,10 @@ function Main {
         # Activate Settings
         Write-Host "`nActivating settings..." -ForegroundColor Gray
         & powercfg /SETACTIVE (Get-ActivePowerPlanGuid) | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Show-Error "powercfg /SETACTIVE failed (ExitCode=$LASTEXITCODE)"
+            $script:FailCount++
+        }
 
         # ========================================
         # Step 5.5: Post-Apply Verification
@@ -1029,12 +1113,25 @@ function Main {
         Write-Host ""
         $verified = if ($verifyPass -eq 0 -and $verifyFail -eq 0) { $null } else { $verifyFail -eq 0 }
 
-        Write-Host "========================================" -ForegroundColor Green
-        Write-Host "  Configuration Results" -ForegroundColor Green
-        Write-Host "========================================" -ForegroundColor Green
-        Write-Host "  Changed: $($script:ChangeCount), Skipped: $($script:SkipCount)" -ForegroundColor Green
-        Write-Host "========================================`n" -ForegroundColor Green
+        $bannerColor = if ($script:FailCount -gt 0) { "Yellow" } else { "Green" }
+        Write-Host "========================================" -ForegroundColor $bannerColor
+        Write-Host "  Configuration Results" -ForegroundColor $bannerColor
+        Write-Host "========================================" -ForegroundColor $bannerColor
+        Write-Host "  Changed: $($script:ChangeCount), Skipped: $($script:SkipCount)" -ForegroundColor $bannerColor
+        if ($script:FailCount -gt 0) {
+            Write-Host "  Failed:  $($script:FailCount)" -ForegroundColor Red
+        }
+        Write-Host "========================================`n" -ForegroundColor $bannerColor
 
+        # FailCount holds deterministic failures only (explicit powercfg
+        # non-zero exits / CSV config errors); hardware-dependent Win32
+        # warnings are excluded by design and covered by Verified.
+        if ($script:FailCount -gt 0 -and $script:ChangeCount -eq 0) {
+            return (New-ModuleResult -Status "Error" -Message "Changed: $($script:ChangeCount), Skip: $($script:SkipCount), Fail: $($script:FailCount)" -Verified $verified)
+        }
+        if ($script:FailCount -gt 0) {
+            return (New-ModuleResult -Status "Partial" -Message "Changed: $($script:ChangeCount), Skip: $($script:SkipCount), Fail: $($script:FailCount)" -Verified $verified)
+        }
         if ($script:ChangeCount -eq 0 -and $script:SkipCount -gt 0) {
             return (New-ModuleResult -Status "Skipped" -Message "All $($script:SkipCount) settings already configured" -Verified $verified)
         }

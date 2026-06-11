@@ -1,4 +1,4 @@
-Enabled,SettingName,Drive,Description,Value,Segment
+﻿Enabled,SettingName,Drive,Description,Value,Segment
 1,enable_protection,C:\,システム保護の有効化,,
 1,remove_24h_limit,,24時間制限の解除,,
 1,set_storage_size,C:\,シャドウコピー容量設定,5,

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-11T13:10:00+09:00",
+  "updatedAt": "2026-06-11T15:00:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -151,19 +151,19 @@
       "id": "t-0017",
       "title": "[HIGH] power_config: 失敗カウンタ不在で Status が常に Success",
       "content": "power_config.ps1 は powercfg ネイティブコマンドの失敗を検出できない構造: :454-456 ほか同パターン8箇所（474/505/525/545/565/669/689）で `& powercfg ... | Out-Null` を try/catch しているが、ネイティブコマンドの非ゼロ exit は throw しないため $LASTEXITCODE 未確認のまま Show-Success + ChangeCount++。さらに Set-PowerPlan の $false 戻りも Set-PowerConfigValue の失敗も fail カウンタに乗らず、:1041 の最終 Status は常に Success。Step 5.5 の読み返し検証が Verified=false を付けるのが唯一の防壁で、Status 契約としては fail-open。$LASTEXITCODE 判定 + fail カウンタ導入で Partial/Error を返せるようにする。",
-      "claudeNote": "全体監査(2026-06-10)で検出。Verified=false が出るため完全なサイレントではないが、New-BatchResult の Status 契約（Fail>0 → Partial/Error）に違反。module PATCH〜MINOR。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。Verified=false が出るため完全なサイレントではないが、New-BatchResult の Status 契約（Fail>0 → Partial/Error）に違反。module PATCH〜MINOR。\r\n追加調査(2026-06-11 全1051行精読・失敗経路の全数棚卸し): 指摘確定。fail カウンタ自体が不在で、最終判定(L1038-1041)は Changed=0&&Skip>0→Skipped 以外**常に Success**。失敗経路は計14箇所: (a)Set-PowerPlan=unknown plan/powercfg /S 失敗/catch(return $false は Main L870 が無視) (b)Set-PowerMode=unknown mode/Set{AC,DC}PowerMode hr≠0/catch (c)Display/Sleep/HDD の 8 サイト=`& powercfg /CHANGE | Out-Null` で LASTEXITCODE 未確認・無条件 Success+ChangeCount++(native は throw しないため catch は実質死に分岐) (d)Set-PowerConfigValue=Win32 hr≠0・powercfg exit≠0・catch の3経路が Warning/Error 表示のみ (e)Set-ButtonActions=GUID 取得不能 skip+PowerSetActiveScheme hr≠0 が Warning のみ (f)Set-ProcessorSettings=GUID 取得不能 (g)Main L891 の powercfg /SETACTIVE 未確認。Step 5.5 検証は包括的で Verified は正しく出る(唯一の防壁)が Status 契約が fail-open。\r\n修正設計: $script:FailCount 新設(初期化は ChangeCount 隣 L140 と Main のリセット部 L864)。上記14箇所に計上を追加: 8 /CHANGE サイトは LASTEXITCODE 判定追加(≠0→Show-Error+FailCount++、成功時のみ Success+ChangeCount++)、SETACTIVE も同様、他は既存 Warning/Error 表示箇所に FailCount++ 追加。最終判定は手書きロジックを **New-BatchResult -Success ChangeCount -Skip SkipCount -Fail FailCount -Verified $verified** に置換(§2 契約のイディオム化: Fail>0&&Success=0→Error / 両方>0→Partial / 既存の Skipped 判定と同一意味論、表示はカスタム緑バナー→標準 Execution Results 表に変わる)。全ゼロ時 Success は現行と同一(回帰なし)。\r\n版影響: power_config MINOR(Status に Partial/Error の新到達=挙動変更を含むため大きい側、現行版は実装時確認)・REQUIRES_KERNEL 据置(New-BatchResult は baseline 2.0.0 API)・kernel 不変。テスト: powercfg/Win32 API 依存でハーネス対象外、parse_check+既存スイート+実機(正常プロファイル適用で Success+Verified PASS の回帰確認)。設計ゲート(フル版)提示済み・実装承認待ち。\r\n慎重検討(2026-06-11 ユーザー要請): 破壊的影響を評価 — 設定適用コマンドは不変で PC 最終状態への影響ゼロ。リスクは運用フロー3点: (a)AutoPilot 停止(ErrorMode 空→ダイアログ) (b)ハード依存失敗の一斉 Partial 化(PowerMode overlay 非対応機・休止無効 VM・OEM 制約機) (c)チェックリスト NG 化。Verified(Step 5.5)が既に全項目を読み返しており防壁として機能している事実を提示。選択肢 A(段階)/B(フル)/C(見送り)を提示。\r\nユーザー裁定: (a)は profile の ErrorMode 指定で解決可能と受容 / (b)が悩ましく Verified が機能しているなら**修正は最小限**で → 案 A 採択。\r\n実装(2026-06-11・最小限版): FailCount 新設、**決定的失敗のみ計上** — 8 /CHANGE サイト+/SETACTIVE に LASTEXITCODE 判定追加、/S・/SETVALUEINDEX の既存判定 else と catch、CSV 設定ミス(unknown plan/mode)。**Win32 hr≠0 系(PowerMode overlay/ボタン/Lid/PowerSetActiveScheme)と GUID 取得不能 skip は Warning 据え置き**(設計根拠コメントをコード内3箇所に明文化・Verified が防壁)。最終判定: Fail>0&&Change=0→Error / Fail>0→Partial / 既存 Skipped・Success 不変。表示は既存バナー維持+失敗時のみ Failed 行(バナー黄色化)。New-BatchResult 置換は表示変更を避けて見送り。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。Phase 2(Win32 系の Fail 化)は実機・現場で Fail/Warning の出方を観測してから再判断(特に VM での hibernate 行の exit code に注目)。コミット承認待ち。\r\n実機テスト feedback(2026-06-11 powertest): 文字化け+型エラー報告→原因は t-0017 修正と無関係の power_list.csv BOM 欠落。CP932 読みで「設定」末尾バイト 0x9A が直後のコンマを先行バイトとして飲み込み 1 列ズレ(Description と PowerPlan が融合、Hibernate_After_Battery に SLEEP が入り [int] キャスト Error)。ログの症状 3 点すべて整合。リポジトリ全 CSV を一括スキャン→JP-UTF8-NO-BOM 実害級 4 件(power_list/delete_list/restore_point_list/spi_list)に BOM 付与(データ不変・UTF-8 妥当性と列数を検証済み)。overlay 更新契約(VERSION 比較)で配布に乗せるため file_delete 1.1.1 / restore_point 1.0.1 / spi_config 1.0.1 に PATCH bump(power_config は 1.1.0 に同梱)。LF のみの軽微 5 件(network_profile/server_feature/firewall_rule x2/temp_ipaddress の preset 等)は t-0018 のチェッカー実装時に一括清掃。再テスト依頼中: power_config が バランス を正しく表示し完走すること+hibernate 行の exit code 観測(Phase 2 判断材料)。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T15:00:00+09:00"
     },
     {
       "id": "t-0018",
       "title": "[HIGH] devツール3点: patch builderの無ガード削除 / check_versionのfail-open / encoding checkerのCP932盲点",
       "content": "(1) dev/build_framework_patch.ps1:92-95 — `Remove-Item -Path $dst -Recurse -Force` で $dst=Join-Path $OutDir $PatchName、-PatchName 無検証。-PatchName \".\" で $OutDir（既定 Desktop）自体を再帰削除、..\\x で OutDir 外へ脱出。パス区切り/./.. を拒否し、解決パスが $OutDir の厳密な子であることを assert。CLAUDE.md §8 違反、2026-04-25 事故と同クラス。\r\n(2) dev/check_version.ps1:59-62 — 検証対象ファイルが欠損していると [SKIP] 表示のみで $mismatches に積まれず exit 0（green）。欠損は FAIL にする。\r\n(3) dev/check_ps1_encoding.ps1:72 — 全ファイルを UTF-8 として decode するため CP932 の日本語は U+FFFD になり全検出レンジ（最大 U+FFEF）の外 → CP932 の日本語入り .ps1 が OK 判定。U+FFFD 検出を追加（=デコード不能バイト列の検出）。CSV の「UTF-8 BOM + CRLF」規約のチェッカーが存在しない点も合わせて検討。",
-      "claudeNote": "全体監査(2026-06-10)で検出。(1)はユーザーの Desktop が既定 OutDir である点が特に危険。dev/ 配下は CHANGELOG 対象（§A）だが版管理対象外。(3)の CP932 盲点は「BOM 無し日本語 .ps1 が CP932 で保存されていた場合に検出網をすり抜ける」という JP-NO-BOM cleanup（残5件）の検出基盤の穴でもある。",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)はユーザーの Desktop が既定 OutDir である点が特に危険。dev/ 配下は CHANGELOG 対象（§A）だが版管理対象外。(3)の CP932 盲点は「BOM 無し日本語 .ps1 が CP932 で保存されていた場合に検出網をすり抜ける」という JP-NO-BOM cleanup（残5件）の検出基盤の穴でもある。\r\n実害事例の追記(2026-06-11): (3)の CSV チェッカー不在が実害化 — power_list.csv の BOM 欠落で CP932 読みのコンマ飲み込み→1 列ズレ→型エラー(t-0017 実機テストで検出)。実害級 4 CSV は BOM 付与済み(t-0017 側で対応)。チェッカー実装時の残作業: LF 改行のみの軽微違反 5 件(network_profile_list/server_feature_list/firewall_rule preset/firewall_rule_make preset/temp_ipaddress preset)の CRLF 化 + .ps1 用 check_ps1_encoding と同様の CSV 検査(JP+UTF8+BOM 無し検出、コンマ飲み込みリスクの根拠は本事例)。",
       "status": "未着手",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T15:00:00+09:00"
     },
     {
       "id": "t-0019",

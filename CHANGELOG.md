@@ -49,6 +49,26 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- CSV エンコーディング修正 4 件 (Fixed: BOM 無し日本語 UTF-8 CSV の列ズレ実害, 実機テストで検出):
+  power_config/power_list.csv（power_config v1.1.0 に同梱）/ file_delete/delete_list.csv
+  (v1.1.0 → v1.1.1) / restore_point/restore_point_list.csv (v1.0.0 → v1.0.1) /
+  spi_config/spi_list.csv (v1.0.0 → v1.0.1) に UTF-8 BOM を付与。
+  BOM 無しだと `Import-Csv -Encoding Default`（CP932）が日本語セルを mojibake させるだけでなく、
+  **特定の末尾バイト（例:「設定」の 0x9A）が直後のコンマを CP932 先行バイトとして飲み込み
+  1 列ズレを起こす**（power_config で実害化: PowerMode に数値が入り、Hibernate_After_Battery に
+  "SLEEP" が入って [int] キャストで Error）。データ内容は不変（BOM 3 バイトの前置のみ）。
+  LF 改行のみの軽微違反 5 件は CSV エンコーディングチェッカー実装（TM t-0018）時に一括清掃予定。
+- modules/standard/power_config v1.0.0 → v1.1.0 (Fixed: 失敗カウンタ不在による恒常 Success を
+  最小限スコープで修正, TM t-0017): powercfg ネイティブ失敗が全経路で Success 計上され、
+  最終 Status が常に Success だった（Verified=FAIL のみが防壁）。`$script:FailCount` を新設し、
+  **決定的な失敗のみ**計上する設計: 8 つの /CHANGE サイト + /SETACTIVE に `$LASTEXITCODE`
+  判定を追加、/S・/SETVALUEINDEX の既存判定と CSV 設定ミス（unknown plan/mode）に計上を追加。
+  **ハードウェア依存の Win32 hr≠0 系（電源モードオーバーレイ・ボタン/Lid 書込）は意図して
+  Warning 据え置き**（Modern Standby 非対応機・デスクトップ等で良性に失敗するため。
+  Step 5.5 の Verified が防壁、根拠コメントをコード内に明文化）。最終判定: Fail>0 &&
+  Change=0 → Error / Fail>0 → Partial / 既存の Skipped・Success 判定は不変。表示は既存バナー
+  維持 + 失敗時のみ Failed 行追加。AutoPilot 運用への影響は profile 側の ErrorMode 指定で
+  制御可能（ユーザー判断 2026-06-11: 段階導入、Win32 系の Fail 化は実機観測後に再判断）。
 - modules/extended/history_destroyer v1.1.0 → v1.2.0 (Fixed: Invoke-Expression 排除と
   fail-open 群の修正, TM t-0016):
   (1) Command ActionType がコードベース唯一の CSV 文字列 Invoke-Expression で、失敗しても
