@@ -16,6 +16,41 @@
 ## [Unreleased]
 
 ### Fixed
+- modules/standard/partition_config v1.0.0 → v1.1.0 (Fixed: RAW ボリュームの自己修復不能と
+  preview/実行の重複排除キー不一致を修正, TM t-0019④):
+  (1) New-Partition 成功 + Format-Volume 失敗の半端状態（レター付き RAW）が、再実行で
+  「already exists」永久 Skip になり修復不能だった。already-exists 分岐を 2 分割: 健全な
+  ボリューム（FS あり）は従来どおり Skip（CSV と FS が違っても再フォーマットしない =
+  データ保護、不一致は検証が警告）/ RAW・ボリューム無し（FS が無い = データも無い半端状態）
+  のみ Format-Volume を再試行する安全な self-heal。
+  (2) preview の shrink 重複排除が SourceDriveLetter のみで、Phase A・検証の letter+size
+  キーとズレていた（同一レター異サイズの 2 行が preview に 1 件しか出ないのに実行は 2 回
+  shrink）。preview を同一キーに統一（通常の 1 レター 1 行構成では出力不変）。
+- modules/standard/autologon_config v1.0.0 → v1.1.0 (Fixed + Post-Apply Verification 追加:
+  stale パスワード/ドメインでも Skipped になる冪等判定を修正, TM t-0019③): 冪等チェックが
+  AutoAdminLogon + DefaultUserName + Count のみで、(1) CSV パスワード修正後の再実行が
+  Skipped になり誤った旧 DefaultPassword のまま次回ブートの autologon が失敗 (2) 別構成が
+  残した stale DefaultDomainName をローカルアカウント設定時に放置（STALEDOMAIN\user での
+  ログオン試行になる）していた。冪等判定を 5 要素完全一致（AutoAdminLogon / User /
+  **Password(-ceq)** / **Domain 整合（CSV 空 = レジストリも空）** / Count≥1）に強化し、
+  一致時のみ Skipped + Verified=true。CSV Domain 空のとき DefaultDomainName を明示クリア。
+  設定後の 5 要素読み返し検証を `-Verified` で返却（Partial/Success 両経路）。
+- modules/standard/odt_config v1.0.0 → v1.1.0 (Fixed: インストール成功後の再実行が
+  「既存 Office 検出」Error になる冪等性違反を修正, TM t-0019②): 事前チェック (f) が
+  C2R Office の存在だけで abort していたため、本モジュール自身が入れた Office で再実行が
+  恒久 Error だった。検出 ProductReleaseIds（実機確認: M365 Apps for Business =
+  "O365BusinessRetail"）と、全有効エントリの ODT XML から収集した Product ID の union を
+  セット比較: **完全一致 → Skipped + Verified=true** / 部分一致・余剰・XML パース不能 →
+  従来どおり fail-closed Error（検出値と目標値の両方を明示）。検出側は ".<数字>" 版
+  サフィックスを防御的に正規化（内部キー名 "O365BusinessRetail.16" の装飾クラス対策）。
+  比較粒度は Product ID のみ（言語/チャネル差は対象外、コメントに明記）。
+- modules/standard/domain_join v2.0.0 → v2.1.0 (Fixed + Post-Apply Verification 追加:
+  参加済み再実行の偽 Error を修正, TM t-0019①): 参加済みチェックが無く、プロファイル再実行で
+  `Add-Computer` が「既に参加済み」throw → 本物の参加失敗と区別不能な Error になっていた。
+  Win32_ComputerSystem による冪等性チェックを DNS チェックより前に追加（参加済みならネットワーク
+  不通でも即判定）: 対象ドメインと一致(-ieq) → Skipped + Verified=true / **別ドメイン参加済みは
+  fail-closed の Error**（現在値と目標値を明示。CSV と実態の矛盾を operator に丸投げしない）。
+  Join 成功後の読み返し検証（PartOfDomain + Domain 一致）を `-Verified` で返却。
 - modules/standard/reg_hklm_config v1.1.0 → v1.1.1 / modules/standard/reg_hkcu_config
   v1.1.0 → v1.1.1 (Fixed: DWORD ≥ 0x80000000 が適用不能 + Default ハイブ unload 失敗の
   fail-open, TM t-0021):

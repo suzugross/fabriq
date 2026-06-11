@@ -122,9 +122,17 @@ Write-Host "Partition Changes" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-# Show source drive shrink info (deduplicated)
-$shrinkTargets = $enabledItems | Sort-Object SourceDriveLetter -Unique |
-    ForEach-Object { [PSCustomObject]@{ Letter = $_.SourceDriveLetter.ToUpper(); TargetMB = [int]$_.SourceSizeMB } }
+# Show source drive shrink info, deduplicated by letter+size - the SAME
+# key Phase A and the verification use. Deduplicating by letter alone
+# hid second shrink rows from this preview while Phase A executed them.
+$shrinkSeen = @{}
+$shrinkTargets = @(foreach ($it in $enabledItems) {
+    $shrinkKey = "$($it.SourceDriveLetter.ToUpper())-$([int]$it.SourceSizeMB)"
+    if (-not $shrinkSeen.ContainsKey($shrinkKey)) {
+        $shrinkSeen[$shrinkKey] = $true
+        [PSCustomObject]@{ Letter = $it.SourceDriveLetter.ToUpper(); TargetMB = [int]$it.SourceSizeMB }
+    }
+})
 
 foreach ($src in $shrinkTargets) {
     $currentMB = Get-PartitionSizeMB -DriveLetter $src.Letter
@@ -256,9 +264,36 @@ foreach ($item in $enabledItems) {
                 continue
             }
         } else {
-            Show-Skip "$($letter): already exists"
+            # Existing partition: distinguish a healthy volume (Skip - a
+            # reformat would destroy data even when the FS differs from
+            # the CSV; verification flags the mismatch instead) from the
+            # half-created RAW state a failed Format-Volume leaves behind
+            # (New-Partition succeeded, format did not). RAW carries no
+            # filesystem - and therefore no data - so retrying the format
+            # is the safe self-heal that used to be a permanent Skip.
+            $existingVol = Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue
+            $isRaw = ($null -eq $existingVol) -or
+                     ("$($existingVol.FileSystemType)" -eq 'Unknown') -or
+                     ([string]::IsNullOrEmpty("$($existingVol.FileSystem)"))
+            if (-not $isRaw) {
+                Show-Skip "$($letter): already exists"
+                Write-Host ""
+                $skipCount++
+                continue
+            }
+
+            Show-Warning "$($letter): exists but is unformatted (RAW) - retrying format"
+            try {
+                Format-Volume -DriveLetter $letter -FileSystem $fs -NewFileSystemLabel $label -Confirm:$false -ErrorAction Stop | Out-Null
+                $actualMB = Get-PartitionSizeMB -DriveLetter $letter
+                Show-Success "Formatted $($letter): ($($actualMB) MB, $($fs), Label: $($label))"
+                $successCount++
+            }
+            catch {
+                Show-Error "Failed to format $($letter): $_"
+                $failCount++
+            }
             Write-Host ""
-            $skipCount++
             continue
         }
     }
