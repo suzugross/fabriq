@@ -327,35 +327,40 @@ Show-Info "Generating unattend.xml..."
 # element. Row-absent or Enabled=0 falls back to the historical default "true"
 # (preserves byte-identical output of v1.0.x). Set Enabled=1 + Value=false to
 # explicitly emit <...>false</...>.
+# CSV-sourced values are XML-escaped at every insertion point below
+# ([System.Security.SecurityElement]::Escape - same pattern as
+# ssid_config). An AdminPassword containing & < > used to produce
+# invalid XML that failed at OOBE. The XML parser decodes the entities,
+# so the applied values stay byte-identical to the CSV.
 $generalizeDriverBlock = ""
 $dontCleanup = if ($settings.ContainsKey("DoNotCleanUpNonPresentDevices")) {
     $settings["DoNotCleanUpNonPresentDevices"]
 } else {
     "true"
 }
-$generalizeDriverBlock += "            <DoNotCleanUpNonPresentDevices>$dontCleanup</DoNotCleanUpNonPresentDevices>`r`n"
+$generalizeDriverBlock += "            <DoNotCleanUpNonPresentDevices>$([System.Security.SecurityElement]::Escape($dontCleanup))</DoNotCleanUpNonPresentDevices>`r`n"
 
 $persistAll = if ($settings.ContainsKey("PersistAllDeviceInstalls")) {
     $settings["PersistAllDeviceInstalls"]
 } else {
     "true"
 }
-$generalizeDriverBlock += "            <PersistAllDeviceInstalls>$persistAll</PersistAllDeviceInstalls>`r`n"
+$generalizeDriverBlock += "            <PersistAllDeviceInstalls>$([System.Security.SecurityElement]::Escape($persistAll))</PersistAllDeviceInstalls>`r`n"
 
 # Build {{SPECIALIZE_SETTINGS}}
 $specializeBlock = ""
 if ($settings.ContainsKey("ComputerName")) {
-    $specializeBlock += "            <ComputerName>$($settings["ComputerName"])</ComputerName>`r`n"
+    $specializeBlock += "            <ComputerName>$([System.Security.SecurityElement]::Escape($settings['ComputerName']))</ComputerName>`r`n"
 }
 if ($settings.ContainsKey("CopyProfile")) {
-    $specializeBlock += "            <CopyProfile>$($settings["CopyProfile"])</CopyProfile>`r`n"
+    $specializeBlock += "            <CopyProfile>$([System.Security.SecurityElement]::Escape($settings['CopyProfile']))</CopyProfile>`r`n"
 }
 
 # Build {{OOBE_BLOCK}}
 $oobeContent = ""
 foreach ($name in $oobeSettingNames) {
     if ($settings.ContainsKey($name)) {
-        $oobeContent += "                <$name>$($settings[$name])</$name>`r`n"
+        $oobeContent += "                <$name>$([System.Security.SecurityElement]::Escape($settings[$name]))</$name>`r`n"
     }
 }
 if ($oobeContent -ne "") {
@@ -375,7 +380,7 @@ if ($settings.ContainsKey("EnableAdministrator") -and $settings["EnableAdministr
         $adminPassword = $settings["AdminPassword"]
     }
     $userAccountsContent += "                <AdministratorPassword>`r`n"
-    $userAccountsContent += "                    <Value>$adminPassword</Value>`r`n"
+    $userAccountsContent += "                    <Value>$([System.Security.SecurityElement]::Escape($adminPassword))</Value>`r`n"
     $userAccountsContent += "                    <PlainText>true</PlainText>`r`n"
     $userAccountsContent += "                </AdministratorPassword>`r`n"
 }
@@ -385,7 +390,7 @@ if ($settings.ContainsKey("TestUserName") -and $settings["TestUserName"] -ne "")
     $testUser = $settings["TestUserName"]
     $userAccountsContent += "                <LocalAccounts>`r`n"
     $userAccountsContent += "                    <LocalAccount wcm:action=`"add`">`r`n"
-    $userAccountsContent += "                        <Name>$testUser</Name>`r`n"
+    $userAccountsContent += "                        <Name>$([System.Security.SecurityElement]::Escape($testUser))</Name>`r`n"
     $userAccountsContent += "                        <Group>Administrators</Group>`r`n"
     $userAccountsContent += "                    </LocalAccount>`r`n"
     $userAccountsContent += "                </LocalAccounts>`r`n"
@@ -457,7 +462,11 @@ $cmdBody += $cmdFooter
 
 # Write SetupComplete.cmd
 try {
-    $cmdBody | Out-File -FilePath $setupCompleteDeployPath -Encoding UTF8 -Force -ErrorAction Stop
+    # ANSI, not UTF8: cmd.exe does not skip a UTF-8 BOM - the first line
+    # (@echo off) always misparses (field-verified 2026-06-12). ANSI also
+    # keeps Japanese action paths readable (system codepage = CP932 on
+    # Japanese Windows).
+    $cmdBody | Out-File -FilePath $setupCompleteDeployPath -Encoding Default -Force -ErrorAction Stop
 
     if (-not (Test-Path $setupCompleteDeployPath)) {
         Show-Error "SetupComplete.cmd was not created: $setupCompleteDeployPath"

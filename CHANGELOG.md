@@ -36,6 +36,41 @@
   旧形式平文 PIN の互換復元 / Reset クリアリストの AST 契約）。スイート 266 → 272。
 
 ### Fixed
+- modules/standard/printer_driver_config v1.1.1 → v1.1.2 (Fixed: Driver Store 削除失敗時の
+  虚偽サマリ行を修正, TM t-0023(5)): pnputil /delete-driver が失敗（INF 共有等）しても
+  サマリが「Store: oemNN.inf deleted」を緑表示していた。exit code から $storeDeleted を
+  追跡し、失敗時は黄「NOT deleted (in use by another driver?)」+ Message に
+  "(store cleanup skipped)" 付記。Status は Success のまま（Store 削除は共有 INF で失敗
+  して当然の best-effort フェーズのため、Fail 化は正当ケースの偽 Fail になる）。
+- modules/standard/volume_config v1.0.0 → v1.0.1 (Fixed: 有効 0 件時の偽 Error を修正,
+  TM t-0023(4)): -FilterEnabled 後の 0 件チェックが無く @($enabledItems)[0] が $null →
+  「Invalid Volume value」Error になっていた。テンプレート標準の
+  Skipped("No enabled entries") ガードを挿入。
+- modules/extended/desktop_icon_config v1.0.0 → v1.0.1 (Fixed: desktop_icon_backup の
+  到達不能状態を解消, TM t-0023(3)): module.csv で backup のみ Enabled=0 だったため、
+  メニューにもプロファイル解決（Resolve-ProfileModules はレジストリ未登録行を invalidPaths
+  扱い）にも乗らず、Master_Config02 の Order 40 参照がサイレント未実行だった。意図的な
+  無効化だったが「これだけ無効も変」とのユーザー判断で Enabled=1 に変更（メニューの
+  Desktop カテゴリに 1 項目追加、コード変更なし）。
+- modules/standard/wallpaper_config v1.0.0 → v1.1.0 (Fixed: HKCU リダイレクト時の偽 Success
+  と昇格管理者への誤適用を修正, TM t-0023(2)): SystemParametersInfo はセッション API のため、
+  別管理者で昇格した実行（Redirected=true）では SPI が昇格管理者のデスクトップに適用され
+  （SPIF_UPDATEINIFILE が WallPaper 値を管理者の HKCU に書く）、対象ユーザーはスタイル値
+  のみで壁紙未設定のまま Success、かつ管理者自身の壁紙が書き換わる副作用もあった。
+  Redirected 時は SPI をスキップし、WallPaper パスを対象ユーザーの hive に直書きする
+  staged 適用（次回ログオンで Explorer が反映、メッセージに "staged ... applies at next
+  logon" 明示）に変更。SolidColor 行も同様に SPI スキップ（レジストリ書込は元々対象 hive
+  向けで完結）。非リダイレクト時の経路は既存文を else 側に温存し挙動完全不変。
+- modules/standard/sysprep_config v1.1.0 → v1.1.1 (Fixed: unattend.xml の生埋め込みと
+  SetupComplete.cmd の UTF-8 BOM を修正, TM t-0023(1)): (1) CSV 由来の値（AdminPassword /
+  ComputerName / TestUserName / OOBE 値 / generalize 値、計 7 箇所）が無エスケープで XML に
+  連結され、& < > を含むパスワードで不正 XML → OOBE 停止のリスクがあった。ssid_config と
+  同じ [System.Security.SecurityElement]::Escape を全挿入点に適用（XML パーサが復号する
+  ため適用値は CSV と同一、特殊文字なしの既存 CSV では出力バイト不変）。
+  (2) SetupComplete.cmd の -Encoding UTF8（BOM 付き）→ Default（ANSI）に変更 — cmd.exe は
+  UTF-8 BOM をスキップせず 1 行目（@echo off）が必ず化ける（開発機で実証: BOM 付きは
+  1 行目エラー + echo オン、2 行目以降は実行継続 = 従来実害が顕在化しなかった理由）。
+  ANSI はシステムコードページ（日本語 Windows = CP932）で日本語アクションパスも保全。
 - modules/extended/userdata_backup v0.1.0 → v0.1.1 (Fixed: 0 件バックアップが Verified PASS
   になる検証穴を修正, TM t-0020(5)): Step 5.6 の per-entry 検証が Skipped エントリを素通り
   するため、全ソース欠落（別プロファイル指定ミス・ドライブ未マウント等）で 0 ファイルの

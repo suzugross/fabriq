@@ -119,6 +119,11 @@ $enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
 if ($null -eq $enabledItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load volume_list.csv")
 }
+if ($enabledItems.Count -eq 0) {
+    Show-Info "No enabled entries in volume_list.csv"
+    Write-Host ""
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
 
 $config = @($enabledItems)[0]
 
