@@ -98,6 +98,7 @@ Write-Host ""
 # Load Default Profile Hive
 # ========================================
 $hiveLoaded = $false
+$hiveUnloadFailed = $false
 
 if (Test-Path $HIVE_PATH) {
     Show-Info "Loading Default Profile Hive..."
@@ -234,10 +235,20 @@ if ($hiveLoaded) {
         }
         else {
             Show-Error "Failed to unload Hive. Please unload manually."
+            # ntuser.dat stays locked - downstream sysprep (CopyProfile) /
+            # new-profile creation can fail. Degrade the module result.
+            $hiveUnloadFailed = $true
         }
     }
     Write-Host ""
 }
 
 # Summary
+if ($hiveUnloadFailed) {
+    # Fail+1 degrades Status to Partial/Error instead of a clean Success
+    # while ntuser.dat is still locked.
+    return (New-BatchResult -Success $successCount -Skip $skipCount -Fail ($failCount + 1) `
+        -Title "Deletion Results" `
+        -MessageSuffix "(hive unload FAILED - ntuser.dat may remain locked)")
+}
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Deletion Results")

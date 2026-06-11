@@ -51,6 +51,30 @@ if ($regItems.Count -eq 0) {
 }
 
 # ========================================
+# Registry Numeric Conversion Helpers
+# ========================================
+# DWORD is unsigned 32-bit on the wire, but .NET stores it as Int32 -
+# values 0x80000000-0xFFFFFFFF must be written as the bit-equal negative
+# Int32 (a plain [int] cast of '4294967295' simply throws), and they
+# read back as negative Int32 so comparisons must normalize the same
+# way. Accepts decimal, 0x-prefixed hex, and signed literals from CSV.
+function ConvertTo-RegistryDWordValue {
+    param([Parameter(Mandatory)][string]$Value)
+    $v = $Value.Trim()
+    if ($v -match '^-') { return [int]$v }
+    $u = if ($v -match '^0[xX]') { [Convert]::ToUInt32($v.Substring(2), 16) } else { [uint32]$v }
+    return [BitConverter]::ToInt32([BitConverter]::GetBytes($u), 0)
+}
+
+function ConvertTo-RegistryQWordValue {
+    param([Parameter(Mandatory)][string]$Value)
+    $v = $Value.Trim()
+    if ($v -match '^-') { return [long]$v }
+    $u = if ($v -match '^0[xX]') { [Convert]::ToUInt64($v.Substring(2), 16) } else { [uint64]$v }
+    return [BitConverter]::ToInt64([BitConverter]::GetBytes($u), 0)
+}
+
+# ========================================
 # Idempotency Helper
 # ========================================
 function Test-RegistryValueMatch {
@@ -70,8 +94,8 @@ function Test-RegistryValueMatch {
         $currentValue = $prop.$Name
 
         switch ($Type) {
-            'DWord'  { return ([long]$currentValue -eq [long]$ExpectedValue) }
-            'QWord'  { return ([long]$currentValue -eq [long]$ExpectedValue) }
+            'DWord'  { return ([int]$currentValue -eq (ConvertTo-RegistryDWordValue $ExpectedValue)) }
+            'QWord'  { return ([long]$currentValue -eq (ConvertTo-RegistryQWordValue $ExpectedValue)) }
             'Binary' {
                 $currentHex = ($currentValue | ForEach-Object { '{0:X2}' -f $_ }) -join ''
                 $expectedHex = ($ExpectedValue -replace '[^0-9A-Fa-f]', '').ToUpper()
@@ -232,8 +256,11 @@ foreach ($item in $regItems) {
 
         # Convert value type if needed
         $regValue = $item.'Value'
-        if ($regType -eq 'DWord' -or $regType -eq 'QWord') {
-            $regValue = [int]$regValue
+        if ($regType -eq 'DWord') {
+            $regValue = ConvertTo-RegistryDWordValue $regValue
+        }
+        elseif ($regType -eq 'QWord') {
+            $regValue = ConvertTo-RegistryQWordValue $regValue
         }
 
         # Check existing value

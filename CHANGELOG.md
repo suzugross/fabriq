@@ -15,6 +15,24 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/standard/reg_hklm_config v1.1.0 → v1.1.1 / modules/standard/reg_hkcu_config
+  v1.1.0 → v1.1.1 (Fixed: DWORD ≥ 0x80000000 が適用不能 + Default ハイブ unload 失敗の
+  fail-open, TM t-0021):
+  (1) 書込側の `[int]` キャストで DWORD ≥ 2^31（ポリシー頻出の 4294967295=0xFFFFFFFF 等）と
+  Int32 超の QWORD が必ず throw = 恒久 Fail で設定を出荷できなかった。さらに**比較側**
+  （Test-RegistryValueMatch）も `[long]$currentValue` 比較のため、0xFFFFFFFF は registry から
+  Int32 の -1 として読み返されて恒久不一致 — 既に正しい値でも冪等チェック不発+検証が偽 FAIL
+  だった。`ConvertTo-RegistryDWordValue` / `ConvertTo-RegistryQWordValue` ヘルパーを両モジュール
+  に追加（10進 / 0x16進 / 負数リテラル受理、unsigned 域は BitConverter でビット等価の
+  Int32/Int64 へ — .NET registry の DWORD=Int32 格納仕様に整合）し、書込 2 箇所と比較 2 箇所を
+  置換。出荷コードの AST 抽出検証 14 アサーション全 PASS（境界値・読み返し照合・throw 系）。
+  (2) reg_hkcu_config / reg_hkcu_delete の Default ハイブ unload が 2 回試行後の最終失敗でも
+  Show-Error のみで Status=Success だった（ntuser.dat ロック残置は後続 sysprep CopyProfile /
+  新規プロファイル作成を壊す）。`$hiveUnloadFailed` で summary を Fail+1 + MessageSuffix
+  "(hive unload FAILED - ntuser.dat may remain locked)" に降格（config 側は Verified=false も強制）。
+  正常系・リトライロジック・reg load 側の判定（元から健全）は不変。
+
 ## [3.5.0] - 2026-06-11
 
 ### Removed
