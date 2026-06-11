@@ -7,6 +7,29 @@
 # Prerequisites: Click-to-Run Office installed, network connectivity
 # ========================================
 
+function Test-C2RScenarioActive {
+    # Scenario subkeys persist after completion (field-confirmed: the
+    # INSTALL scenario from the original ODT install stays forever with
+    # all tasks TASKSTATE_COMPLETED), so key existence does NOT mean
+    # "running" - that assumption made the idle exit unreachable and
+    # every no-update run a 60min false timeout. A scenario is active
+    # only if a TasksState entry is neither COMPLETED, FAILED, nor
+    # CANCELLED; unknown states count as active (timeout is the backstop).
+    param([string]$ScenarioPath)
+
+    $scenarioKeys = Get-ChildItem -Path $ScenarioPath -ErrorAction SilentlyContinue
+    foreach ($sk in $scenarioKeys) {
+        $ts = Get-ItemProperty -Path (Join-Path $sk.PSPath "TasksState") -ErrorAction SilentlyContinue
+        if ($null -eq $ts) { continue }
+        foreach ($prop in $ts.PSObject.Properties) {
+            if ($prop.Name -like 'PS*') { continue }
+            $state = "$($prop.Value)"
+            if ($state -and $state -notmatch 'COMPLETED|FAILED|CANCELLED') { return $true }
+        }
+    }
+    return $false
+}
+
 Write-Host ""
 Show-Separator
 Write-Host "Office Update" -ForegroundColor Cyan
@@ -70,8 +93,16 @@ if ([string]::IsNullOrWhiteSpace($beforeVersion)) {
     return (New-ModuleResult -Status "Error" -Message "Cannot read VersionToReport")
 }
 
-# Wait for network
-Wait-NetworkReady
+# Network check: single bounded probe instead of Wait-NetworkReady
+# (which loops forever) - an unattended run must fail fast and let the
+# FlexProfile dashboard / AutoPilot ErrorMode decide what to do next.
+$netReachable = Test-Connection -ComputerName "8.8.8.8" -Count 2 -Quiet -ErrorAction SilentlyContinue
+if (-not $netReachable) {
+    Show-Error "Network unreachable (8.8.8.8)"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Network unreachable")
+}
+Show-Success "Network connectivity OK (8.8.8.8)"
 Write-Host ""
 
 
@@ -130,6 +161,17 @@ if ($forceAppShutdown) {
 }
 
 # 5b. Trigger update
+# Baseline for the post-mortem "did detection even run" check in Step 6.
+# The value is a FILETIME-derived decimal string (field-confirmed REG_SZ,
+# e.g. 13425636454200); only before/after advancement matters, and a
+# missing value (population-dependent) disables that check.
+$updatesRegPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Updates"
+$detectBefore = $null
+try {
+    $detectBefore = [int64](Get-ItemProperty -Path $updatesRegPath -Name "UpdateDetectionLastRunTime" -ErrorAction Stop).UpdateDetectionLastRunTime
+}
+catch { }
+
 $displayArg = if ($displayLevel) { "displaylevel=True" } else { "displaylevel=False" }
 $shutdownArg = if ($forceAppShutdown) { "forceappshutdown=True" } else { "forceappshutdown=False" }
 $c2rArgs = "/update user $displayArg $shutdownArg updatepromptuser=False"
@@ -172,9 +214,8 @@ while ($elapsed -lt $timeoutSec) {
     $c2rProc = Get-Process -Name "OfficeC2RClient" -ErrorAction SilentlyContinue
     $c2rActive = ($null -ne $c2rProc)
 
-    # Signal 3: Scenario registry (active during update operations)
-    $scenarioKeys = Get-ChildItem -Path $scenarioPath -ErrorAction SilentlyContinue
-    $hasActiveScenario = ($null -ne $scenarioKeys -and $scenarioKeys.Count -gt 0)
+    # Signal 3: Scenario registry, state-aware (see Test-C2RScenarioActive)
+    $hasActiveScenario = Test-C2RScenarioActive -ScenarioPath $scenarioPath
 
     # Progress display (every 30 seconds)
     if ($elapsed % 30 -eq 0) {
@@ -213,7 +254,45 @@ elseif ($elapsed -ge $timeoutSec) {
     return (New-ModuleResult -Status "Error" -Message "Update timeout (${timeoutMinutes}min)")
 }
 else {
-    Show-Info "No update available (already up to date: $beforeVersion)"
+    # Idle exit without a version change: "no update available" and
+    # "update failed silently" both land here. Post-mortem on the
+    # ClickToRun\Updates key separates the detectable failure classes;
+    # values are population-dependent (field-confirmed on 2 machines),
+    # so a missing value falls through to Skip rather than inventing a
+    # verdict.
+    $upd = Get-ItemProperty -Path $updatesRegPath -ErrorAction SilentlyContinue
+
+    # (1) The UPDATE scenario itself recorded an error - this also
+    # catches a post-detection download abort (field-confirmed value;
+    # '0' = no error)
+    $lastUpdErr = "$((Get-ItemProperty -Path (Join-Path $scenarioPath 'UPDATE') -ErrorAction SilentlyContinue).LastUpdateError)".Trim()
+    if ($lastUpdErr -ne '' -and $lastUpdErr -ne '0') {
+        Show-Error "Update failed (LastUpdateError=$lastUpdErr)"
+        Write-Host ""
+        return (New-ModuleResult -Status "Error" -Message "Update failed (LastUpdateError=$lastUpdErr)")
+    }
+
+    # (2) Update downloaded/staged but never applied
+    $readyToApply = "$($upd.UpdatesReadyToApply)".Trim()
+    if ($readyToApply -ne '' -and $readyToApply -ne '0') {
+        Show-Error "An update is staged but was not applied (UpdatesReadyToApply=$readyToApply)"
+        Write-Host ""
+        return (New-ModuleResult -Status "Error" -Message "Update staged but not applied (UpdatesReadyToApply=$readyToApply)")
+    }
+
+    # (3) Detection never ran - the client exited before even checking
+    $detectAfter = $null
+    try { $detectAfter = [int64]"$($upd.UpdateDetectionLastRunTime)" } catch { }
+    if ($null -ne $detectBefore -and $null -ne $detectAfter -and $detectAfter -le $detectBefore) {
+        Show-Error "Update client exited without running detection (UpdateDetectionLastRunTime unchanged)"
+        Write-Host ""
+        return (New-ModuleResult -Status "Error" -Message "Update detection did not run (client exited early)")
+    }
+
+    # (4) Detection ran, no error recorded, nothing staged, version
+    # unchanged -> treat as up to date. The Skip is not sticky - a
+    # re-run retries the update.
+    Show-Info "No version change detected (treated as up to date: $beforeVersion)"
     Write-Host ""
-    return (New-ModuleResult -Status "Skipped" -Message "Already up to date: $beforeVersion")
+    return (New-ModuleResult -Status "Skipped" -Message "No version change (treated as up to date: $beforeVersion)")
 }
