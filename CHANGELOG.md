@@ -15,7 +15,24 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/standard/generic_process_runner v1.0.0 → v1.1.0 (Fixed: TimeoutSec=0 時の
+  WaitProcessName ポーリング無限化を既定上限で封鎖, TM t-0027(A-2)): Guide は
+  「TimeoutSec はポーリングフェーズにも適用（無限ハング防止）」と約束するが、0/空欄では
+  while($true) が無限化していた（出荷サンプル CSV の Office Update 行がまさにこの構成）。
+  TimeoutSec=0 のときポーリングフェーズのみ既定上限 3600 秒を適用 — 到達時は対象プロセスを
+  **強制終了せず**（正当に遅いインストーラの誤殺防止）、実行継続のまま Error 計上して
+  operator / ErrorMode に判断を渡す。明示 TimeoutSec の kill 挙動と、本体 Wait-Process の
+  無制限待機（GUI 操作待ちの文書化済み仕様）は不変。Guide.txt に既定上限を明記。
+
 ### Security
+- modules/standard/partition_config v1.1.0 → v1.1.1 (Security: RAW 判定の $null fail-open を
+  封鎖, TM t-0027(A-1)): レター使用中の判定（Get-Partition/WMI）と RAW 判定（Get-Volume）が
+  別プロバイダのため、「Get-Partition は成功・Get-Volume だけ一時失敗」の窓で $null が
+  RAW 扱いされ、健全なデータ入りボリュームが Format-Volume に流れ得た（再監査 2026-06-12
+  の敵対レビューで検出、v1.1.0 の self-heal 導入時に混入）。$null = 読取不能は Error
+  （format 不実行・再実行で収束）とし、RAW は「ボリュームオブジェクト実在かつ FS 無し」の
+  肯定的シグナル必須に変更。本物の RAW self-heal と健全 Skip の挙動は不変。
 - kernel/common.ps1 + kernel/main.ps1: SELECTED_PIN が resume_state.json に平文で
   再起動を跨いで残留する非対称を解消 (TM t-0022(1)): パスフレーズは DPAPI 保護・
   テレメトリは PIN を hard-redact 済みの中、resume 経路だけ素通しだった。
