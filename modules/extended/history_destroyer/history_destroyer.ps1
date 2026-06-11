@@ -78,9 +78,14 @@ function Clear-RecycleBinSafe {
     if ($result -eq 0) {
         Show-Success "Recycle Bin emptied"
     }
+    elseif ($result -eq -2147418113) {
+        # 0x8000FFFF (E_UNEXPECTED) is the documented return for an
+        # already-empty bin. Every OTHER non-zero HRESULT is a real
+        # failure and must not be reported as "already empty".
+        Show-Info "Recycle Bin already empty (HRESULT: $result)"
+    }
     else {
-        # HRESULT values like -2147418113 (0x8000FFFF) just mean the bin was already empty
-        Show-Info "Recycle Bin already empty or emptied (HRESULT: $result)"
+        throw ("SHEmptyRecycleBin failed (HRESULT: 0x{0:X8})" -f $result)
     }
     return "Success"
 }
@@ -161,22 +166,34 @@ function Clear-BrowserData {
         Where-Object { $_.Name -eq "Default" -or $_.Name -match "^Profile " }
 
     $cleanedCount = 0
-    foreach ($profile in $profiles) {
+    $lockedCount = 0
+    foreach ($browserProfile in $profiles) {
         foreach ($target in $browserTargets) {
-            $targetPath = Join-Path $profile.FullName $target
+            $targetPath = Join-Path $browserProfile.FullName $target
             if (Test-Path $targetPath) {
                 try {
                     Remove-Item $targetPath -Recurse -Force -ErrorAction Stop
                     $cleanedCount++
                 }
                 catch {
-                    # Ignore locked files and continue
+                    # Locked file - counted; verdict decided below
+                    $lockedCount++
                 }
             }
         }
     }
 
-    Show-Success "$Browser data cleaned ($cleanedCount items)"
+    # Verdict: everything locked = the cleanup did nothing (browser
+    # still running?) - fail the row instead of "cleaned (0 items)".
+    if ($lockedCount -gt 0 -and $cleanedCount -eq 0) {
+        throw "$Browser data cleanup failed: all $lockedCount existing target(s) locked (browser still running?)"
+    }
+    if ($lockedCount -gt 0) {
+        Show-Warning "$Browser data cleaned partially ($cleanedCount items, $lockedCount locked)"
+    }
+    else {
+        Show-Success "$Browser data cleaned ($cleanedCount items)"
+    }
     return "Success"
 }
 
@@ -283,27 +300,6 @@ function Clear-WiFiProfiles {
 
 
 # ========================================
-# Step 0: Stop Explorer (prerequisite for every other operation)
-# ========================================
-# Stopping Explorer releases the file locks it holds.
-# Run this once procedurally, outside the main loop.
-# ========================================
-Show-Warning "Explorer will be temporarily stopped during cleanup."
-Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
-Write-Host ""
-
-try {
-    Stop-Process -Name "explorer" -Force -ErrorAction Stop
-    Show-Success "Explorer stopped"
-}
-catch {
-    Show-Warning "Failed to stop Explorer: $($_.Exception.Message)"
-    Write-Host "          Some locked files may not be deleted" -ForegroundColor Yellow
-}
-Write-Host ""
-
-
-# ========================================
 # Step 1: Load CSV
 # ========================================
 $csvPath = Join-Path $PSScriptRoot "destroy_list.csv"
@@ -391,6 +387,28 @@ Write-Host ""
 
 
 # ========================================
+# Step 4.5: Stop Explorer (prerequisite for the deletion loop)
+# ========================================
+# Stopping Explorer releases the file locks it holds. Runs AFTER the
+# confirmation so CSV-load failures, zero-row skips and operator
+# cancellation leave Explorer untouched (the early returns above never
+# reach the managed Explorer restart at the end of this script).
+Show-Warning "Explorer will be temporarily stopped during cleanup."
+Write-Host "          The taskbar and desktop will disappear briefly." -ForegroundColor Red
+Write-Host ""
+
+try {
+    Stop-Process -Name "explorer" -Force -ErrorAction Stop
+    Show-Success "Explorer stopped"
+}
+catch {
+    Show-Warning "Failed to stop Explorer: $($_.Exception.Message)"
+    Write-Host "          Some locked files may not be deleted" -ForegroundColor Yellow
+}
+Write-Host ""
+
+
+# ========================================
 # Step 5: Main processing loop
 # ========================================
 $successCount = 0
@@ -473,13 +491,43 @@ foreach ($item in $enabledItems) {
                     $null = Remove-ItemProperty -Path $subKey.PSPath -Name * -Force -ErrorAction SilentlyContinue
                 }
 
-                Show-Success "Registry cleared: $displayName"
-                $successCount++
+                # Read-back verdict: SilentlyContinue above masks access
+                # denials, so count the values that actually remain.
+                # '(default)' is excluded - the wildcard above does not
+                # target the default value, so it is not a failure signal.
+                $remainingValues = 0
+                try {
+                    $keyItem = Get-Item -Path $item.TargetPath -ErrorAction Stop
+                    $remainingValues += @($keyItem.Property | Where-Object { $_ -ne '(default)' }).Count
+                    foreach ($subKey in (Get-ChildItem -Path $item.TargetPath -ErrorAction SilentlyContinue)) {
+                        $remainingValues += @($subKey.Property | Where-Object { $_ -ne '(default)' }).Count
+                    }
+                }
+                catch { }
+
+                if ($remainingValues -gt 0) {
+                    Show-Error "Registry values remain after clear ($remainingValues left, access denied?): $displayName"
+                    $failCount++
+                }
+                else {
+                    Show-Success "Registry cleared: $displayName"
+                    $successCount++
+                }
             }
 
             "Command" {
-                # Execute a simple one-liner command
-                $null = Invoke-Expression $item.TargetPath
+                # CSV-defined PowerShell one-liner. ScriptBlock::Create
+                # instead of Invoke-Expression (no re-expansion of the CSV
+                # string), invoked under ErrorActionPreference=Stop so
+                # cmdlet errors fail the row via the per-item catch. Rows
+                # that intend best-effort keep their own per-cmdlet
+                # -ErrorAction SilentlyContinue (the shipped WSUS / Office
+                # rows do exactly that), which overrides the preference.
+                $cmdSb = [scriptblock]::Create($item.TargetPath)
+                $null = & {
+                    $ErrorActionPreference = 'Stop'
+                    & $cmdSb
+                }
                 Show-Success "Command executed: $displayName"
                 $successCount++
             }

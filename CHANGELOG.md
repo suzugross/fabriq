@@ -49,6 +49,21 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- modules/extended/history_destroyer v1.1.0 → v1.2.0 (Fixed: Invoke-Expression 排除と
+  fail-open 群の修正, TM t-0016):
+  (1) Command ActionType がコードベース唯一の CSV 文字列 Invoke-Expression で、失敗しても
+  無条件 Success だった。`[scriptblock]::Create` + `$ErrorActionPreference='Stop'` 配下の
+  呼び出しに変更（cmdlet エラーが throw 化 → per-item catch で Fail。出荷 WSUS/Office 行の
+  行内 `-EA SilentlyContinue` は cmdlet 単位で優先されるため best-effort 意味論は保存）。
+  (2) ClearRegistry がアクセス拒否を握り潰し常時 Success → クリア後の read-back（本体+全
+  subkey の残存値数、`(default)` 除外）で残存 > 0 を Fail 化。
+  (3) Clear-RecycleBinSafe が全ての非ゼロ HRESULT を「already empty」扱い → 0x8000FFFF
+  （空時の既知戻り値）のみ許容、他は throw → Fail。
+  (4) Clear-BrowserData が全ターゲットロック（0 件削除）でも Success → 全ロック = Fail
+  （browser still running?）/ 部分ロック = Warning + Success。`$profile` 自動変数への代入も
+  `$browserProfile` に改名（PSSA 警告解消）。
+  (5) Explorer kill が確認前（Step 0）にあり、CSV 失敗 / 0 件 / キャンセルの早期 return が
+  管理された再起動を通らなかった → 確認直後（Step 4.5）へ移動。早期 return は Explorer 無傷。
 - modules/extended/log_uploader v1.1.0 → v1.1.1 + kernel/common.ps1 (Fixed: robocopy exit code
   無視による納品エビデンスのサイレント不完全を修正, TM t-0015):
   (1) log_uploader の robocopy 3 呼出（logs/・evidence/）が `$LASTEXITCODE` を読まず無条件

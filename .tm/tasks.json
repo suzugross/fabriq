@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-11T11:25:00+09:00",
+  "updatedAt": "2026-06-11T13:00:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -142,10 +142,10 @@
       "id": "t-0016",
       "title": "[HIGH] history_destroyer: Invoke-Expression 排除と fail-open 群の修正",
       "content": "t-0009（DeletePath ガード）とは別の history_destroyer 内残課題:\r\n(1) :453 — Command ActionType が `Invoke-Expression $item.TargetPath`。コードベース唯一の CSV 文字列 IEX で、失敗（非ゼロ $LASTEXITCODE / stderr）でも無条件 Show-Success。& 呼び出し化 + exit code/throw 判定に変更。\r\n(2) :439-447 — ClearRegistry が Remove-ItemProperty ... SilentlyContinue でアクセス拒否を握り潰し常時 Success。\r\n(3) :76-85 — Clear-RecycleBinSafe が全ての非ゼロ HRESULT を「already empty」扱い。\r\n(4) :163-180 — Clear-BrowserData がブラウザ停止失敗+全ターゲットロック（0件削除）でも Success。\r\n(5) :296 vs :367 — Explorer を確認前に kill しており、CSVロード失敗/0件/キャンセルの早期 return が管理された再起動（:491-506 の15秒ウォッチドッグ）を通らない。Explorer 停止を確認後に移動。",
-      "claudeNote": "全体監査(2026-06-10)で検出。(1)はコード裏取り済み。t-0009 のガード適用と同時に着手するとモジュール touched が1回で済む。module MINOR 相当（挙動変更を含むため大きい側に倒す）。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。(1)はコード裏取り済み。t-0009 のガード適用と同時に着手するとモジュール touched が1回で済む。module MINOR 相当（挙動変更を含むため大きい側に倒す）。\r\n追加調査(2026-06-11 ハンドラ群精読): 5 指摘すべて確定。(1)Command=IEX 無条件 Success(出荷 CSV に Command 行 8 本が Enabled=1: Set-Clipboard/Clear-DnsClientCache/WSUS ID 4本/Office UserInfo 2本。全て PS cmdlet ワンライナーで、WSUS/Office 行は意図的に -EA SilentlyContinue 内包=best-effort 設計)。(2)ClearRegistry=SilentlyContinue でアクセス拒否を握り潰し常時 Success。(3)Clear-RecycleBinSafe=非ゼロ HRESULT を全て「already empty」扱い(L78-85)。(4)Clear-BrowserData=ロック失敗が空 catch、ブラウザ停止失敗は警告のみで 0 件削除でも Success(L163-180)。(5)Explorer kill が Step 0(L296)で確認前、CSV 失敗/0件/キャンセルの早期 return が管理された再起動(L491+)を通らない(Windows の自動復活頼み)。\r\n修正設計: (1)IEX→[scriptblock]::Create + & { $ErrorActionPreference='Stop'; & $sb } 呼び出し。cmdlet の非終了エラーが throw 化→per-item catch で Fail。行内の明示 -EA SilentlyContinue は各 cmdlet 優先で生き残る=出荷 best-effort 行の意味論保存。構文エラーも Create 時 throw で Fail。(2)クリア後に read-back 検証: Get-Item .Property + 全 subkey の残存値数を数え((default) は除外=ワイルドカード対象外のため)、残存>0 で Fail。(3)HRESULT 0=成功 / -2147418113(0x8000FFFF E_UNEXPECTED=空时の既知戻り値)=already empty / それ以外=throw→Fail。(4)lockedCount 計上: 全ロック(cleaned=0 && locked>0)=throw→Fail(browser still running?) / 部分ロック=Warning+Success / 全削除=従来どおり。(5)Step 0 ブロック(警告+kill)を Step 4 確認直後〜Step 5 直前へ移動。CSV 失敗/0件/キャンセルは Explorer 無傷で return、preview は Explorer 不要を確認済み。\r\n版影響: history_destroyer 1.1.0→1.2.0(MINOR・失敗遷移の追加=挙動変更を含むため大きい側)・REQUIRES_KERNEL 3.5.0 据置(t-0009 で bump 済・新規 API 依存なし)・kernel 不変。テスト: ハーネス対象外、parse_check+既存スイート+実機(全 Command 行成功・誤コマンド行で Fail・ブラウザ起動中の edge-cleanup で Fail を確認)。設計ゲート(フル版)提示済み・実装承認待ち。\r\n実装(2026-06-11): 完了・検証済(未コミット)。設計どおり 5 点: (1)Command=[scriptblock]::Create + EAP=Stop 子スコープ呼出(per-item catch で Fail 化・出荷 best-effort 行の意味論保存) (2)ClearRegistry=read-back 検証((default) 除外・残存>0 で Fail) (3)RecycleBin=0x8000FFFF のみ許容・他 throw (4)BrowserData=lockedCount 計上(全ロック=throw/部分=Warning)+$profile→$browserProfile 改名(PSSA 自動変数警告解消) (5)Explorer kill を Step 0→Step 4.5(確認直後)へ移動、早期 return は Explorer 無傷。VERSION 1.1.0→1.2.0(MINOR)・REQUIRES_KERNEL 3.5.0 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。実機検証(次回テスト機): 通常実行で全行成功 / ブラウザ起動中 edge-cleanup で Fail / キャンセル時に Explorer が落ちないこと。コミット承認待ち。\r\n実機検証(2026-06-11): Edge 起動中に edge-cleanup 実行→Stop-Process が自動でブラウザを停止→削除成功→Success をユーザー確認。これは設計どおりの正常系(ハンドラが削除前に自前でブラウザ停止する)。新設の Fail 経路は「停止失敗(警告表示)+全ターゲットロック(0件削除)」のみで発火する異常系であり、通常テストでは再現困難(別セッションプロセス/外部ハンドル保持が必要)。主経路の回帰確認として実機検証は十分と判断。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T13:00:00+09:00"
     },
     {
       "id": "t-0017",
@@ -227,6 +227,15 @@
       "status": "未着手",
       "createdAt": "2026-06-10T19:10:00+09:00",
       "updatedAt": "2026-06-10T19:10:00+09:00"
+    },
+    {
+      "id": "t-0026",
+      "title": "テストハーネスの疑問",
+      "content": "\"C:\\Users\\szk-WIN01\\Desktop\\share\\testハーネス疑問\"\r\nリトライサクセスの項目が、オートリトライ時でも全エラーで、かつベリファイはPASSと判定されるが正しいロジックになっているかどうか。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-11T10:02:06.925106+09:00",
+      "updatedAt": "2026-06-11T10:03:31.7317651+09:00"
     }
   ]
 }
