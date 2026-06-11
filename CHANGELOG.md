@@ -15,6 +15,25 @@
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-06-11
+
+### Removed
+- kernel/common.ps1 + kernel/ps1: deprecated な旧 Status Monitor を予定どおり撤去 (TM t-0008 /
+  KERNEL_API.md §6 で 3.4.0 から削除予定宣言済み): `Show-MonitorFailureDialog` /
+  `Start-StatusMonitor` / `Stop-StatusMonitor`（common.ps1 205 行）と
+  `kernel/ps1/status_monitor.ps1` / `kernel/ps1/art_display.ps1`（参照元は status_monitor のみ、
+  Art パネルは execution_toolbar に移植済み）を削除。Exit-Fabriq / Refabriq の呼び出しは
+  `Remove-StatusFile`（status/pulse ファイル掃除）に置換。機能損失なし
+  （3.4.0 から in-process Execution Toolbar が後継）。
+
+### Changed
+- kernel/main.ps1 起動バナー + kernel/common.ps1 HTML チェックリストフッターの版表記を
+  ver2.1 → ver3.5 に同期 (TM t-0025): どちらも §I の同期対象外で 2 メジャー乖離していた。
+  dev/check_version.ps1 に両者のパターン検索ベース検証を追加し再発防止
+  （バナー/フッターは行番号が編集で動くため、既存の行番号方式でなく Select-String 方式）。
+  Fabriq.exe (dev/launcher/Launcher.cs) の AssemblyVersion 2.1.0.0 は exe 再ビルドが
+  必要なため本リリースでは見送り（次回ビルド機会に同期）。
+
 ### Security
 - kernel/main.ps1: WU リブートループの AutoLogon 資格情報残置 2 経路を修正 (TM t-0011)。
   (1) `Register-FabriqRunOnce` 失敗時 — 直前に `Set-WindowsUpdateAutoLogon` が書いた平文
