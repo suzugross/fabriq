@@ -180,6 +180,12 @@ foreach ($proc in $processList) {
 
         # --- Timeout watch ---
         $timedOut = $false
+        $stillRunning = $false
+        # Default ceiling for the WaitProcessName polling phase when
+        # TimeoutSec=0 (the Guide promises that phase is hang-proof).
+        # The MAIN Wait-Process below stays unlimited by documented
+        # design (operator-interactive GUI installers).
+        $defaultPollCeilingSec = 3600
         if ($timeoutSec -gt 0) {
             $null = $process | Wait-Process -Timeout $timeoutSec -ErrorAction SilentlyContinue
             if (-not $process.HasExited) {
@@ -201,21 +207,33 @@ foreach ($proc in $processList) {
             Show-Info "Waiting for process '$waitProcessName' to complete..."
             $pollInterval = 5
             $elapsed = 0
+            # Explicit TimeoutSec keeps its documented kill-on-timeout
+            # behavior. TimeoutSec=0 used to poll forever here (while a
+            # zombie child has no operator-visible UI to act on); it now
+            # gets the default ceiling WITHOUT killing - a legitimately
+            # slow installer must not be shot at an arbitrary cap, so the
+            # item is counted as Error and the process is left running
+            # for the operator / ErrorMode to decide.
+            $pollCeilingSec = if ($timeoutSec -gt 0) { $timeoutSec } else { $defaultPollCeilingSec }
             while ($true) {
                 $running = Get-Process -Name $waitProcessName -ErrorAction SilentlyContinue
                 if (-not $running) { break }
-                if ($timeoutSec -gt 0) {
-                    $elapsed += $pollInterval
-                    if ($elapsed -ge $timeoutSec) {
+                $elapsed += $pollInterval
+                if ($elapsed -ge $pollCeilingSec) {
+                    if ($timeoutSec -gt 0) {
                         $timedOut = $true
                         Show-Error "Timeout ($($timeoutSec)s exceeded) while waiting for '$waitProcessName'"
                         $running | Stop-Process -Force -ErrorAction SilentlyContinue
-                        break
                     }
+                    else {
+                        $stillRunning = $true
+                        Show-Error "'$waitProcessName' still running after default ceiling (${defaultPollCeilingSec}s) - NOT killed"
+                    }
+                    break
                 }
                 Start-Sleep -Seconds $pollInterval
             }
-            if (-not $timedOut) {
+            if (-not $timedOut -and -not $stillRunning) {
                 Show-Success "Process '$waitProcessName' has completed"
             }
         }
@@ -225,6 +243,10 @@ foreach ($proc in $processList) {
         # --- Decide the result ---
         if ($timedOut) {
             Show-Error "$desc : Timed out after $($timeoutSec)s"
+            $failCount++
+        }
+        elseif ($stillRunning) {
+            Show-Error "$desc : '$waitProcessName' still running after ${defaultPollCeilingSec}s ceiling (left running)"
             $failCount++
         }
         elseif ($exitCode -in $successList) {

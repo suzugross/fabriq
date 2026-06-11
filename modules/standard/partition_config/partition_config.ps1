@@ -272,8 +272,21 @@ foreach ($item in $enabledItems) {
             # filesystem - and therefore no data - so retrying the format
             # is the safe self-heal that used to be a permanent Skip.
             $existingVol = Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue
-            $isRaw = ($null -eq $existingVol) -or
-                     ("$($existingVol.FileSystemType)" -eq 'Unknown') -or
+            if ($null -eq $existingVol) {
+                # Unreadable volume state is NOT evidence of RAW. The
+                # letter-in-use gate above uses Get-Partition/WMI, so a
+                # transient Storage-CIM failure can land here on a
+                # healthy, data-bearing volume - never route that into
+                # Format-Volume (fail-closed in the destructive
+                # direction; a re-run converges once CIM answers again).
+                Show-Error "$($letter): volume state unreadable - format NOT attempted (re-run or check manually)"
+                $failCount++
+                Write-Host ""
+                continue
+            }
+            # Affirmative RAW signal required: the volume object exists
+            # and reports no filesystem.
+            $isRaw = ("$($existingVol.FileSystemType)" -eq 'Unknown') -or
                      ([string]::IsNullOrEmpty("$($existingVol.FileSystem)"))
             if (-not $isRaw) {
                 Show-Skip "$($letter): already exists"
