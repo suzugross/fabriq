@@ -74,6 +74,21 @@ if ([string]::IsNullOrWhiteSpace($PatchName)) {
     $PatchName = "fabriq_patch_${dateStr}_kernel-v${kernelVersion}"
 }
 
+# ---- Destructive path guard (CLAUDE.md section 8) ----
+# $dst is Remove-Item -Recurse'd below. PatchName must therefore be a
+# single safe path component: "." resolves $dst to $OutDir itself
+# (default: the user's Desktop) and "..\name" escapes it - either way
+# the wrong tree gets deleted. Same rules as kernel/common.ps1 ::
+# Test-FabriqSafePathComponent (inlined; dev tools run standalone).
+if ($PatchName -eq '.' -or $PatchName -eq '..' -or
+    $PatchName.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+    $PatchName -ne $PatchName.TrimEnd('.', ' ')) {
+    Write-Host "[ERROR] Invalid -PatchName '$PatchName'." -ForegroundColor Red
+    Write-Host "        Must be a single folder name: no path separators, no '.' / '..'," -ForegroundColor Red
+    Write-Host "        no wildcard or other invalid filename chars, no trailing dot/space." -ForegroundColor Red
+    exit 1
+}
+
 # ---- Validate output directory ----
 if (-not (Test-Path $OutDir)) {
     Write-Host "[ERROR] Output directory does not exist: $OutDir" -ForegroundColor Red
@@ -90,6 +105,14 @@ Write-Host "Rules  : dev/framework_overlay_rules.json (schemaVersion $($rules.sc
 Write-Host ""
 
 if (Test-Path $dst) {
+    # Containment assert: never delete anything outside $OutDir
+    # (belt-and-suspenders behind the PatchName guard above).
+    $outFull = [System.IO.Path]::GetFullPath($OutDir).TrimEnd('\')
+    $dstFull = [System.IO.Path]::GetFullPath($dst).TrimEnd('\')
+    if (-not $dstFull.StartsWith($outFull + '\')) {
+        Write-Host "[ERROR] Destination escapes OutDir, refusing to delete: $dstFull" -ForegroundColor Red
+        exit 1
+    }
     Write-Host "Removing existing patch folder..." -ForegroundColor Yellow
     Remove-Item -Path $dst -Recurse -Force
 }

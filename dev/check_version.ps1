@@ -57,7 +57,11 @@ function Test-VersionLine {
         [string]$Expected
     )
     if (-not (Test-Path $FilePath)) {
-        Write-Host "[SKIP] $Label : file not found ($FilePath)" -ForegroundColor Yellow
+        # Fail-closed: a deleted/renamed sync target must fail the check,
+        # not silently drop out of it (a missing README/KERNEL_API used to
+        # exit 0 green).
+        Write-Host "[FAIL] $Label : file not found ($FilePath)" -ForegroundColor Red
+        $script:mismatches += $Label
         return
     }
     $lines = Get-Content $FilePath
