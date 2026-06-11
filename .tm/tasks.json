@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-11T00:15:00+09:00",
+  "updatedAt": "2026-06-11T09:50:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -124,10 +124,10 @@
       "id": "t-0014",
       "title": "[HIGH] temp_ipaddress_config: DAD重複検出時に必ずクラッシュ（switch内continue）+ PS5.1非互換パラメータ",
       "content": "(1) temp_ipaddress_config.ps1:524-537 — 'Duplicate' case 内の continue が while($true) でなく switch を継続し（PS仕様・実機確認済）、直後の無条件 break でループ脱出 → $selected=$null のまま Step 5 で Get-NetIPAddress -IPAddress $null となりモジュールがエラー終了。重複IP検出→再選択というこのモジュールの設計目的そのものが機能していない。if/elseif 化か labeled continue で修正。\r\n(2) 同 :568 — Test-Connection -TimeoutSeconds は PS5.1 に存在しないパラメータ。バインドエラーが try/catch に飲まれ $gwReachable が恒久 $false → GW 疎通済みでも常に「ICMP-blocked かも」表示。5.1 互換の呼び出しに修正。",
-      "claudeNote": "全体監査(2026-06-10)で検出。両方とも実行エンジン PS5.1 での実機検証済み（エージェント検証）。(1)は HIGH、(2)は operator 誤導のみで Verified には不影響。module PATCH。switch+continue は他モジュールにも同パターンがないか grep 推奨。",
-      "status": "未着手",
+      "claudeNote": "全体監査(2026-06-10)で検出。両方とも実行エンジン PS5.1 での実機検証済み（エージェント検証）。(1)は HIGH、(2)は operator 誤導のみで Verified には不影響。module PATCH。switch+continue は他モジュールにも同パターンがないか grep 推奨。\r\n追加調査(2026-06-11 全605行中の制御フロー精読): 両指摘とも確定。ただし(1)の故障モードは事前調査の「クラッシュ/エラー終了」ではなく**偽 Success**と判明 — Duplicate case の continue(L529) は switch を継続して直後の無条件 break(L537) で while を脱出、$selected=$null のまま Step 5 へ。L547 の Get-NetIPAddress -IPAddress $null は statement-terminating の binding エラーだが try 無しのため次文へ継続、$verifyIp=$null→「IP not present」が verifyIssues に積まれ Verified=false になるだけで、L605 は **Status=Success**(Message=「Assigned / on <nic>」の空値文字列)で返る。つまり DAD 重複検出時: 旧 IP のまま・ダイアログ再表示されず・チェックリストは Success(Verified:FAIL のみが手掛かり)。operator には「Reopening dialog...」と表示した直後に終了するため混乱も生む。\r\n(2)L568 の Test-Connection -TimeoutSeconds は PS5.1 に不在(PS6+ 追加)を確認。binding エラーが L567-569 の try/catch に飲まれ $gwReachable 恒久 false→常に「ICMP-blocked かも」警告。verifyIssues には積まれないため Verified への影響なし(operator 誤導のみ)。\r\n修正設計: (1)switch を if/elseif/else に書き換え(OK→$selected=$picked+break / Duplicate→excludedIPs+=+continue / その他→return Error)。末尾の無条件 break は OK 分岐内へ移動。+ ループ直後に $null -eq $selected の防御ガード(return Error)を追加(この incident class の再発保険)。(2)-TimeoutSeconds 1 を除去し Test-Connection -Quiet -Count 2 -ErrorAction SilentlyContinue に(5.1 の既定 timeout は Win32_PingStatus 由来の 1000ms ≒ 意図どおり)。\r\n影響: OK/エラー経路の遷移は不変、Duplicate 経路のみ「設計どおりダイアログ再表示」に復旧。module PATCH(VERSION 実装時確認)・REQUIRES_KERNEL 据置・kernel 不変。テスト: GUI(WinForms ダイアログ)+NIC 依存のためハーネス対象外、parse_check+既存スイート+実機(意図的に使用中 IP を選んで DAD 発火→ダイアログ再表示を確認)。設計ゲート(フル版)提示済み・実装承認待ち。\r\n実装(2026-06-11): 完了・検証済(未コミット)。(1)switch→if/elseif/else 化(OK=selected+break / Duplicate=exclude+continue / other=return Error)、ループ直後に $null -eq $selected 防御ガード(Error 返却・通常到達不能・偽 Success 再発の顕在化装置)。(2)-TimeoutSeconds 1 除去(コメントで 5.1 非互換の根拠明記)。VERSION 1.0.0→1.0.1・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。実機確認は使用中 IP を意図的に選択して DAD 発火→ダイアログ再表示+除外リスト反映、GW 疎通時に [L3 OK] が出ること。コミット承認待ち。\r\n実機テスト feedback(2026-06-11 SZK-TEST01/VMware/__SELF__): (A)Duplicate 選択→ダイアログ再選択の復旧を実機確認(修正の主目的 OK)。(B)新規発見: 空き IP 選択で「AddressState is Tentative」Error — Set-TempIPAndVerify の DAD 待ちが固定 0.5s+1s で、VM NIC の DAD 完了(1〜3s+)に届かず。退行ではなく既存ヘルパーの待ち不足(旧 switch default も同一 return)。IP は直後に Preferred 化し使用可能=Error 報告と実態乖離。→500ms 間隔・最大 5s ポーリングに置換、5s 超過 Tentative(リンク断等)のみ Error(理由文言に check link state)。parse_check OK・229 passed。\r\n既知の許容挙動として記録(ユーザー判断 2026-06-11・改修見送り): Duplicate 検出時は clean-slate→設定→DAD→Remove の構造上、DNS/GW のみ残り IP/サブネット空の中途状態になりうる。DAD 検出には一旦の設定が必須のため構造的に不可避、operator がダイアログで次の IP を選べば上書きされる。失敗終了(キャンセル等)した場合のみ中途状態が残る点は留意。\r\n再テスト依頼中: 空き IP 選択で [SUCCESS] Assigned ... (AddressState=Preferred) になること。コミットは再テスト後。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-10T19:10:00+09:00",
-      "updatedAt": "2026-06-10T19:10:00+09:00"
+      "updatedAt": "2026-06-11T09:50:00+09:00"
     },
     {
       "id": "t-0015",

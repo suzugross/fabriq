@@ -202,18 +202,24 @@ function Set-TempIPAndVerify {
         }
     }
 
-    # Wait for DAD
-    Start-Sleep -Milliseconds 500
-    $check = Get-NetIPAddress -InterfaceIndex $InterfaceIndex -IPAddress $IPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    if (-not $check) {
-        return @{ Status = 'Error'; Reason = 'Address disappeared after assignment'; Address = $null }
+    # Wait for DAD: poll until the address leaves Tentative (up to 5s).
+    # IPv4 DAD takes ~1-3s (3 ARP probes at ~1s intervals; slower on VM
+    # NICs) - the previous fixed 0.5s + 1s wait mis-reported slow-DAD
+    # environments as Error while the address became Preferred moments
+    # later. Past 5s, Tentative means DAD cannot complete (e.g. no link).
+    $dadDeadline = (Get-Date).AddSeconds(5)
+    $check = $null
+    while ($true) {
+        Start-Sleep -Milliseconds 500
+        $check = Get-NetIPAddress -InterfaceIndex $InterfaceIndex -IPAddress $IPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if (-not $check) {
+            return @{ Status = 'Error'; Reason = 'Address disappeared during DAD wait'; Address = $null }
+        }
+        if ($check.AddressState -ne 'Tentative') { break }
+        if ((Get-Date) -ge $dadDeadline) { break }
     }
     if ($check.AddressState -eq 'Tentative') {
-        Start-Sleep -Milliseconds 1000
-        $check = Get-NetIPAddress -InterfaceIndex $InterfaceIndex -IPAddress $IPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    }
-    if (-not $check) {
-        return @{ Status = 'Error'; Reason = 'Address disappeared during DAD wait'; Address = $null }
+        return @{ Status = 'Error'; Reason = 'AddressState is still Tentative after 5s (DAD cannot complete - check link state)'; Address = $check }
     }
     if ($check.AddressState -eq 'Duplicate') {
         try {
@@ -516,25 +522,35 @@ while ($true) {
         -Gateway      $picked.Gateway `
         -DnsServers   @($picked.DNS1, $picked.DNS2, $picked.DNS3)
 
-    switch ($result.Status) {
-        'OK' {
-            Show-Success "Assigned $($picked.IPAddress)/$($picked.SubnetPrefix) on $($nic.Name) (AddressState=Preferred)"
-            $selected = $picked
-        }
-        'Duplicate' {
-            Show-Warning "[DAD] $($picked.IPAddress) detected as duplicate on the network."
-            Show-Info    "Reopening dialog with this IP excluded. Pick another."
-            $excludedIPs += $picked.IPAddress
-            Write-Host ""
-            continue
-        }
-        default {
-            Show-Error "Assignment error for $($picked.IPAddress): $($result.Reason)"
-            Write-Host ""
-            return (New-ModuleResult -Status "Error" -Message "Assignment failed: $($result.Reason)")
-        }
+    # if/elseif instead of switch: 'continue' inside a switch continues
+    # the SWITCH (a looping construct), not the enclosing while - the
+    # Duplicate retry used to fall through to an unconditional break and
+    # leave the loop with $selected = $null.
+    if ($result.Status -eq 'OK') {
+        Show-Success "Assigned $($picked.IPAddress)/$($picked.SubnetPrefix) on $($nic.Name) (AddressState=Preferred)"
+        $selected = $picked
+        break
     }
-    break
+    elseif ($result.Status -eq 'Duplicate') {
+        Show-Warning "[DAD] $($picked.IPAddress) detected as duplicate on the network."
+        Show-Info    "Reopening dialog with this IP excluded. Pick another."
+        $excludedIPs += $picked.IPAddress
+        Write-Host ""
+        continue
+    }
+    else {
+        Show-Error "Assignment error for $($picked.IPAddress): $($result.Reason)"
+        Write-Host ""
+        return (New-ModuleResult -Status "Error" -Message "Assignment failed: $($result.Reason)")
+    }
+}
+
+# Defensive: the loop must only exit with a captured selection (break in
+# the OK/sticky paths). Anything else reaching here is a control-flow
+# regression - fail loudly instead of verifying against $null and
+# returning a hollow Success.
+if ($null -eq $selected) {
+    return (New-ModuleResult -Status "Error" -Message "Internal error: selection loop exited without a captured selection")
 }
 
 # ========================================
@@ -565,7 +581,11 @@ if ($selected.Gateway) {
     }
     $gwReachable = $false
     try {
-        $gwReachable = Test-Connection -ComputerName $selected.Gateway -Quiet -Count 2 -TimeoutSeconds 1 -ErrorAction SilentlyContinue
+        # No -TimeoutSeconds: the parameter does not exist on PS 5.1
+        # (PS6+) and its binding error - swallowed by this catch - kept
+        # $gwReachable permanently $false. 5.1's default echo timeout is
+        # 1000ms (Win32_PingStatus), matching the original intent.
+        $gwReachable = Test-Connection -ComputerName $selected.Gateway -Quiet -Count 2 -ErrorAction SilentlyContinue
     } catch { }
     if ($gwReachable) {
         Write-Host "  [L3 OK] Gateway $($selected.Gateway) responds to ping" -ForegroundColor Green
