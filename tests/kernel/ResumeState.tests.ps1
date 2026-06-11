@@ -205,6 +205,77 @@ Describe 'Save-ResumeState / Load-ResumeState' {
         }
     }
 
+    Context 'SELECTED_PIN protection (DPAPI) - TM t-0022' {
+        # The PIN must never reach resume_state.json as plaintext: the
+        # passphrase is DPAPI-protected and telemetry hard-redacts the
+        # PIN, so the resume snapshot was the one remaining leak path.
+
+        BeforeEach {
+            $script:origPin = [Environment]::GetEnvironmentVariable('SELECTED_PIN')
+        }
+        AfterEach {
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', $script:origPin)
+        }
+
+        It 'does not write the PIN as plaintext anywhere in resume_state.json' {
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', '987412')
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 0 `
+                             -CompletedModules @()
+            (Get-Content $script:tmpStatePath -Raw) | Should -Not -Match '987412'
+        }
+
+        It 'excludes SELECTED_PIN from the HostEnvironment snapshot' {
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', '987412')
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 0 `
+                             -CompletedModules @()
+            $loaded = Load-ResumeState
+            $loaded.HostEnvironment.PSObject.Properties.Name | Should -Not -Contain 'SELECTED_PIN'
+        }
+
+        It 'round-trips the PIN through the DPAPI ProtectedPin field' {
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', '987412')
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 0 `
+                             -CompletedModules @()
+            $loaded = Load-ResumeState
+            $loaded.ProtectedPin | Should -Not -BeNullOrEmpty
+            Unprotect-PassphraseFromResume -ProtectedBase64 $loaded.ProtectedPin | Should -Be '987412'
+        }
+
+        It 'omits the ProtectedPin field when SELECTED_PIN is empty' {
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', $null)
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 0 `
+                             -CompletedModules @()
+            $loaded = Load-ResumeState
+            $loaded.PSObject.Properties.Name | Should -Not -Contain 'ProtectedPin'
+        }
+
+        It 'still restores a legacy plaintext PIN from an old-format HostEnvironment' {
+            # Backward compat: resume files written before this change
+            # carry the PIN inline; Restore-HostEnvironment must keep
+            # restoring it verbatim.
+            [Environment]::SetEnvironmentVariable('SELECTED_PIN', $null)
+            $legacy = [PSCustomObject]@{
+                SELECTED_NEW_PCNAME = 'OLD-PC'
+                SELECTED_PIN        = '111222'
+            }
+            Restore-HostEnvironment -HostEnv $legacy
+            $env:SELECTED_PIN | Should -Be '111222'
+        }
+
+        It 'Reset-FabriqState clear list covers SELECTED_PIN / FABRIQ_WORKER_NAME / FABRIQ_SEGMENT (AST contract)' {
+            # Reset-FabriqState restarts the transcript, so it is pinned
+            # structurally instead of executed: every cleared name appears
+            # as a string constant inside the function body.
+            $fnAst = (Get-Command Reset-FabriqState).ScriptBlock.Ast
+            $stringConsts = $fnAst.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst]
+            }, $true) | ForEach-Object { $_.Value }
+            $stringConsts | Should -Contain 'SELECTED_PIN'
+            $stringConsts | Should -Contain 'FABRIQ_WORKER_NAME'
+            $stringConsts | Should -Contain 'FABRIQ_SEGMENT'
+        }
+    }
+
     Context 'Load boundary conditions' {
 
         It 'returns $null when the resume_state file does not exist' {

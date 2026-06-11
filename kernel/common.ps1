@@ -3076,8 +3076,11 @@ function Save-ResumeState {
         "SELECTED_KANRI_NO", "SELECTED_OLD_PCNAME", "SELECTED_NEW_PCNAME",
         "SELECTED_ETH_IP", "SELECTED_ETH_SUBNET", "SELECTED_ETH_GATEWAY",
         "SELECTED_WIFI_IP", "SELECTED_WIFI_SUBNET", "SELECTED_WIFI_GATEWAY",
-        "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4",
-        "SELECTED_PIN"
+        "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4"
+        # SELECTED_PIN is deliberately NOT snapshotted here - it would
+        # persist as plaintext in resume_state.json across the reboot.
+        # It is DPAPI-protected into the ProtectedPin field below
+        # (telemetry already hard-redacts it; this closes the resume gap).
     )
     foreach ($name in $envNames) {
         $hostEnv[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -3119,6 +3122,18 @@ function Save-ResumeState {
         }
         catch {
             Show-Warning "Failed to protect passphrase for resume: $_"
+        }
+    }
+
+    # Persist the host PIN the same way (DPAPI LocalMachine). On failure
+    # the PIN is simply absent after resume (fail-closed) - it is never
+    # written as plaintext.
+    if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_PIN)) {
+        try {
+            $state["ProtectedPin"] = Protect-PassphraseForResume -Passphrase $env:SELECTED_PIN
+        }
+        catch {
+            Show-Warning "Failed to protect PIN for resume: $_ (PIN will be unavailable after restart)"
         }
     }
 
@@ -3259,6 +3274,7 @@ function Reset-FabriqState {
         "SELECTED_ETH_IP", "SELECTED_ETH_SUBNET", "SELECTED_ETH_GATEWAY",
         "SELECTED_WIFI_IP", "SELECTED_WIFI_SUBNET", "SELECTED_WIFI_GATEWAY",
         "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4",
+        "SELECTED_PIN", "FABRIQ_WORKER_NAME", "FABRIQ_SEGMENT",
         "FABRIQ_AUTOLOGON_USER"
     )
     foreach ($key in $envKeys) {
