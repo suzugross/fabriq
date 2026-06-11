@@ -32,12 +32,14 @@ manifest 不在の旧形式 evidence も外部ツールはサポートし続け�
 
 ## 3. スキーマ（schemaVersion=1）
 
+※ 以下の値は例示（kernel 3.5.0 / evidence_config 1.7.1 時点のサンプル）。実際の値は実行環境の各バージョンが入る。
+
 ```json
 {
   "schemaVersion": 1,
   "manifestType": "fabriq-evidence-manifest",
-  "evidenceConfigVersion": "1.3.0",
-  "fabriqKernelVersion": "2.2.2",
+  "evidenceConfigVersion": "1.7.1",
+  "fabriqKernelVersion": "3.5.0",
   "collectedAt": "2026-04-25T13:28:39+09:00",
   "computerName": "NEW-PC-01",
   "hardwareUniqueId": "T2NXCV06Y22208C",

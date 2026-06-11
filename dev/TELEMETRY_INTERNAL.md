@@ -93,11 +93,13 @@ kitting PC) and excluded from `.gitignore` (whole `logs/*` already covered).
 
 ## 5. `_meta.json` schema
 
+(example values as of kernel 3.5.0 - the actual file carries the running versions)
+
 ```json
 {
   "telemetrySchemaVersion": 1,
   "sessionId": "20260509_143000",
-  "kernelVersion": "3.2.3",
+  "kernelVersion": "3.5.0",
   "startedAt": "2026-05-09T14:30:00.123+09:00",
   "redactionPolicy": "hash-and-redact-v1",
   "saltDigest": "sha256:a3f2c891",
