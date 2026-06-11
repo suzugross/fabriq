@@ -178,14 +178,25 @@ foreach ($item in $enabledItems) {
             # Set background color
             Set-ItemProperty -Path $regColors -Name "Background" -Value $colorVal -ErrorAction Stop
 
-            # Apply immediately via API (empty path = clear wallpaper)
-            [WallpaperHandler]::SystemParametersInfo(
-                [WallpaperHandler]::SPI_SETDESKWALLPAPER, 0, '',
-                [WallpaperHandler]::SPIF_UPDATEINIFILE -bor [WallpaperHandler]::SPIF_SENDCHANGE
-            ) | Out-Null
+            if ($hkcuInfo.Redirected) {
+                # SPI applies to the CALLING session (the elevated admin),
+                # not the target user - it would clear the ADMIN's
+                # wallpaper while the target stays unchanged. The registry
+                # writes above already target the user's hive; Explorer
+                # picks them up at the user's next logon.
+                Show-Success "Solid color staged for $($hkcuInfo.Label): $colorVal ($desc) (applies at next logon)"
+                $successCount++
+            }
+            else {
+                # Apply immediately via API (empty path = clear wallpaper)
+                [WallpaperHandler]::SystemParametersInfo(
+                    [WallpaperHandler]::SPI_SETDESKWALLPAPER, 0, '',
+                    [WallpaperHandler]::SPIF_UPDATEINIFILE -bor [WallpaperHandler]::SPIF_SENDCHANGE
+                ) | Out-Null
 
-            Show-Success "Solid color applied: $colorVal ($desc)"
-            $successCount++
+                Show-Success "Solid color applied: $colorVal ($desc)"
+                $successCount++
+            }
         }
         catch {
             Show-Error "Error applying solid color '$colorVal': $_"
@@ -239,21 +250,33 @@ foreach ($item in $enabledItems) {
         Set-ItemProperty -Path $regPath -Name "WallpaperStyle" -Value $styleMap[$styleKey].WallpaperStyle -ErrorAction Stop
         Set-ItemProperty -Path $regPath -Name "TileWallpaper"  -Value $styleMap[$styleKey].TileWallpaper  -ErrorAction Stop
 
-        # Apply wallpaper immediately via Win32 API
-        $apiResult = [WallpaperHandler]::SystemParametersInfo(
-            [WallpaperHandler]::SPI_SETDESKWALLPAPER,
-            0,
-            $absolutePath,
-            [WallpaperHandler]::SPIF_UPDATEINIFILE -bor [WallpaperHandler]::SPIF_SENDCHANGE
-        )
-
-        if ($apiResult -ne 0) {
-            Show-Success "Wallpaper applied: $($item.FileName) (Style: $styleKey)"
+        if ($hkcuInfo.Redirected) {
+            # SPI applies to the CALLING session (the elevated admin) and
+            # SPIF_UPDATEINIFILE writes WallPaper into the ADMIN's hive -
+            # the target user would keep the style values but never get
+            # the wallpaper path. Write the path into the target hive
+            # instead; Explorer applies it at the user's next logon.
+            Set-ItemProperty -Path $regPath -Name "WallPaper" -Value $absolutePath -ErrorAction Stop
+            Show-Success "Wallpaper staged for $($hkcuInfo.Label): $($item.FileName) (Style: $styleKey, applies at next logon)"
             $successCount++
         }
         else {
-            Show-Error "SystemParametersInfo returned 0 (failed) for: $($item.FileName)"
-            $failCount++
+            # Apply wallpaper immediately via Win32 API
+            $apiResult = [WallpaperHandler]::SystemParametersInfo(
+                [WallpaperHandler]::SPI_SETDESKWALLPAPER,
+                0,
+                $absolutePath,
+                [WallpaperHandler]::SPIF_UPDATEINIFILE -bor [WallpaperHandler]::SPIF_SENDCHANGE
+            )
+
+            if ($apiResult -ne 0) {
+                Show-Success "Wallpaper applied: $($item.FileName) (Style: $styleKey)"
+                $successCount++
+            }
+            else {
+                Show-Error "SystemParametersInfo returned 0 (failed) for: $($item.FileName)"
+                $failCount++
+            }
         }
     }
     catch {

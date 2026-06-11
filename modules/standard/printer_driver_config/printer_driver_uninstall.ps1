@@ -238,6 +238,7 @@ foreach ($line in $pnpEnum) {
     }
 }
 
+$storeDeleted = $false
 if ($oemInfName) {
     Show-Info "Deleting from Driver Store: $oemInfName"
 
@@ -246,6 +247,7 @@ if ($oemInfName) {
 
     if ($pnpExitCode -eq 0) {
         Show-Success "Deleted from Driver Store: $oemInfName"
+        $storeDeleted = $true
     }
     else {
         Show-Warning "Failed to delete from Driver Store (might be in use by others)"
@@ -272,8 +274,18 @@ if ($usingPrinters.Count -gt 0) {
     Write-Host "Printers: $($usingPrinters.Count) deleted" -ForegroundColor Green
 }
 if ($oemInfName) {
-    Write-Host "Store:    $oemInfName deleted" -ForegroundColor Green
+    # The summary must agree with the pnputil outcome - it used to claim
+    # "deleted" whenever the INF was merely identified.
+    if ($storeDeleted) {
+        Write-Host "Store:    $oemInfName deleted" -ForegroundColor Green
+    }
+    else {
+        Write-Host "Store:    $oemInfName NOT deleted (in use by another driver?)" -ForegroundColor Yellow
+    }
 }
 Write-Host ""
 
+if ($oemInfName -and -not $storeDeleted) {
+    return (New-ModuleResult -Status "Success" -Message "Driver uninstalled: $driverName (store cleanup skipped)")
+}
 return (New-ModuleResult -Status "Success" -Message "Driver uninstalled: $driverName")
