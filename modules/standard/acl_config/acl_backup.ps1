@@ -213,6 +213,7 @@ foreach ($item in $enabledItems) {
         # Phase C: Individual backups for non-inherited subdirectories
         $nonInheritedDirs = $scanResults[$item.Id]
         $manifestEntries = @()
+        $indivFail = 0
 
         if ($nonInheritedDirs.Count -eq 0) {
             Show-Info "No non-inherited subdirectories found (full backup is sufficient)"
@@ -221,7 +222,6 @@ foreach ($item in $enabledItems) {
             Show-Info "Phase 2: Individual backups for $($nonInheritedDirs.Count) non-inherited subdirectories..."
             $current = 0
             $indivSuccess = 0
-            $indivFail = 0
 
             foreach ($subdir in $nonInheritedDirs) {
                 $current++
@@ -240,18 +240,21 @@ foreach ($item in $enabledItems) {
                     -Wait -NoNewWindow -PassThru -ErrorAction Stop
 
                 if ($indivProc.ExitCode -ne 0) {
+                    # Do NOT record failed saves in the manifest - a
+                    # phantom entry makes the restore grab a file that
+                    # does not exist. The subtree is still covered by
+                    # the Phase 1 full-tree backup.
                     Show-Warning "  Individual backup failed (ExitCode=$($indivProc.ExitCode)): $relativePath"
                     $indivFail++
                 }
                 else {
                     $indivSuccess++
-                }
-
-                $manifestEntries += [PSCustomObject]@{
-                    RelativePath = $relativePath
-                    Hash         = $hash
-                    BackupFile   = $backupFileName
-                    Depth        = $depth
+                    $manifestEntries += [PSCustomObject]@{
+                        RelativePath = $relativePath
+                        Hash         = $hash
+                        BackupFile   = $backupFileName
+                        Depth        = $depth
+                    }
                 }
             }
 
@@ -275,8 +278,18 @@ foreach ($item in $enabledItems) {
             "RelativePath,Hash,BackupFile,Depth" | Set-Content -Path $manifestPath -Encoding UTF8
         }
 
-        Show-Success "Completed: $displayName (full + $($nonInheritedDirs.Count) individual)"
-        $successCount++
+        # A failed individual backup compromises restore fidelity (the
+        # subdir's non-inherited ACL can be clobbered by inheritance
+        # propagation at restore time) - count the item as Fail instead
+        # of the previous unconditional Success.
+        if ($indivFail -gt 0) {
+            Show-Error "Completed with errors: $indivFail/$($nonInheritedDirs.Count) individual backups failed: $displayName"
+            $failCount++
+        }
+        else {
+            Show-Success "Completed: $displayName (full + $($nonInheritedDirs.Count) individual)"
+            $successCount++
+        }
     }
     catch {
         Show-Error "Failed: $displayName : $_"

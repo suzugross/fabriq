@@ -8,6 +8,14 @@
 # [NOTES]
 # - Requires administrator privileges
 # - Idempotent: skips gracefully if the package is not installed
+# - Restart-straddling flow: a locked/busy package routinely survives
+#   the first run (entry and/or staged file). Such items report
+#   Success with Verified=false ("pending") so AutoPilot/ErrorMode is
+#   not tripped before __RESTART__, and the operational profile re-runs
+#   this module after the restart. Locked files are registered for
+#   delete-on-reboot while their path is still known. Fail is never
+#   auto-escalated (the required number of reboots is package-dependent);
+#   the checklist VERIFY column carries the pending signal instead.
 # ========================================
 
 Write-Host ""
@@ -97,9 +105,11 @@ Write-Host ""
 # ========================================
 # Step 5: Uninstall Loop
 # ========================================
-$successCount = 0
-$skipCount    = 0
-$failCount    = 0
+$successCount  = 0
+$skipCount     = 0
+$failCount     = 0
+$pendingCount  = 0
+$verifiedCount = 0
 
 foreach ($item in $enabledItems) {
     $displayName = if ($item.Description) { $item.Description } else { $item.PackageName }
@@ -119,29 +129,34 @@ foreach ($item in $enabledItems) {
         continue
     }
 
-    # Phase 1: Attempt cmdlet removal
-    $uninstallSuccess = $false
+    # Phase 1: Attempt cmdlet removal. A throw is NOT final here - on a
+    # locked/busy package the first attempt routinely fails and the
+    # operational flow re-runs this module across a restart. The final
+    # verdict comes from the store re-query in Phase 3.
+    $removeError = $null
     try {
         $null = Remove-ProvisioningPackage -PackageId $pkg.PackageId -ErrorAction Stop
         Show-Info "Remove-ProvisioningPackage completed for: $($item.PackageName)"
-        $uninstallSuccess = $true
     }
     catch {
-        Show-Warning "Remove-ProvisioningPackage failed: $_ (proceeding to file cleanup)"
+        $removeError = "$($_.Exception.Message)"
+        Show-Warning "Remove-ProvisioningPackage failed: $_ (verdict by store re-query)"
     }
 
-    # Phase 2: Delete physical .ppkg file with retry
+    # Phase 2: Delete the staged .ppkg file while its path is still
+    # known (once the store entry is gone, later runs cannot find it).
+    # If it stays locked, register a delete-on-reboot - a leftover
+    # package file may embed credentials (Wi-Fi keys etc.) and must not
+    # survive the kitting flow.
     $ppkgFilePath = $pkg.PackagePath
-    $ppkgFileExists = ($ppkgFilePath -and (Test-Path $ppkgFilePath))
-    $fileDeleted = -not $ppkgFileExists
-
-    if ($ppkgFileExists) {
+    $fileState = "none"   # none / deleted / scheduled / leftover
+    if ($ppkgFilePath -and (Test-Path $ppkgFilePath)) {
         $maxRetry = 5
         for ($r = 0; $r -lt $maxRetry; $r++) {
             try {
                 Remove-Item -Path $ppkgFilePath -Force -ErrorAction Stop
                 Show-Info "Deleted package file: $ppkgFilePath"
-                $fileDeleted = $true
+                $fileState = "deleted"
                 break
             }
             catch {
@@ -152,27 +167,62 @@ foreach ($item in $enabledItems) {
             }
         }
 
-        if (-not $fileDeleted) {
-            Show-Warning "Could not delete package file (in use): $ppkgFilePath"
+        if ($fileState -ne "deleted") {
+            # MOVEFILE_DELAY_UNTIL_REBOOT (0x4): the OS deletes the file
+            # early at next boot, before anything can lock it.
+            if (-not ("PpkgFileCleanup" -as [type])) {
+                Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class PpkgFileCleanup {
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, uint dwFlags);
+}
+"@ -ErrorAction SilentlyContinue
+            }
+            $scheduled = $false
+            try { $scheduled = [PpkgFileCleanup]::MoveFileEx($ppkgFilePath, $null, 0x4) } catch { }
+            if ($scheduled) {
+                Show-Warning "File locked - deletion scheduled at next restart: $ppkgFilePath"
+                $fileState = "scheduled"
+            }
+            else {
+                Show-Warning "Could not delete or schedule deletion (in use): $ppkgFilePath"
+                $fileState = "leftover"
+            }
         }
     }
 
-    # Phase 3: Determine result
-    if ($uninstallSuccess) {
-        Show-Success "Uninstalled: $($item.PackageName) (PackageId: $($pkg.PackageId))"
+    # Phase 3: Verdict by store re-query (after a short settle wait).
+    # The previous flag-based result invented Success ("Cleaned up
+    # package file") and Skip ("Already clean") for states where the
+    # package was in fact still registered.
+    Start-Sleep -Seconds 2
+    $verifyPkg = Get-ProvisioningPackage -AllInstalledPackages -ErrorAction SilentlyContinue |
+        Where-Object { $_.PackageName -eq $item.PackageName }
+
+    if ($verifyPkg) {
+        $why = if ($removeError) { "removal attempt failed: $removeError" } else { "entry still registered" }
+        Show-Warning "Pending: $($item.PackageName) - $why (re-run this module after restart)"
         $successCount++
-    }
-    elseif (-not $uninstallSuccess -and $fileDeleted -and $ppkgFileExists) {
-        Show-Success "Cleaned up package file: $($item.PackageName)"
-        $successCount++
-    }
-    elseif (-not $uninstallSuccess -and $fileDeleted -and -not $ppkgFileExists) {
-        Show-Skip "Already clean: $($item.PackageName)"
-        $skipCount++
+        $pendingCount++
     }
     else {
-        Show-Error "Package removal failed: $($item.PackageName)"
-        $failCount++
+        switch ($fileState) {
+            "scheduled" {
+                Show-Success "Uninstalled: $($item.PackageName) (file deletion scheduled at next restart)"
+                $pendingCount++
+            }
+            "leftover" {
+                Show-Success "Uninstalled: $($item.PackageName) (WARNING: package file left on disk: $ppkgFilePath)"
+                $pendingCount++
+            }
+            default {
+                Show-Success "Uninstalled: $($item.PackageName) (PackageId: $($pkg.PackageId))"
+                $verifiedCount++
+            }
+        }
+        $successCount++
     }
 
     Write-Host ""
@@ -182,5 +232,14 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Result Summary
 # ========================================
+# Verified: false while anything is pending (entry lingering or file
+# cleanup delegated to reboot), true only when every processed item was
+# confirmed clean, null when nothing was processed.
+if ($pendingCount -gt 0) {
+    return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+        -Title "PPKG Uninstall Results" -Verified $false `
+        -MessageSuffix "($pendingCount pending - complete after restart)")
+}
+$verified = if ($verifiedCount -gt 0) { $true } else { $null }
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "PPKG Uninstall Results")
+    -Title "PPKG Uninstall Results" -Verified $verified)

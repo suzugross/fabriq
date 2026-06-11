@@ -19,7 +19,17 @@ Write-Host ""
 # ----------------------------------------
 # 1. Internet Connection Check
 # ----------------------------------------
-Wait-NetworkReady
+# Single bounded probe instead of Wait-NetworkReady (which loops
+# forever) - fail fast and let the AutoPilot ErrorMode / dialog decide
+# (retry/skip) instead of hanging an unattended run.
+$netReachable = Test-Connection -ComputerName "8.8.8.8" -Count 2 -Quiet -ErrorAction SilentlyContinue
+if (-not $netReachable) {
+    Show-Error "Network unreachable (8.8.8.8)"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Network unreachable")
+}
+Show-Success "Network connectivity OK (8.8.8.8)"
+Write-Host ""
 
 # ----------------------------------------
 # 2. Check Winget Availability
@@ -31,6 +41,13 @@ if (-not (Get-Command "winget" -ErrorAction SilentlyContinue)) {
 }
 Show-Success "winget is available"
 Write-Host ""
+
+# Record the current winget version: updating Microsoft.AppInstaller
+# replaces the running winget.exe itself, so the upgrade can exit with
+# a non-standard code even when it succeeded. The version read-back in
+# step 5 is the real verdict for unknown exit codes.
+$versionBefore = ""
+try { $versionBefore = "$(& winget --version 2>$null)".Trim() } catch { }
 
 # ----------------------------------------
 # 3. Display Target
@@ -83,9 +100,27 @@ try {
             return (New-ModuleResult -Status "Skipped" -Message "Microsoft.AppInstaller is already up to date")
         }
         default {
-            Show-Warning "winget upgrade exited with code: $($process.ExitCode) (treated as normal for this module)"
+            # The self-update can kill the running winget.exe and surface
+            # a non-standard exit code even on success, so the exit code
+            # is not trustworthy here. Read the version back (a fresh
+            # process runs the NEW binary) and let that decide. Retries
+            # absorb MSIX registration latency.
+            $versionAfter = ""
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                Start-Sleep -Seconds 2
+                try { $versionAfter = "$(& winget --version 2>$null)".Trim() } catch { $versionAfter = "" }
+                if ($versionAfter -and $versionAfter -ne $versionBefore) { break }
+            }
+
+            if ($versionAfter -and $versionAfter -ne $versionBefore) {
+                Show-Success "winget updated successfully ($versionBefore -> $versionAfter, ExitCode: $($process.ExitCode))"
+                Write-Host ""
+                return (New-ModuleResult -Status "Success" -Message "Microsoft.AppInstaller updated ($versionBefore -> $versionAfter)" -Verified $true)
+            }
+
+            Show-Error "winget upgrade exited with code $($process.ExitCode) and the version did not change ($versionBefore)"
             Write-Host ""
-            return (New-ModuleResult -Status "Success" -Message "winget upgrade completed (ExitCode: $($process.ExitCode))")
+            return (New-ModuleResult -Status "Error" -Message "winget upgrade failed (ExitCode: $($process.ExitCode), version unchanged: $versionBefore)")
         }
     }
 }

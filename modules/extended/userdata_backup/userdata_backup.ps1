@@ -497,6 +497,17 @@ foreach ($me in $manifestEntries) {
     }
 }
 
+# A backup that captured nothing must not verify as PASS - an operator
+# reading PASS may wipe the source PC. All-sources-missing (wrong user
+# profile, unmounted drive) lands here. Partial missing stays PASS by
+# design: it is routine (e.g. a user without a Pictures folder) and is
+# already visible via warnings / manifest missingSource / Skip counts.
+$backedUpEntries = @($manifestEntries | Where-Object { $_.status -ne 'Skipped' })
+if ($backedUpEntries.Count -eq 0) {
+    Write-Host "  [VERIFY FAILED] no data was backed up (all $($manifestEntries.Count) source path(s) missing or skipped)" -ForegroundColor Red
+    $verifyFail++
+}
+
 Write-Host ""
 $verified = ($verifyFail -eq 0)
 

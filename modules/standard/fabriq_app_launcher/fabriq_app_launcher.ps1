@@ -118,15 +118,24 @@ foreach ($app in $appList) {
         $psArgs = "-NoProfile -ExecutionPolicy Unrestricted -File `"$scriptPath`""
 
         if ($waitMode) {
-            $null = Start-Process powershell -ArgumentList $psArgs -Wait -PassThru -ErrorAction Stop
-            Show-Success "Completed: $displayName"
+            # Apps under apps/ are fabriq's own GUI apps: exit code 0 is
+            # the contract. powershell -File returns 1 on an uncaught
+            # terminating error, so a crashed app must not report Success.
+            $proc = Start-Process powershell -ArgumentList $psArgs -Wait -PassThru -ErrorAction Stop
+            if ($proc.ExitCode -eq 0) {
+                Show-Success "Completed: $displayName"
+                $successCount++
+            }
+            else {
+                Show-Error "App exited with code $($proc.ExitCode): $displayName"
+                $failCount++
+            }
         }
         else {
             Start-Process powershell -ArgumentList $psArgs -ErrorAction Stop
             Show-Success "Launched:  $displayName (running in background)"
+            $successCount++
         }
-
-        $successCount++
     }
     catch {
         Show-Error "Failed to launch $displayName : $_"

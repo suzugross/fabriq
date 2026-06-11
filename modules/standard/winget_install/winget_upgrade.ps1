@@ -25,7 +25,17 @@ Write-Host ""
 # ----------------------------------------
 # 1. Internet Connection Check
 # ----------------------------------------
-Wait-NetworkReady
+# Single bounded probe instead of Wait-NetworkReady (which loops
+# forever) - fail fast and let the AutoPilot ErrorMode / dialog decide
+# (retry/skip) instead of hanging an unattended run.
+$netReachable = Test-Connection -ComputerName "8.8.8.8" -Count 2 -Quiet -ErrorAction SilentlyContinue
+if (-not $netReachable) {
+    Show-Error "Network unreachable (8.8.8.8)"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Network unreachable")
+}
+Show-Success "Network connectivity OK (8.8.8.8)"
+Write-Host ""
 
 # ----------------------------------------
 # 2. Check Winget Availability

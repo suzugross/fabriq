@@ -96,8 +96,25 @@ else {
 }
 Write-Host ""
 
-# Wait for network connectivity
-Wait-NetworkReady
+# Wait for network connectivity: bounded patience window (10s polls,
+# max 120s) instead of Wait-NetworkReady's unbounded loop. WU is the
+# heavyweight gate of the kitting flow, so wait out a late cable /
+# Wi-Fi association before failing visibly through this function's
+# Error contract (AutoPilot ErrorMode / dialog decides from there).
+$netReachable = $false
+$netDeadline = (Get-Date).AddSeconds(120)
+while (-not $netReachable) {
+    $netReachable = Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction SilentlyContinue
+    if ($netReachable) { break }
+    if ((Get-Date) -ge $netDeadline) { break }
+    Show-Warning "Network unreachable. Retrying in 10s (max 120s)..."
+    Start-Sleep -Seconds 10
+}
+if (-not $netReachable) {
+    Show-Error "Network unreachable after 120s (8.8.8.8)"
+    return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
+}
+Show-Success "Network connectivity OK (8.8.8.8)"
 Write-Host ""
 
 # Prevent sleep during updates
