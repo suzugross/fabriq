@@ -49,6 +49,20 @@
   - 全ガードは確認ゲートの外側に配置（AutoPilot 自動 Y でも有効）。
 
 ### Fixed
+- dev ツール 3 点 (Fixed: 開発機保護と検査の fail-open 解消, TM t-0018):
+  (1) dev/build_framework_patch.ps1 — `-PatchName` 無検証のまま `Remove-Item -Recurse` に
+  到達し、`-PatchName "."` で `-OutDir`（既定: Desktop）自体を削除できた（2026-04-25 事故と
+  同クラス / CLAUDE.md §8 違反）。単一パス成分検証（区切り・`.`/`..`・不正文字・末尾ドット/
+  空白を拒否）+ 削除直前の OutDir 配下 containment assert を追加。
+  (2) dev/check_version.ps1 — 検証対象ファイルの欠損が `[SKIP]` 扱いで exit 0（fail-open）
+  だったのを `[FAIL]` + mismatches 計上に変更。
+  (3) dev/check_ps1_encoding.ps1 — CP932 保存の .ps1 が UTF-8 デコードで U+FFFD 化し全検出
+  レンジ外 = OK 判定になる盲点を `NON-UTF8` 分類（exit 1 対象）で解消。さらに CSV 検査
+  セクションを新設: `CSV-JP-NO-BOM`（日本語 UTF-8 + BOM 無し = コンマ飲み込み列ズレの
+  実害クラス、exit 1）/ `CSV-CP932`（許容 — `-Encoding Default` の両取り運用と整合）/
+  `CSV-JP-LF`（WARN）。LF 改行のみだった軽微 5 CSV（network_profile_list /
+  server_feature_list / firewall_rule・firewall_rule_make・temp_ipaddress の preset）も
+  CRLF 正規化（挙動不変・VERSION 据置）。
 - CSV エンコーディング修正 4 件 (Fixed: BOM 無し日本語 UTF-8 CSV の列ズレ実害, 実機テストで検出):
   power_config/power_list.csv（power_config v1.1.0 に同梱）/ file_delete/delete_list.csv
   (v1.1.0 → v1.1.1) / restore_point/restore_point_list.csv (v1.0.0 → v1.0.1) /
