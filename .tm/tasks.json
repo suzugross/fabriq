@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-12T23:30:00+09:00",
+  "updatedAt": "2026-06-12T22:10:08.581378+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -15,11 +15,11 @@
     {
       "id": "t-0002",
       "title": "evidence_config取得範囲拡大",
-      "content": "・資格情報\r\n・Outlookメールアカウント（Outlook2016~2024）\r\nそれぞれ、Fabriq_backuperの実装が参考になります。\r\n情報を採取し、エビデンスとして残せるようにしたい。",
-      "claudeNote": "",
-      "status": "未着手",
+      "content": "・資格情報\r\n・Outlookメールアカウント（Outlook2016~2024）\r\nそれぞれ、Fabriq_backuperの実装が参考になります。\r\n情報を採取し、エビデンスとして残せるようにしたい。\r\nFabriqEvidenceMangerとの契約関連も要確認",
+      "claudeNote": "調査(2026-06-12 3方面並行): \r\n[現行evidence_config 1.7.1] code-first構造 — evidence_list.csv は Enabled フラグのみ、セクション実体は evidence_config.ps1 に per-ID 分岐(Test-SectionEnabled/Start-Section/Add-SectionFile/Close-Section)。新カテゴリ=CSV行+コード分岐+表示リスト追記の3点セット。現行 §01-§31+§8b。資格情報セクションは皆無、Outlookはライセンス(§22 vNext)のみでアカウント情報なし。\r\n[backuper参考実装] credentials: CredEnumerateW P/Invoke(dump_creds.ps1)で TargetName/Type/UserName/Persist/Comment/LastWritten/BlobSize 採取、パスワード本体は不読(sizeのみ)。OSノイズフィルタ(SSO_POP_Device等)+restoreHint付き。DPAPI制約=他ユーザvaultは構造的に読めない→backuperはschtasks /IT(ログオン中のみ)で対処。outlook_pop: HKCU(またはHKU:SID)\\Software\\Microsoft\\Office\\{16.0,15.0}\\Outlook\\Profiles を走査、Internet Account GUID 9375CFF0... 配下から POP3/IMAP/SMTP サーバ・ポート・SSL・アカウント名・PST(EntryIDバイナリスキャン3段解決)をメタデータ採取。レジストリ読みのみでDPAPI不要(パスワードblobは有無booleanのみ)。\r\n[EvidenceManager契約] manifest駆動+前方互換実装済み — 未知セクションIDは UnknownSection として黄タブ raw シート(§{Id} {Title})へ自動出力、クラッシュ・エラーなし(EvidenceParserService.cs:177-181)。新セクション追加は fabriq 側のみで即出荷可能。専用整形シート化は KnownSections+DispatchSection+PcEvidence+ExcelExportService の4点改修(任意・後続)。\r\n[構造的制約] 資格情報の他ユーザvault採取は DPAPI per-user により不可能(cmdkey/CredEnumerate とも呼出ユーザのvaultのみ)。Outlookメタデータはレジストリのみで他ユーザも可(要 HKU/hive load)。\r\n要決定: (1)採取対象ユーザ範囲(実行ユーザのみ/ログオン中ユーザredirect/全プロファイルhive load) (2)秘匿情報はメタデータのみで確定か(パスワード採取は納品物に論外=不採取を推奨) (3)セクションID=§32 Credentials/§33 Outlook Accounts (4)EvidenceManager は raw 自動対応で当面コード変更なし、専用シートは別タスク。\r\n予想版影響: evidence_config 1.7.1→1.8.0(MINOR/新セクション)、REQUIRES_KERNEL 据置、kernel 不変、EVIDENCE_MANIFEST.md はセクション一覧追記(doc)。\r\n決定(2026-06-12): (1)=推奨値(資格情報=実行ユーザのみ/Outlook=ログオン中ユーザredirect) (2)パスワードは復号試行も禁止(メタデータのみ、存在確認すら不可) (3)§32/§33 (4)EvidenceManager は raw シート自動対応で当面コード変更なし。設計ゲート(フル版)提示・承認済。\r\n実装(2026-06-12): 完了・検証済(未コミット)。evidence_config 1.7.1→1.8.0。§32 Credential Manager = 出荷版 MemberDefinition(CredEnumerateW P/Invoke)で実行ユーザvaultをメタデータ列挙(TargetName/Type/UserName/Persist/Comment/LastWritten/IsSystemNoise/SourceUser → 32_Credentials.csv)。blob系フィールドは構造体レイアウト維持のためだけに定義し一切不読。空vault(ERROR_NOT_FOUND=1168)はヘッダのみCSVでSuccess。Add-Typeは PSTypeName ガードで同一プロセス再実行対応。§33 Outlook Mail Accounts = Resolve-HkcuRoot(common.ps1 既存内部関数)でハイブ解決+セクション側で HKU PSDrive を再確保(関数スコープで drive が消える reg_hkcu_config と同じ罠→偽Skipped防止)。Office{16.0,15.0}両方を裁定なしで記録、Internet Account GUID 配下から POP3/IMAP/SMTP メタデータ+PST 3段解決(EntryIDスキャン→ファイル名→単一候補)を 33_OutlookAccounts.csv/33_OutlookDataFiles.csv へ。Password値は存在確認も不実施。Profiles不在=intrinsic Skipped($sectionCount++、§26パターン)、アカウント単位失敗=Partial降格。\r\n重要発見: 移植元 fabriq_backuper dump_creds.ps1 の _FtToIso に潜在バグ — PowerShell の 0xFFFFFFFF リテラルは Int32 の -1 に解釈され -band がマスクとして無機能、dwLowDateTime 最上位ビット立ち(確率~50%)で lastWritten が silent null 化。fabriq 側は [int64]4294967295(10進)で修正済み。backuper 側の修正は別リポ作業として未着手(要ユーザ判断)。\r\n検証: parse OK / run_tests 272 passed 0 failed / encoding 新規違反ゼロ(evidence_config の JP+BOM WARN は HEAD 由来の net localgroup 日本語照合) / smoke 22チェック全PASS(AST抽出した実関数+合成データ、負の dwLow roundtrip 含む、HKCU 一時キーは literal ガード付きで掃除済、live CredEnumerate 5件列挙成功) / VERSION は CRLF 改行で 1.8.0。\r\n付随: evidence_list.csv +2行 / 表示リスト[32][33] / Guide.txt §32/§33 追記+全34セクション化 / EVIDENCE_MANIFEST.md §3.2 の ID 例示を 01〜33 に更新(schemaVersion 1 据置) / CHANGELOG [Unreleased] Added。\r\n実機確認(コミット前推奨): ①32_Credentials.csv が cmdkey /list と同じ Target 群 ②Outlook 設定済みPCで 33_OutlookAccounts.csv のサーバ/ポート/PST が画面設定一致 ③Outlook 未設定PCで §33 Skipped ④manifest に §32/§33 が出て EvidenceManager が黄タブ raw シート生成。\r\nコミット(2026-06-12): 54f34a0。実機確認4点(claudeNote 上記)の完了後にタスク完了化。backuper 側の同型バグ修正は別リポ作業(プロンプト提示済み・ユーザ実施待ち)。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-09T00:19:31.3606756+09:00",
-      "updatedAt": "2026-06-09T00:23:17.4257058+09:00"
+      "updatedAt": "2026-06-12T22:10:08.581378+09:00"
     },
     {
       "id": "t-0003",
