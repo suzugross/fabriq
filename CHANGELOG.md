@@ -15,6 +15,22 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/evidence_config v1.7.1 → v1.8.0 (Added: §32 Credential Manager +
+  §33 Outlook Mail Accounts, TM t-0002): fabriq_backuper の実装を evidence 向けに移植。
+  §32 = CredEnumerateW で実行ユーザー vault のメタデータのみ列挙（32_Credentials.csv。
+  CredentialBlob は読み取りも記録もせず、復号 API は不使用。DPAPI 制約により対象は
+  構造的に実行ユーザーのみで SourceUser 列に明記。OS ノイズは除外せず IsSystemNoise
+  フラグ。空 vault はヘッダーのみ CSV で Success）。§33 = Office {16.0,15.0} Outlook
+  Profiles レジストリのメタデータ走査（33_OutlookAccounts.csv + 33_OutlookDataFiles.csv。
+  Resolve-HkcuRoot でログオン中ユーザーへ redirect し読んだハイブを SourceUser 列に
+  自己記述。POP3/IMAP/SMTP サーバ・ポート・SSL と配信先 PST の 3 段解決
+  〔EntryID バイナリスキャン→ファイル名一致→単一候補〕。Password 系レジストリ値は
+  存在確認すら行わない。Profiles キー不在は intrinsic Skipped、アカウント単位の
+  読取失敗は Partial 降格で CSV は書き切る）。manifest schemaVersion 1 据置
+  （セクション ID 追加は EVIDENCE_MANIFEST.md §4.1 前方互換ルールの範囲内、
+  evidence_manager は未知セクションを raw シートへ自動出力）。
+
 ### Fixed
 - modules/standard/generic_process_runner v1.0.0 → v1.1.0 (Fixed: TimeoutSec=0 時の
   WaitProcessName ポーリング無限化を既定上限で封鎖, TM t-0027(A-2)): Guide は

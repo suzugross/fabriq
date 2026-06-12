@@ -8,7 +8,7 @@ evidence_list.csv（v1.7.0 以降）
   Enabled = 1 で収集、0 で当該セクションをスキップします。
   default-on policy: CSV不在 / 該当 Id 行が無い / Enabled が空または不正値 の
   いずれの場合も「有効」として扱います。これにより、CSV を全く編集せずに
-  使う限り従来通り全 32 セクション（§01〜§31 + §8b）が収集されます。
+  使う限り従来通り全 34 セクション（§01〜§33 + §8b）が収集されます。
 
   無効化されたセクションは manifest.json 上で
     status = "Skipped"
@@ -144,6 +144,44 @@ evidence_list.csv（v1.7.0 以降）
    - バッテリ非搭載（Win32_Battery 0 件）の場合は Skipped で完結
      （reason="No battery present (desktop PC or battery removed)"）
    - 実行時間は 5〜15 秒
+32. 資格情報マネージャー（32_Credentials.csv） ※v1.8.0 で追加
+   - Win32 CredEnumerateW で fabriq 実行ユーザーの資格情報コンテナを
+     メタデータのみ列挙（fabriq_backuper の実装を移植）
+   - 列: TargetName / Type / UserName / Persist / Comment /
+     LastWritten / IsSystemNoise / SourceUser
+   - パスワード本体（CredentialBlob）は読み取りも記録も一切しない。
+     復号 API（CryptUnprotectData 等）は呼ばない
+   - DPAPI の制約により他ユーザーの vault は構造的に列挙不可能。
+     対象は常に実行ユーザーで、SourceUser 列に記録される
+   - OS 自動管理エントリ（SSO_POP_Device / virtualapp/didlogical）は
+     除外せず IsSystemNoise=True でフラグ付け（証跡は実在をそのまま記録）
+   - vault が空の場合はヘッダーのみの CSV で Success（「資格情報なし」
+     も証跡）
+33. Outlook メールアカウント（33_OutlookAccounts.csv +
+    33_OutlookDataFiles.csv） ※v1.8.0 で追加
+   - Office {16.0, 15.0}\Outlook\Profiles レジストリをメタデータのみ
+     走査（Outlook 2016〜2024 はすべて 16.0 キー。COM 不使用）
+   - 管理者として別アカウントで実行中の場合は Resolve-HkcuRoot で
+     ログオン中ユーザーのハイブ（HKU\<SID>）へリダイレクト。どの
+     ユーザーのハイブを読んだかは SourceUser 列に記録される
+   - アカウント CSV 列: OfficeVersion / ProfileName / AccountSubKey /
+     AccountType (pop3/imap/other) / AccountName / DisplayName / Email /
+     ReplyEmail / Organization / Incoming{Server,Port,UserName,UseSSL,
+     SecureConnection,UseSPA,FolderPath} / Outgoing{Server,Port,UserName,
+     UseSSL,UseAuth,AuthMethod,SecureConnection} / LeaveOnServer /
+     DeliveryPstPath / PstDetectionMethod / SourceUser
+   - データファイル CSV 列: OfficeVersion / ProfileName / PstPath /
+     FileExists / SourceUser（プロファイル内の全 PST を列挙）
+   - 配信先 PST は 3 段解決（EntryID バイナリスキャン → email との
+     ファイル名一致 → 単一候補）。解決失敗は空欄 + Method=unresolved
+     で記録し、セクションは落とさない
+   - 16.0 / 15.0 が併存する場合は両方を記録（OfficeVersion 列で識別。
+     restore 用途と違い「正しい方を選ぶ」裁定はしない = 生の事実を記録）
+   - Password 系レジストリ値（POP3/IMAP/SMTP Password、DPAPI blob）は
+     存在確認すら行わない
+   - Profiles キーがどのバージョンにも無い場合は Skipped
+     （reason="Outlook Profiles registry key not found ..."）
+   - アカウント単位の読み取り失敗は警告 + Partial 降格（CSV は書き切る）
 
 ■ 出力先
 evidence\pc_information\日付_UID_PC名\
