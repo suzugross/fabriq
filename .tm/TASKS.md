@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-11 10:03
+最終更新: 2026-06-12 09:07
 
-## 未着手 (12)
+## 未着手 (3)
 
 ### [t-0002] evidence_config取得範囲拡大
 
@@ -15,187 +15,62 @@
 ・Outlookメールアカウント（Outlook2016~2024）
 それぞれ、Fabriq_backuperの実装が参考になります。
 情報を採取し、エビデンスとして残せるようにしたい。
+FabriqEvidenceMangerとの契約関連も要確認
 
-<sub>更新: 2026-06-09 00:23 ／ 作成: 2026-06-09 00:19</sub>
+<sub>更新: 2026-06-12 09:07 ／ 作成: 2026-06-09 00:19</sub>
 
-### [t-0008] 3.5.0 リリース時の deprecated Status Monitor 撤去
+### [t-0028] [MED] B級4件: firewall数値プロトコル/system_finalize regsvr32/restore_point baseline/storeapp cast
 
 **内容:**
 
-KERNEL_API.md §6 で「3.5.0 で削除予定」と宣言済みの Start-StatusMonitor / Stop-StatusMonitor（kernel/common.ps1）と kernel/ps1/status_monitor.ps1 を、次回リリース（__SELF__ を含む 3.5.0）の手順に組み込んで撤去する。忘れると API ドキュメントの宣言と実態が乖離する。
+(1) firewall_rule_make_config: プロトコル正規化が6/17のみ — Protocol=1(ICMPv4)/58(ICMPv6)等の数値行が偽MISMATCH・作成後検証も偽FAIL。マップ拡張。
+(2) system_finalize.ps1:87 — regsvr32 を -PassThru なしで起動、exit code 不問の偽成功。
+(3) restore_point.ps1:255 — baseline が Select-Object -Last 1(列挙順非保証)。max SequenceNumber 化。
+(4) storeapp_config.ps1:21 — Sort 内 [int] 直キャスト、不正 CSV で throw。[int]::TryParse 化(script_looper:58 が手本)。
 
 **Claudeメモ:**
 
-構造監査(2026-06-10)で確認。KERNEL_API.md:144 に削除予定宣言あり。common.ps1:4502-4683 の約180行＋status_monitor.ps1 本体が対象。リリース手順（CLAUDE.md §I）実行と同コミットでの実施が望ましい。Execution Toolbar（3.4.0〜）が後継のため機能損失なし。
+再監査(2026-06-12, 4並列)で検出。
 
-<sub>更新: 2026-06-10 14:07 ／ 作成: 2026-06-10 14:07</sub>
+<sub>更新: 2026-06-12 22:00 ／ 作成: 2026-06-12 22:00</sub>
 
-### [t-0017] [HIGH] power_config: 失敗カウンタ不在で Status が常に Success
+### [t-0029] [LOW] C級: 設計メモ・番犬項目(redaction多層化/asyncテレメトリ整合/office_update観測ほか)
 
 **内容:**
 
-power_config.ps1 は powercfg ネイティブコマンドの失敗を検出できない構造: :454-456 ほか同パターン8箇所（474/505/525/545/565/669/689）で `& powercfg ... | Out-Null` を try/catch しているが、ネイティブコマンドの非ゼロ exit は throw しないため $LASTEXITCODE 未確認のまま Show-Success + ChangeCount++。さらに Set-PowerPlan の $false 戻りも Set-PowerConfigValue の失敗も fail カウンタに乗らず、:1041 の最終 Status は常に Success。Step 5.5 の読み返し検証が Verified=false を付けるのが唯一の防壁で、Status 契約としては fail-open。$LASTEXITCODE 判定 + fail カウンタ導入で Partial/Error を返せるようにする。
+(1) history CSV / HTML checklist の Message 欄に redaction 無し — 能動漏えいは未確認、多層防御の欠落。kernel 側で redaction map を通す案(要設計議論)。
+(2) async 子 Runspace の $script:SessionID/TelemetrySeq 再生成によるテレメトリセッション整合 + 子エラーレコード非還流 — 機能影響ゼロ、実地検証してから判断。
+(3) office_update 番犬2点: LastUpdateError 非リセット端末の偽Error固着 / TasksState 数値enum ビルドでの60分タイムアウト復活 — 初回実フリートで観測。
+(4) 別PCの resume_state.json 持ち込みガード無し(運用上稀)。
+(5) ICMP遮断NWで有界プローブがError(旧実装は無限ハング、退行ではない) — 顧客NW特性として把握。
+(6) winget_update: versionBefore 読取失敗時の偽Success縁 / MSIX登録>6秒の偽Error縁。
+(7) ppkg Phase3 再クエリ自体のエラーが fail-open(直前成功済みで窓は狭い)。(8) history_destroyer ClearRegistry 読み返しの catch{} fail-open(狭い)。
 
 **Claudeメモ:**
 
-全体監査(2026-06-10)で検出。Verified=false が出るため完全なサイレントではないが、New-BatchResult の Status 契約（Fail>0 → Partial/Error）に違反。module PATCH〜MINOR。
+再監査(2026-06-12, 4並列)で検出。
 
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
+<sub>更新: 2026-06-12 22:00 ／ 作成: 2026-06-12 22:00</sub>
 
-### [t-0018] [HIGH] devツール3点: patch builderの無ガード削除 / check_versionのfail-open / encoding checkerのCP932盲点
+## レビュー待ち (1)
+
+### [t-0027] [HIGH] A級2件: partition RAW判定のnull fail-open + process_runner無限待ち
 
 **内容:**
 
-(1) dev/build_framework_patch.ps1:92-95 — `Remove-Item -Path $dst -Recurse -Force` で $dst=Join-Path $OutDir $PatchName、-PatchName 無検証。-PatchName "." で $OutDir（既定 Desktop）自体を再帰削除、..\x で OutDir 外へ脱出。パス区切り/./.. を拒否し、解決パスが $OutDir の厳密な子であることを assert。CLAUDE.md §8 違反、2026-04-25 事故と同クラス。
-(2) dev/check_version.ps1:59-62 — 検証対象ファイルが欠損していると [SKIP] 表示のみで $mismatches に積まれず exit 0（green）。欠損は FAIL にする。
-(3) dev/check_ps1_encoding.ps1:72 — 全ファイルを UTF-8 として decode するため CP932 の日本語は U+FFFD になり全検出レンジ（最大 U+FFEF）の外 → CP932 の日本語入り .ps1 が OK 判定。U+FFFD 検出を追加（=デコード不能バイト列の検出）。CSV の「UTF-8 BOM + CRLF」規約のチェッカーが存在しない点も合わせて検討。
+(A-1) partition_config.ps1 already-exists分岐 — Get-Volume が $null(一時的CIM障害)でも RAW 扱いで Format-Volume に流れる。破壊方向の fail-open(§8クラス)。肯定的RAWシグナル(ボリューム実在かつFileSystemType=Unknown)必須化、$null は Error へ。
+(A-2) generic_process_runner/process_runner.ps1:204 — TimeoutSec=0/空欄で while($true) が無限化。AutoPilot 永久ハング。絶対上限の導入(unbounded-wait クラス残存)。
 
 **Claudeメモ:**
 
-全体監査(2026-06-10)で検出。(1)はユーザーの Desktop が既定 OutDir である点が特に危険。dev/ 配下は CHANGELOG 対象（§A）だが版管理対象外。(3)の CP932 盲点は「BOM 無し日本語 .ps1 が CP932 で保存されていた場合に検出網をすり抜ける」という JP-NO-BOM cleanup（残5件）の検出基盤の穴でもある。
+再監査(2026-06-12, 4並列)で検出。
+(A-1)partition_config 実装(2026-06-12): 完了・検証済(未コミット)。調査で矛盾窓を裏付け — 入口判定は Get-Partition/WMI、RAW 判定は Get-Volume と別プロバイダのため『入口通過+Get-Volume 一時失敗』が構造的に存在。修正: $null=読取不能を Error(format 不実行、failCount++、再実行で収束)に分離し、RAW は肯定的シグナル(オブジェクト実在かつ FileSystemType=Unknown or FileSystem 空)必須化。本物 RAW heal と健全 Skip は不変。VERSION 1.1.0→1.1.1(PATCH)・CHANGELOG Security 追記。parse OK・272 passed。残: (A-2)process_runner。
+(A-2)process_runner 実装(2026-06-12): 完了・検証済(未コミット)。追加調査で評価を下方修正 — メイン Wait-Process の無制限は Guide 文書化済みの意図的仕様(GUI operator 操作待ち推奨)のため不変更。真の欠陥はポーリングフェーズが Guide の『無限ハング防止』の約束を TimeoutSec=0 で破る点(出荷サンプル CSV の Office Update 行が該当構成)。案B採用: 0 のときポーリングのみ既定上限 3600 秒、到達時は kill せず(誤殺防止)実行継続のまま Error 計上($stillRunning フラグで $timedOut の kill 経路と分離)。明示 TimeoutSec の kill は文書どおり維持。Guide.txt に既定上限を明記。VERSION 1.0.0→1.1.0(MINOR)・CHANGELOG Fixed。parse OK・272 passed。A級 2 件とも実装完了 — コミット待ち。
+コミット b7275be (2026-06-12)。実機確認(任意): partition は RAW 化→heal と正常→Skip の既存 2 系が不変であること / process_runner は TimeoutSec=0+WaitProcessName 構成で対象プロセス放置→3600 秒で kill されず Error。確認後に完了化。
 
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
+<sub>更新: 2026-06-12 23:30 ／ 作成: 2026-06-12 22:00</sub>
 
-### [t-0019] [MEDIUM] 冪等性違反4モジュール: 再実行で偽Error/偽Skip
-
-**内容:**
-
-再実行（resume・リトライ）で壊れる冪等性違反のバッチ修正:
-(1) domain_join.ps1:70 — 参加済みチェックなしで Add-Computer → 再実行は常に Error（実失敗と区別不能）。Win32_ComputerSystem の PartOfDomain/Domain を見て Skipped を返す。
-(2) odt_install.ps1:192-201 — 事前チェック(f)が「C2R Office 存在=Error」のため、本モジュールが入れた Office があると成功後の再実行が Error。検出 ProductReleaseIds と XML の product ID 比較で「済み」と「異物」を区別。
-(3) autologon_config.ps1:112-127 — skip 判定が DefaultPassword を比較しないため、CSV のパスワード修正後の再実行が Skipped になり誤った旧パスワードが残存。無条件再適用（last-write-wins）が安全。
-(4) partition_config.ps1:248-263 — New-Partition 成功+Format-Volume 失敗の後、再実行はレター存在チェックで永久 Skip となり RAW ボリュームを自己修復できない。レター存在時に FS 状態も確認し、RAW なら Format を再試行。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。4モジュール個別 touched（各 PATCH〜MINOR）。partition_config は preview/execution の重複排除キー不一致（:126-127 SourceDriveLetter のみ vs :185-194 letter-size）という別件もあり、touched ついでに直すこと推奨。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0020] [MEDIUM] 偽PASS・偽成功バンドル（検証が検証になっていない8モジュール）
-
-**内容:**
-
-チェックリスト上 OK/PASS に見えるが実際は未適用・不完全になりうる箇所の一括修正:
-(1) firewall_rule_make_config.ps1:344-351 — 名前存在のみで Skipped+Verified $true。CSV 編集後の再実行が古いルールのまま PASS。内容（Direction/Action/ports/profile）比較を追加。
-(2) windows_license_install.ps1:184-207 — PartialProductKey と投入キー末尾5桁の比較なし+読取失敗でも Success（verification pending）。
-(3) restore_point.ps1:245-258 — Checkpoint-Computer の24hスロットルは WARNING のみで正常 return → 復元ポイント無しで Success。Get-ComputerRestorePoint 読み返しを追加。
-(4) spi_config.ps1:48-57,199-213 — GetValue が SystemParametersInfo の BOOL 戻りを無視、GET 失敗時バッファ=0 のため目標値0の行が偽 SKIP（未適用）。戻り値判定を追加。
-(5) userdata_backup（:488-489 周辺）— 全ソース欠落（0件バックアップ）でも Verified PASS。欠落ソースを verified に反映。
-(6) winget_update.ps1:85-89 — 未知の非ゼロ exit code を default で Success 扱い。
-(7) ppkg_uninstall_config.ps1:161-167 — Remove-ProvisioningPackage 失敗でもファイル削除成功で Success。startlayout_delete_config.ps1:125-136 の再クエリ方式を踏襲。
-(8) office_update.ps1:203-219 — 失敗時に version 不変+非timeout で Skipped（already up to date）に化ける。+ :74 の Wait-NetworkReady は無限ループ（タイムアウト無し）のため無人実行でハング。
-(9) acl_config（acl_restore.ps1:254-271 / acl_backup.ps1:238-256）— 個別フェーズ失敗が警告のみで Success 計上。indivFail>0 を Partial に。backup は失敗エントリを manifest に載せない。
-(10) fabriq_app_launcher.ps1:120-122 — wait モードの -PassThru 戻りを破棄し exit code 不問で Success。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。各モジュール個別 touched。優先度内訳: (1)(3)(4)(8) が実害度高め（顧客PCの最終状態に直結）。(5)acl/spi/userdata は project_verification_exclusions の既知除外モジュールと一部重なるが、ここで挙げたのは Verified の話ではなく Status/Skip 判定の fail-open。一括でなくモジュール単位で順次でも可。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0021] [MEDIUM] reg系: DWORD≥0x80000000が恒久Fail / Defaultハイブunload失敗でもSuccess
-
-**内容:**
-
-(1) reg_hklm_config.ps1:235-237 / reg_hkcu_config.ps1:279-281 — 値の [int] キャストにより DWORD ≥ 2^31（例: ポリシー頻出の 4294967295=0xFFFFFFFF）と Int32 超の QWORD が必ず throw → 該当行が恒久 Fail で適用不能。読み比較側の Test-RegistryValueMatch は [long] で正しく、書き込み側だけ不一致。DWord は [uint32]→[int32] ビット変換、QWord は [long]/[uint64] で処理。
-(2) reg_hkcu_config.ps1:448-463 / reg_hkcu_delete.ps1:223-238 — Default プロファイルハイブの reg unload が2回とも失敗しても Show-Error のみでモジュールは Success。ntuser.dat がロック残置され、同一キッティングパス内の後続 sysprep_config（CopyProfile）やプロファイル作成を壊しうる。unload 失敗を Partial/Verified=false に反映。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。(1)は fail-closed（Fail として見える）だが設定をそもそも出荷できない実害。reg_hklm/reg_hkcu/reg_hkcu_delete の3スクリプト touched。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0022] [MEDIUM] kernel: SELECTED_PIN の resume平文保存と Reset-FabriqState のクリア漏れ
-
-**内容:**
-
-(1) common.ps1:3069（Save-ResumeState）— HostEnvironment スナップショットに SELECTED_PIN が平文で入り、resume_state.json として再起動を跨いでディスクに残る。パスフレーズは DPAPI 保護、テレメトリは PIN を hard-redact しているのに resume 経路だけ素通しの非対称。DPAPI 保護対象に含めるか、ENC: 値のまま保持し復元時に再解決する方式を検討。
-(2) common.ps1:3246-3252（Reset-FabriqState）— 環境変数クリアリストに SELECTED_PIN が無く、Refabriq/NewSession 後も前のターゲットPCの PIN がプロセス環境に残存。FABRIQ_WORKER_NAME / FABRIQ_SEGMENT も同様に未クリア。Save-ResumeState 側のリストとの対称性を保つこと。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。(2)は数行修正の PATCH。(1)は resume スキーマに触るため設計ゲートフル版+resume roundtrip テスト（PassphraseProtection.tests.ps1 の隣）更新が必要。crypto review（A1-A3 済み）の残課題系列として扱うのが整合的。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0023] [MEDIUM] 単発修正バンドル: sysprep XMLエスケープ / wallpaper SPIリダイレクト / プロファイル整合ほか
-
-**内容:**
-
-独立した小修正の回収タスク:
-(1) sysprep_config.ps1:347-391 — unattend.xml へ AdminPassword/ComputerName/TestUserName を生埋め込み。& < > を含むパスワードで XML 破損。ssid_config で実績のある [System.Security.SecurityElement]::Escape を適用。+ :460 SetupComplete.cmd が -Encoding UTF8（BOM付き）で出力され cmd.exe の1行目（@echo off）が化ける。ASCII で出力。
-(2) wallpaper_config.ps1:238-257 — HKCU リダイレクト時（別管理者で昇格）に SystemParametersInfo が昇格管理者のセッションへ適用され、対象ユーザーには壁紙未設定のまま Success。リダイレクト時は SPI を スキップし deferred 適用（fabriq_user_setup 経路）に寄せる等の対処。
-(3) profiles/Master_Config02.csv 行40 — extended/desktop_icon_config/desktop_icon_backup.ps1 を Enabled=1 で参照するが、module.csv 側が Enabled=0 のため実行時 InvalidPaths 落ち（サイレント未実行）。どちらかの意図に揃える。
-(4) volume_config.ps1:116-129 — 有効0件時に @($enabledItems)[0] が $null → 「Invalid Volume value」Error。Skipped を返すべき。
-(5) printer_driver_uninstall.ps1:274-276 — pnputil /delete-driver 失敗時もサマリ行が「Store: ... deleted」と虚偽表示（直前の warning は正しい）。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。(1)(2)が実害度高め。(3)はコード変更でなく CSV/module.csv の整合確認のみ（設計ゲート不要の可能性）。各モジュール個別 touched。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0024] テスト空白の解消: Async実行経路 / ENC:復号 / 実行履歴→HTMLチェックリスト
-
-**内容:**
-
-全体監査で判明したテストカバレッジの重大空白3部品（リスク順）:
-(1) Invoke-SafeCommandAsync（common.ps1:1615, 約255行）— ゼロテスト。DefaultAsync=true 出荷により現在の既定実行経路（全モジュールがここを通る）なのにテストは同期版のみ。Runspace 生成/global 注入/skip フラグ/timeout 中断/結果抽出を pin する。t-0005 で実施した async 実地検証3シナリオ（PS5.1 実 Runspace）が雛形になる。
-(2) Unprotect-FabriqValue / Test-MasterPassphrase — ゼロテスト。退化すると顧客 hostlist の全 ENC: 値が復号不能になる。roundtrip + 形式 pin（PBKDF2 100k/固定salt/AES-256-CBC）+ 誤パスフレーズ→throw を pin。同時に tests/kernel/Set-SelectedHostEnvironment.tests.ps1:222 の虚偽コメント（「専用テストでピン留め済み」→該当ファイル不存在）を修正。
-(3) 実行履歴→HTMLチェックリスト連鎖（Write/Import/Restore/Export-ExecutionHistory, Export-HtmlChecklist 約550行, Complete-ProfileExecution）— ゼロテスト。B2B 納品物そのもので、Restore-ExecutionHistory の SessionID フィルタは過去に実バグ実績あり（main.ps1:360-368 コメント）。CSV-in/CSV-out で単体テスト可能。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。t-0007（204テスト到達）の続編。tests/ のみ touched なら設計ゲート適用外・CHANGELOG 不要。(1)は kernel の修正タスク（t-0010/t-0011 等）着手前に整備しておくと回帰検知網として効く。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0025] [LOW] 版表記ドリフト: 起動バナー ver2.1 / Fabriq.exe AssemblyVersion 2.1.0.0
-
-**内容:**
-
-(1) main.ps1:1244 の起動バナー文字列が「Fabriq ver2.1」のまま（kernel 3.4.1 と2メジャー乖離）。check_version.ps1 は main.ps1 L3 コメントしか検証しないため検出されない。バナーを L3 と同じ X.Y に同期し、check_version.ps1 の検証対象に追加する。(2) dev/launcher/Launcher.cs の AssemblyVersion が 2.1.0.0 固定で、Fabriq.exe のファイルプロパティが 2.1 を報告。Export-HtmlChecklist のフッター（common.ps1:2885 付近「Generated by Fabriq ver2.1」）にも同じドリフトあり。次回リリース（3.5.0 / t-0008）の手順に同期箇所として組み込むのが低コスト。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。operator/納品物に見える表記のみで動作影響なし。CLAUDE.md §I の同期4箇所リストへの追加（バナー/HTMLフッター）も検討。Launcher.cs は exe 再ビルドが必要なため要ユーザー判断。
-
-<sub>更新: 2026-06-10 19:10 ／ 作成: 2026-06-10 19:10</sub>
-
-### [t-0026] テストハーネスの疑問
-
-**内容:**
-
-"C:\Users\szk-WIN01\Desktop\share\testハーネス疑問"
-リトライサクセスの項目が、オートリトライ時でも全エラーで、かつベリファイはPASSと判定されるが正しいロジックになっているかどうか。
-
-<sub>更新: 2026-06-11 10:03 ／ 作成: 2026-06-11 10:02</sub>
-
-## 対応中 (1)
-
-### [t-0016] [HIGH] history_destroyer: Invoke-Expression 排除と fail-open 群の修正
-
-**内容:**
-
-t-0009（DeletePath ガード）とは別の history_destroyer 内残課題:
-(1) :453 — Command ActionType が `Invoke-Expression $item.TargetPath`。コードベース唯一の CSV 文字列 IEX で、失敗（非ゼロ $LASTEXITCODE / stderr）でも無条件 Show-Success。& 呼び出し化 + exit code/throw 判定に変更。
-(2) :439-447 — ClearRegistry が Remove-ItemProperty ... SilentlyContinue でアクセス拒否を握り潰し常時 Success。
-(3) :76-85 — Clear-RecycleBinSafe が全ての非ゼロ HRESULT を「already empty」扱い。
-(4) :163-180 — Clear-BrowserData がブラウザ停止失敗+全ターゲットロック（0件削除）でも Success。
-(5) :296 vs :367 — Explorer を確認前に kill しており、CSVロード失敗/0件/キャンセルの早期 return が管理された再起動（:491-506 の15秒ウォッチドッグ）を通らない。Explorer 停止を確認後に移動。
-
-**Claudeメモ:**
-
-全体監査(2026-06-10)で検出。(1)はコード裏取り済み。t-0009 のガード適用と同時に着手するとモジュール touched が1回で済む。module MINOR 相当（挙動変更を含むため大きい側に倒す）。
-追加調査(2026-06-11 ハンドラ群精読): 5 指摘すべて確定。(1)Command=IEX 無条件 Success(出荷 CSV に Command 行 8 本が Enabled=1: Set-Clipboard/Clear-DnsClientCache/WSUS ID 4本/Office UserInfo 2本。全て PS cmdlet ワンライナーで、WSUS/Office 行は意図的に -EA SilentlyContinue 内包=best-effort 設計)。(2)ClearRegistry=SilentlyContinue でアクセス拒否を握り潰し常時 Success。(3)Clear-RecycleBinSafe=非ゼロ HRESULT を全て「already empty」扱い(L78-85)。(4)Clear-BrowserData=ロック失敗が空 catch、ブラウザ停止失敗は警告のみで 0 件削除でも Success(L163-180)。(5)Explorer kill が Step 0(L296)で確認前、CSV 失敗/0件/キャンセルの早期 return が管理された再起動(L491+)を通らない(Windows の自動復活頼み)。
-修正設計: (1)IEX→[scriptblock]::Create + & { $ErrorActionPreference='Stop'; & $sb } 呼び出し。cmdlet の非終了エラーが throw 化→per-item catch で Fail。行内の明示 -EA SilentlyContinue は各 cmdlet 優先で生き残る=出荷 best-effort 行の意味論保存。構文エラーも Create 時 throw で Fail。(2)クリア後に read-back 検証: Get-Item .Property + 全 subkey の残存値数を数え((default) は除外=ワイルドカード対象外のため)、残存>0 で Fail。(3)HRESULT 0=成功 / -2147418113(0x8000FFFF E_UNEXPECTED=空时の既知戻り値)=already empty / それ以外=throw→Fail。(4)lockedCount 計上: 全ロック(cleaned=0 && locked>0)=throw→Fail(browser still running?) / 部分ロック=Warning+Success / 全削除=従来どおり。(5)Step 0 ブロック(警告+kill)を Step 4 確認直後〜Step 5 直前へ移動。CSV 失敗/0件/キャンセルは Explorer 無傷で return、preview は Explorer 不要を確認済み。
-版影響: history_destroyer 1.1.0→1.2.0(MINOR・失敗遷移の追加=挙動変更を含むため大きい側)・REQUIRES_KERNEL 3.5.0 据置(t-0009 で bump 済・新規 API 依存なし)・kernel 不変。テスト: ハーネス対象外、parse_check+既存スイート+実機(全 Command 行成功・誤コマンド行で Fail・ブラウザ起動中の edge-cleanup で Fail を確認)。設計ゲート(フル版)提示済み・実装承認待ち。
-
-<sub>更新: 2026-06-11 11:50 ／ 作成: 2026-06-10 19:10</sub>
-
-## 完了 (13)
+## 完了 (24)
 
 ### [t-0001] example設定値の統一
 
@@ -326,6 +201,19 @@ CLAUDE.md の「独自のログ出力（Write-Host 等）の記述を禁止」�
 
 <sub>更新: 2026-06-10 17:35 ／ 作成: 2026-06-10 14:07</sub>
 
+### [t-0008] 3.5.0 リリース時の deprecated Status Monitor 撤去
+
+**内容:**
+
+KERNEL_API.md §6 で「3.5.0 で削除予定」と宣言済みの Start-StatusMonitor / Stop-StatusMonitor（kernel/common.ps1）と kernel/ps1/status_monitor.ps1 を、次回リリース（__SELF__ を含む 3.5.0）の手順に組み込んで撤去する。忘れると API ドキュメントの宣言と実態が乖離する。
+
+**Claudeメモ:**
+
+構造監査(2026-06-10)で確認。KERNEL_API.md:144 に削除予定宣言あり。common.ps1:4502-4683 の約180行＋status_monitor.ps1 本体が対象。リリース手順（CLAUDE.md §I）実行と同コミットでの実施が望ましい。Execution Toolbar（3.4.0〜）が後継のため機能損失なし。
+実施(2026-06-11 / 3.5.0 リリースに同梱): 参照全数調査(コード参照=common.ps1 3関数+Exit-Fabriq/Refabriq 呼出のみ、art_display.ps1 の参照元は status_monitor のみ=連鎖孤児、apps/csv_editor・execution_toolbar・CHANGELOG は履歴コメントのみで残置)。t-0004 と同方式の検証ガード付き python 切除で common.ps1 から 205 行削除(ブロック内の function 宣言が対象 3 関数と完全一致することを assert)。kernel/ps1/status_monitor.ps1 + art_display.ps1 を git rm。Exit-Fabriq / Refabriq は Remove-StatusFile(status/pulse 掃除)に置換、main.ps1 の rollback コメントブロックを履歴記述に書換。KERNEL_API.md §6 deprecated 行削除+Remove-StatusFile 明記+§8 3.5.0 に撤去記録(§8 の 3.4.0 履歴は当時の記述として保存)。README.md の ps1/ ディレクトリ説明も更新。検証: parse 3 OK・229 passed(StatusMonitor を pin するテスト無し)・check_version 6 ターゲット OK。コミット承認・実施(2026-06-11, ccd4e97, kernel 3.5.0 リリースコミット)。
+
+<sub>更新: 2026-06-11 17:50 ／ 作成: 2026-06-10 14:07</sub>
+
 ### [t-0009] [CRITICAL] 破壊的削除のパス検証ガード共通化と4モジュール適用
 
 **内容:**
@@ -449,4 +337,236 @@ log_uploader.ps1:170-174（logs/）および :183,190（evidence/）の robocopy
 実装(2026-06-11): 完了・検証済(未コミット)。(1)log_uploader に Invoke-UploadCopy 新設(>=8 throw/4-7 警告/0-3 成功、robocopy_config マッピング踏襲)、3 呼出置換、$copyResult 撤去(/XD telemetry 除外は ExtraArgs で維持)。(2)common.ps1 Complete-ProfileExecution Auto 分岐で結果取得、非 Success のみ 'Log Upload (auto)' で Add-ExecutionResult+Write-ExecutionHistory(Order 0)。Success 時は従来どおり無記録=既存挙動不変。Flex [Complete] は Manual モードで元から記録済み(ユーザー質問に回答済み)。VERSION 1.1.0→1.1.1・REQUIRES_KERNEL 据置・kernel PATCH(KERNEL_VERSION 据置・API 不変)・CHANGELOG Fixed 追記。検証: parse_check 2 OK・229 passed/0 failed・check_version OK・encoding 新規違反ゼロ。実機検証: 到達不能共有を log_destinations.csv に設定して profile 完走→履歴に Log Upload (auto) の Error/Partial が残ること。コミット承認・実施(2026-06-11, d05bac6)。実機検証(到達不能共有での Log Upload (auto) 記録確認)は機会待ち。
 
 <sub>更新: 2026-06-11 11:25 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0016] [HIGH] history_destroyer: Invoke-Expression 排除と fail-open 群の修正
+
+**内容:**
+
+t-0009（DeletePath ガード）とは別の history_destroyer 内残課題:
+(1) :453 — Command ActionType が `Invoke-Expression $item.TargetPath`。コードベース唯一の CSV 文字列 IEX で、失敗（非ゼロ $LASTEXITCODE / stderr）でも無条件 Show-Success。& 呼び出し化 + exit code/throw 判定に変更。
+(2) :439-447 — ClearRegistry が Remove-ItemProperty ... SilentlyContinue でアクセス拒否を握り潰し常時 Success。
+(3) :76-85 — Clear-RecycleBinSafe が全ての非ゼロ HRESULT を「already empty」扱い。
+(4) :163-180 — Clear-BrowserData がブラウザ停止失敗+全ターゲットロック（0件削除）でも Success。
+(5) :296 vs :367 — Explorer を確認前に kill しており、CSVロード失敗/0件/キャンセルの早期 return が管理された再起動（:491-506 の15秒ウォッチドッグ）を通らない。Explorer 停止を確認後に移動。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。(1)はコード裏取り済み。t-0009 のガード適用と同時に着手するとモジュール touched が1回で済む。module MINOR 相当（挙動変更を含むため大きい側に倒す）。
+追加調査(2026-06-11 ハンドラ群精読): 5 指摘すべて確定。(1)Command=IEX 無条件 Success(出荷 CSV に Command 行 8 本が Enabled=1: Set-Clipboard/Clear-DnsClientCache/WSUS ID 4本/Office UserInfo 2本。全て PS cmdlet ワンライナーで、WSUS/Office 行は意図的に -EA SilentlyContinue 内包=best-effort 設計)。(2)ClearRegistry=SilentlyContinue でアクセス拒否を握り潰し常時 Success。(3)Clear-RecycleBinSafe=非ゼロ HRESULT を全て「already empty」扱い(L78-85)。(4)Clear-BrowserData=ロック失敗が空 catch、ブラウザ停止失敗は警告のみで 0 件削除でも Success(L163-180)。(5)Explorer kill が Step 0(L296)で確認前、CSV 失敗/0件/キャンセルの早期 return が管理された再起動(L491+)を通らない(Windows の自動復活頼み)。
+修正設計: (1)IEX→[scriptblock]::Create + & { $ErrorActionPreference='Stop'; & $sb } 呼び出し。cmdlet の非終了エラーが throw 化→per-item catch で Fail。行内の明示 -EA SilentlyContinue は各 cmdlet 優先で生き残る=出荷 best-effort 行の意味論保存。構文エラーも Create 時 throw で Fail。(2)クリア後に read-back 検証: Get-Item .Property + 全 subkey の残存値数を数え((default) は除外=ワイルドカード対象外のため)、残存>0 で Fail。(3)HRESULT 0=成功 / -2147418113(0x8000FFFF E_UNEXPECTED=空时の既知戻り値)=already empty / それ以外=throw→Fail。(4)lockedCount 計上: 全ロック(cleaned=0 && locked>0)=throw→Fail(browser still running?) / 部分ロック=Warning+Success / 全削除=従来どおり。(5)Step 0 ブロック(警告+kill)を Step 4 確認直後〜Step 5 直前へ移動。CSV 失敗/0件/キャンセルは Explorer 無傷で return、preview は Explorer 不要を確認済み。
+版影響: history_destroyer 1.1.0→1.2.0(MINOR・失敗遷移の追加=挙動変更を含むため大きい側)・REQUIRES_KERNEL 3.5.0 据置(t-0009 で bump 済・新規 API 依存なし)・kernel 不変。テスト: ハーネス対象外、parse_check+既存スイート+実機(全 Command 行成功・誤コマンド行で Fail・ブラウザ起動中の edge-cleanup で Fail を確認)。設計ゲート(フル版)提示済み・実装承認待ち。
+実装(2026-06-11): 完了・検証済(未コミット)。設計どおり 5 点: (1)Command=[scriptblock]::Create + EAP=Stop 子スコープ呼出(per-item catch で Fail 化・出荷 best-effort 行の意味論保存) (2)ClearRegistry=read-back 検証((default) 除外・残存>0 で Fail) (3)RecycleBin=0x8000FFFF のみ許容・他 throw (4)BrowserData=lockedCount 計上(全ロック=throw/部分=Warning)+$profile→$browserProfile 改名(PSSA 自動変数警告解消) (5)Explorer kill を Step 0→Step 4.5(確認直後)へ移動、早期 return は Explorer 無傷。VERSION 1.1.0→1.2.0(MINOR)・REQUIRES_KERNEL 3.5.0 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。実機検証(次回テスト機): 通常実行で全行成功 / ブラウザ起動中 edge-cleanup で Fail / キャンセル時に Explorer が落ちないこと。コミット承認・実施(2026-06-11, e1fc2c0)。
+実機検証(2026-06-11): Edge 起動中に edge-cleanup 実行→Stop-Process が自動でブラウザを停止→削除成功→Success をユーザー確認。これは設計どおりの正常系(ハンドラが削除前に自前でブラウザ停止する)。新設の Fail 経路は「停止失敗(警告表示)+全ターゲットロック(0件削除)」のみで発火する異常系であり、通常テストでは再現困難(別セッションプロセス/外部ハンドル保持が必要)。主経路の回帰確認として実機検証は十分と判断。
+
+<sub>更新: 2026-06-11 13:10 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0017] [HIGH] power_config: 失敗カウンタ不在で Status が常に Success
+
+**内容:**
+
+power_config.ps1 は powercfg ネイティブコマンドの失敗を検出できない構造: :454-456 ほか同パターン8箇所（474/505/525/545/565/669/689）で `& powercfg ... | Out-Null` を try/catch しているが、ネイティブコマンドの非ゼロ exit は throw しないため $LASTEXITCODE 未確認のまま Show-Success + ChangeCount++。さらに Set-PowerPlan の $false 戻りも Set-PowerConfigValue の失敗も fail カウンタに乗らず、:1041 の最終 Status は常に Success。Step 5.5 の読み返し検証が Verified=false を付けるのが唯一の防壁で、Status 契約としては fail-open。$LASTEXITCODE 判定 + fail カウンタ導入で Partial/Error を返せるようにする。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。Verified=false が出るため完全なサイレントではないが、New-BatchResult の Status 契約（Fail>0 → Partial/Error）に違反。module PATCH〜MINOR。
+追加調査(2026-06-11 全1051行精読・失敗経路の全数棚卸し): 指摘確定。fail カウンタ自体が不在で、最終判定(L1038-1041)は Changed=0&&Skip>0→Skipped 以外**常に Success**。失敗経路は計14箇所: (a)Set-PowerPlan=unknown plan/powercfg /S 失敗/catch(return $false は Main L870 が無視) (b)Set-PowerMode=unknown mode/Set{AC,DC}PowerMode hr≠0/catch (c)Display/Sleep/HDD の 8 サイト=`& powercfg /CHANGE | Out-Null` で LASTEXITCODE 未確認・無条件 Success+ChangeCount++(native は throw しないため catch は実質死に分岐) (d)Set-PowerConfigValue=Win32 hr≠0・powercfg exit≠0・catch の3経路が Warning/Error 表示のみ (e)Set-ButtonActions=GUID 取得不能 skip+PowerSetActiveScheme hr≠0 が Warning のみ (f)Set-ProcessorSettings=GUID 取得不能 (g)Main L891 の powercfg /SETACTIVE 未確認。Step 5.5 検証は包括的で Verified は正しく出る(唯一の防壁)が Status 契約が fail-open。
+修正設計: $script:FailCount 新設(初期化は ChangeCount 隣 L140 と Main のリセット部 L864)。上記14箇所に計上を追加: 8 /CHANGE サイトは LASTEXITCODE 判定追加(≠0→Show-Error+FailCount++、成功時のみ Success+ChangeCount++)、SETACTIVE も同様、他は既存 Warning/Error 表示箇所に FailCount++ 追加。最終判定は手書きロジックを **New-BatchResult -Success ChangeCount -Skip SkipCount -Fail FailCount -Verified $verified** に置換(§2 契約のイディオム化: Fail>0&&Success=0→Error / 両方>0→Partial / 既存の Skipped 判定と同一意味論、表示はカスタム緑バナー→標準 Execution Results 表に変わる)。全ゼロ時 Success は現行と同一(回帰なし)。
+版影響: power_config MINOR(Status に Partial/Error の新到達=挙動変更を含むため大きい側、現行版は実装時確認)・REQUIRES_KERNEL 据置(New-BatchResult は baseline 2.0.0 API)・kernel 不変。テスト: powercfg/Win32 API 依存でハーネス対象外、parse_check+既存スイート+実機(正常プロファイル適用で Success+Verified PASS の回帰確認)。設計ゲート(フル版)提示済み・実装承認待ち。
+慎重検討(2026-06-11 ユーザー要請): 破壊的影響を評価 — 設定適用コマンドは不変で PC 最終状態への影響ゼロ。リスクは運用フロー3点: (a)AutoPilot 停止(ErrorMode 空→ダイアログ) (b)ハード依存失敗の一斉 Partial 化(PowerMode overlay 非対応機・休止無効 VM・OEM 制約機) (c)チェックリスト NG 化。Verified(Step 5.5)が既に全項目を読み返しており防壁として機能している事実を提示。選択肢 A(段階)/B(フル)/C(見送り)を提示。
+ユーザー裁定: (a)は profile の ErrorMode 指定で解決可能と受容 / (b)が悩ましく Verified が機能しているなら**修正は最小限**で → 案 A 採択。
+実装(2026-06-11・最小限版): FailCount 新設、**決定的失敗のみ計上** — 8 /CHANGE サイト+/SETACTIVE に LASTEXITCODE 判定追加、/S・/SETVALUEINDEX の既存判定 else と catch、CSV 設定ミス(unknown plan/mode)。**Win32 hr≠0 系(PowerMode overlay/ボタン/Lid/PowerSetActiveScheme)と GUID 取得不能 skip は Warning 据え置き**(設計根拠コメントをコード内3箇所に明文化・Verified が防壁)。最終判定: Fail>0&&Change=0→Error / Fail>0→Partial / 既存 Skipped・Success 不変。表示は既存バナー維持+失敗時のみ Failed 行(バナー黄色化)。New-BatchResult 置換は表示変更を避けて見送り。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。検証: parse_check OK・229 passed/0 failed・encoding 新規違反ゼロ。Phase 2(Win32 系の Fail 化)は実機・現場で Fail/Warning の出方を観測してから再判断(特に VM での hibernate 行の exit code に注目)。コミット承認・実施(2026-06-11, 786d63f)。
+実機テスト feedback(2026-06-11 powertest): 文字化け+型エラー報告→原因は t-0017 修正と無関係の power_list.csv BOM 欠落。CP932 読みで「設定」末尾バイト 0x9A が直後のコンマを先行バイトとして飲み込み 1 列ズレ(Description と PowerPlan が融合、Hibernate_After_Battery に SLEEP が入り [int] キャスト Error)。ログの症状 3 点すべて整合。リポジトリ全 CSV を一括スキャン→JP-UTF8-NO-BOM 実害級 4 件(power_list/delete_list/restore_point_list/spi_list)に BOM 付与(データ不変・UTF-8 妥当性と列数を検証済み)。overlay 更新契約(VERSION 比較)で配布に乗せるため file_delete 1.1.1 / restore_point 1.0.1 / spi_config 1.0.1 に PATCH bump(power_config は 1.1.0 に同梱)。LF のみの軽微 5 件(network_profile/server_feature/firewall_rule x2/temp_ipaddress の preset 等)は t-0018 のチェッカー実装時に一括清掃。再テスト依頼中: power_config が バランス を正しく表示し完走すること+hibernate 行の exit code 観測(Phase 2 判断材料)。
+再テスト OK(バランス正常表示・完走をユーザー確認)→コミット 786d63f。Phase 2(Win32 系 Fail 化)は現場観測後に必要なら新タスク化。
+
+<sub>更新: 2026-06-11 15:20 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0018] [HIGH] devツール3点: patch builderの無ガード削除 / check_versionのfail-open / encoding checkerのCP932盲点
+
+**内容:**
+
+(1) dev/build_framework_patch.ps1:92-95 — `Remove-Item -Path $dst -Recurse -Force` で $dst=Join-Path $OutDir $PatchName、-PatchName 無検証。-PatchName "." で $OutDir（既定 Desktop）自体を再帰削除、..\x で OutDir 外へ脱出。パス区切り/./.. を拒否し、解決パスが $OutDir の厳密な子であることを assert。CLAUDE.md §8 違反、2026-04-25 事故と同クラス。
+(2) dev/check_version.ps1:59-62 — 検証対象ファイルが欠損していると [SKIP] 表示のみで $mismatches に積まれず exit 0（green）。欠損は FAIL にする。
+(3) dev/check_ps1_encoding.ps1:72 — 全ファイルを UTF-8 として decode するため CP932 の日本語は U+FFFD になり全検出レンジ（最大 U+FFEF）の外 → CP932 の日本語入り .ps1 が OK 判定。U+FFFD 検出を追加（=デコード不能バイト列の検出）。CSV の「UTF-8 BOM + CRLF」規約のチェッカーが存在しない点も合わせて検討。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。(1)はユーザーの Desktop が既定 OutDir である点が特に危険。dev/ 配下は CHANGELOG 対象（§A）だが版管理対象外。(3)の CP932 盲点は「BOM 無し日本語 .ps1 が CP932 で保存されていた場合に検出網をすり抜ける」という JP-NO-BOM cleanup（残5件）の検出基盤の穴でもある。
+実害事例の追記(2026-06-11): (3)の CSV チェッカー不在が実害化 — power_list.csv の BOM 欠落で CP932 読みのコンマ飲み込み→1 列ズレ→型エラー(t-0017 実機テストで検出)。実害級 4 CSV は BOM 付与済み(t-0017 側で対応)。チェッカー実装時の残作業: LF 改行のみの軽微違反 5 件(network_profile_list/server_feature_list/firewall_rule preset/firewall_rule_make preset/temp_ipaddress preset)の CRLF 化 + .ps1 用 check_ps1_encoding と同様の CSV 検査(JP+UTF8+BOM 無し検出、コンマ飲み込みリスクの根拠は本事例)。
+追加調査(2026-06-11 3スクリプト精読): 3 指摘すべて確定。(1)build_framework_patch.ps1: OutDir 既定=Desktop を確認(L34)、PatchName 無検証のまま L92 で Join-Path→L93 Remove-Item -Recurse。'.' や '../x' 相当で Desktop ごと削除可能。robocopy 側は exit code 判定済み(L111)で問題なし。(2)check_version.ps1 L59-62: Test-Path 不成立で [SKIP]+return、mismatches 未追加=fail-open 確定(行欠損/パターン不一致は正しく FAIL)。(3)check_ps1_encoding.ps1 L72: UTF8.GetString 固定デコードで CP932 日本語は U+FFFD 化、検出レンジ(U+3000-U+FFEF)外のため OK 判定=確定。
+修正設計: (1)PatchName を単一パス成分として検証(空 OK=自動生成 / 区切り・ドット・ドットドット・InvalidFileNameChars・末尾ドット/空白を拒否、common.ps1 の Test-FabriqSafePathComponent と同規則を dev 単体スクリプトとしてインライン実装)+Remove-Item 直前に dst が OutDir の厳密な子である containment assert。(2)file not found を [FAIL]+mismatches 追加に変更。(3)U+FFFD 検出で新分類 NON-UTF8(CP932?) を追加し exit 1 対象に。(4)同スクリプトに CSV 検査セクションを追加: 有効な UTF-8 かつ JP ありかつ BOM 無し→ERROR(コンマ飲み込み列ズレの実害クラス、本日 power_list.csv で実証) / CP932 CSV は -Encoding Default で正常に読めるため OK(project_csv_encoding_default の両取り運用と整合) / JP+LF のみ→WARN。(5)LF のみの軽微 5 CSV を CRLF 正規化(CP932 でも 0x0A は trail byte 範囲外のためバイト安全。挙動不変のため VERSION bump なし=配布不要)。
+版影響: dev/ のみ+CSV データ(スキーマ不変)。kernel/モジュールコード不変。CHANGELOG は dev が §A 対象外だが有用なので Fixed 追記。テスト: dev ツール自体の単体テスト基盤なし、各スクリプト実行で確認(patch builder は -PatchName '..' 拒否+正常名で従来どおり生成 / encoding は既知 5 件検出継続+CSV セクション出力 / check_version は正常系 exit 0)。設計ゲート提示済み・実装承認待ち。
+実装(2026-06-11): 完了・検証済(未コミット)。設計どおり 5 点: (1)build_framework_patch=PatchName 単一成分検証(自動生成名は通過)+削除直前 containment assert (2)check_version=欠損を FAIL+mismatches 計上 (3)check_ps1_encoding=NON-UTF8 分類追加(U+FFFD 検出・exit 1 対象) (4)同スクリプトに CSV 検査セクション新設(CSV-JP-NO-BOM=exit 1 / CSV-CP932=許容 / CSV-JP-LF=WARN、ヘッダに power_list.csv 実害の経緯と根拠を明記) (5)LF のみ 5 CSV を CRLF 正規化(バイト安全・挙動不変・VERSION 据置)。
+検証: parse_check 3 OK / encoding checker 実行=NON-UTF8 0・CSV-JP-NO-BOM 0(昨日の BOM 付与 4 件を OK 判定)・CSV-JP-LF 0(正規化反映)・CSV-CP932 2(許容)・FAIL は既知 .ps1 5 件のみ=従来同等 / check_version OK / patch builder -PatchName '..' 拒否確認+正常名での実生成回帰テスト(e:/tmp、87.2MB、生成後削除) / run_tests 229 passed/0 failed。
+残課題(本タスク外): 既知 .ps1 JP-NO-BOM 5 件は Tier 2/3 キュー(project_jp_no_bom_cleanup_queue)で別管理。コミット承認・実施(2026-06-11, e150996)。
+
+<sub>更新: 2026-06-11 16:45 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0019] [MEDIUM] 冪等性違反4モジュール: 再実行で偽Error/偽Skip
+
+**内容:**
+
+再実行（resume・リトライ）で壊れる冪等性違反のバッチ修正:
+(1) domain_join.ps1:70 — 参加済みチェックなしで Add-Computer → 再実行は常に Error（実失敗と区別不能）。Win32_ComputerSystem の PartOfDomain/Domain を見て Skipped を返す。
+(2) odt_install.ps1:192-201 — 事前チェック(f)が「C2R Office 存在=Error」のため、本モジュールが入れた Office があると成功後の再実行が Error。検出 ProductReleaseIds と XML の product ID 比較で「済み」と「異物」を区別。
+(3) autologon_config.ps1:112-127 — skip 判定が DefaultPassword を比較しないため、CSV のパスワード修正後の再実行が Skipped になり誤った旧パスワードが残存。無条件再適用（last-write-wins）が安全。
+(4) partition_config.ps1:248-263 — New-Partition 成功+Format-Volume 失敗の後、再実行はレター存在チェックで永久 Skip となり RAW ボリュームを自己修復できない。レター存在時に FS 状態も確認し、RAW なら Format を再試行。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。4モジュール個別 touched（各 PATCH〜MINOR）。partition_config は preview/execution の重複排除キー不一致（:126-127 SourceDriveLetter のみ vs :185-194 letter-size）という別件もあり、touched ついでに直すこと推奨。
+進行方針(2026-06-11 ユーザー指示): 4 件をバンドルでなく**一件ずつ調査→確認→実装**のサイクルで進める。順序: (1)domain_join → (2)odt_install → (3)autologon_config → (4)partition_config。
+①domain_join 実装(2026-06-11): 完了・検証済(未コミット)。冪等性チェックを DNS チェックより前に挿入(参加済みならネットワーク不通でも即判定): Win32_ComputerSystem で PartOfDomain+Domain -ieq 一致→Skipped+Verified=true / 別ドメイン参加済み→fail-closed Error(current/target 明示。FQDN 完全一致のみ、NetBIOS 曖昧照合は誤 Skip 回避のため不採用) / 未参加→従来フロー。Join 成功後に CS 読み返し検証を -Verified で返却(Post-Apply Verification 追加)。注意: 現行 VERSION は 2.0.0 だった(初回 1.1.0 へ誤上書き→即訂正)→MINOR で 2.1.0。parse OK・266 passed・CHANGELOG Fixed 追記。実機確認: 参加済み VM で再実行→Skipped+Verified PASS。コミットは④まで完了後にまとめるか都度かはユーザー判断待ち(都度確認方式のため①報告時に質問)。
+①実機確認(2026-06-12 ユーザー): 参加済み VM で 2 度掛け→Skipped・Verified=True を確認。①は動作確認済み(コミットは未、都度/まとめのユーザー指示待ち)。
+②odt_install 実装(2026-06-12): 完了・検証済(未コミット)。事前チェック(f)を 3 分岐化 — 検出 ProductReleaseIds(カンマ分割+.<数字>サフィックス防御正規化)と全有効エントリ XML の Product ID union をセット比較(小文字化+sort+join 同値判定): 完全一致→Skipped+Verified=true / それ以外(部分一致・余剰・XML パース不能=target 空)→従来 fail-closed Error(検出/目標の両セットをメッセージ明示)。実機裏付け: ユーザーの M365 Apps for Business 端末で Configuration\ProductReleaseIds = 'O365BusinessRetail'(素の ID)を reg query で確認、スクリーンショットの内部キー 'O365BusinessRetail.16' は値には現れない=正規化は防御のみ。比較粒度は Product ID のみ(言語/チャネル対象外、コメント明記)。VERSION 1.0.0→1.1.0(MINOR・①の教訓で実装前確認)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: ODT 導入済み機で再実行→Skipped+Verified PASS / XML と異なる製品の機で→Error に両セット表示。
+②実機確認(2026-06-12 SZK-TEST01): 両分岐とも確認 — O365ProPlusRetail 検出時に Error+detected/target 並記(fail-closed)、O365BusinessRetail 一致時に [SKIP] Already installed(冪等)。②動作確認済み(未コミット)。
+③autologon_config 実装(2026-06-12): 完了・検証済(未コミット)。冪等判定を 5 要素完全一致に強化(AutoAdminLogon=1 / User / Password は -ceq 大文字小文字区別 / Domain 整合=CSV 空ならレジストリも空 / Count>=1)、一致時のみ Skipped+Verified=true。調査で新発見した同クラス欠落も修正: CSV Domain 空時に stale DefaultDomainName をRemove-ItemProperty で明示クリア(放置すると STALEDOMAIN ユーザーでのログオン試行)。Step 6.5 として設定後の 5 要素読み返し検証を追加し Partial/Success 両経路に -Verified。WU ループ(Set-WindowsUpdateAutoLogon Count=10)上書き状態はPassword/User 不一致で正しく再適用側に倒れることを机上確認。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: 設定→再実行で Skipped+Verified / CSV パスワード変更→再適用。残: ④partition_config。
+④partition_config 実装(2026-06-12): 完了・検証済(未コミット)。(1)already-exists 分岐を 2 分割 — Get-Volume のFileSystemType=Unknown / FileSystem 空 / ボリューム不在を RAW(=Format 失敗の半端状態・FS 無し=データ無し)と判定してFormat-Volume 再試行(self-heal)、FS 持ち既存ボリュームは CSV 不一致でも従来どおり Skip(再フォーマット=データ破壊を構造的に回避、不一致は検証の Verified=false が警告)。heal 再失敗は Fail 計上で毎回 1 試行(収束ループなし)。(2)preview の shrink dedup を Phase A・検証と同じ letter+size キーに統一(1 レター 1 行の通常構成では出力不変)。既存の $newPartition 未使用警告は今回のスコープ外で不変更。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed・encoding 新規違反ゼロ。実機確認(任意): 空きディスクのある VM で正常作成→再実行 Skip / RAW 化(format 中断等)→再実行で format 復旧。t-0019 全 4 件の実装完了。ユーザー指示で 1 コミットに集約(f2a0141)。
+
+<sub>更新: 2026-06-12 03:00 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0020] [MEDIUM] 偽PASS・偽成功バンドル（検証が検証になっていない8モジュール）
+
+**内容:**
+
+チェックリスト上 OK/PASS に見えるが実際は未適用・不完全になりうる箇所の一括修正:
+(1) firewall_rule_make_config.ps1:344-351 — 名前存在のみで Skipped+Verified $true。CSV 編集後の再実行が古いルールのまま PASS。内容（Direction/Action/ports/profile）比較を追加。
+(2) windows_license_install.ps1:184-207 — PartialProductKey と投入キー末尾5桁の比較なし+読取失敗でも Success（verification pending）。
+(3) restore_point.ps1:245-258 — Checkpoint-Computer の24hスロットルは WARNING のみで正常 return → 復元ポイント無しで Success。Get-ComputerRestorePoint 読み返しを追加。
+(4) spi_config.ps1:48-57,199-213 — GetValue が SystemParametersInfo の BOOL 戻りを無視、GET 失敗時バッファ=0 のため目標値0の行が偽 SKIP（未適用）。戻り値判定を追加。
+(5) userdata_backup（:488-489 周辺）— 全ソース欠落（0件バックアップ）でも Verified PASS。欠落ソースを verified に反映。
+(6) winget_update.ps1:85-89 — 未知の非ゼロ exit code を default で Success 扱い。
+(7) ppkg_uninstall_config.ps1:161-167 — Remove-ProvisioningPackage 失敗でもファイル削除成功で Success。startlayout_delete_config.ps1:125-136 の再クエリ方式を踏襲。
+(8) office_update.ps1:203-219 — 失敗時に version 不変+非timeout で Skipped（already up to date）に化ける。+ :74 の Wait-NetworkReady は無限ループ（タイムアウト無し）のため無人実行でハング。
+(9) acl_config（acl_restore.ps1:254-271 / acl_backup.ps1:238-256）— 個別フェーズ失敗が警告のみで Success 計上。indivFail>0 を Partial に。backup は失敗エントリを manifest に載せない。
+(10) fabriq_app_launcher.ps1:120-122 — wait モードの -PassThru 戻りを破棄し exit code 不問で Success。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。各モジュール個別 touched。優先度内訳: (1)(3)(4)(8) が実害度高め（顧客PCの最終状態に直結）。(5)acl/spi/userdata は project_verification_exclusions の既知除外モジュールと一部重なるが、ここで挙げたのは Verified の話ではなく Status/Skip 判定の fail-open。一括でなくモジュール単位で順次でも可。
+(8)office_update 実装(2026-06-12): 完了・検証済(未コミット)。ユーザー実機 2 台の reg query ダンプでレジストリ契約を確定してから実装(UpdatesReadyToApply は Configuration ではなく Updates キー配下 = 当初想定を修正 / UpdateDetectionLastRunTime は REG_SZ の FILETIME 由来 10 進数 / 値の存在は端末依存)。修正1: idle 脱出+バージョン不変の経路に post-mortem 3 分岐 — UpdatesReadyToApply 非'0'→Error(staged but not applied) / DetectionLastRunTime 前後不変([int64] 比較、トリガ前 baseline 取得)→Error(detection did not run) / その他・値欠損→Skipped(文言を No version change に正直化)。残存ギャップ(検出後 DL 中断の無痕跡掃除)は開示済み・Skip 非固着。修正2: Wait-NetworkReady→有界プローブ(Test-Connection 2 発→Error、domain_join ①パターン)。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認依頼: 最新状態の M365 機で実行→Skipped+新文言が期待値 / 万一 Error(detection did not run)が出たらシグナル B(検出時刻)を降格する(ユーザー起動経路で値が更新されない端末がある場合の保険)。備考: Wait-NetworkReady 残り 4 呼出(windows_update/winget×3)は (6)winget の回で扱う。
+(8)追補(2026-06-12): ユーザー実機テストで既存ループの致命的欠陥が発覚 — Signal 3 が「Scenario キー存在=実行中」と誤解釈、実機ダンプで Scenario キー(INSTALL/RICHINTERACTION/UPDATE)は完了後も TASKSTATE_COMPLETED 全件で恒久残留と確定= idle 脱出が全端末で到達不能、更新無し実行は毎回 60 分タイムアウトの偽 Error(750s ポーリング継続の報告で発覚)。修正: 状態認識型 Test-C2RScenarioActive 追加(TasksState に COMPLETED/FAILED/CANCELLED 以外があるときのみ active、未知状態は active 扱い=タイムアウト防壁)。さらにダンプで Scenario\UPDATE\LastUpdateError('0'=正常)を発見し検死(1)に追加— 前回開示した残存ギャップ(検出後 DL 中断の無痕跡掃除)もこれで捕捉可能に。検死は 4 分岐: LastUpdateError 非'0'→Error / staged 未適用→Error / 検出未実行→Error / その他→Skipped(正直文言)。parse OK・266 passed。VERSION 1.1.0 据置(同一未リリース昇格内)。実機再確認待ち: 最新機で再実行→数十秒で idle 脱出し Skipped+No version change が期待値。
+(8)実機確認(2026-06-12): ユーザー敵対テスト 2 本で確定 — C2R exe を taskkill したまま実行→Error(クライアント即死クラス、修正前は偽 Skipped だった当のケース) / PC 再起動後に再実行→数十秒で idle 脱出し Skipped(正常な最新状態パス)。(8)office_update 完了(未コミット)。
+(1)firewall_rule_make_config 実装(2026-06-12): 完了・検証済(未コミット)。Step 2 の存在のみ Skip を内容比較化 — 既存 Test-CreatedRule を再利用し、複数一致候補のうち 1 つでも完全一致→Skip / 全不一致→新プラン Mismatch(差分列挙、failCount 合流、preview [MISMATCH] 赤表示)。自動 Remove+再作成は組み込みルール衝突時の破壊リスクで不採用(fail-closed)。Test-CreatedRule 拡張: DisplayName 比較追加(Name 一致候補の DisplayName 差分検出) + Get-NetFirewallPortFilter で Protocol/LocalPort/RemotePort/IcmpType 比較(CSV 空='Any'、6→TCP/17→UDP 正規化、セット sort 比較) — Step 5.5 も同時強化。全行 Skip+invalid 0+mismatch 0 のときのみ Skipped+Verified=true(内容一致裏打ち)。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。既存 $profile 自動変数診断(L332 preview 表示)はスコープ外で不変更。実機確認: CSV どおり作成→再実行 Skip+Verified / CSV のポート変更→再実行 [MISMATCH] Fail+差分表示。残: (3)restore_point / (4)spi_config。
+(1)実機確認(2026-06-12 SZK-TEST01): 両分岐確認 — CSV ポート 443→444 で [MISMATCH]+Fail(差分表示) / 443 に戻して再実行で Skip(matching content)。※初回テストは旧版モジュールのまま実行され偽 PASS がそのまま再現される一幕あり(ログ文言 'All 1 rule(s) already exist.' で旧版と特定、修正版配備後に正しい挙動)。(1)完了(未コミット)。
+(3)restore_point 実装(2026-06-12): 完了・検証済(未コミット)。create_restore_point ケースに読み返し検証 — 作成前に最新 SequenceNumber を baseline 記録([int64]、ポイント皆無は 0)、Checkpoint-Computer に -WarningVariable で throttle 警告文を捕捉、作成後に baseline 超 SequenceNumber+Description 一致の新規ポイントを確認。無ければ Fail+警告文併記(throttle/VSS 原因不問の fail-closed、読み返し不能も Fail 側)。-Verified は不採用 — 読み返しが Success/Fail を直接決めるためフラグより強い。他 3 setting 不変更。VERSION 1.0.1→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: throttle 有効のまま 2 連続実行→2 回目 Fail+警告文 / remove_24h_limit 適用後→連続でも Success。残: (4)spi_config。
+(4)spi_config 実装(2026-06-12): 完了・検証済(未コミット)。C# GetValue に BOOL 戻り値判定を追加 — false で Win32Exception(GetLastWin32Error+アクション番号 hex)を throw。PS 側は既存の catch→$currentValue=$null→APPLY 経路がそのまま機能するため変更ゼロ(dry-run の Unknown 表示・apply ループとも)。開発機で SHIPPED ソース抽出コンパイル+実挙動検証(verify_spi.ps1): 正常 GET(0x0070 mouse speed)=実値 10 / 無効 GET(0xFFFE)=throw 確認。Add-Type AppDomain キャッシュにより同一プロセス内の旧型残留は既知制約(セッション跨ぎで反映)。VERSION 1.0.1→1.1.1(PATCH)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実害度高め 4 件((8)(1)(3)(4))すべて完了 — 残りは (2)(5)(6)(7)(9)(10) の 6 件。
+実害度高め4件((8)(1)(3)(4))をコミット 06aeb53 で確定。タスクは残り6件((2)(5)(6)(7)(9)(10))のため対応中を維持。
+(2)windows_license_install 実装(2026-06-12): 完了・検証済(未コミット)。Step 6 を末尾 5 桁照合に変更 — expectedPartial=投入キー末尾5桁(ToUpper)、2 秒間隔×最大 3 回の再読で WMI 反映遅延を吸収、一致製品の存在で判定(-First 1 の順序依存を排除)。3 分岐: 一致→Success+Verified=true / 製品ありで全不一致→Error(expected/actual 併記、旧キー残留の確定証拠) / 製品ゼロ→Success+Verified=false(install 自体は throw しておらず失敗の証拠なし、checklist の VERIFY 欄で可視化)。末尾 5 桁の表示は Get-MaskedKey の可視部分と同一で新規露出なし。auth 側不変更。VERSION 1.0.1→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: 正規キー投入→Success+Verified=true+(matches entered key) 表示。残: (6)(7)(10)(9)(5)。
+(6)winget 群+windows_update 実装(2026-06-12): 完了・検証済(未コミット)。winget_update: default 分岐をバージョン読み返し判定に変更 — 実行前 winget --version 記録、未知 exit code 時に再読(2秒×最大3回、winget alias 一時不在は try/catch で空扱い): version 変化→Success+Verified=true(自己更新が winget.exe を殺す正当ケースの救済、winget_upgrade の default=Fail との非対称はこれが理由と推定) / 不変・読取不能→Error(code 併記)。winget_install/upgrade の exit code 処理は健全で不変更。Wait-NetworkReady 置換: winget×3=有界プローブ(2発)→Error、windows_update=猶予窓(10秒×最大120秒)→既存 hashtable Error 契約(L91 と同形状)。Error は AutoPilot 既定 Ask のブロッキングダイアログで捕捉(main.ps1 L556-588 確認済、production プロファイルは ErrorMode 列なし=全行 Ask)。kernel Wait-NetworkReady 本体は公開 API のため据置(モジュール呼び出し元ゼロ化、撤去は別途判断)。VERSION: winget_install 1.0.0→1.1.0 / windows_update 1.0.1→1.1.0(両 MINOR)・REQUIRES_KERNEL 据置・CHANGELOG 追記。parse 4 OK・266 passed。実機確認: LAN 抜きで winget 系実行→即 Error+ダイアログ / WU はケーブル遅挿しで 120 秒内復旧。残: (7)ppkg_uninstall / (10)fabriq_app_launcher / (9)acl_config / (5)userdata_backup。
+(6)実機確認(2026-06-12 SZK-TEST01 telemetry): 4 本確認 — upgrade が NW 断で即 Error(Network unreachable、旧版なら無限ハング) / 復旧後 Skipped / installer_update ExitCode0 正常 Success / install Success 1。未知 code 読み返し分岐と WU 猶予窓は未試行(参考確認で十分と判断)。(6)完了(未コミット)。
+(7)ppkg_uninstall 実装(2026-06-12): 完了・検証済(未コミット)。重要な前提訂正 2 件をユーザーから受領 — (a)リポの profiles は例示で実運用と別物 (b)実運用は __RESTART__ 前後の 2 回実行(ロック解除→実態削除)。単純 fail-closed 案と ブート跨ぎ検知案(案A)はユーザーの 4 質問(1回完遂/再起動後もロック/3回目成功/実装コスト)で却下 — 必要再起動回数がパッケージ依存で Fail 昇格時機を決め打ちできず、中間 Fail の赤が履歴を汚す。採用=案B改: Phase 3 をストア再クエリ verdict 化(エントリ残存=cmdlet throw 含め Success+Verified=false 'Pending - re-run after restart'、ErrorMode 非発火でフロー互換、Fail 自動昇格は仕様として無し) + ファイルロック残存は MoveFileEx(DELAY_UNTIL_REBOOT) で削除予約(エントリ消滅後に PackagePath が辿れず実態が永久残留する経路を閉鎖、ppkg は Wi-Fi キー等を含むため実害あり)。偽成功 2 分岐(Cleaned up/Already clean)廃止。モジュール Verified: pending>0→false+MessageSuffix 件数明記/全完遂→true/処理ゼロ→null。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。メモリ 2 件追加(repo_profiles_are_examples / ppkg_restart_straddle)。実機確認: 試験 ppkg で実行①→Pending+VF→再起動→実行②→Success+Verified / 1 回完遂なら即 Verified=true。残: (10)fabriq_app_launcher / (9)acl_config / (5)userdata_backup。
+(10)fabriq_app_launcher 実装(2026-06-12): 完了・検証済(未コミット)。wait 分岐で -PassThru プロセスを受けて ExitCode 判定 — 0→Success / 非0→Fail(code 併記)。successCount++ を分岐内へ移動。background 分岐・Skip・catch 不変更。VERSION 1.0.0→1.0.1(PATCH)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: wait 対象アプリ正常終了→Success / 異常終了(throw/×閉じは0なので注意—throw時のみ1)→Fail。残: (9)acl_config / (5)userdata_backup。
+(9)acl_config 実装(2026-06-12): 完了・検証済(未コミット)。backup/restore 対称修正 — $indivFail を item スコープ外で初期化し、indivFail>0 の item を Fail 計上(backup: 'Completed with errors: N/M individual backups failed' / restore: 'Completed with N failed overrides')。複数 item は BatchResult が Partial 導出。backup の manifest 追記を ExitCode=0 時のみに変更(幻エントリ根絶、サブツリーは Phase 1 フル側に含まれ欠落なし、旧 manifest は restore の既存 not-found 処理で互換)。Verified 除外方針(project_verification_exclusions)は維持 — Status 計上のみの修正で -Verified は不付与。VERSION 1.0.0→1.0.1(PATCH)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse 2 OK・266 passed。実機確認: 正常 backup→restore で Success 不変 / 個別失敗誘発(ロック等)で Fail/Partial。残: (5)userdata_backup のみ。
+(5)userdata_backup 実装(2026-06-12): 完了・検証済(未コミット)。Step 5.6 末尾に 1 ルール追加 — 実バックアップ(status != Skipped) 0 件なら VERIFY FAIL 'no data was backed up' で Verified=false(全ソース欠落=0 ファイル PASS は旧 PC 初期化判断に直結する最重量の偽 PASS)。一部欠落は設計どおり PASS 維持(警報疲れ回避、warnings/missingSource/Skip 数で可視化済み、Required 列追加は feature-hunting 方針により不採用)。restore 不変更。VERSION 0.1.0→0.1.1(PATCH、0.x 開発中マーカー維持)・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。parse OK・266 passed。実機確認: CSV の SourcePath を全て不存在パスにして実行→Skipped+Verified FAIL。=== t-0020 全 10 項目完了((8)(1)(3)(4)=コミット済 06aeb53 / (2)(6)(7)(10)(9)(5)=未コミット 6 モジュール) 。後半 6 件をコミット 3046d48 に集約、t-0020 完了。
+
+<sub>更新: 2026-06-12 13:30 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0021] [MEDIUM] reg系: DWORD≥0x80000000が恒久Fail / Defaultハイブunload失敗でもSuccess
+
+**内容:**
+
+(1) reg_hklm_config.ps1:235-237 / reg_hkcu_config.ps1:279-281 — 値の [int] キャストにより DWORD ≥ 2^31（例: ポリシー頻出の 4294967295=0xFFFFFFFF）と Int32 超の QWORD が必ず throw → 該当行が恒久 Fail で適用不能。読み比較側の Test-RegistryValueMatch は [long] で正しく、書き込み側だけ不一致。DWord は [uint32]→[int32] ビット変換、QWord は [long]/[uint64] で処理。
+(2) reg_hkcu_config.ps1:448-463 / reg_hkcu_delete.ps1:223-238 — Default プロファイルハイブの reg unload が2回とも失敗しても Show-Error のみでモジュールは Success。ntuser.dat がロック残置され、同一キッティングパス内の後続 sysprep_config（CopyProfile）やプロファイル作成を壊しうる。unload 失敗を Partial/Verified=false に反映。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。(1)は fail-closed（Fail として見える）だが設定をそもそも出荷できない実害。reg_hklm/reg_hkcu/reg_hkcu_delete の3スクリプト touched。
+追加調査(2026-06-11 3スクリプト精読): 両指摘確定+比較側の同根欠陥を新発見。(1)書込キャスト [int]: hklm L236 / hkcu L280。DWORD>=0x80000000(例 4294967295)で throw=恒久 Fail。QWord も Int32 超で throw。(1b)**新発見**: 比較側 Test-RegistryValueMatch(hklm L73-74 / hkcu L83-84)の [long]$currentValue 比較 — 0xFFFFFFFF の DWORD は registry から Int32 の -1 として読み返されるため [long](-1) != [long]4294967295 で恒久不一致。つまり reg.exe 等で既に正しく書かれている値に対しても冪等チェックが永遠に不発(毎回再書込を試みて (1) で Fail)+Step 5.5 検証が偽 FAIL。書込だけ直しても照合を直さないと『書けるが毎回 Verified FAIL』になる — 両方の修正が必須。(2)Default ハイブ unload 失敗: hkcu_config L438-465 / hkcu_delete L209-238。2 回試行後の最終失敗が Show-Error のみでカウンタ不変、summary は Success のまま。ntuser.dat ロック残置は後続 sysprep(CopyProfile)/新規プロファイル作成を壊す。reg load 側(L175-176/L104)は exit code 判定済みで健全。
+修正設計: (a)モジュールローカル変換ヘルパー ConvertTo-RegistryDWordValue/QWordValue を両モジュールに追加 — 10進/0x16進/負数リテラルを受け、unsigned 域(0x80000000-0xFFFFFFFF)は BitConverter でビット等価の Int32/Int64 に変換(.NET registry の DWORD=Int32 格納仕様に整合)。書込(2箇所)と Test-RegistryValueMatch の DWord/QWord 比較(2箇所、expected を変換して Int 同士比較)を置換。(b)unload 最終失敗時に $hiveUnloadFailed を立て、summary を New-BatchResult -Fail+1 + MessageSuffix '(hive unload FAILED - ntuser.dat may remain locked)' で返す(config 側は -Verified $false も強制)。Status は Partial(成功あり)/Error(成功なし)に自然落ち。リトライロジック自体は不変。(c)Active Setup の reg add 行は reg.exe が 10 進 4294967295 を受理するため不変更。ヘルパーは Test-RegistryValueMatch と同じ『モジュールローカル重複』方針(common 昇格は 2 モジュールのために kernel MINOR+REQUIRES bump になるため見送り)。
+版影響: reg_hklm_config 1.1.0→1.1.1 / reg_hkcu_config 1.1.0→1.1.1(config+delete 同梱)・PATCH・REQUIRES_KERNEL 据置・kernel 不変。テスト: モジュールハーネス無し、parse_check+既存スイート+実機(VM で HKCU 配下の無害キーに 4294967295 と 0xFFFFFFFF を適用→Verified PASS→再実行で Skip の冪等確認)。設計ゲート提示済み・実装承認待ち。
+実装(2026-06-11): 完了・検証済(未コミット)。設計どおり — (a)ConvertTo-RegistryDWordValue/QWordValue を両モジュールにローカル追加(10進/0x16進は [Convert]::ToUInt32/64(x,16) で明示パース/負数リテラル passthrough/unsigned 域は BitConverter ビット等価変換)、書込 2 箇所(hklm L236 相当/hkcu L280 相当)と Test-RegistryValueMatch の DWord/QWord 比較 2 箇所を置換。(b)config+delete の unload 最終失敗で $hiveUnloadFailed→summary を Fail+1+MessageSuffix 降格(config は Verified=false 強制)。(c)Active Setup reg add 行は不変更(reg.exe が 10 進受理)。
+検証: **出荷コードの AST 抽出検証 14 アサーション全 PASS**(e:/tmp/verify_regconv.ps1 — 境界値 0x80000000/0xFFFFFFFF/int.max/long.max、trim、負数、読み返し -1 vs 4294967295 の照合一致と非一致、非数値/2^32 オーバーフローの throw)。parse_check 3 OK・266 passed/0 failed・encoding 新規違反ゼロ。VERSION 両モジュール 1.1.0→1.1.1・REQUIRES_KERNEL 据置・CHANGELOG Fixed 追記。実機確認(任意): VM の HKCU 無害キーに 4294967295/0xFFFFFFFF 行を適用→Verified PASS→再実行 Skip。コミット承認・実施(2026-06-11, a6b1416)。
+
+<sub>更新: 2026-06-11 23:05 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0022] [MEDIUM] kernel: SELECTED_PIN の resume平文保存と Reset-FabriqState のクリア漏れ
+
+**内容:**
+
+(1) common.ps1:3069（Save-ResumeState）— HostEnvironment スナップショットに SELECTED_PIN が平文で入り、resume_state.json として再起動を跨いでディスクに残る。パスフレーズは DPAPI 保護、テレメトリは PIN を hard-redact しているのに resume 経路だけ素通しの非対称。DPAPI 保護対象に含めるか、ENC: 値のまま保持し復元時に再解決する方式を検討。
+(2) common.ps1:3246-3252（Reset-FabriqState）— 環境変数クリアリストに SELECTED_PIN が無く、Refabriq/NewSession 後も前のターゲットPCの PIN がプロセス環境に残存。FABRIQ_WORKER_NAME / FABRIQ_SEGMENT も同様に未クリア。Save-ResumeState 側のリストとの対称性を保つこと。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。(2)は数行修正の PATCH。(1)は resume スキーマに触るため設計ゲートフル版+resume roundtrip テスト（PassphraseProtection.tests.ps1 の隣）更新が必要。crypto review（A1-A3 済み）の残課題系列として扱うのが整合的。
+実装(2026-06-12): 完了・検証済(未コミット)。(1)Save-ResumeState の snapshot から SELECTED_PIN を除外し、既存 Protect-PassphraseForResume(DPAPI LocalMachine)で ProtectedPin フィールド化(暗号化失敗=Warning+平文フォールバックなし)。main.ps1 resume 復元ブロックで復号→env 再設定(復号失敗=Warning 'PIN unavailable this session'、パスフレーズと違い対話再入力経路なし)。旧形式(平文 PIN 入り HostEnvironment)は Restore-HostEnvironment が従来どおり復元=後方互換。ENC: 再解決方式は平文 CSV を守れないため不採用。(2)Reset-FabriqState の envKeys に SELECTED_PIN/FABRIQ_WORKER_NAME/FABRIQ_SEGMENT 追加。新テスト 6 件(ResumeState.tests.ps1): 平文不在(raw -notmatch)/snapshot 除外/DPAPI roundtrip/空時省略/旧形式互換復元/Reset クリアリスト AST 契約(Reset は Transcript 再起動を含むため実行せず構造検証)。検証: parse 3 OK・272 passed(266+6)・check_version OK(3.5.0 据置=§I によりリリース時昇格)・encoding 新規違反ゼロ(既知 JP-NO-BOM 5 件のみ)。KERNEL_API.md 更新不要(状態 JSON スキーマ=内部契約、§B PATCH 相当)。CHANGELOG Security×2+Added。実機確認(任意): PIN 設定済み host で __RESTART__ 跨ぎ→resume_state.json に平文 PIN 不在+ProtectedPin あり→再起動後 PIN 必要モジュールが正常動作。
+コミット 04a2c58 (2026-06-12)。実機確認(__RESTART__ 跨ぎで平文 PIN 不在+ProtectedPin 動作)待ちのためレビュー待ち維持。
+実機確認完了(2026-06-12 ユーザー確認)。t-0022 完了。
+
+<sub>更新: 2026-06-12 19:00 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0023] [MEDIUM] 単発修正バンドル: sysprep XMLエスケープ / wallpaper SPIリダイレクト / プロファイル整合ほか
+
+**内容:**
+
+独立した小修正の回収タスク:
+(1) sysprep_config.ps1:347-391 — unattend.xml へ AdminPassword/ComputerName/TestUserName を生埋め込み。& < > を含むパスワードで XML 破損。ssid_config で実績のある [System.Security.SecurityElement]::Escape を適用。+ :460 SetupComplete.cmd が -Encoding UTF8（BOM付き）で出力され cmd.exe の1行目（@echo off）が化ける。ASCII で出力。
+(2) wallpaper_config.ps1:238-257 — HKCU リダイレクト時（別管理者で昇格）に SystemParametersInfo が昇格管理者のセッションへ適用され、対象ユーザーには壁紙未設定のまま Success。リダイレクト時は SPI を スキップし deferred 適用（fabriq_user_setup 経路）に寄せる等の対処。
+(3) profiles/Master_Config02.csv 行40 — extended/desktop_icon_config/desktop_icon_backup.ps1 を Enabled=1 で参照するが、module.csv 側が Enabled=0 のため実行時 InvalidPaths 落ち（サイレント未実行）。どちらかの意図に揃える。
+(4) volume_config.ps1:116-129 — 有効0件時に @($enabledItems)[0] が $null → 「Invalid Volume value」Error。Skipped を返すべき。
+(5) printer_driver_uninstall.ps1:274-276 — pnputil /delete-driver 失敗時もサマリ行が「Store: ... deleted」と虚偽表示（直前の warning は正しい）。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。(1)(2)が実害度高め。(3)はコード変更でなく CSV/module.csv の整合確認のみ（設計ゲート不要の可能性）。各モジュール個別 touched。
+(1)sysprep_config 実装(2026-06-12): 完了・検証済(未コミット)。ユーザーの「不自由なし」指摘を受けて実害を再評価 — (a)XML 生埋め込みは特殊文字入り CSV 値でのみ発火する地雷(現行運用データでは未発火が正しい観測)、(b)BOM は開発機実証で「cmd.exe は UTF-8 BOM をスキップせず 1 行目(@echo off)が必ずエラー、2 行目以降は実行継続」と確定(bom_test2.ps1) = アクション行は毎回動いていたため体感無害。両方修正で合意。実装: CSV 由来 7 挿入点に SecurityElement::Escape (ssid_config パターン、ComputerName/CopyProfile/OOBE 値/AdminPassword/TestUserName/DoNotCleanUp/PersistAll)、SetupComplete.cmd を -Encoding Default(ANSI、CP932 で日本語パス保全)。機能検証: 'p&ss<w>ord' の interpolation→XML roundtrip 成功。VERSION 1.1.0→1.1.1(PATCH)・CHANGELOG Fixed。parse OK・272 passed。残: (2)wallpaper/(3)Master_Config02/(4)volume_config/(5)printer_driver_uninstall。
+(2)wallpaper_config 実装(2026-06-12): 完了・検証済(未コミット)。Redirected 時は SPI スキップ — Image 行は WallPaper パスを対象 hive へ直書き(SPI が現行ユーザー時に書くのと同じ値)+staged メッセージ、SolidColor 行はスキップのみ(レジストリ書込は既存で対象 hive 完結)。副作用(昇格管理者の壁紙書換/クリア)も同時解消。audit 代替案の fabriq_user_setup deferred 経路は Active Setup 機構のログオン済みユーザー流用になり過剰のため不採用、reg_hkcu_config と同じ hive 直書き哲学を採用(ユーザー示唆どおり)。非リダイレクト経路は既存文を else 温存で挙動完全不変(ユーザー条件)。VERSION 1.0.0→1.1.0(MINOR)・REQUIRES_KERNEL 据置・CHANGELOG Fixed。parse OK・272 passed。実機確認: 別管理者昇格で実行→管理者壁紙不変+対象ユーザー次回ログオンで反映 / 通常実行→従来どおり即時反映。残: (3)Master_Config02/(4)volume_config/(5)printer_driver_uninstall。
+(3)Master_Config02 整合 実装(2026-06-12): 完了(未コミット)。機序確定 — module.csv Enabled=0 はモジュールレジストリ未登録(common.ps1:4276)→プロファイル行が invalidPaths でサイレント未実行。backup は実装+Guide 完備なのにmenu/プロファイル両方から到達不能だった。ユーザー回答: 意図的無効化だったが「これだけ無効も変」で有効化を選択(案A)。module.csv の backup を Enabled=1 へ(バイト精密置換・CRLF 保持)、VERSION 1.0.0→1.0.1(PATCH)、コード変更なし(設計ゲート適用外の CSV データ編集)。副作用: メニュー Desktop カテゴリに 1 項目追加。残: (4)volume_config/(5)printer_driver_uninstall。
+(4)volume_config 実装(2026-06-12): 完了・検証済(未コミット)。-FilterEnabled 後にテンプレート標準の 0 件 Skipped ガード挿入(有効 1 件以上は完全不変)。VERSION 1.0.0→1.0.1(PATCH)。
+(5)printer_driver_uninstall 実装(2026-06-12): 完了・検証済(未コミット)。$storeDeleted フラグで pnputil 成否を追跡しサマリ行を正直化(失敗時は黄 'NOT deleted (in use by another driver?)' + Message に store cleanup skipped 付記)。Status は Success 維持 — Store 削除は共有 INF で失敗して当然の best-effort で、Fail 化は正当ケースの偽 Fail(監査の切り分けどおり)。VERSION 1.1.1→1.1.2(PATCH)。parse OK・272 passed。=== t-0023 全 5 件完了(未コミット 6 モジュール: sysprep_config/wallpaper_config/desktop_icon_config/volume_config/printer_driver_config + CHANGELOG) 。コミット 17056eb に集約、t-0023 完了。
+
+<sub>更新: 2026-06-12 18:30 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0024] テスト空白の解消: Async実行経路 / ENC:復号 / 実行履歴→HTMLチェックリスト
+
+**内容:**
+
+全体監査で判明したテストカバレッジの重大空白3部品（リスク順）:
+(1) Invoke-SafeCommandAsync（common.ps1:1615, 約255行）— ゼロテスト。DefaultAsync=true 出荷により現在の既定実行経路（全モジュールがここを通る）なのにテストは同期版のみ。Runspace 生成/global 注入/skip フラグ/timeout 中断/結果抽出を pin する。t-0005 で実施した async 実地検証3シナリオ（PS5.1 実 Runspace）が雛形になる。
+(2) Unprotect-FabriqValue / Test-MasterPassphrase — ゼロテスト。退化すると顧客 hostlist の全 ENC: 値が復号不能になる。roundtrip + 形式 pin（PBKDF2 100k/固定salt/AES-256-CBC）+ 誤パスフレーズ→throw を pin。同時に tests/kernel/Set-SelectedHostEnvironment.tests.ps1:222 の虚偽コメント（「専用テストでピン留め済み」→該当ファイル不存在）を修正。
+(3) 実行履歴→HTMLチェックリスト連鎖（Write/Import/Restore/Export-ExecutionHistory, Export-HtmlChecklist 約550行, Complete-ProfileExecution）— ゼロテスト。B2B 納品物そのもので、Restore-ExecutionHistory の SessionID フィルタは過去に実バグ実績あり（main.ps1:360-368 コメント）。CSV-in/CSV-out で単体テスト可能。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。t-0007（204テスト到達）の続編。tests/ のみ touched なら設計ゲート適用外・CHANGELOG 不要。(1)は kernel の修正タスク（t-0010/t-0011 等）着手前に整備しておくと回帰検知網として効く。
+調査・設計(2026-06-11 / 部品(1) Invoke-SafeCommandAsync): 対象は common.ps1 の約255行。t-0005 時の async 検証3シナリオは『実地検証』であり永続テスト化されていないことを確認(スイートには同期版12ケースのみ)。
+設計の核心: 子 Runspace 内は Pester Mock 不可(セッション状態が分離)のため、**統合テスト方式**を採る — 実 Runspace + スタブモジュール .ps1 ファイル。関数は CWD 相対で common.ps1 / async_config.json / skip_request.flag を解決するため、WU loop テストと同様に **temp の fabriq 様ツリーに Push-Location**(kernel/common.ps1 は実物をコピー、async_config.json はテスト制御で PollIntervalMs=100、telemetry/フラグ等の相対パス副作用も temp に封じ込め)。
+テストケース 8 件: (a)Success+Verified パススルー(pipeline) (b)$global:_LastModuleResult フォールバック回収(Partial) (c)結果なし→fail-closed Error(契約違反文言) (d)Skip 中断 — 子スタブが自分で skip_request.flag を書く方式(同期呼び出しのため外部から中断できない問題をスタブ自身の書き込みで解決・決定的) (e)Timeout — 長 sleep スタブ+-TimeoutSec 2→Error+所要時間検証 (f)ScriptPath 不在→Error (g)globals 注入 — 子が見た FabriqMasterPassphrase 等を Message に返して検証 (h)stale skip flag — 事前にフラグを置いても開始時にクリアされ Success(回帰ピン)。
+安全性: 子で実行するのはテスト作成のスタブのみ。機械影響系 API なし。タイミング系 (d)(e) は余裕のあるマージンで flake 回避。スイート増加 ~10-15 秒見込み。tests/ のみ touched=設計ゲート適用外・CHANGELOG 不要(t-0007 先例)・版影響なし。実装承認待ち。
+実施(2026-06-11): 部品(1)完了・検証済(未コミット)。新規 tests/kernel/Invoke-SafeCommandAsync.tests.ps1 8ケース(統合方式・実Runspace+スタブモジュール+temp fabriq様ツリーCWD封じ込め): (a)pipeline パススルー(Status/Success/Verified/Message) (b)_LastModuleResult のRunspace跨ぎ回収(Partial) (c)結果なし→fail-closed Error (d)ScriptPath不在→早期Error (e)globals注入(passphrase/AutoPilotMode を子が観測) (f)Skip中断=子の自己フラグ書込方式→Error+15秒以内 (g)Timeout 2秒→Error+15秒以内 (h)stale skip flag は開始時クリアされ Success(誤中断回帰ピン)。検証: 237 passed/0 failed を2回連続(タイミング系の flake なし)、スイート増加+2〜5秒。残部品: (2)Unprotect-FabriqValue/Test-MasterPassphrase ピン+虚偽コメント修正 (3)実行履歴→HTMLチェックリスト連鎖。コミット承認・実施(2026-06-11, 3588a01)。
+実施(2026-06-11): 部品(2)完了・検証済(未コミット)。新規 tests/kernel/UnprotectFabriqValue.tests.ps1 9ケース — kernel に暗号化関数が無い(暗号化は C#/Studio 側)ため、テスト内に仕様準拠の独立実装エンクリプタ Protect-TestValue を置き roundtrip でピン留め(仕様ドリフト=即 fail の構造)。内訳: roundtrip 3(ASCII/日本語=コードポイント構築でソース ASCII 維持/長文 448 字=複数ブロック) / 非 ENC: パススルー / 誤パスフレーズ=throw または非平文の頑健判定(AES-CBC の ~1/256 valid-padding ケースを Test-DecryptionDenied で吸収) / 不正 Base64=throw / Test-MasterPassphrase 3(正解 true・誤り false・ENC: 無しトークン false+Show-Warning 発火)。Set-SelectedHostEnvironment.tests.ps1:222 の虚偽コメント(「専用テストでピン留め済み」)を新ファイル名の実参照に修正。検証: 246 passed/0 failed。残部品: (3)実行履歴→HTML チェックリスト連鎖。コミット承認・実施(2026-06-11, 3588a01)。
+実施(2026-06-11): 部品(3)完了・検証済(未コミット)。新規 tests/kernel/HistoryChecklistChain.tests.ps1 20ケース(4群): A=CSV roundtrip 4(13列ヘッダ/カンマ+引用符エスケープ/Order空セル/KanriNoフィルタ+降順+Limit) / B=Restore 2モード 5(レガシー=separator+IsRestored+Verified・Order パース / KanriNo無し no-op / フィルタ=サイレント置換 / **0件時の退避=実バグのピン** / Order列なしレガシーCSV互換) / C=Export-HtmlChecklist 7(出力パス / **Order照合優先** / **MenuNameフォールバック厳密性=兄弟Order漏れ防止+レガシー0許容** / 集計照合(Pending→NotRun・Total一致) / 敵対メッセージHtmlEncode / Verified PASS・FAILバッジ / markerロウ) / D=Complete-ProfileExecution 4(Auto+Success=無記録 / **Auto+Error='Log Upload (auto)'記録=t-0015契約** / Manual='Log Upload (cl)'常時記録 / destination無効=uploader不実行)。WMI/HW面(Get-CurrentPCInfo/Get-WmiObject/Get-BitLockerVolume)は Mock、ファイルI/Oは temp(HistoryPath/EvidenceBasePath/CWDツリー)封じ込め。実装時の学び: Complete-ProfileExecution の DefinedModules は Mandatory[array]のため空配列を拒否(PS仕様)→非空fixture必須。検証: 266 passed/0 failed。t-0024 全3部品完了 — スイートは 204(セッション開始時)→266 に拡大。コミット承認・実施(2026-06-11, 3588a01)。
+
+<sub>更新: 2026-06-11 21:15 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0026] テストハーネスの疑問
+
+**内容:**
+
+"C:\Users\szk-WIN01\Desktop\share\testハーネス疑問"
+リトライサクセスの項目が、オートリトライ時でも全エラーで、かつベリファイはPASSと判定されるが正しいロジックになっているかどうか。
+
+**Claudeメモ:**
+
+調査+実装(2026-06-12): 完了・検証済(未コミット)。回答: 2 点とも正しいロジックではない(ハーネス側バグ、kernel の auto-retry 機構は正常)。(1)全 Error の原因 = FailFirstN カウンタが $global:FabriqTestHarnessState で、DefaultAsync の子 Runspace では global が実行ごと使い捨て→attempt 常に 1→retry_success(FailFirstN=2)が永遠に forced fail。修正: プロセススコープ env 変数 FABRIQ_TESTHARNESS_<sanitized key> へ移設(全 Runspace 共有・レジストリ非接触・プロセス終了で消滅=ターゲット PC 残留ゼロ、ユーザー懸念に回答済み)。(2)Error+Verified=true の原因 = forced-fail が CSV の成功時用 Verified(true)を集約。修正: forced-fail 時は 'false' を積む(系列が Error+VF→Error+VF→Success+Verified=true に正常化)。ヘッダ NOTES も更新。VERSION 1.0.0→1.0.1(PATCH)・REQUIRES_KERNEL 据置・CHANGELOG Fixed。parse OK・272 passed。実機確認: _test_harness.csv の retry_success 行(ErrorMode=retry)を AutoPilot 実行→1,2 回目 Error+Verified FAIL、3 回目 Success+Verified PASS が期待値。
+コミット a3a703f、ユーザー確認 OK で完了(2026-06-12)。
+
+<sub>更新: 2026-06-12 20:30 ／ 作成: 2026-06-11 10:02</sub>
+
+## 保留 (1)
+
+### [t-0025] [LOW] 版表記ドリフト: 起動バナー ver2.1 / Fabriq.exe AssemblyVersion 2.1.0.0
+
+**内容:**
+
+(1) main.ps1:1244 の起動バナー文字列が「Fabriq ver2.1」のまま（kernel 3.4.1 と2メジャー乖離）。check_version.ps1 は main.ps1 L3 コメントしか検証しないため検出されない。バナーを L3 と同じ X.Y に同期し、check_version.ps1 の検証対象に追加する。(2) dev/launcher/Launcher.cs の AssemblyVersion が 2.1.0.0 固定で、Fabriq.exe のファイルプロパティが 2.1 を報告。Export-HtmlChecklist のフッター（common.ps1:2885 付近「Generated by Fabriq ver2.1」）にも同じドリフトあり。次回リリース（3.5.0 / t-0008）の手順に同期箇所として組み込むのが低コスト。
+
+**Claudeメモ:**
+
+全体監査(2026-06-10)で検出。operator/納品物に見える表記のみで動作影響なし。CLAUDE.md §I の同期4箇所リストへの追加（バナー/HTMLフッター）も検討。Launcher.cs は exe 再ビルドが必要なため要ユーザー判断。
+実施(2026-06-11 / 3.5.0 リリースに同梱): (1)main.ps1 起動バナー ver2.1→ver3.5 (2)common.ps1 HTML チェックリストフッター ver2.1→ver3.5 (3)check_version.ps1 に Test-VersionPatternAnywhere(Select-String 方式・行番号ドリフト非依存)を新設しバナー/フッターを検証対象化(計 6 ターゲット、全 OK 確認)。残: Fabriq.exe (dev/launcher/Launcher.cs) の AssemblyVersion 2.1.0.0 — exe 再ビルドが必要なため見送り(次回ビルド機会に同期、要ユーザー判断)。
+コミット実施(2026-06-11, ccd4e97)。残るは Launcher.cs AssemblyVersion のみ(exe 再ビルド機会待ち)のため保留へ。
+関連更新(2026-06-12): ノート記載の「CLAUDE.md §I リストへのバナー/HTML フッター追記の検討」を実施完了(§I を 4→6 箇所化+『正は check_version.ps1 の Targets』を明文化)。あわせてチェッカー圏外の doc 例示 2 件(EVIDENCE_MANIFEST.md 2.2.2/1.3.0→3.5.0/1.7.1+例示注記、TELEMETRY_INTERNAL.md 3.2.3→3.5.0+注記)も更新。残件は Launcher.cs AssemblyVersion 2.1.0.0 のみで不変 — build.ps1 で即時再ビルド可能と確認済みだが、新バイナリ配布と Defender/SmartScreen 評判リセットの運用判断によりユーザー指示で保留継続(2026-06-12)。
+
+<sub>更新: 2026-06-12 21:00 ／ 作成: 2026-06-10 19:10</sub>
 
