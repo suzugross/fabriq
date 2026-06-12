@@ -342,6 +342,8 @@ Write-Host "    [28] Startup Items (Win32_StartupCommand + logon ScheduledTask, 
 Write-Host "    [29] Memory Slots & Array Summary (CSV)" -ForegroundColor White
 Write-Host "    [30] PnP Devices (full enumeration with driver version/date, CSV)" -ForegroundColor White
 Write-Host "    [31] Hardware Identifiers (System / BaseBoard / Enclosure, TXT)" -ForegroundColor White
+Write-Host "    [32] Credential Manager (calling user, metadata only, CSV)" -ForegroundColor White
+Write-Host "    [33] Outlook Mail Accounts (registry metadata, CSV)" -ForegroundColor White
 Write-Host ""
 Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
@@ -2676,6 +2678,538 @@ catch {
 Close-Section -Status $sectionStatus -Reason $sectionReason
 } else {
     Write-DisabledSection -Id "31" -Title "Hardware Identifiers"
+}
+
+# ----------------------------------------
+# Helpers for Sections 32 / 33 (metadata readers)
+# ----------------------------------------
+# Ported from fabriq_backuper (sections/credentials/dump_creds.ps1 and
+# sections/outlook_pop/backup.ps1). Metadata-only by contract: no
+# password value, credential blob, or decryption API is ever touched.
+# ----------------------------------------
+
+function Read-NativeUnicodeString {
+    # LPWSTR pointer from a marshaled Win32 struct -> string ('' on NULL).
+    param([IntPtr]$Ptr)
+    if ($Ptr -eq [IntPtr]::Zero) { return '' }
+    return [System.Runtime.InteropServices.Marshal]::PtrToStringUni($Ptr)
+}
+
+function ConvertFrom-CredFileTime {
+    # FILETIME (ComTypes) -> ISO 8601 UTC string, or '' when unset.
+    # dwLow/HighDateTime are Int32; mask to suppress sign-extension.
+    # The mask MUST be written in decimal: the literal 0xFFFFFFFF parses
+    # as Int32 -1 in PowerShell, which sign-extends to an all-ones Int64
+    # and turns the -band into a no-op (latent fabriq_backuper bug found
+    # by smoke test - dropped LastWritten whenever dwLow had the high
+    # bit set).
+    param($Ft)
+    if ($Ft.dwHighDateTime -eq 0 -and $Ft.dwLowDateTime -eq 0) { return '' }
+    $hi = ([int64]$Ft.dwHighDateTime) -band [int64]4294967295
+    $lo = ([int64]$Ft.dwLowDateTime)  -band [int64]4294967295
+    $val = ($hi -shl 32) -bor $lo
+    try { return [datetime]::FromFileTimeUtc($val).ToString('o') } catch { return '' }
+}
+
+function Get-OutlookRegString {
+    # Outlook account string values are usually REG_BINARY UTF-16LE with a
+    # trailing null pair; some installations use REG_SZ. Accept both.
+    # Reads via $RegKey.GetValue() directly: PS 5.1 function-return
+    # semantics re-collect [byte[]] into [object[]] across a helper
+    # boundary and break the type check (fabriq_backuper phase 2.11.2).
+    param(
+        [Parameter(Mandatory = $true)]$RegKey,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    $v = $null
+    try { $v = $RegKey.GetValue($Name, $null) } catch { return '' }
+    if ($null -eq $v) { return '' }
+    if ($v -is [byte[]] -or $v -is [System.Array]) {
+        try {
+            $bytes = [byte[]]$v
+            if ($bytes.Length -eq 0) { return '' }
+            return ([System.Text.Encoding]::Unicode.GetString($bytes)).TrimEnd([char]0)
+        } catch { return '' }
+    }
+    return [string]$v
+}
+
+function Get-OutlookRegDword {
+    # DWORD account value -> [int], or '' when absent (CSV-friendly).
+    param(
+        [Parameter(Mandatory = $true)]$RegKey,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    $v = $null
+    try { $v = $RegKey.GetValue($Name, $null) } catch { return '' }
+    if ($null -eq $v) { return '' }
+    try { return [int]$v } catch { return '' }
+}
+
+function Get-PstPathsFromOutlookProfile {
+    # Recursive walk of an Outlook profile registry key collecting every
+    # '001f6700' value - the PST store file path (REG_BINARY UTF-16LE,
+    # null-terminated). Returns unique path strings.
+    param([Parameter(Mandatory = $true)][string]$ProfileKeyPath)
+    $results = New-Object System.Collections.Generic.List[string]
+    $stack = New-Object System.Collections.Generic.Stack[string]
+    $stack.Push($ProfileKeyPath)
+    while ($stack.Count -gt 0) {
+        $current = $stack.Pop()
+        $key = $null
+        try { $key = Get-Item -LiteralPath $current -ErrorAction Stop } catch { continue }
+        if ($null -eq $key) { continue }
+        try {
+            $raw = $key.GetValue('001f6700', $null)
+            if ($null -ne $raw -and $raw -is [byte[]] -and $raw.Length -gt 0) {
+                $s = ([System.Text.Encoding]::Unicode.GetString([byte[]]$raw)).TrimEnd([char]0)
+                if (-not [string]::IsNullOrWhiteSpace($s) -and `
+                    $s -match '^[A-Za-z]:\\' -and $s -match '\.pst$') {
+                    if (-not $results.Contains($s)) { [void]$results.Add($s) }
+                }
+            }
+        } catch { }
+        try {
+            foreach ($sub in (Get-ChildItem -LiteralPath $current -ErrorAction Stop)) {
+                $stack.Push($sub.PSPath)
+            }
+        } catch { }
+    }
+    return @($results)
+}
+
+function Get-PstPathFromOutlookEntryId {
+    # Format-agnostic binary scan of a Delivery Store EntryID: find a
+    # UTF-16LE drive-letter pattern "X:\" at an even offset, read to the
+    # UTF-16LE null terminator, accept only paths ending in .pst.
+    # Bounded by the blob length; corrupted blobs simply return $null.
+    param([byte[]]$EntryIdBytes)
+    if ($null -eq $EntryIdBytes -or $EntryIdBytes.Length -lt 12) { return $null }
+    for ($i = 0; $i -le $EntryIdBytes.Length - 6; $i += 2) {
+        $b0 = $EntryIdBytes[$i]
+        if (-not ((($b0 -ge 0x41) -and ($b0 -le 0x5A)) -or `
+                  (($b0 -ge 0x61) -and ($b0 -le 0x7A)))) { continue }
+        if ($EntryIdBytes[$i + 1] -ne 0x00) { continue }
+        if ($EntryIdBytes[$i + 2] -ne 0x3A) { continue }
+        if ($EntryIdBytes[$i + 3] -ne 0x00) { continue }
+        if ($EntryIdBytes[$i + 4] -ne 0x5C) { continue }
+        if ($EntryIdBytes[$i + 5] -ne 0x00) { continue }
+        $end = $i
+        while (($end + 1) -lt $EntryIdBytes.Length) {
+            if ($EntryIdBytes[$end] -eq 0x00 -and $EntryIdBytes[$end + 1] -eq 0x00) { break }
+            $end += 2
+        }
+        if ($end -le $i) { continue }
+        $path = [System.Text.Encoding]::Unicode.GetString($EntryIdBytes, $i, $end - $i)
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        if ($path -match '\.pst$') { return $path }
+    }
+    return $null
+}
+
+function Resolve-OutlookAccountPst {
+    # 3-stage delivery-PST resolution (port of fabriq_backuper v0.17):
+    #   1. EntryID binary scan (authoritative - Outlook's actual binding)
+    #   2. filename match against the account email
+    #   3. single-candidate fallback
+    # Returns @{ Path; Method } - Path is $null when unresolved.
+    param(
+        [string]$Email,
+        [byte[]]$EntryIdBytes,
+        [AllowEmptyCollection()][string[]]$PstCandidates
+    )
+    if ($null -ne $EntryIdBytes -and $EntryIdBytes.Length -gt 0) {
+        $parsed = Get-PstPathFromOutlookEntryId -EntryIdBytes $EntryIdBytes
+        if (-not [string]::IsNullOrWhiteSpace($parsed)) {
+            $matched = $PstCandidates | Where-Object { $_ -ieq $parsed } | Select-Object -First 1
+            return @{
+                Path   = if ($matched) { $matched } else { $parsed }
+                Method = if ($matched) { 'entryid-scan-confirmed' } else { 'entryid-scan' }
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Email)) {
+        foreach ($p in $PstCandidates) {
+            if ([System.IO.Path]::GetFileNameWithoutExtension($p) -ieq $Email) {
+                return @{ Path = $p; Method = 'filename-match-fallback' }
+            }
+        }
+    }
+    if ($PstCandidates.Count -eq 1) {
+        return @{ Path = $PstCandidates[0]; Method = 'single-candidate' }
+    }
+    return @{ Path = $null; Method = 'unresolved' }
+}
+
+# ----------------------------------------
+# 32. Credential Manager (calling user, metadata only)
+# ----------------------------------------
+# Win32 CredEnumerateW enumeration of the fabriq process user's vault.
+# DPAPI scopes each vault to its owning user, so other users' vaults are
+# structurally unreadable from this process; the evidence is therefore
+# explicitly scoped to the calling user and the SourceUser column records
+# whose vault was read.
+# SECURITY CONTRACT: password material is never touched. The struct
+# fields CredentialBlobSize / CredentialBlob exist only to keep the
+# P/Invoke marshaling layout correct and are never read or recorded.
+# No decryption API (CryptUnprotectData etc.) is called.
+# OS-managed noise entries (SSO_POP_Device / virtualapp/didlogical) are
+# NOT filtered out - evidence records what actually exists; they are
+# flagged via the IsSystemNoise column instead.
+# ----------------------------------------
+if (Test-SectionEnabled "32") {
+Start-Section -Id "32" -Title "Credential Manager (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    # Add-Type persists for the process lifetime while each module run gets
+    # a fresh runspace, so a re-run in the same fabriq process must not
+    # call Add-Type again (duplicate type definition error).
+    if (-not ([System.Management.Automation.PSTypeName]'FabriqEvidence.CredApi').Type) {
+        Add-Type -Namespace FabriqEvidence -Name CredApi -MemberDefinition @"
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct CREDENTIAL {
+    public UInt32 Flags;
+    public UInt32 Type;
+    public IntPtr TargetName;
+    public IntPtr Comment;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+    public UInt32 CredentialBlobSize;
+    public IntPtr CredentialBlob;
+    public UInt32 Persist;
+    public UInt32 AttributeCount;
+    public IntPtr Attributes;
+    public IntPtr TargetAlias;
+    public IntPtr UserName;
+}
+
+[DllImport("Advapi32.dll", SetLastError = true, EntryPoint = "CredEnumerateW", CharSet = CharSet.Unicode)]
+public static extern bool CredEnumerate(IntPtr filter, int flag, out int count, out IntPtr credentialsArray);
+
+[DllImport("Advapi32.dll", SetLastError = false)]
+public static extern void CredFree(IntPtr cred);
+"@ -ErrorAction Stop
+    }
+
+    $credTypeNames = @{
+        1 = 'Generic'; 2 = 'DomainPassword'; 3 = 'DomainCertificate'
+        4 = 'DomainVisiblePassword'; 5 = 'GenericCertificate'; 6 = 'DomainExtended'
+    }
+    $credPersistNames = @{ 1 = 'Session'; 2 = 'LocalMachine'; 3 = 'Enterprise' }
+    $sourceUser = "$env:USERDOMAIN\$env:USERNAME"
+    Out-Log "Source vault: calling user ($sourceUser)"
+
+    $count    = 0
+    $arrayPtr = [IntPtr]::Zero
+    $ERROR_NOT_FOUND = 1168
+
+    # filter is IntPtr (not string): PowerShell marshals $null string as ""
+    # which CredEnumerateW rejects with ERROR_INVALID_FLAGS.
+    $ok = [FabriqEvidence.CredApi]::CredEnumerate([IntPtr]::Zero, 1, [ref]$count, [ref]$arrayPtr)
+    if (-not $ok) {
+        $lastErr = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        if ($lastErr -eq $ERROR_NOT_FOUND) {
+            # Empty vault is legitimate evidence ("no credentials configured")
+            $count = 0
+        }
+        else {
+            throw "CredEnumerateW failed (Win32 error $lastErr)"
+        }
+    }
+
+    $credRows = @()
+    if ($count -gt 0) {
+        try {
+            $ptrSize = [System.IntPtr]::Size
+            for ($i = 0; $i -lt $count; $i++) {
+                $credPtr = [System.Runtime.InteropServices.Marshal]::ReadIntPtr($arrayPtr, $i * $ptrSize)
+                $cred = [System.Runtime.InteropServices.Marshal]::PtrToStructure(
+                    $credPtr, [type][FabriqEvidence.CredApi+CREDENTIAL])
+
+                $target   = Read-NativeUnicodeString -Ptr $cred.TargetName
+                $credType = [int]$cred.Type
+                $persist  = [int]$cred.Persist
+                $isNoise  = ($target -match 'SSO_POP_Device') -or ($target -match 'virtualapp/didlogical')
+
+                $credRows += [PSCustomObject]@{
+                    TargetName    = $target
+                    Type          = if ($credTypeNames.ContainsKey($credType)) { $credTypeNames[$credType] } else { "Unknown($credType)" }
+                    UserName      = Read-NativeUnicodeString -Ptr $cred.UserName
+                    Persist       = if ($credPersistNames.ContainsKey($persist)) { $credPersistNames[$persist] } else { "Unknown($persist)" }
+                    Comment       = Read-NativeUnicodeString -Ptr $cred.Comment
+                    LastWritten   = ConvertFrom-CredFileTime -Ft $cred.LastWritten
+                    IsSystemNoise = $isNoise
+                    SourceUser    = $sourceUser
+                }
+            }
+        }
+        finally {
+            [FabriqEvidence.CredApi]::CredFree($arrayPtr)
+        }
+    }
+
+    $outCred = Join-Path $targetDir "32_Credentials.csv"
+    if (@($credRows).Count -gt 0) {
+        $credRows | Export-Csv -Path $outCred -NoTypeInformation -Encoding UTF8
+    } else {
+        # Header-only CSV: an empty vault is itself evidence
+        '"TargetName","Type","UserName","Persist","Comment","LastWritten","IsSystemNoise","SourceUser"' |
+            Out-File -FilePath $outCred -Encoding UTF8
+    }
+    Add-SectionFile "32_Credentials.csv"
+
+    Out-Log ("Credential entries: " + @($credRows).Count + " -> 32_Credentials.csv")
+    $sectionCount++
+}
+catch {
+    Out-Log "[ERROR] Failed to enumerate Credential Manager: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "32" -Title "Credential Manager (CSV)"
+}
+
+# ----------------------------------------
+# 33. Outlook Mail Accounts (registry metadata)
+# ----------------------------------------
+# Walks <hive>\Software\Microsoft\Office\{16.0,15.0}\Outlook\Profiles for
+# the logged-on user (Resolve-HkcuRoot redirect when fabriq runs elevated
+# as a different admin). Pure registry reads - no Outlook COM, no DPAPI.
+# Both version keys are recorded when present (OfficeVersion column); no
+# restore-style stale-key arbitration, because evidence must record raw
+# truth rather than pick a winner.
+# SECURITY CONTRACT: 'POP3 Password' / 'IMAP Password' / 'SMTP Password'
+# values (DPAPI blobs) are never read - not even for a presence check.
+# Only the explicitly listed metadata value names are accessed.
+# ----------------------------------------
+if (Test-SectionEnabled "33") {
+Start-Section -Id "33" -Title "Outlook Mail Accounts (CSV)" -FileName $null
+$sectionStatus = 'Success'
+$sectionReason = $null
+
+try {
+    # Resolve which user hive to read. The SourceUser column records whose
+    # hive was actually read so the evidence is self-describing even when
+    # redirection falls back to the process user.
+    $hkcuInfo = Resolve-HkcuRoot
+    $sourceUser = if ($hkcuInfo.Redirected) {
+        "$($hkcuInfo.Label) SID=$($hkcuInfo.SID)"
+    } else {
+        "$env:USERDOMAIN\$env:USERNAME (process user)"
+    }
+    Out-Log "Source hive: $($hkcuInfo.PsDrivePath) ($sourceUser)"
+
+    # Re-ensure the HKU PSDrive at script scope: the drive created inside
+    # Resolve-HkcuRoot can evaporate when the function scope exits (same
+    # pitfall reg_hkcu_config guards against), and a missing drive here
+    # would silently turn a redirected read into a false "no Outlook
+    # profiles" skip.
+    if ($hkcuInfo.Redirected -and -not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+        New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null
+    }
+
+    # MAPI "Internet Account" service container (POP / IMAP / SMTP)
+    $internetAccountGuid = '9375CFF0413111d3B88A00104B2A6676'
+
+    $accountRows    = @()
+    $dataFileRows   = @()
+    $parseWarnCount = 0
+    $profilesFound  = $false
+
+    foreach ($officeVer in @('16.0', '15.0')) {
+        $profilesRoot = "$($hkcuInfo.PsDrivePath)\Software\Microsoft\Office\$officeVer\Outlook\Profiles"
+        if (-not (Test-Path -LiteralPath $profilesRoot)) { continue }
+        $profilesFound = $true
+        Out-Log "Profiles root found: Office $officeVer"
+
+        $profileKeys = @()
+        try {
+            $profileKeys = @(Get-ChildItem -LiteralPath $profilesRoot -ErrorAction Stop)
+        }
+        catch {
+            Out-Log "  [WARN] Could not enumerate profiles under Office $officeVer : $_" -Color Yellow
+            $parseWarnCount++
+            continue
+        }
+
+        foreach ($profKey in $profileKeys) {
+            $profileName = Split-Path -Path $profKey.PSPath -Leaf
+            Out-Log "  [profile] $profileName"
+
+            $profilePsts = @(Get-PstPathsFromOutlookProfile -ProfileKeyPath $profKey.PSPath)
+            foreach ($p in $profilePsts) {
+                $dataFileRows += [PSCustomObject]@{
+                    OfficeVersion = $officeVer
+                    ProfileName   = $profileName
+                    PstPath       = $p
+                    FileExists    = (Test-Path -LiteralPath $p)
+                    SourceUser    = $sourceUser
+                }
+            }
+            Out-Log "    PST stores in profile: $($profilePsts.Count)"
+
+            $accountsRoot = Join-Path $profKey.PSPath $internetAccountGuid
+            if (-not (Test-Path -LiteralPath $accountsRoot)) {
+                Out-Log "    no internet-account container (no POP/IMAP accounts)"
+                continue
+            }
+
+            $accountKeys = @()
+            try {
+                $accountKeys = @(Get-ChildItem -LiteralPath $accountsRoot -ErrorAction Stop)
+            }
+            catch {
+                Out-Log "    [WARN] Could not enumerate accounts in '$profileName': $_" -Color Yellow
+                $parseWarnCount++
+                continue
+            }
+
+            foreach ($acctKey in $accountKeys) {
+                $subKeyName = Split-Path -Path $acctKey.PSPath -Leaf
+                if ($subKeyName -notmatch '^[0-9A-Fa-f]{8}$') { continue }
+
+                try {
+                    $rk = Get-Item -LiteralPath $acctKey.PSPath -ErrorAction Stop
+
+                    $pop3Server = Get-OutlookRegString -RegKey $rk -Name 'POP3 Server'
+                    $imapServer = Get-OutlookRegString -RegKey $rk -Name 'IMAP Server'
+                    $acctName   = Get-OutlookRegString -RegKey $rk -Name 'Account Name'
+                    $email      = Get-OutlookRegString -RegKey $rk -Name 'Email'
+
+                    $acctType = if (-not [string]::IsNullOrWhiteSpace($pop3Server)) { 'pop3' }
+                                elseif (-not [string]::IsNullOrWhiteSpace($imapServer)) { 'imap' }
+                                else { 'other' }
+
+                    if ($acctType -eq 'other' -and
+                        [string]::IsNullOrWhiteSpace($acctName) -and
+                        [string]::IsNullOrWhiteSpace($email)) {
+                        # Service subkey without any account identity
+                        continue
+                    }
+
+                    $row = [PSCustomObject]@{
+                        OfficeVersion            = $officeVer
+                        ProfileName              = $profileName
+                        AccountSubKey            = $subKeyName
+                        AccountType              = $acctType
+                        AccountName              = $acctName
+                        DisplayName              = (Get-OutlookRegString -RegKey $rk -Name 'Display Name')
+                        Email                    = $email
+                        ReplyEmail               = (Get-OutlookRegString -RegKey $rk -Name 'Reply E-mail')
+                        Organization             = (Get-OutlookRegString -RegKey $rk -Name 'Organization')
+                        IncomingServer           = ''
+                        IncomingPort             = ''
+                        IncomingUserName         = ''
+                        IncomingUseSSL           = ''
+                        IncomingSecureConnection = ''
+                        IncomingUseSPA           = ''
+                        IncomingFolderPath       = ''
+                        OutgoingServer           = (Get-OutlookRegString -RegKey $rk -Name 'SMTP Server')
+                        OutgoingPort             = (Get-OutlookRegDword  -RegKey $rk -Name 'SMTP Port')
+                        OutgoingUserName         = (Get-OutlookRegString -RegKey $rk -Name 'SMTP User')
+                        OutgoingUseSSL           = (Get-OutlookRegDword  -RegKey $rk -Name 'SMTP Use SSL')
+                        OutgoingUseAuth          = (Get-OutlookRegDword  -RegKey $rk -Name 'SMTP Use Auth')
+                        OutgoingAuthMethod       = (Get-OutlookRegDword  -RegKey $rk -Name 'SMTP Auth Method')
+                        OutgoingSecureConnection = (Get-OutlookRegDword  -RegKey $rk -Name 'SMTP Secure Connection')
+                        LeaveOnServer            = ''
+                        DeliveryPstPath          = ''
+                        PstDetectionMethod       = ''
+                        SourceUser               = $sourceUser
+                    }
+
+                    if ($acctType -eq 'pop3') {
+                        $row.IncomingServer           = $pop3Server
+                        $row.IncomingPort             = Get-OutlookRegDword  -RegKey $rk -Name 'POP3 Port'
+                        $row.IncomingUserName         = Get-OutlookRegString -RegKey $rk -Name 'POP3 User'
+                        $row.IncomingUseSSL           = Get-OutlookRegDword  -RegKey $rk -Name 'POP3 Use SSL'
+                        $row.IncomingSecureConnection = Get-OutlookRegDword  -RegKey $rk -Name 'POP3 Secure Connection'
+                        $row.IncomingUseSPA           = Get-OutlookRegDword  -RegKey $rk -Name 'POP3 Use Sicily'
+                        $row.LeaveOnServer            = Get-OutlookRegDword  -RegKey $rk -Name 'Leave on Server'
+
+                        # Delivery PST binding (3-stage; failure leaves the
+                        # path blank with Method=unresolved, never fails the
+                        # section)
+                        $entryIdBytes = $null
+                        try { $entryIdBytes = $rk.GetValue('Delivery Store EntryID', $null) } catch { }
+                        $resolution = Resolve-OutlookAccountPst `
+                            -Email $email -EntryIdBytes $entryIdBytes -PstCandidates $profilePsts
+                        if ($resolution.Path) { $row.DeliveryPstPath = $resolution.Path }
+                        $row.PstDetectionMethod = $resolution.Method
+                    }
+                    elseif ($acctType -eq 'imap') {
+                        $row.IncomingServer           = $imapServer
+                        $row.IncomingPort             = Get-OutlookRegDword  -RegKey $rk -Name 'IMAP Port'
+                        $row.IncomingUserName         = Get-OutlookRegString -RegKey $rk -Name 'IMAP User'
+                        $row.IncomingUseSSL           = Get-OutlookRegDword  -RegKey $rk -Name 'IMAP Use SSL'
+                        $row.IncomingSecureConnection = Get-OutlookRegDword  -RegKey $rk -Name 'IMAP Secure Connection'
+                        $row.IncomingFolderPath       = Get-OutlookRegString -RegKey $rk -Name 'IMAP Folder Path'
+                        $row.PstDetectionMethod       = 'not-applicable-imap-ost'
+                    }
+                    else {
+                        $row.PstDetectionMethod = 'not-applicable'
+                    }
+
+                    $accountRows += $row
+                    Out-Log "    [$subKeyName] $acctType $email"
+                }
+                catch {
+                    Out-Log "    [WARN] Failed to read account ${profileName}/${subKeyName}: $_" -Color Yellow
+                    $parseWarnCount++
+                }
+            }
+        }
+    }
+
+    if (-not $profilesFound) {
+        Out-Log "No Outlook Profiles registry key found (Office 16.0 / 15.0). Skipping."
+        $sectionCount++
+        $sectionStatus = 'Skipped'
+        $sectionReason = 'Outlook Profiles registry key not found (no Outlook profile configured for the source user)'
+    }
+    else {
+        $outAccounts = Join-Path $targetDir "33_OutlookAccounts.csv"
+        if (@($accountRows).Count -gt 0) {
+            $accountRows | Export-Csv -Path $outAccounts -NoTypeInformation -Encoding UTF8
+        } else {
+            # Header-only CSV: "profiles exist but zero internet accounts"
+            # is itself evidence
+            '"OfficeVersion","ProfileName","AccountSubKey","AccountType","AccountName","DisplayName","Email","ReplyEmail","Organization","IncomingServer","IncomingPort","IncomingUserName","IncomingUseSSL","IncomingSecureConnection","IncomingUseSPA","IncomingFolderPath","OutgoingServer","OutgoingPort","OutgoingUserName","OutgoingUseSSL","OutgoingUseAuth","OutgoingAuthMethod","OutgoingSecureConnection","LeaveOnServer","DeliveryPstPath","PstDetectionMethod","SourceUser"' |
+                Out-File -FilePath $outAccounts -Encoding UTF8
+        }
+        Add-SectionFile "33_OutlookAccounts.csv"
+
+        $outDataFiles = Join-Path $targetDir "33_OutlookDataFiles.csv"
+        if (@($dataFileRows).Count -gt 0) {
+            $dataFileRows | Export-Csv -Path $outDataFiles -NoTypeInformation -Encoding UTF8
+        } else {
+            '"OfficeVersion","ProfileName","PstPath","FileExists","SourceUser"' |
+                Out-File -FilePath $outDataFiles -Encoding UTF8
+        }
+        Add-SectionFile "33_OutlookDataFiles.csv"
+
+        Out-Log ("Outlook accounts: " + @($accountRows).Count + " -> 33_OutlookAccounts.csv")
+        Out-Log ("Outlook data files: " + @($dataFileRows).Count + " -> 33_OutlookDataFiles.csv")
+
+        $sectionCount++
+        if ($parseWarnCount -gt 0) {
+            $sectionStatus = 'Partial'
+            $sectionReason = "$parseWarnCount registry subtree(s) could not be read"
+        }
+    }
+}
+catch {
+    Out-Log "[ERROR] Failed to collect Outlook account evidence: $_" -Color Red
+    $failCount++
+    $sectionStatus = 'Failed'
+    $sectionReason = "$($_.Exception.Message)"
+}
+Close-Section -Status $sectionStatus -Reason $sectionReason
+} else {
+    Write-DisabledSection -Id "33" -Title "Outlook Mail Accounts (CSV)"
 }
 
 # ----------------------------------------

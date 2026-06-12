@@ -101,7 +101,7 @@ manifest 不在の旧形式 evidence も外部ツールはサポートし続け�
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | セクション ID。`"01"`〜`"22"`、`"8b"` 等の副 ID も許容 |
+| `id` | string | yes | セクション ID。`"01"`〜`"33"`（evidence_config v1.8.0 時点）、`"8b"` 等の副 ID も許容。ID の追加は schemaVersion を変えない（§4.1 前方互換ルール） |
 | `title` | string | yes | セクション名（例: `"System Basic Info"`） |
 | `files` | string[] | yes | manifest 親ディレクトリからの相対パス配列。`/` で終わる文字列はディレクトリを意味する。書き込みファイルが無ければ空配列 |
 | `status` | enum | yes | `"Success"` / `"Skipped"` / `"Failed"` / `"Partial"` のいずれか |
