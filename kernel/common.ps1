@@ -2114,8 +2114,17 @@ function Write-ExecutionHistory {
         $mediaSerial = $script:SessionInfo.MediaSerial
     }
 
+    # Redact the host PIN if it leaked into a module message (mirrors the
+    # telemetry hard-redact in New-TelemetryRedactMap). The checklist is a
+    # deliverable, so PC name / KanriNo stay in cleartext by design - only
+    # the PIN is stripped here.
+    $safeMessage = $Message
+    if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_PIN)) {
+        $safeMessage = $safeMessage.Replace($env:SELECTED_PIN, "[REDACTED]")
+    }
+
     # CSV Escape (if containing comma or newlines)
-    $escapedMessage = $Message -replace '"', '""'
+    $escapedMessage = $safeMessage -replace '"', '""'
     if ($escapedMessage -match '[,\r\n]') {
         $escapedMessage = "`"$escapedMessage`""
     }
@@ -3098,6 +3107,11 @@ function Save-ResumeState {
         AutoPilot        = $global:AutoPilotMode
         AutoPilotWaitSec = $global:AutoPilotWaitSec
         SessionID        = $script:SessionID
+        # Hardware identity of the PC that wrote this state. Load-ResumeState
+        # rejects a state carried over from a DIFFERENT PC (shared media).
+        # FabriqUniqueId is the BIOS SN / MAC-derived ID, stable across the
+        # hostname change that resume itself performs.
+        HardwareUniqueId = $global:FabriqUniqueId
         ResumeAfterOrder = $ResumeAfterOrder
         CompletedModules = @($CompletedModules | ForEach-Object {
             # Order included so post-restart resume can re-Add-ExecutionResult
@@ -3170,6 +3184,22 @@ function Load-ResumeState {
     try {
         $json = Get-Content $script:ResumeStatePath -Raw -Encoding UTF8
         $loaded = $json | ConvertFrom-Json
+
+        # Reject a resume_state.json carried over from a DIFFERENT PC (e.g.
+        # via shared media). The check fires only when BOTH the saved file
+        # and the current session carry a hardware ID and they differ, so a
+        # legacy state without HardwareUniqueId is accepted unchanged
+        # (backward compatible). The file is NOT deleted: it may be another
+        # PC's legitimate state living on the shared medium.
+        $savedUid = if ($null -ne $loaded.HardwareUniqueId) { "$($loaded.HardwareUniqueId)" } else { "" }
+        $thisUid  = "$($global:FabriqUniqueId)"
+        if (-not [string]::IsNullOrWhiteSpace($savedUid) -and `
+            -not [string]::IsNullOrWhiteSpace($thisUid) -and `
+            $savedUid -ne $thisUid) {
+            Show-Error "resume_state.json belongs to a different PC (saved=$savedUid, this=$thisUid). Ignoring it; the file was NOT deleted."
+            return $null
+        }
+
         # Telemetry kernel event: resume-consumed. Note that Load-ResumeState
         # may be called multiple times; we accept potential duplicates rather
         # than tracking "first call" state. SessionID at load time may be

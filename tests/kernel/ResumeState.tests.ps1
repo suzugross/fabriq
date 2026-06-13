@@ -38,6 +38,10 @@ Describe 'Save-ResumeState / Load-ResumeState' {
         $global:AutoPilotWaitSec       = 3
         $global:FabriqMasterPassphrase = $null
         $global:FabriqEvidenceBasePath = 'C:\test\evidence'
+        # Hardware identity this PC writes into / checks against the state
+        # (TM t-0029 cross-PC guard). Default matches itself so existing
+        # round-trip tests exercise the accept path.
+        $global:FabriqUniqueId         = 'TEST-UID-001'
     }
 
     AfterEach {
@@ -311,6 +315,67 @@ Describe 'Save-ResumeState / Load-ResumeState' {
             $loaded.SessionID        | Should -Be 'legacy-session'
             $loaded.ResumeAfterOrder | Should -Be 20
             $loaded.PSObject.Properties.Name | Should -Not -Contain 'schemaVersion'
+        }
+    }
+
+    Context 'Cross-PC identity guard (TM t-0029)' {
+
+        It 'records the writing PC HardwareUniqueId in the saved state' {
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 10 -CompletedModules @()
+            $loaded = Get-Content $script:tmpStatePath -Raw | ConvertFrom-Json
+            $loaded.HardwareUniqueId | Should -Be 'TEST-UID-001'
+        }
+
+        It 'loads a state whose HardwareUniqueId matches this PC' {
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 10 -CompletedModules @()
+            $loaded = Load-ResumeState
+            $loaded                  | Should -Not -BeNullOrEmpty
+            $loaded.ResumeAfterOrder | Should -Be 10
+        }
+
+        It 'rejects a state carried over from a DIFFERENT PC (returns $null)' {
+            # Simulate: PC-SOURCE wrote the state, the media is then carried
+            # to this PC (TEST-UID-001).
+            $global:FabriqUniqueId = 'PC-SOURCE'
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 10 -CompletedModules @()
+            $global:FabriqUniqueId = 'TEST-UID-001'
+            $loaded = Load-ResumeState
+            $loaded | Should -BeNullOrEmpty
+        }
+
+        It 'does NOT delete the foreign-PC state file when rejecting it' {
+            $global:FabriqUniqueId = 'PC-SOURCE'
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 10 -CompletedModules @()
+            $global:FabriqUniqueId = 'TEST-UID-001'
+            $null = Load-ResumeState
+            Test-Path $script:tmpStatePath | Should -BeTrue
+        }
+
+        It 'accepts a legacy state with no HardwareUniqueId field (backward compatible)' {
+            $legacy = @{
+                ProfilePath      = 'foo'
+                ProfileName      = 'foo'
+                AutoPilot        = $false
+                AutoPilotWaitSec = 3
+                SessionID        = 'legacy-session'
+                ResumeAfterOrder = 15
+                CompletedModules = @()
+                HostEnvironment  = @{}
+                EvidenceBasePath = ''
+                ProfileStartTime = (Get-Date).ToString('o')
+            }
+            $legacy | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:tmpStatePath -Encoding UTF8 -Force
+            $loaded = Load-ResumeState
+            $loaded                  | Should -Not -BeNullOrEmpty
+            $loaded.ResumeAfterOrder | Should -Be 15
+        }
+
+        It 'accepts the state when this PC has no FabriqUniqueId set (guard inert)' {
+            $global:FabriqUniqueId = 'PC-SOURCE'
+            Save-ResumeState -ProfilePath 'foo' -ProfileName 'foo' -ResumeAfterOrder 10 -CompletedModules @()
+            $global:FabriqUniqueId = $null
+            $loaded = Load-ResumeState
+            $loaded | Should -Not -BeNullOrEmpty
         }
     }
 }

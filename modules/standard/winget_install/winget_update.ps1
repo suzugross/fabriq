@@ -105,22 +105,32 @@ try {
             # is not trustworthy here. Read the version back (a fresh
             # process runs the NEW binary) and let that decide. Retries
             # absorb MSIX registration latency.
+            # Probe budget widened to ~18s (6 x 3s): MSIX re-registration of
+            # the new App Installer can exceed the old 6s on slow disks and
+            # was producing a false Error. The break still fires as soon as a
+            # changed version is observed, so a fast machine is unaffected.
             $versionAfter = ""
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-                Start-Sleep -Seconds 2
+            for ($attempt = 1; $attempt -le 6; $attempt++) {
+                Start-Sleep -Seconds 3
                 try { $versionAfter = "$(& winget --version 2>$null)".Trim() } catch { $versionAfter = "" }
                 if ($versionAfter -and $versionAfter -ne $versionBefore) { break }
             }
 
-            if ($versionAfter -and $versionAfter -ne $versionBefore) {
+            # The success verdict requires a KNOWN baseline. If $versionBefore
+            # could not be read before the upgrade (empty), a non-empty
+            # $versionAfter only proves winget still runs, not that it was
+            # upgraded - claiming Success there would be a false positive. In
+            # that case fall through to the exit-code-based Error (fail-closed).
+            if ($versionBefore -and $versionAfter -and $versionAfter -ne $versionBefore) {
                 Show-Success "winget updated successfully ($versionBefore -> $versionAfter, ExitCode: $($process.ExitCode))"
                 Write-Host ""
                 return (New-ModuleResult -Status "Success" -Message "Microsoft.AppInstaller updated ($versionBefore -> $versionAfter)" -Verified $true)
             }
 
-            Show-Error "winget upgrade exited with code $($process.ExitCode) and the version did not change ($versionBefore)"
+            $baselineNote = if ($versionBefore) { "version unchanged: $versionBefore" } else { "pre-upgrade version was unreadable - cannot confirm update" }
+            Show-Error "winget upgrade exited with code $($process.ExitCode); $baselineNote"
             Write-Host ""
-            return (New-ModuleResult -Status "Error" -Message "winget upgrade failed (ExitCode: $($process.ExitCode), version unchanged: $versionBefore)")
+            return (New-ModuleResult -Status "Error" -Message "winget upgrade failed (ExitCode: $($process.ExitCode), $baselineNote)")
         }
     }
 }
