@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-13 17:38
+最終更新: 2026-06-13 17:52
 
-## 未着手 (2)
+## 未着手 (1)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -14,15 +14,6 @@
 ・manifesto画面起動機能追加
 
 <sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
-
-### [t-0036] FabriqIOS機能7
-
-**内容:**
-
-moduleでのEnableの扱いですが、暗黙的に1とし、setコマンドで明示する必要がないようにしたい。
-タブや？での解決も意図的に排除して、オペレータがEnableカラムの存在を意識しないようにしたい。
-
-<sub>更新: 2026-06-13 17:38 ／ 作成: 2026-06-13 17:35</sub>
 
 ## レビュー待ち (4)
 
@@ -131,7 +122,7 @@ KERNEL_API.md: 更新不要で確定 — Save-/Load-ResumeState/Write-ExecutionH
 
 <sub>更新: 2026-06-13 12:30 ／ 作成: 2026-06-12 22:00</sub>
 
-## 完了 (29)
+## 完了 (30)
 
 ### [t-0001] example設定値の統一
 
@@ -726,6 +717,25 @@ domain_joinです。
 状態: 実装完了・未コミット。実機(module domain_join -> set 実行でドメイン参加)確認待ちでレビュー待ち。
 
 <sub>更新: 2026-06-13 17:35 ／ 作成: 2026-06-13 14:21</sub>
+
+### [t-0036] FabriqIOS機能7
+
+**内容:**
+
+moduleでのEnableの扱いですが、暗黙的に1とし、setコマンドで明示する必要がないようにしたい。
+タブや？での解決も意図的に排除して、オペレータがEnableカラムの存在を意識しないようにしたい。
+
+**Claudeメモ:**
+
+実装済み (apps/fabriq_ios 0.7.0 -> 0.7.1)。ModuleConfig の Enabled カラムをオペレータから隠蔽。
+現状確認: 「明示不要」は既に達成済み(Invoke-ModuleEphemeralRun が Enabled 未指定なら自動 1)。残課題は可視性のみだった。
+対処: 隠蔽列リスト $script:FabriqIosHiddenColumns=@('Enabled') + ヘルパ Get-FabriqIosVisibleColumns(module.ps1) を新設し、(1) show の列一覧 (2) show の Notes の Enabled 行 (3) Tab/インライン ? の列候補(completer.ps1 の set/add 補完 3 箇所) から Enabled を除外。
+暗黙 Enabled=1 のデフォルトは維持(機能不変)。明示 set Enabled <v> はバリデーション上は引き続き受理(隠れているだけで capability は削らない=user 判断の『隠蔽のみ』方針)。
+触ったファイル: lib/commands/module.ps1(定数+ヘルパ+show), lib/completer.ps1(補完3箇所), tests/completer.tests.ps1(module.ps1 source 追加 + Enabled 非表示テスト 2), VERSION, CHANGELOG。
+検証: powershell.exe 5.1 dev/run_tests.ps1 -> 320 pass / 0 fail / exit 0。
+状態: 実装完了。実機(module <name> -> show / set <Tab> に Enabled が出ないこと)確認待ちでレビュー待ち。
+
+<sub>更新: 2026-06-13 17:52 ／ 作成: 2026-06-13 17:35</sub>
 
 ## 保留 (1)
 
