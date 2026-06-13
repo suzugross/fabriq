@@ -1,6 +1,12 @@
 ■ 概要
 デスクトップの壁紙を設定します。
-Windows APIで即時反映されるため、再起動は不要です。
+キッティング向けに堅牢化しており、以下を行います。
+  1. 画像をローカルの固定フォルダ（C:\Windows\Web\Wallpaper\fabriq）へコピーしてから参照する。
+     レジストリや SystemParametersInfo にはコピー後のローカル絶対パスのみを書き込むため、
+     USB メモリから実行しても、USB を抜く／再起動／ドライブレター変更で壁紙が消えません。
+  2. 壁紙を「現在/次回ログオンのユーザー」に加えて、Active Setup（初回ログオン1回）で
+     「キッティング後に作成される新規ユーザー」にも反映します。新規ユーザーでは壁紙は変更可能なまま残ります。
+Windows API で即時反映されるため（現在ユーザー分は）再起動は不要です。
 
 ■ 設定ファイル
 [wallpaper_list.csv]
@@ -25,30 +31,71 @@ Windows APIで即時反映されるため、再起動は不要です。
 ・絶対パスの場合：任意の場所を直接指定可能
 ・対応形式：jpg, jpeg, png, bmp, gif, tif, tiff
 
+■ ローカルコピーについて（重要）
+・Type=Image の画像は、相対パス／絶対パスを問わず、適用前に
+  C:\Windows\Web\Wallpaper\fabriq へコピーし、レジストリ等にはコピー先のパスを書き込みます。
+・C:\Windows\Web\Wallpaper は全ユーザー（新規ユーザー含む）から読める Windows 標準の場所のため、
+  既定プロファイル反映後の新規ユーザーでも確実に表示できます。
+・冪等性：コピー先に同名・同内容（SHA256 一致）のファイルが既にあればコピーをスキップします。
+・同名で内容が異なる画像を複数指定すると後勝ちになるため、異なる画像には異なるファイル名を付けてください。
+・SolidColor（単色）はコピー対象外です。
+
+■ 新規ユーザー（キッティング後に作成されるユーザー）への反映
+・Active Setup を使用します。各ユーザーの初回ログオン時に1回だけ実行される小さなスクリプト
+  （C:\ProgramData\fabriq\wallpaper_default_apply.ps1）を配備し、HKLM の Active Setup に登録します。
+  そのスクリプトが SystemParametersInfo で壁紙（ローカルコピー先のパス）をライブ適用します。
+・複数の Image を有効にした場合は「最後に適用された壁紙」を新規ユーザーに反映します
+  （現在ユーザーのデスクトップ結果と一致）。SolidColor の場合は単色背景を反映します。
+・なぜ Active Setup か：既定プロファイル C:\Users\Default\NTUSER.DAT の Control Panel\Desktop\WallPaper を
+  書いても、Windows 10/11 では新規ユーザーの初回ログオン時にテーマエンジンが上書きするため反映されません。
+  Active Setup はテーマ適用後に走るため確実に表示され、しかもユーザーは後から壁紙を変更できます（ロックしません）。
+・Active Setup の登録に失敗した場合は、現在/次回ログオンユーザーへの反映は継続しつつ
+  結果に注記し、Verified を FAIL とします。
+・補足：Active Setup の Version は固定（1,0,0,0）です。既にこのスクリプトを実行済みのユーザーは
+  再ログオンしても再実行されません（新規ユーザーのみ1回）。キッティングは1回適用が前提のため問題ありません。
+  壁紙を変更して再適用する場合は、既存ユーザーには反映されず新規ユーザーにのみ反映されます。
+
+■ Desktop Spotlight の無効化
+・Desktop Spotlight（デスクトップ背景を自動で切り替える機能）が有効だと、静的な壁紙より優先されて
+  壁紙が反映されないことがあります。そのため本モジュールは壁紙を適用する前に Spotlight を無効化します。
+・対象: HKCU\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings の EnabledState（REG_DWORD）= 0
+・現在/次回ログオンユーザー（HKCU）と、既定プロファイル（C:\Users\Default\NTUSER.DAT を一時マウント）の
+  両方へ書き込みます。EnabledState はテーマ管理外の通常設定のため、既定 hive への書き込みは
+  新規ユーザーに継承されます（壁紙パスと異なり上書きされません）。
+・既定 hive のアンロードに失敗した場合は ntuser.dat がロックされたまま残り後続処理に影響するため、
+  結果を失敗（Verified=FAIL）に倒します。
+
 ■ Style の省略
 Style を空欄にした場合は Fill がデフォルトで適用されます。
 
 ■ 単色背景について
 ・Type=SolidColor の場合、FileName と Style は不要（空欄可）
 ・Color にRGB値をスペース区切りで指定（例: 0 99 177）
-・壁紙パスがクリアされ、指定色の単色背景が即時適用されます
+・壁紙パスがクリアされ、指定色の単色背景が適用されます
 
 ■ 前提条件
-・管理者権限が必要です（Resolve-HkcuRoot により SYSTEM 起動時などは
-  ログオン中ユーザーの HKCU ハイブへリダイレクト書き込みを行うため）
+・管理者権限が必須です（C:\Windows 配下への書き込み、HKLM の Active Setup 登録、
+  既定プロファイルハイブの reg load のため）。
+・Resolve-HkcuRoot により、SYSTEM/別ユーザー起動時はログオン中ユーザーの HKCU ハイブへ
+  リダイレクト書き込み（次回ログオンで反映）を行います。
 
 ■ AutoPilot
 AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
 
 ■ Post-Apply Verification
-本モジュールは Post-Apply Verification を実装していません。
-壁紙適用は Win32 API（SystemParametersInfo）の戻り値で成否を判定しますが、
-適用後にレジストリ（Control Panel\Desktop\WallPaper 等）を読み返して
-期待値と一致するかを検証する専用ステップはありません。
-New-BatchResult に -Verified は渡していないため、
-実行履歴の Verified 列は空欄になります。
+本モジュールは Post-Apply Verification を実装しています。検証対象は次のとおりで、
+すべて成功した場合のみ New-BatchResult に -Verified $true を渡します（実行履歴の Verified 列に反映）。
+・Desktop Spotlight の EnabledState=0 が現在ユーザーと既定 hive に書き込まれたこと
+・コピー先ファイルの存在と、現在/次回ログオンユーザーの WallPaper 値
+  （SolidColor は WallPaper 空 + Colors\Background）が期待値と一致すること
+・新規ユーザー向け Active Setup（HKLM キー + 配備スクリプト）が登録されたこと
+いずれかが失敗、または既定 hive のアンロードに失敗した場合は Verified=FAIL となります。
 
 ■ 動作の流れ
 1. wallpaper_list.csv を読み込み
 2. 画像ファイルの存在と形式、またはRGB色値を確認して一覧表示
-3. 実行確認（Y/N）後、壁紙または単色背景を適用
+3. 実行確認（Y/N）
+4. Desktop Spotlight を無効化（現在ユーザー HKCU + 既定 hive を reg load して書込→unload）
+5. 各項目について：画像をローカルへコピー → 現在/次回ログオンユーザーへ反映 → 検証（最終適用状態を記録）
+6. 新規ユーザー向けに Active Setup を登録（記録した最終状態を初回ログオンで再適用するスクリプトを配備）
+7. 結果（成功/スキップ/失敗 と Verified）を返す
