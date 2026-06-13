@@ -16,6 +16,16 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_ios v0.4.1 → v0.5.0 (TM t-0034): `reload` をスタブから本実装。Cisco 風の
+  `Proceed with reload? [confirm]` 確認（Enter / y で続行、それ以外で中止）→ 再起動後に
+  `Fabriq_IOS.exe` を立ち上げ直す HKLM RunOnce を武装（カーネルの `FabriqAutoStart` と衝突
+  しない別名 `FabriqIosAutoStart`）→ RESTART syslog + manifesto のシュルキティニスム演出を
+  間を取って流す → `Restart-Computer -Force`。RunOnce 武装に失敗した場合は fail-closed で
+  再起動せず中止（IOS が戻れない状態で reboot しない）。RunOnce は次回ログオン時に 1 度だけ
+  発火するため、autologon 設定済みなら自動復帰、未設定ならログオン後に IOS が起動する
+  （autologon の自動設定は対象外）。`do reload` も同じ確認・再起動経路を通る。IOS はステート
+  レスのため復帰は fresh 起動でカーネル resume_state は使わない。kernel 公開 API 不変・
+  REQUIRES_KERNEL 据置。
 - apps/fabriq_ios v0.3.5 → v0.4.0 (TM t-0030): Cisco IOS 風の `do <EXEC command>`
   をコンフィグ系モード（GlobalConfig / InterfaceConfig / ModuleConfig）に追加。
   `(config)# do sh run` のように、現在のモード・コンテキスト（選択中インターフェース /

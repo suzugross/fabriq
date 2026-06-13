@@ -10,7 +10,10 @@ INTERFACE,5,configured,"Interface {Alias}, the metallic vein, is now configured.
 INTERFACE,6,opened,Interface {Alias} is now an open mouth speaking in packets.
 MANIFESTO,7,quote,"Surkittinism is the convulsive beauty of mass deployment, or it is nothing."
 AUTOMATE,3,error_default,The machine speaks but no one is listening: {Detail}.
+RESTART,5,reload_requested,Reload requested by the operator. The seance gathers itself for one last breath.
+RESTART,6,saving_dreams,Building configuration... the unfinished poems are folded back into the silicon.
 RESTART,4,reload_dream,The machine shall close its eyes and open them again. Save your unfinished poems.
+RESTART,5,reload_now,The machine closes its eyes now. When they open, this shell shall return.
 ENABLE,5,seance_begins,The seance begins. Your shadow now wears the privileged crown.
 ENABLE,3,passphrase_refused,The wall refuses your password. Try again or remain in the daylight.
 DISABLE,5,disrobed,The crown has been returned. You walk the daylight once more.
