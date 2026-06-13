@@ -26,6 +26,13 @@
   リゾルバ語彙には載せない（略語化・ディスパッチャ漏れ回避）。help にも表示。
   Tab 補完への候補追加は次段（範囲外）。kernel 公開 API 不変・REQUIRES_KERNEL 据置。
 
+### Changed
+- dev/launcher/Launcher_IOS.cs (Fabriq_IOS.exe 再ビルド): .exe 起動時のブートストラップ
+  コンソール（conhost 待機窓）を最小化起動に変更（`WindowStyle = Minimized`）。この窓は
+  自己 spawn ガードを実行して子シェルの終了を待つだけで、従来は対話シェルの隣にブランクの
+  待機窓として表示されていた。対話シェル（子プロセス）は従来どおり通常表示・フォーカスで開く。
+  ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
+
 ### Security
 - kernel/common.ps1 (Write-ExecutionHistory): 実行履歴 CSV / HTML チェックリストの
   Message 欄に host PIN が混入した場合に備え、telemetry と同じハードリダクト

@@ -61,12 +61,21 @@ namespace FabriqIos
                 // spawn into an isolated subprocess (FABRIQ_IOS_SUBPROCESS
                 // sentinel) so PSReadLine handlers / env vars / global
                 // state never leak back into the launcher process.
+                //
+                // Start this bootstrap console minimized: it only runs the
+                // self-spawn guard and then blocks on the child shell, so it
+                // would otherwise sit on screen as a blank idle window beside
+                // the interactive shell. The child shell is spawned by the
+                // ps1 with the default (normal) window style, so it still
+                // opens visible and focused. UseShellExecute=true is required
+                // for WindowStyle to take effect.
                 var psi = new ProcessStartInfo
                 {
                     FileName = "conhost.exe",
                     Arguments = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \".\\apps\\fabriq_ios\\fabriq_ios.ps1\"",
                     WorkingDirectory = baseDir,
                     UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Minimized,
                 };
 
                 Process.Start(psi);
