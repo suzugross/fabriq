@@ -198,11 +198,17 @@ public class PpkgFileCleanup {
     # package file") and Skip ("Already clean") for states where the
     # package was in fact still registered.
     Start-Sleep -Seconds 2
-    $verifyPkg = Get-ProvisioningPackage -AllInstalledPackages -ErrorAction SilentlyContinue |
+    $verifyErr = $null
+    $verifyPkg = Get-ProvisioningPackage -AllInstalledPackages -ErrorAction SilentlyContinue -ErrorVariable verifyErr |
         Where-Object { $_.PackageName -eq $item.PackageName }
 
-    if ($verifyPkg) {
-        $why = if ($removeError) { "removal attempt failed: $removeError" } else { "entry still registered" }
+    # A failed re-query (not just "no match") must not be read as "package
+    # gone". Treat a query error like a still-present package: pending, so
+    # the operator re-runs after restart - the established straddle contract.
+    if ($verifyPkg -or $verifyErr) {
+        $why = if ($removeError)     { "removal attempt failed: $removeError" }
+               elseif ($verifyErr)   { "verification re-query failed: $($verifyErr[0].Exception.Message)" }
+               else                  { "entry still registered" }
         Show-Warning "Pending: $($item.PackageName) - $why (re-run this module after restart)"
         $successCount++
         $pendingCount++

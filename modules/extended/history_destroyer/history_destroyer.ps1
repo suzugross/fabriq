@@ -495,7 +495,10 @@ foreach ($item in $enabledItems) {
                 # denials, so count the values that actually remain.
                 # '(default)' is excluded - the wildcard above does not
                 # target the default value, so it is not a failure signal.
+                # If the read-back itself fails we cannot confirm the clear,
+                # so that is an Error (fail-closed), not a silent Success.
                 $remainingValues = 0
+                $verdictReadable = $true
                 try {
                     $keyItem = Get-Item -Path $item.TargetPath -ErrorAction Stop
                     $remainingValues += @($keyItem.Property | Where-Object { $_ -ne '(default)' }).Count
@@ -503,9 +506,13 @@ foreach ($item in $enabledItems) {
                         $remainingValues += @($subKey.Property | Where-Object { $_ -ne '(default)' }).Count
                     }
                 }
-                catch { }
+                catch { $verdictReadable = $false }
 
-                if ($remainingValues -gt 0) {
+                if (-not $verdictReadable) {
+                    Show-Error "Registry clear could not be verified (read-back failed, access denied?): $displayName"
+                    $failCount++
+                }
+                elseif ($remainingValues -gt 0) {
                     Show-Error "Registry values remain after clear ($remainingValues left, access denied?): $displayName"
                     $failCount++
                 }

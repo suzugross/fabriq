@@ -15,7 +15,38 @@
 
 ## [Unreleased]
 
-### Added
+### Security
+- kernel/common.ps1 (Write-ExecutionHistory): 実行履歴 CSV / HTML チェックリストの
+  Message 欄に host PIN が混入した場合に備え、telemetry と同じハードリダクト
+  （SELECTED_PIN → [REDACTED]）を CSV エスケープ前の単一チョークポイントに追加
+  (TM t-0029(1))。能動漏えいは未確認だが多層防御。納品物の性質上 PC 名・管理番号は
+  平文のまま（仕様）。kernel 内部実装（KERNEL_API §6）のため PATCH 相当・公開 API 不変。
+- kernel/common.ps1 (Save-/Load-ResumeState): 別 PC の resume_state.json を共有メディア
+  経由で持ち込んだ際の誤再開を防止 (TM t-0029(4))。Save が書き手 PC の HardwareUniqueId
+  （BIOS SN / MAC 由来・ホスト名変更を跨いで安定）を記録し、Load が現在値と照合。
+  両側が非空かつ相違のときのみ拒否（Show-Error + return $null）し、ファイルは削除しない
+  （他 PC の正規 state を破壊しないため）。HardwareUniqueId を持たない旧 state は照合スキップ
+  で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
+
+### Fixed
+- modules/standard/winget_install v1.1.0 → v1.1.1 (Fixed: 偽 Success / 偽 Error の縁,
+  TM t-0029(6)): winget 自己更新の unknown-exit-code 分岐で、(a) 更新前バージョンが
+  読めなかった（versionBefore 空）場合に「version が変わった」判定が成立して偽 Success +
+  Verified=true になり得たのを、baseline 不明時は exit code 準拠の Error に倒す
+  （fail-closed）よう修正。(b) MSIX 再登録待ちのプローブ上限 6s（3×2s）を 18s（6×3s）に
+  拡大し、遅いディスクでの偽 Error を解消。正常 exit code 経路（0/3010/up-to-date）は不変。
+- modules/standard/ppkg_config v1.1.0 → v1.1.1 (Fixed: Phase3 再クエリの fail-open,
+  TM t-0029(7)): アンインストール検証の store 再クエリ（Get-ProvisioningPackage）が
+  SilentlyContinue のみで、クエリ自体が失敗すると $verifyPkg=$null → 「パッケージ消滅」
+  扱いで verified に誤判定していた。-ErrorVariable でクエリ失敗を捕捉し、その場合は
+  still-present と同様に pending（Success + Verified=false + 再起動後 re-run 案内）へ合流。
+  absent→verified / present→pending の正常 2 経路と再起動跨ぎ契約は不変。
+- modules/extended/history_destroyer v1.2.0 → v1.2.1 (Fixed: ClearRegistry 読み返しの
+  fail-open, TM t-0029(8)): クリア後の値読み返しが catch{} で握り潰され、読み返し自体が
+  失敗（アクセス拒否等）しても $remainingValues=0 のまま Success になっていた。
+  $verdictReadable フラグで読み返し不能を Error 計上（fail-closed）に分離。読み返しが
+  成功する経路（残値あり=Error / ゼロ=Success）は不変。
+- modules/standard/firewall_rule_make_config v1.1.0 → v1.1.1 (Fixed: 数値プロトコルの
 - modules/standard/evidence_config v1.7.1 → v1.8.0 (Added: §32 Credential Manager +
   §33 Outlook Mail Accounts, TM t-0002): fabriq_backuper の実装を evidence 向けに移植。
   §32 = CredEnumerateW で実行ユーザー vault のメタデータのみ列挙（32_Credentials.csv。
