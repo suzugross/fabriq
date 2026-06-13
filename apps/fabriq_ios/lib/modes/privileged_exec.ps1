@@ -7,6 +7,8 @@ function Invoke-PrivilegedExecCommand {
     )
     switch ($Resolved.Command) {
         'show' { Invoke-ShowCommand -ArgList $Resolved.Args -State $State }
+        'ping'       { Invoke-FabriqIosPing -State $State -ArgList $Resolved.Args }
+        'traceroute' { Invoke-FabriqIosTraceroute -State $State -ArgList $Resolved.Args }
         'configure' {
             if ($Resolved.Args.Count -lt 1 -or $Resolved.Args[0] -ne 'terminal') {
                 Write-Host "% Incomplete: 'configure terminal' (or 'conf t')" -ForegroundColor Red

@@ -16,6 +16,15 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_ios v0.5.0 → v0.6.0 (TM t-0031): Cisco IOS 風の `ping` / `traceroute` を実装（User EXEC /
+  Privileged EXEC、`do ping` / `do traceroute` も可）。Windows の ping.exe/tracert.exe は使わず
+  ICMP（System.Net.NetworkInformation.Ping、traceroute は PingOptions.Ttl を 1→30）で IOS の
+  既定値・出力を再現: ping=5 回 / 2s / 100-byte で `!`(応答) `.`(timeout) `U`(unreachable) +
+  "Success rate is N percent (r/s), round-trip min/avg/max = a/b/c ms"、traceroute=hop あたり
+  3 プローブ / 3s / max TTL 30 で各 RTT を "N msec"、無応答は `*`。中断は Ctrl+C ではなく
+  各プローブを非同期発行して Esc キーをポーリング検出（"Type escape sequence to abort." が
+  実機能、シェルは落ちない）。引数なしは `% Incomplete`、名前解決失敗は `% Unrecognized host
+  or address`。kernel 公開 API 不変・REQUIRES_KERNEL 据置。
 - apps/fabriq_ios v0.4.1 → v0.5.0 (TM t-0034): `reload` をスタブから本実装。Cisco 風の
   `Proceed with reload? [confirm]` 確認（Enter / y で続行、それ以外で中止）→ 再起動後に
   `Fabriq_IOS.exe` を立ち上げ直す HKLM RunOnce を武装（カーネルの `FabriqAutoStart` と衝突
