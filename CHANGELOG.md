@@ -66,6 +66,16 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- apps/fabriq_ios v0.6.0 → v0.6.1 (TM t-0033): `end` が config モードで効かず `>>` 継続
+  プロンプトを出して `% Unknown command: end` になり privileged EXEC に戻らない不具合を修正。
+  原因は `end` が PowerShell の予約キーワードのため、PSReadLine が未完成文と解釈して継続
+  プロンプトを表示し、確定後のバッファが `end⏎`（埋め込み改行付き）で返ること。
+  `ConvertTo-FabriqIosTokens` が空白/タブだけで分割し改行を区切りにしていなかったため、
+  トークンが `end⏎` の 1 語になり語彙の `end` に一致していなかった。トークナイザが
+  CR/LF も区切りにするよう修正（`end` 以外の PS キーワード衝突にも効く防御）。`exit` が
+  無事だったのは完成した文として即確定されるため。なお `end` 入力時に `>>` が一瞬表示され
+  Enter 2 回になるのは PowerShell キーワード由来で PSReadLine 仕様上残る（機能は正常化）。
+  kernel 公開 API 不変。
 - apps/fabriq_ios v0.4.0 → v0.4.1 (TM t-0031): インライン `?`（バッファに入力がある状態）で
   大量候補（`module ?` 等のカテゴリ動詞＝12〜44 件）を出した後、コマンドを確定すると候補行が
   消えずに残る不具合を修正。インライン `?` は候補をプロンプト下に書いて `InvokePrompt` で

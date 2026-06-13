@@ -38,6 +38,27 @@ Describe 'ConvertTo-FabriqIosTokens' {
         $r.Count | Should -Be 2
         $r[1]   | Should -Be 'イーサネット'
     }
+
+    It "splits a trailing newline so a bare keyword resolves (PSReadLine 'end' continuation)" {
+        # PSReadLine returns "end`n" because 'end' is an incomplete
+        # PowerShell statement; the tokenizer must still yield just 'end'.
+        $r = ConvertTo-FabriqIosTokens "end`n"
+        $r.Count | Should -Be 1
+        $r[0]    | Should -Be 'end'
+    }
+
+    It 'splits on embedded CRLF' {
+        $r = ConvertTo-FabriqIosTokens "end`r`nenable"
+        $r.Count | Should -Be 2
+        $r[0]    | Should -Be 'end'
+        $r[1]    | Should -Be 'enable'
+    }
+
+    It 'collapses consecutive newlines (no empty tokens)' {
+        $r = ConvertTo-FabriqIosTokens "end`n`n"
+        $r.Count | Should -Be 1
+        $r[0]    | Should -Be 'end'
+    }
 }
 
 Describe 'Expand-FabriqIosAbbreviation' {

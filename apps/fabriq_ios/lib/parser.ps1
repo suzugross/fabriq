@@ -41,7 +41,12 @@ function ConvertTo-FabriqIosTokens {
             $inQuote = -not $inQuote
             continue
         }
-        if (-not $inQuote -and ($ch -eq ' ' -or $ch -eq "`t")) {
+        # Split on CR/LF as well as space/tab. PSReadLine parses input as
+        # PowerShell and treats bare keywords (notably 'end') as incomplete
+        # statements, so it returns multi-line buffers like "end`n" via its
+        # continuation prompt. Without splitting on newlines the token would
+        # be "end`n" and fail to match the 'end' command.
+        if (-not $inQuote -and ($ch -eq ' ' -or $ch -eq "`t" -or $ch -eq "`r" -or $ch -eq "`n")) {
             if ($current.Length -gt 0) {
                 [void]$tokens.Add($current.ToString())
                 [void]$current.Clear()
