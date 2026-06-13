@@ -16,6 +16,10 @@
 ## [Unreleased]
 
 ### Added
+- dev/build_preset_patch.ps1: 各モジュールの `preset.csv`（UI ドロップダウン定義）だけを
+  ミラーした狭いパッチフォルダ（`Apply-Presets.ps1` + README 同梱）を生成するターゲット型
+  パッチビルダーを追跡に追加。`build_framework_patch.ps1`（全ツリー型）の単一アーティファクト
+  版カウンターパート。`preset.csv` は framework whitelist 済みでターゲット上書き安全。
 - apps/fabriq_ios v0.6.1 → v0.7.0 (TM t-0035): ModuleConfig のスキーマ自動検出を一般化。
   `*_list.csv` が無いモジュールでも、`module.csv`/`preset.csv` を除く単一の `*.csv` に
   フォールバックして `module <name>` → `set <col> <val>` で設定実行できるようにした
