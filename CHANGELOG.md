@@ -16,6 +16,14 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_ios v0.6.1 → v0.7.0 (TM t-0035): ModuleConfig のスキーマ自動検出を一般化。
+  `*_list.csv` が無いモジュールでも、`module.csv`/`preset.csv` を除く単一の `*.csv` に
+  フォールバックして `module <name>` → `set <col> <val>` で設定実行できるようにした
+  （例: `domain_join` の `domain.csv`、`driver_config` の `driver.csv` 等）。カタログの
+  文字列エントリのまま動くため追加登録は不要。CSV が 2 件以上ある場合は曖昧として未解決の
+  まま（従来どおり JSON の明示 `csv` 上書きが必要）で、マルチ CSV モジュールが誤解決しない。
+  `*_list.csv` を持つ既存 62 モジュールはフォールバック不到達で挙動不変。kernel 公開 API
+  不変・REQUIRES_KERNEL 据置。
 - apps/fabriq_ios v0.5.0 → v0.6.0 (TM t-0031): Cisco IOS 風の `ping` / `traceroute` を実装（User EXEC /
   Privileged EXEC、`do ping` / `do traceroute` も可）。Windows の ping.exe/tracert.exe は使わず
   ICMP（System.Net.NetworkInformation.Ping、traceroute は PingOptions.Ttl を 1→30）で IOS の

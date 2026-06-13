@@ -9,7 +9,9 @@
 #       Name   = string itself
 #       Dir    = string itself
 #       Script = "<dir>.ps1"
-#       Csv    = first *_list.csv in the directory (auto-detected)
+#       Csv    = first *_list.csv in the directory, or (if none) the
+#                single non-special *.csv (module.csv / preset.csv
+#                excluded) - see Get-ModuleCsvSchema in module.ps1
 #       Label  = string itself
 #   - an object with explicit overrides:
 #       { name, dir?, script?, csv?, label? }
