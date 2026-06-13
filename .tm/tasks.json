@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-13T17:38:57.0130347+09:00",
+  "updatedAt": "2026-06-13T17:52:02.9035701+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -322,10 +322,10 @@
       "id": "t-0036",
       "title": "FabriqIOS機能7",
       "content": "moduleでのEnableの扱いですが、暗黙的に1とし、setコマンドで明示する必要がないようにしたい。\r\nタブや？での解決も意図的に排除して、オペレータがEnableカラムの存在を意識しないようにしたい。",
-      "claudeNote": "",
-      "status": "未着手",
+      "claudeNote": "実装済み (apps/fabriq_ios 0.7.0 -> 0.7.1)。ModuleConfig の Enabled カラムをオペレータから隠蔽。\n現状確認: 「明示不要」は既に達成済み(Invoke-ModuleEphemeralRun が Enabled 未指定なら自動 1)。残課題は可視性のみだった。\n対処: 隠蔽列リスト $script:FabriqIosHiddenColumns=@('Enabled') + ヘルパ Get-FabriqIosVisibleColumns(module.ps1) を新設し、(1) show の列一覧 (2) show の Notes の Enabled 行 (3) Tab/インライン ? の列候補(completer.ps1 の set/add 補完 3 箇所) から Enabled を除外。\n暗黙 Enabled=1 のデフォルトは維持(機能不変)。明示 set Enabled <v> はバリデーション上は引き続き受理(隠れているだけで capability は削らない=user 判断の『隠蔽のみ』方針)。\n触ったファイル: lib/commands/module.ps1(定数+ヘルパ+show), lib/completer.ps1(補完3箇所), tests/completer.tests.ps1(module.ps1 source 追加 + Enabled 非表示テスト 2), VERSION, CHANGELOG。\n検証: powershell.exe 5.1 dev/run_tests.ps1 -> 320 pass / 0 fail / exit 0。\n状態: 実装完了。実機(module <name> -> show / set <Tab> に Enabled が出ないこと)確認待ちでレビュー待ち。",
+      "status": "完了",
       "createdAt": "2026-06-13T17:35:48.2542173+09:00",
-      "updatedAt": "2026-06-13T17:38:57.0129248+09:00"
+      "updatedAt": "2026-06-13T17:52:02.9034974+09:00"
     }
   ]
 }
