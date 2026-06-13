@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-13T14:25:02.9951711+09:00",
+  "updatedAt": "2026-06-13T15:40:06.344787+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -304,10 +304,10 @@
       "id": "t-0034",
       "title": "Fabriq_IOS機能５",
       "content": "reload機能の追加。\r\n再起動後はIOSアプリが立ち上がってくることが望ましい。\r\nまた、すぐに再起動するのではなく、それらしいコマンドやシュルキティニスムな文言が一通り流れてから再起動が走るとアートらしく良い。",
-      "claudeNote": "",
-      "status": "未着手",
+      "claudeNote": "実装済み (apps/fabriq_ios 0.4.1 → 0.5.0)。reload をスタブから本実装。\nフロー: Cisco 風確認 `Proceed with reload? [confirm]`(Enter/y で続行・それ以外で中止) → 再起動後に Fabriq_IOS.exe を立ち上げ直す HKLM RunOnce を武装(別名 FabriqIosAutoStart、kernel の FabriqAutoStart と非衝突) → RESTART syslog + manifesto のシュルキティニスム演出を遅延付きで流す → Restart-Computer -Force。\nfail-closed: RunOnce 武装失敗時は再起動せず中止(戻れない状態で reboot しない)。Fabriq_IOS.exe 不在/非管理者も同様に中止。\nRunOnce は次回ログオン時に1度だけ発火 → autologon 設定済みなら自動復帰、未設定ならログオン後に IOS 起動(autologon 自動設定は対象外・user 判断)。do reload も同一の確認・再起動経路。IOS はステートレスのため復帰は fresh 起動で kernel resume_state は不使用。\nRunOnce はカーネル Register-FabriqRunOnce(Fabriq.exe 固定)を流用せず fabriq_ios ローカル実装(user 判断、手戻り最小)。\n触ったファイル: lib/commands/reload.ps1(新規), lib/modes/privileged_exec.ps1(ハンドラ差替), fabriq_ios.ps1(dot-source), data/syslog_messages.csv(RESTART 演出キー +3), VERSION, CHANGELOG, tests/reload.tests.ps1(新規 5件・confirm/fail-closed/reboot を Mock 検証)。\n検証: powershell.exe 5.1 dev/run_tests.ps1 → 299 pass / 0 fail / exit 0(Restart-Computer は Mock で実機再起動なし)。\n状態: 実装完了・実機(reload→実再起動→ログオン後 IOS 自動起動)確認待ちでレビュー待ち。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-13T14:19:43.6703344+09:00",
-      "updatedAt": "2026-06-13T14:21:40.325654+09:00"
+      "updatedAt": "2026-06-13T15:40:06.344787+09:00"
     },
     {
       "id": "t-0035",
