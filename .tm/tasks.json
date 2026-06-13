@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-13T17:52:02.9035701+09:00",
+  "updatedAt": "2026-06-14T05:38:58.678592+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -326,6 +326,33 @@
       "status": "完了",
       "createdAt": "2026-06-13T17:35:48.2542173+09:00",
       "updatedAt": "2026-06-13T17:52:02.9034974+09:00"
+    },
+    {
+      "id": "t-0037",
+      "title": "ステータスモニタのモジュール実行check復活",
+      "content": "過去のGit履歴を参照し、ステータスモニタの実行履歴チェックを復活させてほしい。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T21:29:05.5906081+09:00",
+      "updatedAt": "2026-06-13T21:29:57.0339037+09:00"
+    },
+    {
+      "id": "t-0038",
+      "title": "wallpaper_config",
+      "content": "# タスク: wallpaper_config モジュールの壁紙を「ローカルコピー＋既定プロファイル(NTUSER.DAT)反映」対応に改修\r\n\r\n## 背景・問題\r\nfabriq の標準モジュール `modules/standard/wallpaper_config` は、壁紙の絶対パスを\r\nそのままレジストリ（Control Panel\\Desktop\\WallPaper）と SystemParametersInfo に\r\n渡している（wallpaper_config.ps1:246 `Resolve-Path` → :249-269）。\r\n\r\nこのため、FabriQ を USB メモリから実行し、モジュール内 `wallpaper/` フォルダの画像を\r\n指定すると、登録される参照先が USB 上の絶対パス（例: E:\\...\\wallpaper\\foo.jpg）になる。\r\n結果として:\r\n- USB を抜く / 再起動でパス再評価された時に壁紙が黒・既定背景へ戻る\r\n- USB のドライブレターが変わると破綻\r\n- さらに、書き込み先がログオン中ユーザー or 管理者の HKCU のみ（Resolve-HkcuRoot,\r\n  kernel/common.ps1:3985）なので、キッティング後に作成される「新規ユーザー」には\r\n  一切反映されない\r\n\r\nこれをキッティング用途で堅牢にしたい。\r\n\r\n## 改修要件\r\n\r\n### 要件1: 壁紙画像をローカル固定パスへコピーしてから参照する\r\n- モジュール内 `wallpaper/` フォルダ（相対パス指定）に置かれた画像を、適用前に\r\n  `C:\\Windows\\Web\\Wallpaper\\`（サブフォルダ例: `C:\\Windows\\Web\\Wallpaper\\fabriq\\`）へコピーする。\r\n- レジストリ書き込み / SystemParametersInfo には「コピー後のローカル絶対パス」を使う。\r\n  USB パスは一切レジストリに残さないこと。\r\n- 冪等性: 既に同名・同内容がコピー済みならコピーをスキップ（ハッシュ等で判定可）。\r\n- コピー先ディレクトリが無ければ作成。書き込みには管理者権限が必要（本モジュールは既に前提）。\r\n- FileName が「USB 外の絶対パス」で指定されたケースの扱いは設計判断として明記し、\r\n  方針（そのまま使う / これもローカルコピーする）を決めて理由を述べること。\r\n- SolidColor タイプ（画像ではなく単色）はコピー対象外。従来どおりレジストリのみ。\r\n\r\n### 要件2: 新規ユーザーにも反映（既定プロファイル NTUSER.DAT への書き込み）\r\n- 既定プロファイル hive `C:\\Users\\Default\\NTUSER.DAT` を `reg load` で一時マウントし、\r\n  以下を書き込んでから `reg unload` する。\r\n    キー       : \\Control Panel\\Desktop\r\n    値の名前   : WallPaper          （種類 REG_SZ）\r\n    値のデータ : 要件1でコピーしたローカルフルパス\r\n  加えてスタイル整合のため WallpaperStyle / TileWallpaper（既存 $styleMap 準拠）も\r\n  同キーに書くこと。SolidColor の場合は WallPaper を空に + \\Control Panel\\Colors\\Background を\r\n  書く（既存の実ユーザー向けロジックと対称に）。\r\n- reg load/unload の注意（必ず対処）:\r\n    - 一意な一時マウントキー名を使う（例: HKU\\fabriq_default）\r\n    - PowerShell が hive ハンドルを掴んだまま unload に失敗する典型バグを避ける\r\n      （書き込み後に変数解放 + [gc]::Collect(); [gc]::WaitForPendingFinalizers() してから unload）\r\n    - load 失敗 / unload 失敗を必ず失敗経路として扱い、unload は finally 等で確実に試行\r\n    - 既に同名キーがマウント済みの残骸ケースを考慮\r\n- 既存の「ログオン中ユーザー HKCU / 管理者 HKCU への即時 or ステージ反映」ロジックは\r\n  維持しつつ、本「既定プロファイル反映」を追加ターゲットとして組み込む（置き換えではない）。\r\n\r\n## 必ず守る fabriq の規約（CLAUDE.md 準拠）\r\n- これは制御フロー（状態・分岐）を増やすフル版変更。コード編集前に **設計ゲート（§4 フル版）** を提示し承認を得ること:\r\n    1. 概要（使用テンプレート/既存パターン）\r\n    2. ステートマシン図（Mermaid stateDiagram-v2、コピー分岐・load/unload 失敗・\r\n       新規ユーザー反映・冪等性スキップ・各失敗/スキップ経路を必ずノード化）\r\n    3. 敵対検証（unload 失敗時の hive リーク、コピー途中失敗、既定 hive 不在、\r\n       部分失敗時の整合性、再実行時の冪等性 等を自己攻撃して塞ぎ方を1行ずつ）\r\n    4. 変更スコープ宣言（§C: 対象/公開API影響/予想バージョン影響 等）\r\n- §A: 同コミットで CHANGELOG.md [Unreleased] に追記 + 該当モジュールの VERSION 昇格（§B 下段）。\r\n  新機能追加なので MINOR 想定だが自己判断で確定すること。Guide.txt も更新。\r\n- common.ps1 の既存関数を最優先で再利用（Show-*/New-ModuleResult/New-BatchResult/\r\n  Import-ModuleCsv/Confirm-ModuleExecution/Resolve-HkcuRoot など）。\r\n  既定 hive ロード用の既存ヘルパーが common.ps1 に無いか先に確認し、無ければモジュール内\r\n  ローカルヘルパーとして実装（既存モジュールの類似実装を参考）。新規 common.ps1 関数化は\r\n  影響範囲が大きいので原則避け、必要なら公開API影響として宣言・KERNEL_API.md/版同期まで行う。\r\n- 破壊的操作ガード（§8）: コピー先・unload 対象パスの検証ガードを必ず置く\r\n  （Join-Path が空に潰れていないか、想定ルート配下か）。\r\n- コードは英語のみ。日本語を含む .ps1/.csv が生じる場合は UTF-8 BOM 付き（CSV は BOM+CRLF）。\r\n- Post-Apply Verification（§6, Step5.5）の実装を推奨。コピー結果と各 hive の WallPaper 値を\r\n  読み返して期待一致を検証し、可能なら New-BatchResult -Verified で返す。\r\n  （現 Guide.txt は「未実装」と明記しているので、実装したら Guide も更新）\r\n\r\n## 検証要件（§5）\r\n- 検証は Windows PowerShell 5.1（powershell.exe -File）を正とする。成否は終了コードで判定。\r\n- 実施: `powershell.exe -File ./dev/run_tests.ps1`、`./dev/check_version.ps1`、\r\n  `./dev/check_ps1_encoding.ps1`。\r\n- 具体的なテスト手順を提示すること（例: USB 相当の別ドライブから実行 →\r\n  C:\\Windows\\Web\\Wallpaper\\ にコピーされる / レジストリ値がローカルパスになっている /\r\n  reg load→write→unload が残骸なく完了 / Default NTUSER.DAT に WallPaper が入る /\r\n  新規ユーザー作成後にログオンして反映される、までを確認）。\r\n\r\n## 注意\r\n- いきなりコードを書かない。まず設計ゲートを提示し承認を取ること。\r\n- 対象リポジトリ/ブランチ運用は本セッションの指示に従う。",
+      "claudeNote": "実装済み (modules/standard/wallpaper_config 1.1.0 -> 1.2.0, REQUIRES_KERNEL 2.0.0 -> 3.5.0)。緊急ティケット。実機検証で新規ユーザー反映の問題を2段階で解消した。\n\n要件1(ローカル正規化コピー): Type=Image を相対/絶対問わず C:\\Windows\\Web\\Wallpaper\\fabriq へ正規化コピーし、レジストリ/SPI/Active Setup にはローカルパスのみ書込(USB抜き/再起動/ドライブレター変更に耐性)。SHA256一致でskip(冪等)、source==dest自己コピーガード。§8: Test-FabriqSafePathComponent + GetFullPath/StartsWith。\n\n要件2(新規ユーザー反映)= Active Setup 方式:\n実機で「既定 hive に WallPaper を書いてもテーマエンジンが初回ログオンで上書きする」ことが判明(壁紙は単一値でなく TranscodedWallpaper 実体ファイル等の整合一式で決まる。CopyProfile が効くのは完全な適用済み状態を運ぶから)。-> 既定 hive への壁紙書込を廃止し Active Setup(初回ログオン1回/ユーザー)へ置換。Register-FabriqActiveSetup で C:\\ProgramData\\fabriq\\wallpaper_default_apply.ps1 を配備+HKLM登録し、初回ログオン時に SystemParametersInfo でローカルパスをライブ適用(テーマ後に走り確実表示・変更可能)。複数Imageは最終適用状態を採用。生成スクリプトは値bake、シングルクォートは '' エスケープ(単体生成して構文parse検証済み)。user 判断: A(ポリシー強制/ロック)でなく B(Active Setup/変更可能)。\n\n追加(user 指示): Desktop Spotlight(背景自動切替)が静的壁紙より優先される場合があるため、壁紙適用前に DesktopSpotlight\\Settings\\EnabledState=0(REG_DWORD) を無効化。現在ユーザー HKCU と既定プロファイル hive(reg load/unload)の両方へ書込。EnabledState はテーマ管理外の通常設定のため既定 hive 書込が新規ユーザーに継承される(壁紙パスと違い上書きされない)。user の検証フロー(reg_hkcu_config で同レジストリ書込->壁紙反映)と一致。\n\n自己レビューで実バグを発見・修正: redirected(SYSTEM/別ユーザー起動)時、Spotlight の hive unload で Remove-PSDrive HKU すると後続の壁紙ループが使う HKU:\\<SID> が消えて書込失敗 -> unload 後に HKU PSDrive を再生成して塞いだ。\n\nPost-Apply Verification(§6): Spotlight EnabledState + コピー先存在 + 現ユーザー WallPaper 値 + Active Setup(HKLMキー+配備スクリプト)を検証 -> -Verified。Spotlight/Active Setup 登録失敗は degrade(Verified=FAIL+メッセージ)、hive unload 失敗は ntuser.dat ロック残りで Fail+1。\n\n敵対的セルフレビュー(計17指摘): 1回目(hive壁紙方式)採用5/棄却8(LASTEXITCODE誤指摘は実機反証)、2回目(Active Setup方式)4指摘全棄却(文書化済み/標準挙動/parse済み/ログオン安全側)。+今回の自己レビューで HKU PSDrive バグを追加修正。\n\n触ったファイル: modules/standard/wallpaper_config/{wallpaper_config.ps1, VERSION(1.2.0), REQUIRES_KERNEL(3.5.0), Guide.txt}, CHANGELOG.md。\n検証: 構文parse OK / 生成スクリプトparse OK / check_version exit0 / run_tests 320 pass exit0 / encoding wallpaper clean。実 SPI/copy/Spotlight/Active Setup 初回ログオン適用は実機確認待ち(壁紙本体は user 実機で反映確認済み、Spotlight 併用で新規ユーザー反映を確認済み)。\nREQUIRES_KERNEL=3.5.0(Test-FabriqSafePathComponent §1.6 since 3.5.0)。Register-FabriqActiveSetup は内部関数(§6)で §G bump 対象外。kernel公開APIサーフェス不変。\n状態: 実装完了でレビュー待ち。残: 最終形の実機再確認(別ドライブ実行->ローカルコピー / Spotlight 無効化 / Active Setup 登録 / 新規ユーザー初回ログオンで壁紙反映 / hive残骸なし)。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-14T02:08:54.9623426+09:00",
+      "updatedAt": "2026-06-14T05:38:58.678592+09:00"
+    },
+    {
+      "id": "t-0039",
+      "title": "FlexProfileの__RESTART__単発実行バグ",
+      "content": "__RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-14T03:01:34.2300058+09:00",
+      "updatedAt": "2026-06-14T03:02:55.7924808+09:00"
     }
   ]
 }

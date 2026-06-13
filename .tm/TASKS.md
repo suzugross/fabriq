@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-13 17:52
+最終更新: 2026-06-14 03:02
 
-## 未着手 (1)
+## 未着手 (4)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -14,6 +14,112 @@
 ・manifesto画面起動機能追加
 
 <sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
+
+### [t-0037] ステータスモニタのモジュール実行check復活
+
+**内容:**
+
+過去のGit履歴を参照し、ステータスモニタの実行履歴チェックを復活させてほしい。
+
+<sub>更新: 2026-06-13 21:29 ／ 作成: 2026-06-13 21:29</sub>
+
+### [t-0038] wallpaper_config
+
+**内容:**
+
+# タスク: wallpaper_config モジュールの壁紙を「ローカルコピー＋既定プロファイル(NTUSER.DAT)反映」対応に改修
+
+## 背景・問題
+fabriq の標準モジュール `modules/standard/wallpaper_config` は、壁紙の絶対パスを
+そのままレジストリ（Control Panel\Desktop\WallPaper）と SystemParametersInfo に
+渡している（wallpaper_config.ps1:246 `Resolve-Path` → :249-269）。
+
+このため、FabriQ を USB メモリから実行し、モジュール内 `wallpaper/` フォルダの画像を
+指定すると、登録される参照先が USB 上の絶対パス（例: E:\...\wallpaper\foo.jpg）になる。
+結果として:
+- USB を抜く / 再起動でパス再評価された時に壁紙が黒・既定背景へ戻る
+- USB のドライブレターが変わると破綻
+- さらに、書き込み先がログオン中ユーザー or 管理者の HKCU のみ（Resolve-HkcuRoot,
+  kernel/common.ps1:3985）なので、キッティング後に作成される「新規ユーザー」には
+  一切反映されない
+
+これをキッティング用途で堅牢にしたい。
+
+## 改修要件
+
+### 要件1: 壁紙画像をローカル固定パスへコピーしてから参照する
+- モジュール内 `wallpaper/` フォルダ（相対パス指定）に置かれた画像を、適用前に
+  `C:\Windows\Web\Wallpaper\`（サブフォルダ例: `C:\Windows\Web\Wallpaper\fabriq\`）へコピーする。
+- レジストリ書き込み / SystemParametersInfo には「コピー後のローカル絶対パス」を使う。
+  USB パスは一切レジストリに残さないこと。
+- 冪等性: 既に同名・同内容がコピー済みならコピーをスキップ（ハッシュ等で判定可）。
+- コピー先ディレクトリが無ければ作成。書き込みには管理者権限が必要（本モジュールは既に前提）。
+- FileName が「USB 外の絶対パス」で指定されたケースの扱いは設計判断として明記し、
+  方針（そのまま使う / これもローカルコピーする）を決めて理由を述べること。
+- SolidColor タイプ（画像ではなく単色）はコピー対象外。従来どおりレジストリのみ。
+
+### 要件2: 新規ユーザーにも反映（既定プロファイル NTUSER.DAT への書き込み）
+- 既定プロファイル hive `C:\Users\Default\NTUSER.DAT` を `reg load` で一時マウントし、
+  以下を書き込んでから `reg unload` する。
+    キー       : \Control Panel\Desktop
+    値の名前   : WallPaper          （種類 REG_SZ）
+    値のデータ : 要件1でコピーしたローカルフルパス
+  加えてスタイル整合のため WallpaperStyle / TileWallpaper（既存 $styleMap 準拠）も
+  同キーに書くこと。SolidColor の場合は WallPaper を空に + \Control Panel\Colors\Background を
+  書く（既存の実ユーザー向けロジックと対称に）。
+- reg load/unload の注意（必ず対処）:
+    - 一意な一時マウントキー名を使う（例: HKU\fabriq_default）
+    - PowerShell が hive ハンドルを掴んだまま unload に失敗する典型バグを避ける
+      （書き込み後に変数解放 + [gc]::Collect(); [gc]::WaitForPendingFinalizers() してから unload）
+    - load 失敗 / unload 失敗を必ず失敗経路として扱い、unload は finally 等で確実に試行
+    - 既に同名キーがマウント済みの残骸ケースを考慮
+- 既存の「ログオン中ユーザー HKCU / 管理者 HKCU への即時 or ステージ反映」ロジックは
+  維持しつつ、本「既定プロファイル反映」を追加ターゲットとして組み込む（置き換えではない）。
+
+## 必ず守る fabriq の規約（CLAUDE.md 準拠）
+- これは制御フロー（状態・分岐）を増やすフル版変更。コード編集前に **設計ゲート（§4 フル版）** を提示し承認を得ること:
+    1. 概要（使用テンプレート/既存パターン）
+    2. ステートマシン図（Mermaid stateDiagram-v2、コピー分岐・load/unload 失敗・
+       新規ユーザー反映・冪等性スキップ・各失敗/スキップ経路を必ずノード化）
+    3. 敵対検証（unload 失敗時の hive リーク、コピー途中失敗、既定 hive 不在、
+       部分失敗時の整合性、再実行時の冪等性 等を自己攻撃して塞ぎ方を1行ずつ）
+    4. 変更スコープ宣言（§C: 対象/公開API影響/予想バージョン影響 等）
+- §A: 同コミットで CHANGELOG.md [Unreleased] に追記 + 該当モジュールの VERSION 昇格（§B 下段）。
+  新機能追加なので MINOR 想定だが自己判断で確定すること。Guide.txt も更新。
+- common.ps1 の既存関数を最優先で再利用（Show-*/New-ModuleResult/New-BatchResult/
+  Import-ModuleCsv/Confirm-ModuleExecution/Resolve-HkcuRoot など）。
+  既定 hive ロード用の既存ヘルパーが common.ps1 に無いか先に確認し、無ければモジュール内
+  ローカルヘルパーとして実装（既存モジュールの類似実装を参考）。新規 common.ps1 関数化は
+  影響範囲が大きいので原則避け、必要なら公開API影響として宣言・KERNEL_API.md/版同期まで行う。
+- 破壊的操作ガード（§8）: コピー先・unload 対象パスの検証ガードを必ず置く
+  （Join-Path が空に潰れていないか、想定ルート配下か）。
+- コードは英語のみ。日本語を含む .ps1/.csv が生じる場合は UTF-8 BOM 付き（CSV は BOM+CRLF）。
+- Post-Apply Verification（§6, Step5.5）の実装を推奨。コピー結果と各 hive の WallPaper 値を
+  読み返して期待一致を検証し、可能なら New-BatchResult -Verified で返す。
+  （現 Guide.txt は「未実装」と明記しているので、実装したら Guide も更新）
+
+## 検証要件（§5）
+- 検証は Windows PowerShell 5.1（powershell.exe -File）を正とする。成否は終了コードで判定。
+- 実施: `powershell.exe -File ./dev/run_tests.ps1`、`./dev/check_version.ps1`、
+  `./dev/check_ps1_encoding.ps1`。
+- 具体的なテスト手順を提示すること（例: USB 相当の別ドライブから実行 →
+  C:\Windows\Web\Wallpaper\ にコピーされる / レジストリ値がローカルパスになっている /
+  reg load→write→unload が残骸なく完了 / Default NTUSER.DAT に WallPaper が入る /
+  新規ユーザー作成後にログオンして反映される、までを確認）。
+
+## 注意
+- いきなりコードを書かない。まず設計ゲートを提示し承認を取ること。
+- 対象リポジトリ/ブランチ運用は本セッションの指示に従う。
+
+<sub>更新: 2026-06-14 02:45 ／ 作成: 2026-06-14 02:08</sub>
+
+### [t-0039] FlexProfileの__RESTART__単発実行バグ
+
+**内容:**
+
+__RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。
+
+<sub>更新: 2026-06-14 03:02 ／ 作成: 2026-06-14 03:01</sub>
 
 ## レビュー待ち (4)
 
