@@ -167,6 +167,50 @@ function Get-CommonPrefix {
     return $prefix
 }
 
+function Clear-FabriqIosPendingHelpRows {
+    # Called by the REPL right after ReadLine returns (i.e. on command
+    # submit). An inline `?` (non-empty buffer, handled below) writes its
+    # candidate list to the rows immediately BELOW the input line and then
+    # rewinds the prompt via InvokePrompt, leaving those rows on screen.
+    # They are not part of PSReadLine's model, so on submit they would be
+    # only partially overwritten by the (non-width-padded, often shorter)
+    # command output - e.g. `module ?` shows ~44 candidates but entering
+    # config-mod prints ~2 lines, leaving fragments and orphan rows.
+    #
+    # The post-submit cursor sits exactly where the candidate block began
+    # (the row just below the input, which is also where command output is
+    # about to be written), so blank the recorded row count from here and
+    # restore the cursor. Robust to scrolling because it is relative to the
+    # current cursor, not an absolute remembered row. No-op when nothing is
+    # pending. Always consumes the tracking state so the next `?` press and
+    # the next submit start clean.
+    $rows = $global:_FabriqIosLastHelpRowCount
+    $global:_FabriqIosLastHelpRowCount = $null
+    $global:_FabriqIosLastHelpInputY   = $null
+    if ($null -eq $rows -or [int]$rows -le 0) { return }
+    $rows = [int]$rows
+
+    try {
+        $w = [Console]::WindowWidth
+        $padWidth = if ($w -gt 1) { $w - 1 } else { 0 }
+        if ($padWidth -le 0) { return }
+        $blankRow = ' ' * $padWidth
+
+        $startY    = [Console]::CursorTop
+        $bufBottom = [Console]::BufferHeight - 1
+        for ($i = 0; $i -lt $rows; $i++) {
+            $y = $startY + $i
+            if ($y -gt $bufBottom) { break }
+            [Console]::SetCursorPosition(0, $y)
+            [Console]::Write($blankRow)
+        }
+        [Console]::SetCursorPosition(0, $startY)
+    } catch {
+        # Console geometry can be unavailable in odd hosts; clearing is
+        # cosmetic, so never let it break the REPL.
+    }
+}
+
 function Register-FabriqIosCompleter {
     param([hashtable]$State)
     $global:_FabriqIosShellState = $State

@@ -162,6 +162,14 @@ function Start-FabriqIosShell {
             break
         }
 
+        # An inline `?` (non-empty buffer) leaves its candidate list on
+        # the rows just below the input. Blank them at the cursor (where
+        # command output is about to start) before anything is printed,
+        # so a long candidate list (e.g. `module ?`) is not left as
+        # fragments + orphan rows by shorter command output. No-op when
+        # nothing is pending. Runs before every submit path.
+        Clear-FabriqIosPendingHelpRows
+
         # `?` was pressed at an EMPTY prompt: the handler in
         # lib/completer.ps1 deferred to the REPL via AcceptLine
         # because the full mode-level help is too long to redraw
