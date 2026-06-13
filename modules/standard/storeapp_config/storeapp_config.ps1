@@ -18,7 +18,14 @@ if ($appList.Count -eq 0) {
     return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
 }
 
-$appList = @($appList | Sort-Object { [int]$_.No })
+# Sort by No, tolerating malformed values: a non-numeric No must not kill
+# the whole module (the removal target is AppName; No is display ordering
+# only). Unparsable rows are warned once and sorted last, still processed.
+$badNoRows = @($appList | Where-Object { $no = 0; -not [int]::TryParse("$($_.No)", [ref]$no) })
+if ($badNoRows.Count -gt 0) {
+    Show-Warning "$($badNoRows.Count) row(s) have a non-numeric No column - sorted last, still processed"
+}
+$appList = @($appList | Sort-Object { $no = 0; if ([int]::TryParse("$($_.No)", [ref]$no)) { $no } else { [int]::MaxValue } })
 Write-Host ""
 
 # ========================================
