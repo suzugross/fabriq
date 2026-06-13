@@ -13,6 +13,7 @@ BeforeAll {
     . (Join-Path $script:FabriqIosRoot 'lib\commands\hostname.ps1')
     . (Join-Path $script:FabriqIosRoot 'lib\commands\interface.ps1')
     . (Join-Path $script:FabriqIosRoot 'lib\commands\ip_address.ps1')
+    . (Join-Path $script:FabriqIosRoot 'lib\commands\module.ps1')
     . (Join-Path $script:FabriqIosRoot 'lib\completer.ps1')
 }
 
@@ -105,6 +106,34 @@ Describe 'Get-CommonPrefix' {
 
     It 'returns the single string for one input' {
         Get-CommonPrefix -Strings @('alone') | Should -Be 'alone'
+    }
+}
+
+Describe 'ModuleConfig set/add completion hides the Enabled column (TM t-0036)' {
+    BeforeEach {
+        $script:state = @{
+            Mode               = 'ModuleConfig'
+            ConfigModuleSchema = @{ Columns = @('Enabled', 'domain', 'user', 'pass'); Enums = @{} }
+        }
+        $global:_FabriqIosShellState = $script:state
+    }
+    AfterEach {
+        $global:_FabriqIosShellState = $null
+    }
+
+    It "offers visible columns but not Enabled at the first 'set' position" {
+        $r = Get-FabriqIosCompletion -Line 'set ' -Position 4 -Mode 'ModuleConfig' -State $script:state
+        $r | Should -Contain 'domain'
+        $r | Should -Contain 'user'
+        $r | Should -Not -Contain 'Enabled'
+    }
+
+    It 'hides Enabled at a subsequent column position too' {
+        # 'set domain town ' -> next token is a column name
+        $r = Get-FabriqIosCompletion -Line 'set domain town ' -Position 16 -Mode 'ModuleConfig' -State $script:state
+        $r | Should -Contain 'user'
+        $r | Should -Not -Contain 'Enabled'
+        $r | Should -Not -Contain 'domain'   # already supplied
     }
 }
 
