@@ -43,11 +43,26 @@ Describe 'Invoke-FabriqIosDoCommand' {
             $script:DoDispatchLog[0].Command | Should -Be 'show'
         }
 
-        It "dispatches 'do reload' (performative)" {
+        It "dispatches 'do reload'" {
             $state = @{ Mode = 'ModuleConfig' }
             Invoke-FabriqIosDoCommand -ExecTokens @('reload') -State $state
             $script:DoDispatchLog.Count | Should -Be 1
             $script:DoDispatchLog[0].Command | Should -Be 'reload'
+        }
+
+        It "dispatches 'do ping 8.8.8.8' (read-only EXEC)" {
+            $state = @{ Mode = 'GlobalConfig' }
+            Invoke-FabriqIosDoCommand -ExecTokens @('ping', '8.8.8.8') -State $state
+            $script:DoDispatchLog.Count | Should -Be 1
+            $script:DoDispatchLog[0].Command | Should -Be 'ping'
+            $script:DoDispatchLog[0].Args[0] | Should -Be '8.8.8.8'
+        }
+
+        It "dispatches 'do trace 8.8.8.8' (abbreviation -> traceroute)" {
+            $state = @{ Mode = 'GlobalConfig' }
+            Invoke-FabriqIosDoCommand -ExecTokens @('trace', '8.8.8.8') -State $state
+            $script:DoDispatchLog.Count | Should -Be 1
+            $script:DoDispatchLog[0].Command | Should -Be 'traceroute'
         }
     }
 

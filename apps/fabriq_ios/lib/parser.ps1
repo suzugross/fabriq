@@ -4,8 +4,8 @@
 function Get-FabriqIosCommandVocabulary {
     param([string]$Mode)
     switch ($Mode) {
-        'UserExec'        { return @('enable','show','help','exit','?') }
-        'PrivilegedExec'  { return @('show','configure','reload','disable','exit','help','?') }
+        'UserExec'        { return @('enable','show','ping','traceroute','help','exit','?') }
+        'PrivilegedExec'  { return @('show','configure','ping','traceroute','reload','disable','exit','help','?') }
         'GlobalConfig'    { return @('hostname','interface','module','cleanup','copy','install','script','exit','end','help','?') }
         'InterfaceConfig' { return @('ip','exit','end','help','?') }
         'ModuleConfig'    { return @('set','add','show','exit','end','help','?') }

@@ -6,8 +6,10 @@ function Invoke-UserExecCommand {
         [hashtable]$State
     )
     switch ($Resolved.Command) {
-        'enable' { Invoke-Enable -State $State }
-        'show'   { Invoke-ShowCommand -ArgList $Resolved.Args -State $State }
+        'enable'     { Invoke-Enable -State $State }
+        'show'       { Invoke-ShowCommand -ArgList $Resolved.Args -State $State }
+        'ping'       { Invoke-FabriqIosPing -State $State -ArgList $Resolved.Args }
+        'traceroute' { Invoke-FabriqIosTraceroute -State $State -ArgList $Resolved.Args }
         'help'   { Show-FabriqIosHelp -Mode $State.Mode }
         '?'      { Show-FabriqIosHelp -Mode $State.Mode }
         'exit' {

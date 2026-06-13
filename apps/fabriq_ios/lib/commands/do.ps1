@@ -12,12 +12,12 @@
 # re-resolves the remaining tokens against the PrivilegedExec
 # vocabulary and dispatches via the existing Invoke-PrivilegedExecCommand.
 
-# EXEC commands runnable through `do`. Both leave $State.Mode and its
-# context untouched: Invoke-ShowCommand is read-only, and `reload` is
-# performative (no reboot, no mode change). configure / disable / exit
-# are deliberately excluded because their handlers call Set-ShellMode
-# or set ShouldExit.
-$script:FabriqIosDoWhitelist = @('show', 'reload')
+# EXEC commands runnable through `do`. All leave $State.Mode and its
+# context untouched: show / ping / traceroute are read-only, and `reload`
+# reboots but never changes the shell mode. configure / disable / exit are
+# deliberately excluded because their handlers call Set-ShellMode or set
+# ShouldExit.
+$script:FabriqIosDoWhitelist = @('show', 'reload', 'ping', 'traceroute')
 
 function Invoke-FabriqIosDoCommand {
     # $ExecTokens are the tokens AFTER the leading 'do'. $State is the
