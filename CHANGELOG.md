@@ -16,6 +16,25 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/wallpaper_config v1.1.0 → v1.2.0 (TM t-0038): キッティング向けに堅牢化。
+  (1) Type=Image の画像を相対/絶対を問わず `C:\Windows\Web\Wallpaper\fabriq\` へ正規化コピーし、
+  レジストリ/SystemParametersInfo にはコピー後のローカルパスのみを書き込む（USB を抜く/再起動/
+  ドライブレター変更で壁紙が消える問題を解消）。コピーは SHA256 一致でスキップ（冪等）。
+  (2) キッティング後に作成される新規ユーザーへの反映は **Active Setup**（初回ログオン1回・各ユーザーに
+  `SystemParametersInfo` で再適用するスクリプトを `C:\ProgramData\fabriq\` へ配備し HKLM 登録）で行う。
+  既定プロファイル `NTUSER.DAT` の `Control Panel\Desktop\WallPaper` を書く方式は Windows 10/11 では
+  初回ログオン時にテーマエンジンが上書きするため新規ユーザーに反映されない（実機で確認）ことから、
+  テーマ適用後に走り壁紙が変更可能なまま残る Active Setup を採用。既存の現在/次回ログオンユーザー反映は維持。
+  複数 Image 時は最後に適用した壁紙を新規ユーザーへ反映。(3) Desktop Spotlight（背景自動切替）が
+  静的壁紙より優先されるため、壁紙適用前に `DesktopSpotlight\Settings\EnabledState=0`(REG_DWORD) を
+  現在ユーザー HKCU と既定プロファイル hive（`reg load`/`unload`）へ書き込んで無効化（EnabledState は
+  テーマ管理外の通常設定のため既定 hive 書込が新規ユーザーに継承される）。(4) Post-Apply Verification を実装
+  （Spotlight 値 + コピー先存在 + 現在ユーザーの WallPaper 値読み返し + Active Setup 登録確認）し `-Verified` を返す。
+  Active Setup 登録失敗・Spotlight 書込失敗は degrade（Verified=FAIL + メッセージ）、hive unload 失敗は
+  ntuser.dat ロック残りで Fail に倒す。§8 ガードとして leaf を
+  `Test-FabriqSafePathComponent` で検証 + 解決後 dest がベース配下であることを確認。REQUIRES_KERNEL
+  2.0.0 → 3.5.0（新規公開 API 依存 `Test-FabriqSafePathComponent`（since 3.5.0）。§G。Active Setup 登録は
+  内部関数 `Register-FabriqActiveSetup` を使用）。kernel 公開 API サーフェスは不変。
 - dev/build_preset_patch.ps1: 各モジュールの `preset.csv`（UI ドロップダウン定義）だけを
   ミラーした狭いパッチフォルダ（`Apply-Presets.ps1` + README 同梱）を生成するターゲット型
   パッチビルダーを追跡に追加。`build_framework_patch.ps1`（全ツリー型）の単一アーティファクト
