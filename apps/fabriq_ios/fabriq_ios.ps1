@@ -91,6 +91,7 @@ $global:AutoPilotWaitSec = 0
 . (Join-Path $PSScriptRoot 'lib\commands\categories.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\module.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\enable_disable.ps1')
+. (Join-Path $PSScriptRoot 'lib\commands\do.ps1')
 
 
 function Initialize-FabriqIos {
@@ -185,6 +186,25 @@ function Start-FabriqIosShell {
         # Special: 'help' typed at the prompt also shows mode help.
         if ($tokens[0] -ieq 'help') {
             Show-FabriqIosHelp -Mode $state.Mode
+            continue
+        }
+
+        # Cisco IOS `do <EXEC command>`: from a configuration mode, run a
+        # privileged EXEC command (show / reload) without leaving the
+        # current mode. Exact 'do' match only - it is never abbreviated,
+        # so it cannot shadow a real command (no config verb starts 'do')
+        # and 'do' is intentionally absent from the resolver vocabulary.
+        if (($tokens[0] -ieq 'do') -and
+            ($state.Mode -in @('GlobalConfig', 'InterfaceConfig', 'ModuleConfig'))) {
+            $execTokens = @()
+            if ($tokens.Count -gt 1) {
+                $execTokens = @($tokens[1..($tokens.Count - 1)])
+            }
+            try {
+                Invoke-FabriqIosDoCommand -ExecTokens $execTokens -State $state
+            } catch {
+                Write-Host ("% {0}" -f $_.Exception.Message) -ForegroundColor Red
+            }
             continue
         }
 

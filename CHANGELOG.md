@@ -15,6 +15,17 @@
 
 ## [Unreleased]
 
+### Added
+- apps/fabriq_ios v0.3.5 → v0.4.0 (TM t-0030): Cisco IOS 風の `do <EXEC command>`
+  をコンフィグ系モード（GlobalConfig / InterfaceConfig / ModuleConfig）に追加。
+  `(config)# do sh run` のように、現在のモード・コンテキスト（選択中インターフェース /
+  モジュール設定）を離れずに特権 EXEC コマンドを 1 発実行できる。許可は副作用が
+  モード/ライフサイクルを変えない `show` / `reload` のホワイトリスト限定で、
+  `configure` / `disable` / `exit` は `% ... cannot be run ... with 'do'` で拒否
+  （モード遷移・シェル終了の混入を防止）。`do` は REPL で厳密一致のみ介入し
+  リゾルバ語彙には載せない（略語化・ディスパッチャ漏れ回避）。help にも表示。
+  Tab 補完への候補追加は次段（範囲外）。kernel 公開 API 不変・REQUIRES_KERNEL 据置。
+
 ### Security
 - kernel/common.ps1 (Write-ExecutionHistory): 実行履歴 CSV / HTML チェックリストの
   Message 欄に host PIN が混入した場合に備え、telemetry と同じハードリダクト

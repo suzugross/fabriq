@@ -30,5 +30,16 @@ function Show-FabriqIosHelp {
         }
         Write-Host ("    {0,-12} {1}" -f $cmd, $help)
     }
+    # `do` is intercepted at the REPL on an exact match and is not part
+    # of Get-FabriqIosCommandVocabulary (so it never participates in
+    # abbreviation), so render it explicitly for the configuration modes
+    # where it applies. Its description is still sourced from help_text.csv.
+    if ($Mode -in @('GlobalConfig', 'InterfaceConfig', 'ModuleConfig')) {
+        $doRow = $script:FabriqIosHelpTable | Where-Object {
+            $_.Mode -eq $Mode -and $_.Command -eq 'do'
+        } | Select-Object -First 1
+        $doHelp = if ($doRow) { $doRow.HelpText } else { 'Run a privileged EXEC command without leaving config mode' }
+        Write-Host ("    {0,-12} {1}" -f 'do', $doHelp)
+    }
     Write-Host ""
 }

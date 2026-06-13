@@ -3,9 +3,60 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-12 09:07
+最終更新: 2026-06-13 14:25
 
-## 未着手 (3)
+## 未着手 (5)
+
+### [t-0031] Fabriq_IOS機能２
+
+**内容:**
+
+・ping traceroute機能追加
+
+
+<sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
+
+### [t-0032] Fabriq_IOS機能３
+
+**内容:**
+
+・manifesto画面起動機能追加
+
+<sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
+
+### [t-0033] Fabriq_IOS機能４
+
+**内容:**
+
+・disableバグ修正（廃止でもいいかも）
+
+<sub>更新: 2026-06-13 13:58 ／ 作成: 2026-06-13 13:56</sub>
+
+### [t-0034] Fabriq_IOS機能５
+
+**内容:**
+
+reload機能の追加。
+再起動後はIOSアプリが立ち上がってくることが望ましい。
+また、すぐに再起動するのではなく、それらしいコマンドやシュルキティニスムな文言が一通り流れてから再起動が走るとアートらしく良い。
+
+<sub>更新: 2026-06-13 14:21 ／ 作成: 2026-06-13 14:19</sub>
+
+### [t-0035] Fabriq_IOS機能６
+
+**内容:**
+
+*list.csv形式のものではないが、なんとか、IOS上で呼び出せるようにしたい、する価値があるモジュールを、呼び出せるようにしたい。
+
+専用のコマンドを用意するのもありだが、出来るだけ汎用的にそういったモジュールを呼び出せる方法がないか、検討したい。
+おそらく、module.csvやpreset.csv、マルチCSV形式のモジュールが足を引っ張っているのではとは思っていますが。
+
+ちなみに直近で呼び出したいモジュールは
+domain_joinです。
+
+<sub>更新: 2026-06-13 14:25 ／ 作成: 2026-06-13 14:21</sub>
+
+## レビュー待ち (5)
 
 ### [t-0002] evidence_config取得範囲拡大
 
@@ -17,42 +68,24 @@
 情報を採取し、エビデンスとして残せるようにしたい。
 FabriqEvidenceMangerとの契約関連も要確認
 
-<sub>更新: 2026-06-12 09:07 ／ 作成: 2026-06-09 00:19</sub>
-
-### [t-0028] [MED] B級4件: firewall数値プロトコル/system_finalize regsvr32/restore_point baseline/storeapp cast
-
-**内容:**
-
-(1) firewall_rule_make_config: プロトコル正規化が6/17のみ — Protocol=1(ICMPv4)/58(ICMPv6)等の数値行が偽MISMATCH・作成後検証も偽FAIL。マップ拡張。
-(2) system_finalize.ps1:87 — regsvr32 を -PassThru なしで起動、exit code 不問の偽成功。
-(3) restore_point.ps1:255 — baseline が Select-Object -Last 1(列挙順非保証)。max SequenceNumber 化。
-(4) storeapp_config.ps1:21 — Sort 内 [int] 直キャスト、不正 CSV で throw。[int]::TryParse 化(script_looper:58 が手本)。
-
 **Claudeメモ:**
 
-再監査(2026-06-12, 4並列)で検出。
+調査(2026-06-12 3方面並行): 
+[現行evidence_config 1.7.1] code-first構造 — evidence_list.csv は Enabled フラグのみ、セクション実体は evidence_config.ps1 に per-ID 分岐(Test-SectionEnabled/Start-Section/Add-SectionFile/Close-Section)。新カテゴリ=CSV行+コード分岐+表示リスト追記の3点セット。現行 §01-§31+§8b。資格情報セクションは皆無、Outlookはライセンス(§22 vNext)のみでアカウント情報なし。
+[backuper参考実装] credentials: CredEnumerateW P/Invoke(dump_creds.ps1)で TargetName/Type/UserName/Persist/Comment/LastWritten/BlobSize 採取、パスワード本体は不読(sizeのみ)。OSノイズフィルタ(SSO_POP_Device等)+restoreHint付き。DPAPI制約=他ユーザvaultは構造的に読めない→backuperはschtasks /IT(ログオン中のみ)で対処。outlook_pop: HKCU(またはHKU:SID)\Software\Microsoft\Office\{16.0,15.0}\Outlook\Profiles を走査、Internet Account GUID 9375CFF0... 配下から POP3/IMAP/SMTP サーバ・ポート・SSL・アカウント名・PST(EntryIDバイナリスキャン3段解決)をメタデータ採取。レジストリ読みのみでDPAPI不要(パスワードblobは有無booleanのみ)。
+[EvidenceManager契約] manifest駆動+前方互換実装済み — 未知セクションIDは UnknownSection として黄タブ raw シート(§{Id} {Title})へ自動出力、クラッシュ・エラーなし(EvidenceParserService.cs:177-181)。新セクション追加は fabriq 側のみで即出荷可能。専用整形シート化は KnownSections+DispatchSection+PcEvidence+ExcelExportService の4点改修(任意・後続)。
+[構造的制約] 資格情報の他ユーザvault採取は DPAPI per-user により不可能(cmdkey/CredEnumerate とも呼出ユーザのvaultのみ)。Outlookメタデータはレジストリのみで他ユーザも可(要 HKU/hive load)。
+要決定: (1)採取対象ユーザ範囲(実行ユーザのみ/ログオン中ユーザredirect/全プロファイルhive load) (2)秘匿情報はメタデータのみで確定か(パスワード採取は納品物に論外=不採取を推奨) (3)セクションID=§32 Credentials/§33 Outlook Accounts (4)EvidenceManager は raw 自動対応で当面コード変更なし、専用シートは別タスク。
+予想版影響: evidence_config 1.7.1→1.8.0(MINOR/新セクション)、REQUIRES_KERNEL 据置、kernel 不変、EVIDENCE_MANIFEST.md はセクション一覧追記(doc)。
+決定(2026-06-12): (1)=推奨値(資格情報=実行ユーザのみ/Outlook=ログオン中ユーザredirect) (2)パスワードは復号試行も禁止(メタデータのみ、存在確認すら不可) (3)§32/§33 (4)EvidenceManager は raw シート自動対応で当面コード変更なし。設計ゲート(フル版)提示・承認済。
+実装(2026-06-12): 完了・検証済(未コミット)。evidence_config 1.7.1→1.8.0。§32 Credential Manager = 出荷版 MemberDefinition(CredEnumerateW P/Invoke)で実行ユーザvaultをメタデータ列挙(TargetName/Type/UserName/Persist/Comment/LastWritten/IsSystemNoise/SourceUser → 32_Credentials.csv)。blob系フィールドは構造体レイアウト維持のためだけに定義し一切不読。空vault(ERROR_NOT_FOUND=1168)はヘッダのみCSVでSuccess。Add-Typeは PSTypeName ガードで同一プロセス再実行対応。§33 Outlook Mail Accounts = Resolve-HkcuRoot(common.ps1 既存内部関数)でハイブ解決+セクション側で HKU PSDrive を再確保(関数スコープで drive が消える reg_hkcu_config と同じ罠→偽Skipped防止)。Office{16.0,15.0}両方を裁定なしで記録、Internet Account GUID 配下から POP3/IMAP/SMTP メタデータ+PST 3段解決(EntryIDスキャン→ファイル名→単一候補)を 33_OutlookAccounts.csv/33_OutlookDataFiles.csv へ。Password値は存在確認も不実施。Profiles不在=intrinsic Skipped($sectionCount++、§26パターン)、アカウント単位失敗=Partial降格。
+重要発見: 移植元 fabriq_backuper dump_creds.ps1 の _FtToIso に潜在バグ — PowerShell の 0xFFFFFFFF リテラルは Int32 の -1 に解釈され -band がマスクとして無機能、dwLowDateTime 最上位ビット立ち(確率~50%)で lastWritten が silent null 化。fabriq 側は [int64]4294967295(10進)で修正済み。backuper 側の修正は別リポ作業として未着手(要ユーザ判断)。
+検証: parse OK / run_tests 272 passed 0 failed / encoding 新規違反ゼロ(evidence_config の JP+BOM WARN は HEAD 由来の net localgroup 日本語照合) / smoke 22チェック全PASS(AST抽出した実関数+合成データ、負の dwLow roundtrip 含む、HKCU 一時キーは literal ガード付きで掃除済、live CredEnumerate 5件列挙成功) / VERSION は CRLF 改行で 1.8.0。
+付随: evidence_list.csv +2行 / 表示リスト[32][33] / Guide.txt §32/§33 追記+全34セクション化 / EVIDENCE_MANIFEST.md §3.2 の ID 例示を 01〜33 に更新(schemaVersion 1 据置) / CHANGELOG [Unreleased] Added。
+実機確認(コミット前推奨): ①32_Credentials.csv が cmdkey /list と同じ Target 群 ②Outlook 設定済みPCで 33_OutlookAccounts.csv のサーバ/ポート/PST が画面設定一致 ③Outlook 未設定PCで §33 Skipped ④manifest に §32/§33 が出て EvidenceManager が黄タブ raw シート生成。
+コミット(2026-06-12): 54f34a0。実機確認4点(claudeNote 上記)の完了後にタスク完了化。backuper 側の同型バグ修正は別リポ作業(プロンプト提示済み・ユーザ実施待ち)。
 
-<sub>更新: 2026-06-12 22:00 ／ 作成: 2026-06-12 22:00</sub>
-
-### [t-0029] [LOW] C級: 設計メモ・番犬項目(redaction多層化/asyncテレメトリ整合/office_update観測ほか)
-
-**内容:**
-
-(1) history CSV / HTML checklist の Message 欄に redaction 無し — 能動漏えいは未確認、多層防御の欠落。kernel 側で redaction map を通す案(要設計議論)。
-(2) async 子 Runspace の $script:SessionID/TelemetrySeq 再生成によるテレメトリセッション整合 + 子エラーレコード非還流 — 機能影響ゼロ、実地検証してから判断。
-(3) office_update 番犬2点: LastUpdateError 非リセット端末の偽Error固着 / TasksState 数値enum ビルドでの60分タイムアウト復活 — 初回実フリートで観測。
-(4) 別PCの resume_state.json 持ち込みガード無し(運用上稀)。
-(5) ICMP遮断NWで有界プローブがError(旧実装は無限ハング、退行ではない) — 顧客NW特性として把握。
-(6) winget_update: versionBefore 読取失敗時の偽Success縁 / MSIX登録>6秒の偽Error縁。
-(7) ppkg Phase3 再クエリ自体のエラーが fail-open(直前成功済みで窓は狭い)。(8) history_destroyer ClearRegistry 読み返しの catch{} fail-open(狭い)。
-
-**Claudeメモ:**
-
-再監査(2026-06-12, 4並列)で検出。
-
-<sub>更新: 2026-06-12 22:00 ／ 作成: 2026-06-12 22:00</sub>
-
-## レビュー待ち (1)
+<sub>更新: 2026-06-12 22:10 ／ 作成: 2026-06-09 00:19</sub>
 
 ### [t-0027] [HIGH] A級2件: partition RAW判定のnull fail-open + process_runner無限待ち
 
@@ -69,6 +102,85 @@ FabriqEvidenceMangerとの契約関連も要確認
 コミット b7275be (2026-06-12)。実機確認(任意): partition は RAW 化→heal と正常→Skip の既存 2 系が不変であること / process_runner は TimeoutSec=0+WaitProcessName 構成で対象プロセス放置→3600 秒で kill されず Error。確認後に完了化。
 
 <sub>更新: 2026-06-12 23:30 ／ 作成: 2026-06-12 22:00</sub>
+
+### [t-0028] [MED] B級4件: firewall数値プロトコル/system_finalize regsvr32/restore_point baseline/storeapp cast
+
+**内容:**
+
+(1) firewall_rule_make_config: プロトコル正規化が6/17のみ — Protocol=1(ICMPv4)/58(ICMPv6)等の数値行が偽MISMATCH・作成後検証も偽FAIL。マップ拡張。
+(2) system_finalize.ps1:87 — regsvr32 を -PassThru なしで起動、exit code 不問の偽成功。
+(3) restore_point.ps1:255 — baseline が Select-Object -Last 1(列挙順非保証)。max SequenceNumber 化。
+(4) storeapp_config.ps1:21 — Sort 内 [int] 直キャスト、不正 CSV で throw。[int]::TryParse 化(script_looper:58 が手本)。
+
+**Claudeメモ:**
+
+再監査(2026-06-12, 4並列)で検出。
+追加調査(2026-06-12): 4件とも原典コードで実在確認。(1)firewall L213-215 の switch が 6/17 のみ・バリデーション(L69-72)は 0-255 許可・Test-CreatedRule は verify と already-exists の共用関数=1箇所修正で両経路解消、その他数値(47等)は OS も数値で読み返すため現行一致。(2)system_finalize L87 が -PassThru なし+/s サイレントで非0終了が無条件 Success。(3)restore_point L255 の Select -Last 1 は WMI 列挙順非保証、過小 baseline で過去の同名ポイントが偽 PASS し得る(t-0020 封鎖の残滓)。(4)storeapp L21 の Sort 内 [int] 直キャストは不正 No 1行でモジュール即死(手本=script_looper:58 の TryParse)。設計ゲート((1)(3)(4)=軽量版/(2)=フル版+敵対検証3点)提示・4件まとめ実装で承認。
+実装(2026-06-12): 完了・検証済(未コミット)。(1)switch に '1'→ICMPv4/'58'→ICMPv6 追加(1.1.0→1.1.1)。(2)-PassThru+ExitCode 検査、非0と $null は fail-closed で Error 計上、Phase B-D 続行は不変(1.0.0→1.0.1)。(3)baseline を Measure-Object -Maximum の最大 SequenceNumber に変更、0件時 baseline=0 不変(1.1.0→1.1.1)。(4)Sort キーを TryParse 化+不正 No 検出時 Show-Warning 1回+末尾送りで処理継続(1.0.0→1.0.1)。kernel 不変・REQUIRES_KERNEL 全件据置・CHANGELOG Fixed 4件追記。
+検証: parse 4 OK / run_tests 272 passed 0 failed / encoding 新規違反ゼロ / 合成データ smoke 11チェック全PASS(旧 storeapp 式の throw 再現含む=バグ実在の実証、firewall 6パターン写像、baseline max 選択、$null ExitCode の fail-closed)。
+実機確認(任意): firewall は Protocol=1(ICMPv4) 行で 作成→verify PASS→再実行 Skip のサイクル、system_finalize は通常実行で Phase A Success 維持。
+コミット(2026-06-13): 91764b2。実機確認(任意・firewall の Protocol=1 サイクルのみ価値あり)の完了後にタスク完了化。
+
+<sub>更新: 2026-06-13 10:25 ／ 作成: 2026-06-12 22:00</sub>
+
+### [t-0029] [LOW] C級: 設計メモ・番犬項目(redaction多層化/asyncテレメトリ整合/office_update観測ほか)
+
+**内容:**
+
+(1) history CSV / HTML checklist の Message 欄に redaction 無し — 能動漏えいは未確認、多層防御の欠落。kernel 側で redaction map を通す案(要設計議論)。
+(2) async 子 Runspace の $script:SessionID/TelemetrySeq 再生成によるテレメトリセッション整合 + 子エラーレコード非還流 — 機能影響ゼロ、実地検証してから判断。
+(3) office_update 番犬2点: LastUpdateError 非リセット端末の偽Error固着 / TasksState 数値enum ビルドでの60分タイムアウト復活 — 初回実フリートで観測。
+(4) 別PCの resume_state.json 持ち込みガード無し(運用上稀)。
+(5) ICMP遮断NWで有界プローブがError(旧実装は無限ハング、退行ではない) — 顧客NW特性として把握。
+(6) winget_update: versionBefore 読取失敗時の偽Success縁 / MSIX登録>6秒の偽Error縁。
+(7) ppkg Phase3 再クエリ自体のエラーが fail-open(直前成功済みで窓は狭い)。(8) history_destroyer ClearRegistry 読み返しの catch{} fail-open(狭い)。
+
+**Claudeメモ:**
+
+再監査(2026-06-12, 4並列)で検出。
+追加調査(2026-06-13・全8項目の現物確認完了。方針=各修正は既に異常な経路にのみ作用させ正常動作を不変に保つ):
+(1)修正候補: redaction は telemetry 専用(New-TelemetryRedactMap=ハッシュ+PIN ハードリダクト)で Write-ExecutionHistory(common.ps1:2088)は素通し。ただし history/HTML は納品チェックリストのため PCName/KanriNo の平文は仕様(ハッシュ適用は正常動作の破壊)。適用すべきは SELECTED_PIN のハードリダクトのみ=単一チョークポイント Write-ExecutionHistory の Message に .Replace 1箇所(CSV経由で HTML も自動継承)。副発見: telemetry redact map に FabriqMasterPassphrase が未登録(モジュールは passphrase を見ないため実害低、設計メモ)。
+(2)修正不要で確定(構造証明): Start-ModuleTelemetry は async でも親側(common.ps1:1638、Runspace生成前)で envelope 生成、子は注入参照(inject _CurrentModuleTelemetry)経由で同一 JSONL へ書く。子の再生成 SessionID を消費する関数(Write-ExecutionHistory/Write-KernelTelemetryEvent/_WriteTelemetryMeta)をモジュールが呼ばないことを全数 grep で確認(hit は pianist/Guide.txt の文書のみ)=休眠。残る「子エラーレコード非還流」は設計メモ維持。
+(3)(5)観測項目維持(コード変更なし): office_update 番犬2点=初回実フリート、ICMP遮断NW=顧客NW特性メモ。
+(4)修正候補: resume_state は DPAPI LocalMachine で passphrase/PIN が他PC復号不能=部分自衛済みだが state 本体(進捗/env)は素通し。Save-ResumeState に HardwareUniqueId(=$global:FabriqUniqueId、main.ps1:1260 で Load より先に確定済・ホスト名変更を跨いで安定)を追加し、Load-ResumeState(common.ps1:3168、main.ps1:1278 唯一の実呼出)内で照合。mismatch=Show-Error+return $null。ファイルは削除しない(共有メディア経由の他PCの正規 state を破壊しないため)。旧 state は field 欠如→チェックスキップ=後方互換。ComputerName 照合は hostname 変更跨ぎ resume(主用途)を壊すため不採用。
+(6)修正候補(winget_update.ps1): (a)L50 の versionBefore 読取失敗('')時、default 分岐の version 比較が「旧版が読めただけ」で偽 Success+Verified=true 化→baseline 空なら比較不成立として exit code 準拠の Error 維持(fail-closed)。(b)プローブ 3回×2s=6s は遅い MSIX 登録で偽 Error→6回×3s=18s に拡大。正常 exit code 経路(0/3010/uptodate)は完全不変。
+(7)修正候補(ppkg_uninstall_config.ps1:201): Phase3 再クエリが SilentlyContinue のみで、クエリ自体のエラー時 $verifyPkg=$null→else 分岐で verified 扱い=fail-open。-ErrorVariable 捕捉でクエリ失敗時は pending 扱い(Success+Verified=false+re-run 案内)に合流=確立済みの再起動跨ぎ契約そのもの。absent→verified / present→pending の正常2経路は不変。
+(8)修正候補(history_destroyer.ps1:499-506): ClearRegistry 読み返しの catch{} で $remainingValues=0 のまま Success=fail-open。$verdictReadable フラグ化し読取不能=Error 計上(fail-closed)。直前 L472 で Test-Path 通過済みのため誤 Error 窓は極小。
+予想版影響: kernel PATCH(3.5.0 据置・公開API不変。Load-ResumeState の挙動補強は KERNEL_API 記載関数だが $null 返却契約の範囲内、注記追加のみ検討) / winget_install・ppkg_config・history_destroyer 各 PATCH。新規テスト: ResumeState 3-4件 + Write-ExecutionHistory PIN redact 2件。
+実装(2026-06-13・5件を一段階ずつ実装、各段階で parse 確認): 完了・検証済(未コミット)。
+(1)common.ps1 Write-ExecutionHistory: CSV エスケープ前に SELECTED_PIN の .Replace ハードリダクト(telemetry と同ポリシー、PCName/KanriNo は仕様で平文維持)。
+(4)common.ps1 Save-ResumeState の $state に HardwareUniqueId=$global:FabriqUniqueId 追加(SessionID 直後)、Load-ResumeState は ConvertFrom-Json 直後・telemetry イベント前に照合挿入。両側非空かつ相違時のみ Show-Error+return $null、ファイル非削除、旧形式(field欠如)/global未設定は照合スキップ=後方互換。
+(6)winget_update.ps1: (a)success verdict に $versionBefore -and を前置(baseline 空時は exit code 準拠 Error へ fail-closed、エラーメッセージも baseline 不明を明示)。break は versionBefore 空時に即抜けで無駄待ち回避のため現状維持。(b)プローブ 3×2s→6×3s(18s)。正常 exit code 経路(0/3010/uptodate)完全不変。1.1.0→1.1.1。
+(7)ppkg_uninstall_config.ps1:201: -ErrorVariable verifyErr 追加、verdict を if($verifyPkg -or $verifyErr) に拡張、クエリ失敗時は pending(Success+Verified=false+re-run案内)へ合流。absent→verified/present→pending の正常2経路と straddle 契約は不変。1.1.0→1.1.1。
+(8)history_destroyer.ps1:499: $verdictReadable フラグ導入(try前true/catch内false)、読取不能を最優先 Error 計上(fail-closed)。読み返し成功経路は不変。1.2.0→1.2.1(注:設計メモの1.1.0は誤り、実際1.2.0だった)。
+コード変更せずクローズ: (2)async テレメトリ(休眠値の構造証明済)、(3)office_update 番犬(初回実フリート観測)、(5)ICMP 遮断NW(顧客NW特性メモ)。
+KERNEL_API.md: 更新不要で確定 — Save-/Load-ResumeState/Write-ExecutionHistory は §6『内部実装(非API・PATCH可)』に明記済み。挙動補強は $null 返却契約の範囲内。
+新規テスト: ResumeState.tests.ps1 に Context 'Cross-PC identity guard' 6件(UID記録/一致ロード/別PC拒否=null/拒否時ファイル非削除/旧形式受理/global未設定で guard inert)+BeforeEach に $global:FabriqUniqueId 追加。Write-ExecutionHistory.tests.ps1 新規3件(PIN→[REDACTED]/PIN無しは不変/PCName・KanriNo平文維持)。
+検証: parse 6 OK / run_tests 272→281 passed 0 failed(+9) / encoding 新規違反ゼロ(FAIL 5=既知 Tier2/3)。
+予想版影響: kernel KERNEL_VERSION 3.5.0 据置([Unreleased] 蓄積、§6 内部 PATCH 相当) / winget_install 1.1.1 / ppkg_config 1.1.1 / history_destroyer 1.2.1。REQUIRES_KERNEL 全件据置。
+実機確認(任意・コミット可否はユーザ判断): (4)2PC間メディア持込で別PC state 拒否、(6)winget 自己更新の遅延端末、(7)ppkg 実アンインストール、(8)アクセス拒否レジストリ。いずれも unit test で論理は pin 済み。
+コミット(2026-06-13): a52650e。実機確認(任意・4項目)の完了後にタスク完了化。
+
+<sub>更新: 2026-06-13 12:30 ／ 作成: 2026-06-12 22:00</sub>
+
+### [t-0030] Fabriq_IOS機能
+
+**内容:**
+
+・do機能追加
+
+
+
+**Claudeメモ:**
+
+do 機能を実装 (TM t-0030)。対象=apps/fabriq_ios (0.3.5→0.4.0, kernel 公開API不変・REQUIRES_KERNEL据置)。
+設計: config系3モード(GlobalConfig/InterfaceConfig/ModuleConfig)で `do <EXEC>` を REPL で厳密一致介入し、残りトークンを PrivilegedExec として再解決→whitelist{show,reload}のみ許可→既存 Invoke-PrivilegedExecCommand へ委譲。configure/disable/exit は拒否しモード遷移・シェル終了の混入を防止。do はリゾルバ語彙に載せず(略語化/漏れ回避)、help に表示分岐を追加。
+触ったファイル: lib/commands/do.ps1(新規), fabriq_ios.ps1(dot-source+REPL分岐), lib/help.ps1(表示分岐), data/help_text.csv(3行), VERSION, CHANGELOG, tests/do.tests.ps1(新規11件)。
+検証: powershell.exe 5.1 で dev/run_tests.ps1 → 292 pass / 0 fail / exit 0。encoding チェックの既存5件JP-NO-BOMは別件(本変更は新規違反なし)。
+範囲外: Tab補完への do 候補追加 / do 経由の show 以外EXEC / disable バグ(廃止)項目。
+状態: 実装完了・実機(IOSシェル)確認待ちでレビュー待ち維持。
+
+<sub>更新: 2026-06-13 14:15 ／ 作成: 2026-06-13 13:40</sub>
 
 ## 完了 (24)
 
