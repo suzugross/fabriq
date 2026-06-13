@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-13T12:30:18.234131+09:00",
+  "updatedAt": "2026-06-13T14:25:02.9951711+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -263,6 +263,60 @@
       "status": "レビュー待ち",
       "createdAt": "2026-06-12T22:00:00+09:00",
       "updatedAt": "2026-06-13T12:30:18.234131+09:00"
+    },
+    {
+      "id": "t-0030",
+      "title": "Fabriq_IOS機能",
+      "content": "・do機能追加\n\n",
+      "claudeNote": "do 機能を実装 (TM t-0030)。対象=apps/fabriq_ios (0.3.5→0.4.0, kernel 公開API不変・REQUIRES_KERNEL据置)。\n設計: config系3モード(GlobalConfig/InterfaceConfig/ModuleConfig)で `do <EXEC>` を REPL で厳密一致介入し、残りトークンを PrivilegedExec として再解決→whitelist{show,reload}のみ許可→既存 Invoke-PrivilegedExecCommand へ委譲。configure/disable/exit は拒否しモード遷移・シェル終了の混入を防止。do はリゾルバ語彙に載せず(略語化/漏れ回避)、help に表示分岐を追加。\n触ったファイル: lib/commands/do.ps1(新規), fabriq_ios.ps1(dot-source+REPL分岐), lib/help.ps1(表示分岐), data/help_text.csv(3行), VERSION, CHANGELOG, tests/do.tests.ps1(新規11件)。\n検証: powershell.exe 5.1 で dev/run_tests.ps1 → 292 pass / 0 fail / exit 0。encoding チェックの既存5件JP-NO-BOMは別件(本変更は新規違反なし)。\n範囲外: Tab補完への do 候補追加 / do 経由の show 以外EXEC / disable バグ(廃止)項目。\n状態: 実装完了・実機(IOSシェル)確認待ちでレビュー待ち維持。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-13T13:40:49.1048533+09:00",
+      "updatedAt": "2026-06-13T14:15:08.020419+09:00"
+    },
+    {
+      "id": "t-0031",
+      "title": "Fabriq_IOS機能２",
+      "content": "・ping traceroute機能追加\n",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T13:55:45.4031621+09:00",
+      "updatedAt": "2026-06-13T13:56:21.226853+09:00"
+    },
+    {
+      "id": "t-0032",
+      "title": "Fabriq_IOS機能３",
+      "content": "・manifesto画面起動機能追加",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T13:55:46.0026554+09:00",
+      "updatedAt": "2026-06-13T13:56:21.2268577+09:00"
+    },
+    {
+      "id": "t-0033",
+      "title": "Fabriq_IOS機能４",
+      "content": "・disableバグ修正（廃止でもいいかも）",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T13:56:21.6501201+09:00",
+      "updatedAt": "2026-06-13T13:58:31.6728541+09:00"
+    },
+    {
+      "id": "t-0034",
+      "title": "Fabriq_IOS機能５",
+      "content": "reload機能の追加。\r\n再起動後はIOSアプリが立ち上がってくることが望ましい。\r\nまた、すぐに再起動するのではなく、それらしいコマンドやシュルキティニスムな文言が一通り流れてから再起動が走るとアートらしく良い。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T14:19:43.6703344+09:00",
+      "updatedAt": "2026-06-13T14:21:40.325654+09:00"
+    },
+    {
+      "id": "t-0035",
+      "title": "Fabriq_IOS機能６",
+      "content": "*list.csv形式のものではないが、なんとか、IOS上で呼び出せるようにしたい、する価値があるモジュールを、呼び出せるようにしたい。\r\n\r\n専用のコマンドを用意するのもありだが、出来るだけ汎用的にそういったモジュールを呼び出せる方法がないか、検討したい。\r\nおそらく、module.csvやpreset.csv、マルチCSV形式のモジュールが足を引っ張っているのではとは思っていますが。\r\n\r\nちなみに直近で呼び出したいモジュールは\r\ndomain_joinです。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-13T14:21:43.0883276+09:00",
+      "updatedAt": "2026-06-13T14:25:02.9950955+09:00"
     }
   ]
 }

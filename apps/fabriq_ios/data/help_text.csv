@@ -22,11 +22,13 @@ GlobalConfig,help,Display this help
 GlobalConfig,?,Display this help
 GlobalConfig,exit,Return to privileged EXEC mode
 GlobalConfig,end,Return to privileged EXEC mode
+GlobalConfig,do,Run a privileged EXEC command (show / reload) without leaving config mode
 InterfaceConfig,ip,Configure IP parameters
 InterfaceConfig,help,Display this help
 InterfaceConfig,?,Display this help
 InterfaceConfig,exit,Return to global configuration mode
 InterfaceConfig,end,Return to privileged EXEC mode
+InterfaceConfig,do,Run a privileged EXEC command (show / reload) without leaving config mode
 ModuleConfig,set,Configure values and immediately run the module (one ephemeral row)
 ModuleConfig,add,Alias for 'set'
 ModuleConfig,show,Display the module's CSV schema and usage
@@ -34,3 +36,4 @@ ModuleConfig,help,Display this help
 ModuleConfig,?,Display this help
 ModuleConfig,exit,Return to global configuration mode
 ModuleConfig,end,Return to privileged EXEC mode
+ModuleConfig,do,Run a privileged EXEC command (show / reload) without leaving config mode
