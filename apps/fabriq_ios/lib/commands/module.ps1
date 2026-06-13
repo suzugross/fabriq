@@ -79,7 +79,11 @@ function Get-ModuleCsvSchema {
     # Returns @{ Columns; Enums; CsvFileName; CsvPath; ScriptPath } or $null.
     # Phase 9b: when an explicit `csv` is declared in the JSON entry
     # for (CategoryId, Name), that file is used; otherwise we glob
-    # *_list.csv in the module directory and pick the first match.
+    # *_list.csv in the module directory and pick the first match. If no
+    # *_list.csv exists, fall back to the single non-special *.csv in the
+    # directory (module.csv / preset.csv excluded) so modules with a
+    # differently-named single config CSV (e.g. domain_join/domain.csv)
+    # are configurable without a per-module override.
     # The returned ScriptPath echoes the resolved entry's script so
     # downstream callers (Invoke-ModuleEphemeralRun) do not have to
     # call Find-ModulePath a second time.
@@ -113,7 +117,20 @@ function Get-ModuleCsvSchema {
         }
     } else {
         $csvFiles = @(Get-ChildItem -Path $moduleDir -Filter '*_list.csv' -File -ErrorAction SilentlyContinue)
-        if ($csvFiles.Count -eq 0) { return $null }
+        if ($csvFiles.Count -eq 0) {
+            # Fallback for modules whose single config CSV is not named
+            # *_list.csv (e.g. domain_join's domain.csv, driver_config's
+            # driver.csv). Pick the only *.csv in the directory excluding
+            # the IOS-irrelevant module.csv / preset.csv. If 0 or 2+ such
+            # files exist the schema stays unresolved ($null) and an
+            # explicit `csv` override in module_categories.json is required
+            # - this keeps multi-CSV modules from resolving ambiguously.
+            $special = @('module.csv', 'preset.csv')
+            $others  = @(Get-ChildItem -Path $moduleDir -Filter '*.csv' -File -ErrorAction SilentlyContinue |
+                         Where-Object { $_.Name -notin $special })
+            if ($others.Count -ne 1) { return $null }
+            $csvFiles = $others
+        }
         $csvFileName = $csvFiles[0].Name
         $csvPath     = $csvFiles[0].FullName
     }
