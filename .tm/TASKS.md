@@ -3,18 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-13 14:25
+最終更新: 2026-06-13 17:38
 
-## 未着手 (5)
-
-### [t-0031] Fabriq_IOS機能２
-
-**内容:**
-
-・ping traceroute機能追加
-
-
-<sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
+## 未着手 (2)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -24,39 +15,16 @@
 
 <sub>更新: 2026-06-13 13:56 ／ 作成: 2026-06-13 13:55</sub>
 
-### [t-0033] Fabriq_IOS機能４
+### [t-0036] FabriqIOS機能7
 
 **内容:**
 
-・disableバグ修正（廃止でもいいかも）
+moduleでのEnableの扱いですが、暗黙的に1とし、setコマンドで明示する必要がないようにしたい。
+タブや？での解決も意図的に排除して、オペレータがEnableカラムの存在を意識しないようにしたい。
 
-<sub>更新: 2026-06-13 13:58 ／ 作成: 2026-06-13 13:56</sub>
+<sub>更新: 2026-06-13 17:38 ／ 作成: 2026-06-13 17:35</sub>
 
-### [t-0034] Fabriq_IOS機能５
-
-**内容:**
-
-reload機能の追加。
-再起動後はIOSアプリが立ち上がってくることが望ましい。
-また、すぐに再起動するのではなく、それらしいコマンドやシュルキティニスムな文言が一通り流れてから再起動が走るとアートらしく良い。
-
-<sub>更新: 2026-06-13 14:21 ／ 作成: 2026-06-13 14:19</sub>
-
-### [t-0035] Fabriq_IOS機能６
-
-**内容:**
-
-*list.csv形式のものではないが、なんとか、IOS上で呼び出せるようにしたい、する価値があるモジュールを、呼び出せるようにしたい。
-
-専用のコマンドを用意するのもありだが、出来るだけ汎用的にそういったモジュールを呼び出せる方法がないか、検討したい。
-おそらく、module.csvやpreset.csv、マルチCSV形式のモジュールが足を引っ張っているのではとは思っていますが。
-
-ちなみに直近で呼び出したいモジュールは
-domain_joinです。
-
-<sub>更新: 2026-06-13 14:25 ／ 作成: 2026-06-13 14:21</sub>
-
-## レビュー待ち (5)
+## レビュー待ち (4)
 
 ### [t-0002] evidence_config取得範囲拡大
 
@@ -163,26 +131,7 @@ KERNEL_API.md: 更新不要で確定 — Save-/Load-ResumeState/Write-ExecutionH
 
 <sub>更新: 2026-06-13 12:30 ／ 作成: 2026-06-12 22:00</sub>
 
-### [t-0030] Fabriq_IOS機能
-
-**内容:**
-
-・do機能追加
-
-
-
-**Claudeメモ:**
-
-do 機能を実装 (TM t-0030)。対象=apps/fabriq_ios (0.3.5→0.4.0, kernel 公開API不変・REQUIRES_KERNEL据置)。
-設計: config系3モード(GlobalConfig/InterfaceConfig/ModuleConfig)で `do <EXEC>` を REPL で厳密一致介入し、残りトークンを PrivilegedExec として再解決→whitelist{show,reload}のみ許可→既存 Invoke-PrivilegedExecCommand へ委譲。configure/disable/exit は拒否しモード遷移・シェル終了の混入を防止。do はリゾルバ語彙に載せず(略語化/漏れ回避)、help に表示分岐を追加。
-触ったファイル: lib/commands/do.ps1(新規), fabriq_ios.ps1(dot-source+REPL分岐), lib/help.ps1(表示分岐), data/help_text.csv(3行), VERSION, CHANGELOG, tests/do.tests.ps1(新規11件)。
-検証: powershell.exe 5.1 で dev/run_tests.ps1 → 292 pass / 0 fail / exit 0。encoding チェックの既存5件JP-NO-BOMは別件(本変更は新規違反なし)。
-範囲外: Tab補完への do 候補追加 / do 経由の show 以外EXEC / disable バグ(廃止)項目。
-状態: 実装完了・実機(IOSシェル)確認待ちでレビュー待ち維持。
-
-<sub>更新: 2026-06-13 14:15 ／ 作成: 2026-06-13 13:40</sub>
-
-## 完了 (24)
+## 完了 (29)
 
 ### [t-0001] example設定値の統一
 
@@ -664,6 +613,119 @@ power_config.ps1 は powercfg ネイティブコマンドの失敗を検出で�
 コミット a3a703f、ユーザー確認 OK で完了(2026-06-12)。
 
 <sub>更新: 2026-06-12 20:30 ／ 作成: 2026-06-11 10:02</sub>
+
+### [t-0030] Fabriq_IOS機能
+
+**内容:**
+
+・do機能追加
+
+
+
+**Claudeメモ:**
+
+do 機能を実装 (TM t-0030)。対象=apps/fabriq_ios (0.3.5→0.4.0, kernel 公開API不変・REQUIRES_KERNEL据置)。
+設計: config系3モード(GlobalConfig/InterfaceConfig/ModuleConfig)で `do <EXEC>` を REPL で厳密一致介入し、残りトークンを PrivilegedExec として再解決→whitelist{show,reload}のみ許可→既存 Invoke-PrivilegedExecCommand へ委譲。configure/disable/exit は拒否しモード遷移・シェル終了の混入を防止。do はリゾルバ語彙に載せず(略語化/漏れ回避)、help に表示分岐を追加。
+触ったファイル: lib/commands/do.ps1(新規), fabriq_ios.ps1(dot-source+REPL分岐), lib/help.ps1(表示分岐), data/help_text.csv(3行), VERSION, CHANGELOG, tests/do.tests.ps1(新規11件)。
+検証: powershell.exe 5.1 で dev/run_tests.ps1 → 292 pass / 0 fail / exit 0。encoding チェックの既存5件JP-NO-BOMは別件(本変更は新規違反なし)。
+範囲外: Tab補完への do 候補追加 / do 経由の show 以外EXEC / disable バグ(廃止)項目。
+状態: 実装完了・実機(IOSシェル)確認待ちでレビュー待ち維持。
+
+<sub>更新: 2026-06-13 17:30 ／ 作成: 2026-06-13 13:40</sub>
+
+### [t-0031] Fabriq_IOS機能２
+
+**内容:**
+
+・ping traceroute機能追加
+
+
+**Claudeメモ:**
+
+実装済み (apps/fabriq_ios 0.5.0 → 0.6.0)。Cisco IOS 風 ping / traceroute を実装。
+User EXEC / Privileged EXEC の両モードに追加、do ping / do traceroute も可(do-whitelist に追加)。
+Windows の ping.exe/tracert.exe は使わず ICMP(System.Net.NetworkInformation.Ping、traceroute は PingOptions.Ttl 1→30)で IOS 既定値・出力を再現:
+  ping = 5 回 / 2s timeout / 100-byte、結果文字 !(応答) .(timeout) U(unreachable)、末尾に 'Success rate is N percent (r/s), round-trip min/avg/max = a/b/c ms'。
+  traceroute = hop あたり 3 プローブ / 3s timeout / max TTL 30、各 RTT を 'N msec'、無応答は '*'、宛先到達か TTL30 で終了。
+中断: Ctrl+C ではなく各プローブを SendPingAsync で非同期発行し Esc キーを 50ms ポーリングで検出(シェルは落ちない)。'Type escape sequence to abort.' が実機能。
+引数なしは % Incomplete、名前解決失敗は % Unrecognized host or address。
+触ったファイル: lib/commands/network.ps1(新規), parser.ps1(語彙), user_exec.ps1/privileged_exec.ps1(ハンドラ), do.ps1(whitelist), data/help_text.csv, fabriq_ios.ps1(dot-source), VERSION, CHANGELOG, tests/network.tests.ps1(新規 12)+do.tests.ps1(+2)。
+検証: powershell.exe 5.1 dev/run_tests.ps1 → 313 pass / 0 fail / exit 0(実 ICMP 送信・Esc は環境依存のため純粋関数のみ自動テスト)。
+状態: 実装完了・実機(ping/traceroute 実行と Esc 中断)確認待ちでレビュー待ち。
+
+<sub>更新: 2026-06-13 17:30 ／ 作成: 2026-06-13 13:55</sub>
+
+### [t-0033] Fabriq_IOS機能４
+
+**内容:**
+
+・disableの挙動確認(バグというのは気のせいで、なにも問題ないさそうでした。本命はendコマンドでした。)
+・end入力すると、あたかもユーザコンフィグレーションモードに移行したかのようにみえるが、そのごEnterなど押下すると、エラーがでて（Unkown Command: end）、もとのモードに戻る（疑似的なコマンド？）
+
+求める内容
+
+endを入力するとどこのモードからでも、ちゃんと特権execモードに移行
+disableは実機通り、特権execからユーザモードへ移行していた。
+
+**Claudeメモ:**
+
+（t-0033 は当初 disable バグだったが、実機スクショで end の不具合と判明。disable/exit は正常）。
+修正済み (apps/fabriq_ios 0.6.0 → 0.6.1)。
+原因: end は PowerShell 予約キーワードのため、入力を PowerShell として解析する PSReadLine が end 単体を未完成文と判定 → 継続プロンプト >> を表示。確定後のバッファが end⏎(埋め込み改行付き)で返り、ConvertTo-FabriqIosTokens が空白/タブのみで分割し改行を区切りにしていなかったため token が end⏎ の1語になり 語彙の end に不一致 → % Unknown command: end → config に留まっていた。exit は完成文として即確定するため無事だった。
+対処: ConvertTo-FabriqIosTokens が CR/LF も区切りにするよう修正(parser.ps1)。end が確実に privileged EXEC へ遷移。end 以外の PS キーワード衝突にも効く防御。
+残る仕様上の制約: end 入力時に >> が一瞬出て Enter 2 回になる点は PowerShell キーワード由来で、PSReadLine の AcceptLine が未完成チェックを再実行するためドキュメント API では消せない(user 判断で抑止は見送り、機能正常化を優先)。
+触ったファイル: lib/parser.ps1, tests/parser.tests.ps1(+3), VERSION, CHANGELOG。
+検証: powershell.exe 5.1 dev/run_tests.ps1 → 316 pass / 0 fail / exit 0。実機で end→privileged 遷移の確認待ち。
+状態: 実装完了・実機確認待ちでレビュー待ち。disable 廃止案は別途要判断(今回は触らず)。
+
+<sub>更新: 2026-06-13 17:30 ／ 作成: 2026-06-13 13:56</sub>
+
+### [t-0034] Fabriq_IOS機能５
+
+**内容:**
+
+reload機能の追加。
+再起動後はIOSアプリが立ち上がってくることが望ましい。
+また、すぐに再起動するのではなく、それらしいコマンドやシュルキティニスムな文言が一通り流れてから再起動が走るとアートらしく良い。
+
+**Claudeメモ:**
+
+実装済み (apps/fabriq_ios 0.4.1 → 0.5.0)。reload をスタブから本実装。
+フロー: Cisco 風確認 `Proceed with reload? [confirm]`(Enter/y で続行・それ以外で中止) → 再起動後に Fabriq_IOS.exe を立ち上げ直す HKLM RunOnce を武装(別名 FabriqIosAutoStart、kernel の FabriqAutoStart と非衝突) → RESTART syslog + manifesto のシュルキティニスム演出を遅延付きで流す → Restart-Computer -Force。
+fail-closed: RunOnce 武装失敗時は再起動せず中止(戻れない状態で reboot しない)。Fabriq_IOS.exe 不在/非管理者も同様に中止。
+RunOnce は次回ログオン時に1度だけ発火 → autologon 設定済みなら自動復帰、未設定ならログオン後に IOS 起動(autologon 自動設定は対象外・user 判断)。do reload も同一の確認・再起動経路。IOS はステートレスのため復帰は fresh 起動で kernel resume_state は不使用。
+RunOnce はカーネル Register-FabriqRunOnce(Fabriq.exe 固定)を流用せず fabriq_ios ローカル実装(user 判断、手戻り最小)。
+触ったファイル: lib/commands/reload.ps1(新規), lib/modes/privileged_exec.ps1(ハンドラ差替), fabriq_ios.ps1(dot-source), data/syslog_messages.csv(RESTART 演出キー +3), VERSION, CHANGELOG, tests/reload.tests.ps1(新規 5件・confirm/fail-closed/reboot を Mock 検証)。
+検証: powershell.exe 5.1 dev/run_tests.ps1 → 299 pass / 0 fail / exit 0(Restart-Computer は Mock で実機再起動なし)。
+状態: 実装完了・実機(reload→実再起動→ログオン後 IOS 自動起動)確認待ちでレビュー待ち。
+
+<sub>更新: 2026-06-13 17:30 ／ 作成: 2026-06-13 14:19</sub>
+
+### [t-0035] Fabriq_IOS機能６
+
+**内容:**
+
+*list.csv形式のものではないが、なんとか、IOS上で呼び出せるようにしたい、する価値があるモジュールを、呼び出せるようにしたい。
+
+専用のコマンドを用意するのもありだが、出来るだけ汎用的にそういったモジュールを呼び出せる方法がないか、検討したい。
+おそらく、module.csvやpreset.csv、マルチCSV形式のモジュールが足を引っ張っているのではとは思っていますが。
+
+ちなみに直近で呼び出したいモジュールは
+domain_joinです。
+
+**Claudeメモ:**
+
+手段B（自動検出の汎用化）で対応 (apps/fabriq_ios 0.6.1 -> 0.7.0)。user 判断: シンプルに保つため set で割り切り(平文 pass 許容)、専用コマンド化はしない。
+実態調査: モジュールは config CSV 形状で3層。(1) *_list.csv = 62件(既に IOS で動作) (2) 単一の非*_list config CSV = 8件(domain_join/domain.csv 等、あと一歩) (3) config CSV なし = 9件(env変数/入力なし、別問題)。
+真の原因: ModuleConfig のスキーマ自動検出が *_list.csv だけを glob していた点。module.csv/preset.csv やマルチCSV は元々ブロッカーではない(preset=enumヒント, module=メタ, マルチCSVは object エントリで対応済)。
+対処: Get-ModuleCsvSchema(lib/commands/module.ps1) で *_list.csv が0件のとき module.csv/preset.csv を除く単一 *.csv にフォールバック。2件以上なら null で fail-closed(JSON の明示 csv 上書きを要求、マルチCSVの誤解決を防ぐ)。
+効果: domain_join はカタログの文字列エントリのまま `module domain_join` -> `set domain <fqdn> user <u> pass <p> dns <ip>` で実行可能(domain_join.ps1 は Import-ModuleCsv -Path <dir>\domain.csv で読むため override 発火を確認)。(2)層の他(driver_config/office_license_config/windows_license_config/builtin_admin_config/printer_delete 等、文字列登録済み)も同時に到達可能(各 ephemeral 注入は Import-ModuleCsv のファイル名パスマッチ前提)。(1)層62件は *_list.csv 優先でフォールバック不到達=挙動不変。
+注意(承知の割り切り): set pass は平文エコー、ENC: 列は ephemeral 設定不可。ip domain-name 案(IOSらしさ)は別軸で今回見送り。(3)層(config CSV なし)は本タスク範囲外。
+触ったファイル: lib/commands/module.ps1(フォールバック追加), lib/commands/categories.ps1(docコメント), VERSION(0.7.0), CHANGELOG, tests/module_schema.tests.ps1(新規2: domain_join フォールバック解決 + *_list 非回帰)。
+検証: powershell.exe 5.1 dev/run_tests.ps1 -> 318 pass / 0 fail / exit 0。
+状態: 実装完了・未コミット。実機(module domain_join -> set 実行でドメイン参加)確認待ちでレビュー待ち。
+
+<sub>更新: 2026-06-13 17:35 ／ 作成: 2026-06-13 14:21</sub>
 
 ## 保留 (1)
 
