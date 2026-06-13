@@ -74,6 +74,13 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- apps/fabriq_ios v0.7.0 → v0.7.1 (TM t-0036): ModuleConfig で `Enabled` カラムをオペレータ
+  から隠蔽。`show` の列一覧・Tab 補完・インライン `?` の候補から `Enabled` を除外し、`show` の
+  Notes からも Enabled の記述を削除（オペレータが Enabled の存在を意識しないようにする要望）。
+  `Enabled` は従来どおり ephemeral 実行時に暗黙で `1` になるため明示 `set` は不要。隠蔽列は
+  `$script:FabriqIosHiddenColumns`（現状 `Enabled` のみ）+ `Get-FabriqIosVisibleColumns` で
+  一元管理。明示的な `set Enabled <v>` はバリデーション上は引き続き受理（隠れているだけで
+  capability は削らない）。kernel 公開 API 不変。
 - apps/fabriq_ios v0.6.0 → v0.6.1 (TM t-0033): `end` が config モードで効かず `>>` 継続
   プロンプトを出して `% Unknown command: end` になり privileged EXEC に戻らない不具合を修正。
   原因は `end` が PowerShell の予約キーワードのため、PSReadLine が未完成文と解釈して継続

@@ -21,6 +21,22 @@ $script:FabriqIosExcludedModules = @(
 
 $script:FabriqIosModuleCache = $null
 
+# Columns hidden from the operator in ModuleConfig: they are not listed by
+# `show`, never offered by Tab / inline `?`, and the operator is not meant
+# to be aware of them. `Enabled` is always defaulted to '1' by
+# Invoke-ModuleEphemeralRun (the act of typing `set` IS the enable), so
+# surfacing it would only invite confusion. An explicit `set Enabled <v>`
+# is still accepted (validated against the full schema) - it is simply
+# undiscoverable.
+$script:FabriqIosHiddenColumns = @('Enabled')
+
+function Get-FabriqIosVisibleColumns {
+    # Filter a column list down to what the operator should see/complete.
+    param([string[]]$Columns)
+    if (-not $Columns) { return @() }
+    return @($Columns | Where-Object { $_ -notin $script:FabriqIosHiddenColumns })
+}
+
 function Get-ModuleCompletionFromFilesystem {
     if ($null -ne $script:FabriqIosModuleCache) {
         return $script:FabriqIosModuleCache
@@ -254,7 +270,7 @@ function Show-ModuleConfigSchema {
     Write-Host ("  Module: {0}" -f $State.ConfigModuleName)
     Write-Host ""
     Write-Host "  Columns:"
-    foreach ($col in $schema.Columns) {
+    foreach ($col in (Get-FabriqIosVisibleColumns -Columns $schema.Columns)) {
         $hint = ''
         if ($schema.Enums.ContainsKey($col)) {
             $hint = '  [' + ($schema.Enums[$col] -join '|') + ']'
@@ -270,7 +286,6 @@ function Show-ModuleConfigSchema {
     Write-Host ""
     Write-Host "  Notes:"
     Write-Host "    - Existing <name>_list.csv on disk is never modified."
-    Write-Host "    - The Enabled column defaults to '1' if you omit it."
     Write-Host "    - ENC: encrypted columns cannot be set ephemerally."
     Write-Host ""
 }

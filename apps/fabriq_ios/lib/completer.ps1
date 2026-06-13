@@ -102,7 +102,8 @@ function Get-SetAddPositionalCompletion {
         for ($i = 1; $i -lt $TokensBefore.Count; $i += 2) {
             [void]$used.Add($TokensBefore[$i])
         }
-        return @($State.ConfigModuleSchema.Columns | Where-Object { -not $used.Contains($_) })
+        $visible = Get-FabriqIosVisibleColumns -Columns $State.ConfigModuleSchema.Columns
+        return @($visible | Where-Object { -not $used.Contains($_) })
     } else {
         # Next position is a value for the column at TokensBefore[-1].
         $col = $TokensBefore[-1]
@@ -134,17 +135,18 @@ function Get-DynamicCompletion {
         'script'     { return @(Get-CategoryModuleCompletion -CategoryId 'scripting') }
         'set' {
             # Inside (config-mod)# the first arg of `set` is a column
-            # name from the bound module's schema.
+            # name from the bound module's schema. Hidden columns
+            # (e.g. Enabled) are never offered.
             $s = $global:_FabriqIosShellState
             if ($s -and $s.ConfigModuleSchema) {
-                return @($s.ConfigModuleSchema.Columns)
+                return @(Get-FabriqIosVisibleColumns -Columns $s.ConfigModuleSchema.Columns)
             }
             return @()
         }
         'add' {
             $s = $global:_FabriqIosShellState
             if ($s -and $s.ConfigModuleSchema) {
-                return @($s.ConfigModuleSchema.Columns)
+                return @(Get-FabriqIosVisibleColumns -Columns $s.ConfigModuleSchema.Columns)
             }
             return @()
         }
