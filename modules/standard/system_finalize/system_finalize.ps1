@@ -84,9 +84,19 @@ Write-Host "Processing: Shell re-registration" -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor White
 
 try {
-    Start-Process "regsvr32" -ArgumentList "/s /i:U shell32.dll" -Wait -NoNewWindow
-    Show-Success "Shell re-registration completed"
-    $successCount++
+    # /s is silent: a failing regsvr32 shows no dialog and Start-Process
+    # does not throw on a nonzero exit, so the exit code is the only
+    # failure signal. A $null ExitCode also falls through to the failure
+    # branch (fail-closed).
+    $regsvrProc = Start-Process "regsvr32" -ArgumentList "/s /i:U shell32.dll" -Wait -NoNewWindow -PassThru
+    if ($regsvrProc.ExitCode -eq 0) {
+        Show-Success "Shell re-registration completed"
+        $successCount++
+    }
+    else {
+        Show-Error "Shell re-registration failed (regsvr32 exit code: $($regsvrProc.ExitCode))"
+        $failCount++
+    }
 }
 catch {
     Show-Error "Shell re-registration failed: $_"

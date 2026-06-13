@@ -211,8 +211,10 @@ function Test-CreatedRule {
     if ($pf) {
         $expectedProtocol = if ([string]::IsNullOrWhiteSpace($Row.Protocol)) { 'Any' } else { $Row.Protocol.Trim() }
         switch ($expectedProtocol) {
+            '1'  { $expectedProtocol = 'ICMPv4' }
             '6'  { $expectedProtocol = 'TCP' }
             '17' { $expectedProtocol = 'UDP' }
+            '58' { $expectedProtocol = 'ICMPv6' }
         }
         if ("$($pf.Protocol)" -ne $expectedProtocol) {
             $issues += "Protocol mismatch (expected=$expectedProtocol, actual=$($pf.Protocol))"

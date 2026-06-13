@@ -32,6 +32,27 @@
   evidence_manager は未知セクションを raw シートへ自動出力）。
 
 ### Fixed
+- modules/standard/firewall_rule_make_config v1.1.0 → v1.1.1 (Fixed: 数値プロトコルの
+  偽 MISMATCH, TM t-0028(1)): バリデーションは 0-255 の数値 Protocol を許可するのに
+  正規化 switch が 6→TCP/17→UDP のみで、Protocol=1(ICMPv4)/58(ICMPv6) の行は作成成功
+  なのに post-apply 検証が偽 FAIL・再実行の already-exists 照合も偽 MISMATCH → Error
+  になっていた。switch に 1→ICMPv4/58→ICMPv6 を追加（Test-CreatedRule 共用のため
+  両経路が同時に解消）。その他の数値は OS も数値で読み返すため不変。
+- modules/standard/system_finalize v1.0.0 → v1.0.1 (Fixed: regsvr32 の exit code 不問の
+  偽成功, TM t-0028(2)): Start-Process を -PassThru なしで起動しており、/s（サイレント）
+  で失敗ダイアログも出ないため regsvr32 非 0 終了が無条件 Success 計上されていた。
+  -PassThru + ExitCode 検査で非 0（$null 含む fail-closed）を Error 計上に変更。
+  Phase A 失敗時に後続 Phase B-D が続行する既存設計は不変。
+- modules/standard/restore_point v1.1.0 → v1.1.1 (Fixed: baseline の列挙順依存,
+  TM t-0028(3)): 読み返し検証の baseline が Select-Object -Last 1
+  （WMI 列挙順は契約上非保証）で、過小 baseline だと過去の同名復元ポイントが
+  「新規作成」として偽 PASS し得た。Measure-Object -Maximum による最大 SequenceNumber
+  に変更。復元ポイント 0 件時の baseline=0 は不変。
+- modules/standard/storeapp_config v1.0.0 → v1.0.1 (Fixed: Sort 内 [int] 直キャストの
+  モジュール即死, TM t-0028(4)): No 列が空欄/非数値の行が 1 つでもあるとキャスト例外で
+  モジュール全体が落ち、全アプリ削除が不実行になっていた。[int]::TryParse 化
+  （script_looper と同パターン）でパース不能行は警告 1 回 + 末尾送りで処理継続。
+  正常 CSV の並び順は不変。
 - modules/standard/generic_process_runner v1.0.0 → v1.1.0 (Fixed: TimeoutSec=0 時の
   WaitProcessName ポーリング無限化を既定上限で封鎖, TM t-0027(A-2)): Guide は
   「TimeoutSec はポーリングフェーズにも適用（無限ハング防止）」と約束するが、0/空欄では

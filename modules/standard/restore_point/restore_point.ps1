@@ -252,8 +252,14 @@ foreach ($item in $enabledItems) {
                 # which used to count as Success with no restore point on
                 # disk. Record the latest SequenceNumber and read back.
                 $beforeSeq = 0
-                $latest = Get-ComputerRestorePoint -ErrorAction SilentlyContinue | Select-Object -Last 1
-                if ($latest) { $beforeSeq = [int64]$latest.SequenceNumber }
+                # Baseline = MAX SequenceNumber, not "last enumerated":
+                # WMI enumeration order is not contractual, and an
+                # understated baseline would let an OLD same-description
+                # point pass the read-back below as freshly created.
+                $allPoints = @(Get-ComputerRestorePoint -ErrorAction SilentlyContinue)
+                if ($allPoints.Count -gt 0) {
+                    $beforeSeq = [int64]($allPoints | Measure-Object -Property SequenceNumber -Maximum).Maximum
+                }
 
                 $cpWarnings = @()
                 Checkpoint-Computer -Description $rpDesc -RestorePointType $rpType -ErrorAction Stop -WarningVariable cpWarnings
