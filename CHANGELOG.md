@@ -47,6 +47,14 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- apps/fabriq_ios v0.4.0 → v0.4.1 (TM t-0031): インライン `?`（バッファに入力がある状態）で
+  大量候補（`module ?` 等のカテゴリ動詞＝12〜44 件）を出した後、コマンドを確定すると候補行が
+  消えずに残る不具合を修正。インライン `?` は候補をプロンプト下に書いて `InvokePrompt` で
+  プロンプトのみ再描画する設計のため、確定後は短く非パディングなコマンド出力（config-mod
+  突入の 2 行）が候補行を部分上書きするだけで、断片（例 `azure_ad_join_check` → `d_join_check`）
+  とオーファン行が残っていた。REPL の `ReadLine` 戻り直後に `Clear-FabriqIosPendingHelpRows`
+  を呼び、記録済みの候補行数ぶんを出力開始位置から全幅ブランクで消去するよう修正。候補が
+  少ない `?` や空 `?`（REPL 委譲経路）は元から正常で、挙動は不変。kernel 公開 API 不変。
 - modules/standard/winget_install v1.1.0 → v1.1.1 (Fixed: 偽 Success / 偽 Error の縁,
   TM t-0029(6)): winget 自己更新の unknown-exit-code 分岐で、(a) 更新前バージョンが
   読めなかった（versionBefore 空）場合に「version が変わった」判定が成立して偽 Success +

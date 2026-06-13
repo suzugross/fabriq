@@ -107,3 +107,26 @@ Describe 'Get-CommonPrefix' {
         Get-CommonPrefix -Strings @('alone') | Should -Be 'alone'
     }
 }
+
+Describe 'Clear-FabriqIosPendingHelpRows - tracking-state contract' {
+    # The console-blanking path needs a real console and is verified
+    # manually; here we pin the state-consumption contract: the function
+    # must always clear the inline-`?` tracking globals so the next press
+    # and the next submit start clean. These cases return before any
+    # Console call (rows null / <= 0), so they are safe in the test host.
+    It 'resets both tracking globals when nothing is pending (null)' {
+        $global:_FabriqIosLastHelpRowCount = $null
+        $global:_FabriqIosLastHelpInputY   = 7
+        Clear-FabriqIosPendingHelpRows
+        $global:_FabriqIosLastHelpRowCount | Should -BeNullOrEmpty
+        $global:_FabriqIosLastHelpInputY   | Should -BeNullOrEmpty
+    }
+
+    It 'resets both tracking globals when the recorded count is zero' {
+        $global:_FabriqIosLastHelpRowCount = 0
+        $global:_FabriqIosLastHelpInputY   = 12
+        Clear-FabriqIosPendingHelpRows
+        $global:_FabriqIosLastHelpRowCount | Should -BeNullOrEmpty
+        $global:_FabriqIosLastHelpInputY   | Should -BeNullOrEmpty
+    }
+}
