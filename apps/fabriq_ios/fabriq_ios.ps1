@@ -92,6 +92,7 @@ $global:AutoPilotWaitSec = 0
 . (Join-Path $PSScriptRoot 'lib\commands\module.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\enable_disable.ps1')
 . (Join-Path $PSScriptRoot 'lib\commands\do.ps1')
+. (Join-Path $PSScriptRoot 'lib\commands\reload.ps1')
 
 
 function Initialize-FabriqIos {

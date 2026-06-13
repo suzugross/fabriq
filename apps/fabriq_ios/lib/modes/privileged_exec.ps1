@@ -15,10 +15,7 @@ function Invoke-PrivilegedExecCommand {
             Set-ShellMode -State $State -NewMode 'GlobalConfig'
             Write-Host 'Enter configuration commands, one per line. End with CNTL/Z.'
         }
-        'reload' {
-            Write-FabriqIosSyslog -Severity 4 -Mnemonic 'RESTART' -Key 'reload_dream' -Placeholders @{}
-            Write-Host '% (no actual reboot occurs; Fabriq IOS reload is performative)'
-        }
+        'reload' { Invoke-FabriqIosReload -State $State }
         'disable' { Invoke-Disable -State $State }
         'help'    { Show-FabriqIosHelp -Mode $State.Mode }
         '?'       { Show-FabriqIosHelp -Mode $State.Mode }
