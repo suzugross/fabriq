@@ -122,14 +122,26 @@ echo.
 
 REM ===== Copy fabriq folder to destination =====
 if exist "%DEST_DIR%" (
-    echo [INFO] Destination exists. Updating files...
+    echo [INFO] Destination exists - refreshing framework/config from source.
+    echo [INFO] Preserved: evidence, logs, and in-progress resume/WU state.
+    echo [INFO] Removed: stale files no longer present in the source.
 ) else (
     echo [INFO] Creating destination folder...
     mkdir "%DEST_DIR%"
 )
 
 echo [INFO] Copying files...
-robocopy "%FABRIQ_SRC%" "%DEST_DIR%" /MIR /NJH /NJS /NDL /NP /R:2 /W:1
+REM /MIR mirrors the source and DELETES dest files absent from the source.
+REM Runtime artifacts are generated on the target PC and are NOT in the source,
+REM so a re-deploy to an already-kitted PC would otherwise purge them. Exclude
+REM them so re-deploying never destroys delivery evidence or in-progress state:
+REM   /XD evidence logs : preserve evidence\ (delivery data) + logs\ (logs,
+REM                       telemetry, execution_history). Source paths are used
+REM                       because robocopy matches /XD source-rooted; a dest
+REM                       absolute path does NOT protect against the /MIR purge.
+REM   /XF <state files> : preserve mid-kitting resume / Windows Update state and
+REM                       the per-environment telemetry salt.
+robocopy "%FABRIQ_SRC%" "%DEST_DIR%" /MIR /XD "%FABRIQ_SRC%\evidence" "%FABRIQ_SRC%\logs" /XF resume_state.json wu_state.json wu_completed.json telemetry_salt.txt /NJH /NJS /NDL /NP /R:2 /W:1
 
 if errorlevel 8 (
     echo.
