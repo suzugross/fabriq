@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T14:59:11+09:00",
+  "updatedAt": "2026-06-14T15:55:45+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -403,10 +403,10 @@
       "id": "t-0045",
       "title": "[監査B・疑い] __RESTART__ の RunOnce 登録失敗時、再起動せず後続モジュールを実行(fail-open)",
       "content": "kernel/main.ps1:441 付近、__RESTART__ マーカー処理で Register-FabriqRunOnce が $false を返すと Remove-ResumeState 後 continue し、foreach が次要素＝『再起動後に走る予定のモジュール群』を同一未再起動セッションで実行してしまう疑い。hostname/domain 変更後に依存モジュールが旧システム状態で動き、誤設定/失敗を招く。fail-closed であるべき箇所が barrel-on になっている。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: Invoke-BatchExecution の RESTART ハンドラ(410-458)が foreach 内、Register-FabriqRunOnce は Fabriq.exe 欠如/HKLM RunOnce 例外で実際に $false を返す(common.ps1:4350-4376)。修正方針: 登録失敗時は Error 記録+Show-Error 後 return/break でバッチ停止。resume_state は既に除去済なので修正後に再実行可能。要: 実機で RunOnce 失敗を模した挙動確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査+実装完了 (commit 1824a25, レビュー待ち=実機確認待ち)。\n\n【確定】Invoke-BatchExecution の __RESTART__ ハンドラ(main.ps1:442-447): Register-FabriqRunOnce が $false の時、Remove-ResumeState + Error 記録の後 continue → バッチ foreach の次要素(=再起動後に走る予定のモジュール群)を再起動せず同一セッションで実行(fail-open)。hostname 変更後の domain join 等が旧状態で走り誤設定の恐れ。\n【両ハンドラ確認】Linear/Invoke-BatchExecution(442)=fail-open=バグ。FlexProfile ダッシュボード RestartNow(901)は continue=Show-Error+Wait-KeyPress+ダッシュボード復帰で対話・operator 主導=元から正しい fail-closed なので不変。Flex auto-continue も Invoke-BatchExecution 経由なので 442 修正でカバー。\n【重大度(思想で正直に)】トリガー(Fabriq.exe 不在/HKLM 書込例外)は稀。ただし失敗時の fail-open 応答自体が実装の穴で、起きた時の誤設定は実害=「実装の穴/危険」側で修正対象(feedback_autopilot_semiauto_triage)。\n【修正(1824a25)】continue → break + Show-Error。break で残りモジュールを実行せず脱出 → 自然完了経路(620 Remove-ResumeState 冪等/telemetry/summary/finalize)へ落ちて Error 記録済のまま return。正常系(RunOnce 登録成功 → 456 Invoke-CountdownRestart → 457 return)は完全不変=変更は登録失敗ブロック内に閉じる。\n【テスト】Invoke-BatchExecution.tests.ps1:190 の旧 fail-open ピン留め(Invoke-SafeCommand 2回=marker 後も実行)を fail-closed 契約(Invoke-SafeCommand 1回=marker で停止 + Complete-ProfileExecution 1回 finalize)へ更新。新契約で pass=fail-closed 挙動を実証。\n【検証】parse OK / run_tests 330 passed 0 failed / check_version OK。KERNEL_VERSION 据置(§I)。\n【実機確認推奨(任意・稀ケース)】RunOnce 登録を失敗させる(例: Fabriq.exe を一時改名)状況で __RESTART__ 含む profile を回し、再起動後モジュールが走らず Error+サマリで止まること。通常(成功)再起動が従来どおりであること。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T15:55:45+09:00"
     },
     {
       "id": "t-0046",
