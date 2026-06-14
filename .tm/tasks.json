@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T13:29:40+09:00",
+  "updatedAt": "2026-06-14T13:48:44+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -448,10 +448,10 @@
       "id": "t-0050",
       "title": "[監査B・疑い] evidence_config Section 29 が null の DIMM PartNumber/SerialNumber で .Trim() 例外→セクション失陥",
       "content": "modules/standard/evidence_config/evidence_config.ps1:2439-2440 の ($m.PartNumber).Trim() / ($m.SerialNumber).Trim() が null 無防備の疑い。Win32_PhysicalMemory の PartNumber/SerialNumber は VM・オンボード(LPDDR)RAM・一部 OEM SMBIOS で頻繁に null で、$null.Trim() が送出→外側 catch で Section 29 Failed→Close-Section が files=[] を強制し、生成済みで有効な 29_MemorySlots.csv まで manifest から脱落。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査。検証: Claude が evidence_config.ps1:2428-2487 を手動実読し null 無防備を確認(同所 2429 は防御的 if、2476 は Partial 使用＝著者は型を承知)。修正方針: 文字列キャスト($null→空)で Trim、Section 10/22/33 と同パターン。要: null PartNumber を持つ実機/VM での確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査+実装完了 (commit faa7669, レビュー待ち=実機確認待ち)。\n\n【確定(監査表現は訂正)】evidence_config.ps1:2439-2440 ($m.PartNumber).Trim()/($m.SerialNumber).Trim() が null 無防備。Win32_PhysicalMemory の PartNumber/SerialNumber は はんだ付け LPDDR ノート・一部 Hyper-V/OEM SMBIOS で null。$null.Trim() は throw(実測確認)。throw は Export-Csv(2448) より前の foreach(2423-2446) 内で起きるため CSV は一切生成されず、外側 catch(2482) で Section29 Failed + $failCount++。監査の「生成済み CSV が manifest から脱落」は不正確(CSV 未生成)。\n【影響(むしろ大)】(1) 29_MemorySlots.csv 欠落、(2) $failCount が 3250 New-BatchResult -Fail に入り evidence_config モジュールが Partial/Fail 記録=キッティング/納品に失敗フラグ。\n【顕在化(t-0051 教訓で正直に)】この VMware VM は PartNumber=VMW-16384MB(非null)で非該当。null になるのは はんだ付け LPDDR ノート/一部 Hyper-V/OEM。ノート案件で出るが全機ではない。\n【修正(faa7669)】2439-2440 を null 安全な文字列キャスト \"$($m.PartNumber)\".Trim() / \"$($m.SerialNumber)\".Trim() へ(Section 10/22/33 同方針)。null→空欄、非null は trim 不変(実測)。Section29 内 null 無防備はこの2行のみ(FormFactor=[int]$null→0, SMBIOSMemoryType/Capacity は null ガード済, BankLabel/Manufacturer 等はメソッド呼出無し)=取りこぼし無し。VERSION 1.8.0→1.8.1。REQUIRES_KERNEL 据置。kernel 無変更。\n【検証】parse OK / harness で null→空・非null→trim・throw無し実証 / run_tests 329 passed 0 failed / check_version OK。\n【実機確認推奨】はんだ付け RAM のノート PC(PartNumber が null になる機種)で evidence_config を走らせ、Section 29 が Failed せず 29_MemorySlots.csv が生成され、PartNumber 空欄で他列は正常なこと。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T13:48:44+09:00"
     },
     {
       "id": "t-0051",
