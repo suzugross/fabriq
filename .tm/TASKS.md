@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-14 10:24
+最終更新: 2026-06-15 07:18
 
-## 未着手 (19)
+## 未着手 (9)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -22,76 +22,6 @@
 過去のGit履歴を参照し、ステータスモニタの実行履歴チェックを復活させてほしい。
 
 <sub>更新: 2026-06-13 21:29 ／ 作成: 2026-06-13 21:29</sub>
-
-### [t-0041] [監査A・疑い] Test-FabriqProtectedPath が \\?\ 拡張長/UNC 管理共有で突破され保護ルートを再帰削除し得る
-
-**内容:**
-
-パス保護ガード Test-FabriqProtectedPath が、(1) Win32 拡張長プレフィックス付きパス（例 \\?\C:\Windows）と (2) UNC 管理共有（例 \\host\c$\Windows）をブロックできない疑い。file_delete / profile_delete / history_destroyer / driver_export がこのガード通過後に Remove-Item -Recurse を実行するため、保護ルートの再帰削除に至る恐れ。AutoPilot では確認が auto-Y なので本ガードが唯一の砦。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: kernel/common.ps1:3947 付近、[IO.Path]::GetFullPath が 拡張長/デバイス プレフィックスを保持→保護ルート一覧(3898-3916, 全て c:\... 形)に不一致+3セグ以上で IsSafe=$true。PS5.1 で \\?\C:\Windows / \\fileserver\c$\Windows が IsSafe=True を実測との検証ノートあり。UNC 版は別指摘(C級)だが同根=同時修正可。修正方針: 評価前に device/拡張長プレフィックスと UNC を fail-closed、PathGuards.tests.ps1 にケース追加。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0042] [監査A・疑い] Deploy.bat の robocopy /MIR が再デプロイで運用データ/エビデンスを purge
-
-**内容:**
-
-Deploy.bat:132 が robocopy ... /MIR で展開。/MIR は宛先にあってソースに無いファイルを削除するため、既デプロイ済みターゲット（既定 C:\Windows\work\fabriq）への再実行で hostlist.csv / workers.csv / 各 _list.csv / profiles/、および evidence/・logs/・resume_state.json を消去する疑い。124行『Destination exists. Updating files...』は無警告。patch ビルダの保全規約に反する。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が Deploy.bat を手動実読し /MIR と無警告分岐(124-132)を確認。初回デプロイ(空宛先)は無害、危険は『運用済みターゲットへの再デプロイ』。修正方針: /MIR→/E(削除しない)、または /XD evidence logs profiles + サイト CSV を /XF、宛先が空のときのみ /MIR 許可。要: 実運用のデプロイ手順(USB が真のソースか、PC 側で CSV 編集するか)の確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0043] [監査A・疑い] fabriq_ios の set コマンド入力秘密が共有 PSReadLine 履歴に平文残留
-
-**内容:**
-
-fabriq_ios は PSConsoleReadLine::ReadLine で入力を受けるが Initialize-FabriqIos は -PredictionSource None のみ設定し HistorySaveStyle 不問。PSReadLine 既定 SaveIncrementally により共有 ConsoleHost_history.txt に履歴保存され、set Password / set Pin 等で入力した秘密(autologon/bitlocker/builtin_admin/domain_join/local_user/ssid/robocopy/cert の秘密列)が平文残留する疑い。後続の通常 PowerShell から Up矢印/Get-Content で露出。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が apps/fabriq_ios/fabriq_ios.ps1:99-121/159 を手動実読し HistorySaveStyle 未設定を確認。enable パスフレーズは Read-Host -AsSecureString のため安全。修正方針: Initialize-FabriqIos に Set-PSReadLineOption -HistorySaveStyle SaveNothing(subprocess-scoped)を追加、または set/add 行を AddToHistoryHandler で除外。要: 実機で履歴ファイルへの残留再現確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0044] [監査B・疑い] 全行Disabled/セグメント不一致のCSVが Skipped でなく偽 Error(7モジュール・出荷状態で発火)
-
-**内容:**
-
-Import-ModuleCsv -FilterEnabled は『全行Enabled=0』『有効だがセグメント不一致』で空配列を返すが、PS5.1 は return @() を呼出側で $null に潰すため、各モジュールの『if ($null -eq $items){Error}』が発火し『Count -eq 0 の Skipped』分岐が到達不能死コードになる疑い。該当: file_delete / copyfile_config / default_app_config / dpi_api_config / driver_export_config / driver_import_config / fabriq_app_launcher。出荷 delete_list.csv は全行 Enabled=0 のため file_delete は既定で偽 Error を返す可能性。AutoPilot/Flex の ErrorMode が実失敗として扱う。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査(敵対検証済=workflow、実カーネルで再現確認との検証ノートあり)。根拠: kernel/common.ps1:1058/1078 が空配列返却。credential_config:113-131 と domain_join は本罠を回避済(=直し方は確立)。波及はさらに広い可能性(wallpaper/brightness/restore_point/ssid/cert/robocopy 等が同型)。修正方針(最高レバレッジ): Import-ModuleCsv 側で空配列と null(真のロード失敗)を区別、または各モジュールを credential_config 方式(空配列で受けて Where-Object Enabled で判定)に統一。要: 全モジュールの該当パターン棚卸し。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0045] [監査B・疑い] __RESTART__ の RunOnce 登録失敗時、再起動せず後続モジュールを実行(fail-open)
-
-**内容:**
-
-kernel/main.ps1:441 付近、__RESTART__ マーカー処理で Register-FabriqRunOnce が $false を返すと Remove-ResumeState 後 continue し、foreach が次要素＝『再起動後に走る予定のモジュール群』を同一未再起動セッションで実行してしまう疑い。hostname/domain 変更後に依存モジュールが旧システム状態で動き、誤設定/失敗を招く。fail-closed であるべき箇所が barrel-on になっている。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: Invoke-BatchExecution の RESTART ハンドラ(410-458)が foreach 内、Register-FabriqRunOnce は Fabriq.exe 欠如/HKLM RunOnce 例外で実際に $false を返す(common.ps1:4350-4376)。修正方針: 登録失敗時は Error 記録+Show-Error 後 return/break でバッチ停止。resume_state は既に除去済なので修正後に再実行可能。要: 実機で RunOnce 失敗を模した挙動確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
 
 ### [t-0046] [監査B・疑い] Resolve-ProfileModules の Order 直キャストが非数値 Order でプロファイル起動を落とす
 
@@ -118,76 +48,6 @@ kernel/common.ps1:2204 付近、読込3リトライ後の catch が例外種別�
 **Claudeメモ:**
 
 出所: 2026-06-14 監査(敵対検証済=workflow)。検証ノート: 同一プロセス内トリガは否定(履歴書込/読込は main スレッド直列、in-proc ツールバーは in-memory)。真のトリガは外部=2nd インスタンス/Excel 排他/AV ハンドル(3x100ms を超えるロック)。修正方針: ロック(IOException)と真の破損を区別し、ロック時は live を残し空配列か直前 in-memory を返す。復元を残すなら先に live を退避。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0048] [監査B・疑い] odt_install が確認・冪等判定より前に破壊操作(Office強制終了/Store Office削除)を実行
-
-**内容:**
-
-modules/standard/odt_config/odt_install.ps1 の Step3.5(135-179)が Stop-Process -Force(Office群)/Remove-AppxPackage/Remove-AppxProvisionedPackage/Set-Service msiserver を、確認 Confirm-ModuleExecution(257)および『既インストール→Skip』冪等判定(201-247)よりも前に無条件実行する疑い。対話実行で N 回答しても破壊済(キャンセルが no-op でない)、かつ再実行のたびに Office を kill＝冪等性違反。標準テンプレは副作用を確認後の Step5 に置く規約。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が odt_install.ps1:128-258 を手動実読し、破壊ブロックが確認・冪等 return より前にあることを確認。修正方針: Step3.5 の (a)(b)(c)(d) を確認ゲート後(Step5 直前)へ移動、確認前は非破壊プローブ(ディスク空き/OSPP検出)のみ。要: 実機で N 回答時に副作用が起きないことの確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0049] [監査B・疑い] robocopy_config の /MIR が『存在するが空のソース』で宛先を全削除
-
-**内容:**
-
-modules/standard/robocopy_config/robocopy_config.ps1:131 の事前検査は Test-Path $Source(存在)のみで、空ソース判定も宛先の Test-FabriqProtectedPath も無い疑い。Mirror=1 で /MIR(213-214)時、再作成された空共有/クリア済み/誤解決ディレクトリが Source だと宛先内容を全消去。AutoPilot では per-job 確認が auto-Y のため operator は気付けない。CLAUDE.md §8 が要求する破壊前ガードが欠落。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が robocopy_config.ps1:125-219 を手動実読。修正方針: Mirror=1 時は (a) 空ソース(Get-ChildItem -Force 0件)を明示フラグ無しなら Fail、(b) 解決後 Destination に Test-FabriqProtectedPath。要: 実機で空ソース→宛先保全の確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0050] [監査B・疑い] evidence_config Section 29 が null の DIMM PartNumber/SerialNumber で .Trim() 例外→セクション失陥
-
-**内容:**
-
-modules/standard/evidence_config/evidence_config.ps1:2439-2440 の ($m.PartNumber).Trim() / ($m.SerialNumber).Trim() が null 無防備の疑い。Win32_PhysicalMemory の PartNumber/SerialNumber は VM・オンボード(LPDDR)RAM・一部 OEM SMBIOS で頻繁に null で、$null.Trim() が送出→外側 catch で Section 29 Failed→Close-Section が files=[] を強制し、生成済みで有効な 29_MemorySlots.csv まで manifest から脱落。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が evidence_config.ps1:2428-2487 を手動実読し null 無防備を確認(同所 2429 は防御的 if、2476 は Partial 使用＝著者は型を承知)。修正方針: 文字列キャスト($null→空)で Trim、Section 10/22/33 と同パターン。要: null PartNumber を持つ実機/VM での確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0051] [監査B・疑い] ssid_config の live -match に日本語リテラル+BOM無し→JP Windows で WLAN 検出破綻+英語オンリー規約違反
-
-**内容:**
-
-modules/standard/ssid_config/ssid_config.ps1:47 が実行コードで日本語『プロファイル』を含む -match 行。ファイルは BOM 無し(先頭 23 20 3d)で、JP CP932 環境の PS5.1 が CP932 として読むと UTF-8 の『プロファイル』が mojibake し、netsh の日本語出力に一致せず WLAN 有でも『利用不可』と誤判定→Error を返す疑い。加えて CLAUDE.md §7 英語オンリーコード規約の違反。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査。検証: Claude が ssid_config.ps1:47 と先頭3バイト(BOM無し)を手動確認。修正方針: 日本語リテラル除去し locale 非依存判定(英語語+exit/empty 判定、または Get-NetAdapter/netsh wlan show interfaces)へ。非ASCIIが残るなら UTF-8 BOM 付与。要: JP 実機で WLAN 検出の再現/修正確認。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0052] [監査B・疑い] Reset-FabriqState が FabriqMasterPassphrase を消さず、NewSession キャンセルで前顧客のパスフレーズが残存
-
-**内容:**
-
-kernel/common.ps1:3228-3327 の Reset-FabriqState が $global:FabriqMasterPassphrase をクリアしない疑い。main.ps1 の NewSession ハンドラ(1907/1931 付近)でセッション切替がキャンセルされた場合等に、前の顧客のマスターパスフレーズがプロセス内に残存し得る(セキュリティ)。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査(workflow検出、当初 tracked 誤分類だが実際は新規)。修正方針: Reset-FabriqState に $global:FabriqMasterPassphrase の明示クリアを追加。要: NewSession キャンセル経路の状態残存を実機/コードで追確認。
 
 <sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
 
@@ -233,20 +93,6 @@ kernel/main.ps1:577-587 付近、AutoPilot 実行中にモジュールが Error/
 
 <sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
 
-### [t-0056] [監査・未検証/疑い] モジュール内の生 Read-Host が AutoPilot ガード無しで無人実行をハングさせるクラス
-
-**内容:**
-
-複数モジュールが $global:AutoPilotMode ガード無しの生 Read-Host を持ち、AutoPilot/auto-resume の無人実行をハングさせる疑い(systemic)。候補: display_config:106 / dpi_config:426,461 / windows_license_install:99 / printer_driver_uninstall:73 / power_config:270。display/dpi は出荷CSV先頭が HardwareID=AUTO のためマルチモニタ機で発火し得るとの指摘。単一方針(モジュール内 Read-Host を一律 AutoPilot ガード=skip/fail-closed)で一掃できる可能性。
-
-※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
-
-**Claudeメモ:**
-
-出所: 2026-06-14 監査だが【敵対検証はセッション上限で未実施=finder 自己申告のみ、実在性の保証は検証済の他項目より低い】。較正: 同類の autologon Read-Host は出荷CSVが1行有効のため検証で nit 降格した前例あり=各モジュールの出荷既定で実際に分岐到達するかの確認が必須。printer_driver_uninstall は Read-Host 空→TryParse 失敗で Error になり得る(ハングでなく)。要: 各候補の到達条件を実機/コードで個別確認の上、systemic ガード設計(§4 ゲート)を検討。
-
-<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
 ### [t-0058] 冪等性チェック
 
 **内容:**
@@ -257,7 +103,11 @@ ipaddress_configやプリンタ周りがあやしいです。
 
 <sub>更新: 2026-06-14 10:24 ／ 作成: 2026-06-14 10:23</sub>
 
-## レビュー待ち (4)
+### [t-0061] hostlistとProfileにそれぞれホストマーカを用意して、一致するマーカがあるモジュールのみ実行。
+
+<sub>更新: 2026-06-15 07:18 ／ 作成: 2026-06-15 07:17</sub>
+
+## レビュー待ち (9)
 
 ### [t-0002] evidence_config取得範囲拡大
 
@@ -364,7 +214,150 @@ KERNEL_API.md: 更新不要で確定 — Save-/Load-ResumeState/Write-ExecutionH
 
 <sub>更新: 2026-06-13 12:30 ／ 作成: 2026-06-12 22:00</sub>
 
-## 完了 (31)
+### [t-0041] [監査A・疑い] Test-FabriqProtectedPath が \\?\ 拡張長/UNC 管理共有で突破され保護ルートを再帰削除し得る
+
+**内容:**
+
+パス保護ガード Test-FabriqProtectedPath が、(1) Win32 拡張長プレフィックス付きパス（例 \\?\C:\Windows）と (2) UNC 管理共有（例 \\host\c$\Windows）をブロックできない疑い。file_delete / profile_delete / history_destroyer / driver_export がこのガード通過後に Remove-Item -Recurse を実行するため、保護ルートの再帰削除に至る恐れ。AutoPilot では確認が auto-Y なので本ガードが唯一の砦。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 追加調査(read-only・コード変更なし)。実測で突破を確定。
+
+【実測】Test-FabriqProtectedPath(common.ps1:3889)を実パスで検証。GetFullPath が代替表現を字句保持し、保護ルート一覧(全て c:\... 形)と不一致+3セグ以上で IsSafe=True になる:
+  - \\?\C:\Windows      -> \\?\c:\windows          : IsSafe=True (突破)
+  - \\.\C:\Windows      -> \\.\c:\windows          : IsSafe=True (突破)
+  - \\localhost\c$\Windows -> \\localhost\c$\windows : IsSafe=True (突破, UNC管理共有)
+  - \\127.0.0.1\c$\Windows                          : IsSafe=True (突破)
+  - \\?\UNC\localhost\c$\Windows                    : IsSafe=True (突破)
+  - \\?\C:\Users\Public                             : IsSafe=True (突破)
+  - C:\Windows / C:\Users                           : IsSafe=False (正しくブロック)
+  - C:\PROGRA~1 -> c:\program files                 : IsSafe=False (8.3は GetFullPath が展開し捕捉=安全)
+
+【根本】GetFullPath は字句正規化のみで device/拡張長(\\?\, \\.\)・UNC(\\host\share, \\?\UNC\)プレフィクスを保持。forbidden 一覧はドライブレター形(c:\...)のみなので一致せず、3セグ判定も通過して IsSafe=True。
+
+【callers(2件・両方 live)】
+  - file_delete.ps1:37 ガード -> 128 Remove-Item -Path $targetPath -Force -Recurse (元の突破パスを削除)
+  - history_destroyer.ps1:331 ガード -> 458 Remove-Item -Path $item.TargetPath -Force -Recurse
+  (ticket記載の profile_delete / driver_export はこの関数を未使用=記載不正確)
+
+【脅威】入力は delete_list.csv / history の TargetPath(オペレータ/CSV制御, %ENV%展開後)。AutoPilot は確認 auto-Y でガードが唯一の砦。\\?\ や \\host\c$ 形の誤入力/悪意CSVで C:\Windows 等を -Force -Recurse 削除し得る。過去の Desktop 破壊事故(feedback_destructive_path_safety)と同クラス。重大度: 破滅的。UNC版はC級指摘だが同根=同時修正可。
+
+【修正案(§4ゲート対象・SECURITY)】fail-closed: 評価前に raw path をセパレータ正規化後、(a) \\?\ / \\.\ の device/拡張長プレフィクス、(b) \\ で始まる UNC(管理共有 c$ 含む)、(c) 正規化後がドライブレター形(^[a-z]:\)でないもの、を IsSafe=False でブロック。キッティングの削除対象は常にローカル X:\... なので実害なし(誤検出ゼロ)。kernel 単独修正(Test-FabriqProtectedPath)で2 caller を一掃。PathGuards.tests.ps1 に突破ベクタ回帰を追加。公開API署名/戻り値形は不変=PATCH + Security。8.3短縮名は GetFullPath が展開済で既に安全。junction/symlink は字句検証の対象外(既知の制限・本件スコープ外)。
+
+---
+2026-06-14 実装完了 (commit b10124e, レビュー待ち=実機確認待ち)。
+- common.ps1 Test-FabriqProtectedPath: 評価前に /->\ 正規化のうえ \?\ /\.\ (device/拡張長)と \(UNC・管理共有 c$)を純文字列で fail-closed ブロック(GetFullPath不使用=ワイルドカード安全)。GetFullPath後がドライブレター形(^[a-z]:\)でなければブロック(多層防御)。
+- PathGuards.tests.ps1 に全バイパスベクタ回帰7件追加(\?\, \.\, \?\UNC\, \host\c$, forward-slash //?/ //host/c$/, 混在 \?/, 正規パスPASS)。KERNEL_API.md L54 を更新。
+- caller(file_delete:128 / history_destroyer:458)は無変更で恩恵。公開API署名/戻り値形不変。KERNEL_VERSION据置(§I)。CHANGELOG [Unreleased] Security。
+- 検証: parse OK / run_tests 327 passed 0 failed (PathGuards +7) / check_version OK / 実関数で全バイパス IsSafe=False を実証 / 正規ターゲット(C:/D:/E:)PASS実測=誤検出ゼロ / encoding exit1 は既知JP-NO-BOM 5件(本変更ファイル非該当)。
+- 実機確認推奨: delete_list.csv に \?\C:\Windows や \host\c$\... を1行入れて [BLOCKED]/Fail 記録になり削除されないこと、通常のローカルパス削除が従来どおり動くこと。
+
+<sub>更新: 2026-06-14 11:31 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0043] [監査A・疑い] fabriq_ios の set コマンド入力秘密が共有 PSReadLine 履歴に平文残留
+
+**内容:**
+
+fabriq_ios は PSConsoleReadLine::ReadLine で入力を受けるが Initialize-FabriqIos は -PredictionSource None のみ設定し HistorySaveStyle 不問。PSReadLine 既定 SaveIncrementally により共有 ConsoleHost_history.txt に履歴保存され、set Password / set Pin 等で入力した秘密(autologon/bitlocker/builtin_admin/domain_join/local_user/ssid/robocopy/cert の秘密列)が平文残留する疑い。後続の通常 PowerShell から Up矢印/Get-Content で露出。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 追加調査(read-only・コード変更なし)。実測で確定。
+
+【機構】fabriq_ios.ps1:159 が [Microsoft.PowerShell.PSConsoleReadLine]::ReadLine($host.Runspace,$ExecutionContext) で各コマンド行を受ける。Initialize-FabriqIos(99-121) は Set-PSReadLineOption -PredictionSource None のみ設定し HistorySaveStyle 未設定。
+【実測(PS5.1)】既定: HistorySaveStyle=SaveIncrementally / HistorySavePath=...\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt(共有・ユーザー単位) / MaximumHistoryCount=4096。よって ReadLine 確定行が共有履歴ファイルへ平文・即時保存される。
+【秘密の流入】lib/commands/interface.ps1 の set は値を平文で受ける(マスク無し)。秘密列を持つモジュール: autologon_list.csv(Password)、builtin_admin.csv(Password)、bitlocker_list.csv、domain_join 等。ModuleConfig で set Password/Pin/... を打つと平文残留。
+【露出】fabriq_ios 終了後、同一ユーザーの通常 PowerShell から Up矢印 / Get-Content ConsoleHost_history.txt / Get-History で秘密が読める。AV/EDR の履歴採取対象にもなる。
+【非対称(audit 指摘どおり)】enable パスフレーズは enable_disable.ps1:19 Read-Host -AsSecureString で保護済(別経路・SecureString)。set 経路だけ素通し。
+【修正案】本命: Initialize-FabriqIos に Set-PSReadLineOption -HistorySaveStyle SaveNothing を追加(subprocess-scoped・親シェルの履歴設定に非影響・共有ファイルへ一切書かない)。fabriq_ios は独自 Tab/? 補完を持つ config REPL で、コマンドを操作者の共有 PS 履歴に残す必要が無い(履歴汚染も同時解消)。in-session Up矢印はメモリ履歴で従来どおりの想定(SaveNothing はファイル永続のみ無効化)=実機確認推奨。代替: AddToHistoryHandler で set/add 行のみ除外(navigation 履歴を温存しつつ秘密行をメモリからも除外)。
+【スコープ】apps/fabriq_ios の変更=§A対象(VERSION bump + CHANGELOG)。§4 設計ゲートは kernel/modules 対象のため軽量版で可。既存 ConsoleHost_history.txt の過去残留は本修正の対象外(将来流入の遮断のみ。必要なら別途クリーンアップ)。
+
+---
+2026-06-14 実装完了 (commit fb17784, レビュー待ち=実機確認待ち)。
+- Initialize-FabriqIos に Set-PSReadLineOption -HistorySaveStyle SaveNothing(try/catch, subprocess-scoped)を追加。共有 ConsoleHost_history.txt への永続化を遮断。
+- AST ソース契約テスト apps/fabriq_ios/tests/history_privacy.tests.ps1 を追加(fabriq_ios.ps1 は self-spawn ガードで実行単体テスト不可のため構文解析ベースで SaveNothing 設定を固定)。
+- VERSION 0.7.1 -> 0.7.2。CHANGELOG [Unreleased] Security。kernel 無変更。
+- 検証: parse OK / run_tests 329 passed 0 failed(history_privacy +2) / check_version OK / SaveNothing が PS5.1 PSReadLine で受理確認。
+- 既存 ConsoleHost_history.txt の過去残留は対象外(将来流入の遮断のみ)。必要なら別途クリーンアップ手順を提供可。
+- 実機確認推奨: fabriq_ios で set Password 等を入力→終了後に Get-Content "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" に当該行が出ないこと。in-session の Up矢印が従来どおり使えること。
+
+<sub>更新: 2026-06-14 12:39 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0045] [監査B・疑い] __RESTART__ の RunOnce 登録失敗時、再起動せず後続モジュールを実行(fail-open)
+
+**内容:**
+
+kernel/main.ps1:441 付近、__RESTART__ マーカー処理で Register-FabriqRunOnce が $false を返すと Remove-ResumeState 後 continue し、foreach が次要素＝『再起動後に走る予定のモジュール群』を同一未再起動セッションで実行してしまう疑い。hostname/domain 変更後に依存モジュールが旧システム状態で動き、誤設定/失敗を招く。fail-closed であるべき箇所が barrel-on になっている。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+実装完了 (commit 1824a25, レビュー待ち=実機確認待ち)。
+
+【確定】Invoke-BatchExecution の __RESTART__ ハンドラ(main.ps1:442-447): Register-FabriqRunOnce が $false の時、Remove-ResumeState + Error 記録の後 continue → バッチ foreach の次要素(=再起動後に走る予定のモジュール群)を再起動せず同一セッションで実行(fail-open)。hostname 変更後の domain join 等が旧状態で走り誤設定の恐れ。
+【両ハンドラ確認】Linear/Invoke-BatchExecution(442)=fail-open=バグ。FlexProfile ダッシュボード RestartNow(901)は continue=Show-Error+Wait-KeyPress+ダッシュボード復帰で対話・operator 主導=元から正しい fail-closed なので不変。Flex auto-continue も Invoke-BatchExecution 経由なので 442 修正でカバー。
+【重大度(思想で正直に)】トリガー(Fabriq.exe 不在/HKLM 書込例外)は稀。ただし失敗時の fail-open 応答自体が実装の穴で、起きた時の誤設定は実害=「実装の穴/危険」側で修正対象(feedback_autopilot_semiauto_triage)。
+【修正(1824a25)】continue → break + Show-Error。break で残りモジュールを実行せず脱出 → 自然完了経路(620 Remove-ResumeState 冪等/telemetry/summary/finalize)へ落ちて Error 記録済のまま return。正常系(RunOnce 登録成功 → 456 Invoke-CountdownRestart → 457 return)は完全不変=変更は登録失敗ブロック内に閉じる。
+【テスト】Invoke-BatchExecution.tests.ps1:190 の旧 fail-open ピン留め(Invoke-SafeCommand 2回=marker 後も実行)を fail-closed 契約(Invoke-SafeCommand 1回=marker で停止 + Complete-ProfileExecution 1回 finalize)へ更新。新契約で pass=fail-closed 挙動を実証。
+【検証】parse OK / run_tests 330 passed 0 failed / check_version OK。KERNEL_VERSION 据置(§I)。
+【実機確認推奨(任意・稀ケース)】RunOnce 登録を失敗させる(例: Fabriq.exe を一時改名)状況で __RESTART__ 含む profile を回し、再起動後モジュールが走らず Error+サマリで止まること。通常(成功)再起動が従来どおりであること。
+
+<sub>更新: 2026-06-14 15:55 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0050] [監査B・疑い] evidence_config Section 29 が null の DIMM PartNumber/SerialNumber で .Trim() 例外→セクション失陥
+
+**内容:**
+
+modules/standard/evidence_config/evidence_config.ps1:2439-2440 の ($m.PartNumber).Trim() / ($m.SerialNumber).Trim() が null 無防備の疑い。Win32_PhysicalMemory の PartNumber/SerialNumber は VM・オンボード(LPDDR)RAM・一部 OEM SMBIOS で頻繁に null で、$null.Trim() が送出→外側 catch で Section 29 Failed→Close-Section が files=[] を強制し、生成済みで有効な 29_MemorySlots.csv まで manifest から脱落。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+実装完了 (commit faa7669, レビュー待ち=実機確認待ち)。
+
+【確定(監査表現は訂正)】evidence_config.ps1:2439-2440 ($m.PartNumber).Trim()/($m.SerialNumber).Trim() が null 無防備。Win32_PhysicalMemory の PartNumber/SerialNumber は はんだ付け LPDDR ノート・一部 Hyper-V/OEM SMBIOS で null。$null.Trim() は throw(実測確認)。throw は Export-Csv(2448) より前の foreach(2423-2446) 内で起きるため CSV は一切生成されず、外側 catch(2482) で Section29 Failed + $failCount++。監査の「生成済み CSV が manifest から脱落」は不正確(CSV 未生成)。
+【影響(むしろ大)】(1) 29_MemorySlots.csv 欠落、(2) $failCount が 3250 New-BatchResult -Fail に入り evidence_config モジュールが Partial/Fail 記録=キッティング/納品に失敗フラグ。
+【顕在化(t-0051 教訓で正直に)】この VMware VM は PartNumber=VMW-16384MB(非null)で非該当。null になるのは はんだ付け LPDDR ノート/一部 Hyper-V/OEM。ノート案件で出るが全機ではない。
+【修正(faa7669)】2439-2440 を null 安全な文字列キャスト "$($m.PartNumber)".Trim() / "$($m.SerialNumber)".Trim() へ(Section 10/22/33 同方針)。null→空欄、非null は trim 不変(実測)。Section29 内 null 無防備はこの2行のみ(FormFactor=[int]$null→0, SMBIOSMemoryType/Capacity は null ガード済, BankLabel/Manufacturer 等はメソッド呼出無し)=取りこぼし無し。VERSION 1.8.0→1.8.1。REQUIRES_KERNEL 据置。kernel 無変更。
+【検証】parse OK / harness で null→空・非null→trim・throw無し実証 / run_tests 329 passed 0 failed / check_version OK。
+【実機確認推奨】はんだ付け RAM のノート PC(PartNumber が null になる機種)で evidence_config を走らせ、Section 29 が Failed せず 29_MemorySlots.csv が生成され、PartNumber 空欄で他列は正常なこと。
+
+<sub>更新: 2026-06-14 13:48 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0052] [監査B・疑い] Reset-FabriqState が FabriqMasterPassphrase を消さず、NewSession キャンセルで前顧客のパスフレーズが残存
+
+**内容:**
+
+kernel/common.ps1:3228-3327 の Reset-FabriqState が $global:FabriqMasterPassphrase をクリアしない疑い。main.ps1 の NewSession ハンドラ(1907/1931 付近)でセッション切替がキャンセルされた場合等に、前の顧客のマスターパスフレーズがプロセス内に残存し得る(セキュリティ)。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+念入り検証+実装完了 (commit 1f02514, レビュー待ち=実機確認待ち)。
+
+【確定】Reset-FabriqState(common.ps1:3236) のクリア対象に $global:FabriqMasterPassphrase が無い。これは ENC: CSV 秘密の復号マスター鍵(1031-1036 で復号使用、3141-3143 で resume 保護保存)。
+
+【念入り検証(意図的か)→ 単なる見落とし】(1)呼出元は NewSession(main.ps1:1907)のただ1つ。必ず Show-SessionSetupForm を通り、確定なら新パスフレーズで上書き(1937)/キャンセルなら continue(1931-1933)。確定経路は上書きで無害、漏えいするのはキャンセル経路のみでクリアが正。旧鍵を持ち越して使う設計経路なし。(2)関数 docstring が「Resets ALL in-memory session state」=クリアが趣旨どおり、除外は趣旨違反の漏れ。(3)t-0022(04a2c58)は SELECTED_PIN/FABRIQ_WORKER_NAME/FABRIQ_SEGMENT を明示理由付きで追加したが passphrase には一切言及せず=スコープ外の取りこぼし。(4)「意図的に残す」コメントはどこにも無し。env var クリア網羅に対し $global だけ漏れた構造的見落としに整合。
+
+【分類】運用思想と独立した実装の穴・機密残留=修正対象(feedback_autopilot_semiauto_triage の "implementation hole/danger" 側)。
+
+【修正(1f02514)】Reset-FabriqState の SessionInfo クリア直後に $global:FabriqMasterPassphrase = $null を追加(セキュリティコメント付き)。ResumeState.tests.ps1 の Reset クリアリスト AST 契約に passphrase クリア($null代入 AssignmentStatementAst)を追加。KERNEL_VERSION 据置(内部関数・状態スキーマ不変)。CHANGELOG Security。
+
+【検証】parse OK / run_tests 330 passed 0 failed(AST +1) / check_version OK。
+
+【実機確認推奨】顧客A でセッション開始→NewSession→設定をキャンセルした後、$global:FabriqMasterPassphrase が $null になっていること(クリア確認)。通常のセッション切替(確定)は従来どおり動くこと。
+
+<sub>更新: 2026-06-14 14:59 ／ 作成: 2026-06-14 09:01</sub>
+
+## 完了 (36)
 
 ### [t-0001] example設定値の統一
 
@@ -1091,7 +1084,154 @@ REQUIRES_KERNEL=3.5.0(Test-FabriqSafePathComponent §1.6 since 3.5.0)。Register
 
 <sub>更新: 2026-06-14 06:11 ／ 作成: 2026-06-14 02:08</sub>
 
-## 保留 (4)
+### [t-0042] [監査A・疑い] Deploy.bat の robocopy /MIR が再デプロイで運用データ/エビデンスを purge
+
+**内容:**
+
+Deploy.bat:132 が robocopy ... /MIR で展開。/MIR は宛先にあってソースに無いファイルを削除するため、既デプロイ済みターゲット（既定 C:\Windows\work\fabriq）への再実行で hostlist.csv / workers.csv / 各 _list.csv / profiles/、および evidence/・logs/・resume_state.json を消去する疑い。124行『Destination exists. Updating files...』は無警告。patch ビルダの保全規約に反する。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+実装完了 (commit d11420b, レビュー待ち=実機確認待ち)。
+
+【確定】配布物(USB/git)は evidence/・logs/ が .gitkeep のみ(空)。.gitignore で /evidence/gyotaku/*, /evidence/export_history/*, /logs/*, /logs/history/* 等を除外。ターゲットPCは実行中に evidence/<session>_evidence/・checklist/・gyotaku/・pc_information/・logs/(transcript, telemetry/, history/execution_history.csv)・kernel/json/resume_state.json・telemetry_salt.txt・modules/standard/windows_update/wu_state.json を蓄積。Deploy.bat:132 robocopy /MIR は宛先にあってソースに無いファイルを削除するため、運用済みPCへの再デプロイで上記(特に納品エビデンス本体)を全消去。初回(空宛先)は無害、危険は再デプロイのみ。124行 "Updating files..." は無警告。
+
+【運用確認】CSV/プロファイルは USB(配布元)が source of truth・PCはデプロイのみ(ユーザ回答)。よって /MIR で CSV/プロファイルをリフレッシュするのは正、保護対象は runtime 生成物のみ。
+
+【robocopy 実測(/L ドライラン)で判明した重要点】/XD に dest 絶対パスを渡しても /MIR の purge を防げない(EXTRA のまま)。robocopy /XD は source-rooted で評価されるため source パス(または bare name)が必要。bare name は同名ネストを誤除外するリスクがあるため source の最上位パス指定を採用。
+
+【修正(d11420b)】robocopy "%FABRIQ_SRC%" "%DEST_DIR%" /MIR /XD "%FABRIQ_SRC%\evidence" "%FABRIQ_SRC%\logs" /XF resume_state.json wu_state.json wu_completed.json telemetry_salt.txt /NJH /NJS /NDL /NP /R:2 /W:1。再デプロイ時メッセージに保持/削除を明記。CHANGELOG [Unreleased] Security。Deploy.bat は root 直下で §A/§4 対象外だがデータ保護のため CHANGELOG 追記。
+
+【検証】/L ドライランで実構成(modules/ あり)を再現し EXTRA=stale ファイルのみ、evidence/logs/resume_state/wu_state/telemetry_salt 全保護、フレームワーク refresh(common.ps1更新/hostlist/新規flag)維持を確認。.ps1 非変更のため run_tests 対象外。
+
+【実機確認推奨】運用済みPC(evidence 蓄積あり)に再デプロイし、evidence/logs/履歴が消えないこと + フレームワーク/CSV が更新されること。
+
+---
+2026-06-14 完了 (ユーザ判断)。実装・検証済(harness/ドライラン)、実機確認はレビューに委ねクローズ。
+
+---
+2026-06-14 後続(ユーザ判断): Deploy.bat を廃止(運用で未使用)。本 /MIR 修正(d11420b)はファイル削除により moot。削除コミット ce907a0。安全性: source_media.id 消費側は Get-VolumeSerial フォールバック付きで MediaSerial 影響なし、build_framework_patch は doc のみ・version 同期非対象。参照(README/KERNEL_API §I/build_framework_patch/common.ps1コメント)整理、CHANGELOG を Removed に置換。run_tests 329 緑・残存参照ゼロ。t-0042 は完了維持。
+
+<sub>更新: 2026-06-14 12:51 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0044] [監査B・疑い] 全行Disabled/セグメント不一致のCSVが Skipped でなく偽 Error(7モジュール・出荷状態で発火)
+
+**内容:**
+
+Import-ModuleCsv -FilterEnabled は『全行Enabled=0』『有効だがセグメント不一致』で空配列を返すが、PS5.1 は return @() を呼出側で $null に潰すため、各モジュールの『if ($null -eq $items){Error}』が発火し『Count -eq 0 の Skipped』分岐が到達不能死コードになる疑い。該当: file_delete / copyfile_config / default_app_config / dpi_api_config / driver_export_config / driver_import_config / fabriq_app_launcher。出荷 delete_list.csv は全行 Enabled=0 のため file_delete は既定で偽 Error を返す可能性。AutoPilot/Flex の ErrorMode が実失敗として扱う。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 詳細調査(read-only・コード変更なし)。バグ確定。
+
+【実測】PS5.1で `return @()` は呼出側で $null に潰れる(`return ,@()` なら Count=0 保持)を powershell.exe 5.1 で実証。
+【根本】Import-ModuleCsv(common.ps1:1017)は2状態を返す: return $null(1027/1028/1048=真のロード失敗/空ファイル/必須列欠落) と return @()(1058=全行Disabled / 1078=セグメント不一致)。後者が呼出側で $null に潰れ、両者が区別不能。
+【live確認】file_delete.ps1:19-24 は `if($null -eq $items){Error 'Failed to load'}` の後に `if($items.Count -eq 0){Skipped}`。出荷 delete_list.csv は全4行 Enabled=0 → return @() → $null → 20行目で偽Error。23-24のSkipは到達不能の死コード。=箱出しで file_delete が偽Errorを返す。
+
+【トリガ2系統】(A)出荷/運用CSVが全行Disabled、(B)アクティブSegmentが有効行に不一致(1078)。Bは有効行を持つモジュールでもセグメントキッティングで発火=チケット記載の7件より広い。
+
+【波及定量】脆弱パターン(潰れた@()を null→Error が捕捉)を持つ .ps1 約64件。うち Count→Skip 分岐を持つ約57件は『修正で生き返る既存Skip』。Skip分岐の無い7件(firewall_rule_config/manual_kitting_assistant/network_profile_config/office_update/sysprep_config/volume_config/windows_update)は要個別確認(Error→空進行に挙動変化)。出荷で全行Disabledの _list.csv 約25件(file_delete/directory_cleaner/display_config/dpi_config/reg_template/script_looper/server_feature_config/acl_config/bloatware_remove/cert_config/fabriq_app_launcher/firewall_rule_make_config/office_license_config/profile_delete/robocopy_config/ssid_config/startup_command_config/temp_ipaddress_config/wallpaper_config/windows_feature_config/windows_license_config 等)。
+
+【既知】credential_config(コメント108-117で本バグを明記)と domain_join は -FilterEnabled を使わず手動 Where-Object Enabled で回避済=修正手法は確立。
+
+【影響】halt とは限らず、実行結果/evidence/納品チェックリストに偽Errorが載る(B2B/B2G納品のQA問題)。Continue-on-Error 既定では記録して継続。AutoPilot で ErrorMode 次第では retry/停止に波及し得る。
+
+【修正案・最高レバレッジ】kernel 1点: Import-ModuleCsv の return @() → return ,@()(1058,1078の2箇所)。既存の到達不能Skip分岐(約57件)が一斉に生き返り、A/B両トリガを同時解決。要対応: (1)Skip分岐の無い7件に明示Skip追加 or 空進行の挙動確認、(2)-FilterEnabled 無しでSegment列CSVを読む経路(credential等)の挙動再確認、(3)回帰テストで空配列保持を固定。KERNEL_API的には Import-ModuleCsv の空時戻り値が $null→@() に変わる契約変更(後方互換だが明文化要)。CLAUDE.md §4設計ゲート対象。
+
+確度: file_delete は100%確定(実測+コード+出荷CSV)。広域リストは CSV→-FilterEnabled 対応をヒューリスティック判定のため、各件は実装時に個別確認。
+
+---
+2026-06-14 実装完了 (commit a699397, レビュー待ち=実機確認待ち)。
+- kernel/common.ps1: return @() -> return ,@() (1058/1078の2箇所)。
+- office_update / windows_update: if($items.Count -eq 0){Skipped} ガード追加、VERSION 1.1.0->1.1.1。windows_update は同形ハッシュテーブル(RebootRequired=$false/InstalledCount=0)。
+- KERNEL_API.md §1.2 に戻り値契約($null=ロード失敗 / @()=対象ゼロ)を明文化。Import-ModuleCsv.tests.ps1 の旧「$null潰れ」ピン留め2件を新契約(空配列・Count 0)へ更新。
+- KERNEL_VERSION据置(§I)。CHANGELOG [Unreleased] Fixed 追記。
+- 検証: parse 4 OK / run_tests 320 passed 0 failed / check_version OK / seed OK / encoding exit1 は既知JP-NO-BOM積み残し5件(本変更ファイル非該当)。出荷 delete_list.csv(全行Disabled)で CALLER-PATH=Skipped を実測実証。
+- 残作業: ~58モジュールはコード無変更で改善(死んでいたSkip分岐が復活)。希望すれば各モジュールの実機Skip確認は任意。office_update/windows_update の実機Skip挙動は確認推奨。
+
+---
+2026-06-14 完了 (ユーザ判断)。実機検証は見送り。根拠: 正常系(有効行あり)の挙動は無変更で回帰面ほぼゼロ、変化は「対象ゼロ→偽Error が Skip(副作用なし即return)」のみ、run_tests 320 passed + 契約テスト更新 + 出荷delete_list.csvで Skipped 実証済。office_update/windows_update の全行Disabled→Skip は稀ケース(出荷CSV全行Enabled)でループ消費側読込で安全確認済。
+
+<sub>更新: 2026-06-14 11:10 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0049] [監査B・疑い] robocopy_config の /MIR が『存在するが空のソース』で宛先を全削除
+
+**内容:**
+
+modules/standard/robocopy_config/robocopy_config.ps1:131 の事前検査は Test-Path $Source(存在)のみで、空ソース判定も宛先の Test-FabriqProtectedPath も無い疑い。Mirror=1 で /MIR(213-214)時、再作成された空共有/クリア済み/誤解決ディレクトリが Source だと宛先内容を全消去。AutoPilot では per-job 確認が auto-Y のため operator は気付けない。CLAUDE.md §8 が要求する破壊前ガードが欠落。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+実装完了 (commit 9f1b6c5, レビュー待ち=実機確認待ち)。
+
+【確定】robocopy_config.ps1:131 の事前検査は Test-Path(存在)のみ。213-214 で Mirror=1 時 /MIR。空ソース判定も宛先保護も無し。Step4 Confirm-ModuleExecution は AutoPilot で auto-Y のため、空ソース(再作成/クリア/誤解決された共有)+/MIR で宛先を全削除し得る。§8 の破壊前ガード欠落。
+
+【制約(t-0041 との相互作用)】robocopy の Destination は正規 UNC 共有があり得る一方、t-0041 修正で Test-FabriqProtectedPath は UNC を全ブロックするようになった。よって宛先保護に単純流用すると正規 UNC 宛先を誤ブロックする。→ ローカル(ドライブレター)宛先のみ Test-FabriqProtectedPath を適用、UNC 宛先は許可(空ソースガードが wipe を保護)。
+
+【修正(9f1b6c5)】実行ループの auth 後・try 前(=確認ゲート外で AutoPilot でも有効)に Mirror=1 ガード追加: (a) 空ソース(Get-ChildItem -LiteralPath -Force | Select -First 1 が null)→Fail、(b) $Destination が ^\ でない(ローカル)なら Test-FabriqProtectedPath、IsSafe=false→Fail。ガード Fail 時は try 前 continue のため net use を手動クリーンアップ(既存 authFailed と同型)。ソース列挙は net use 後(認証 UNC ソース対応)。
+
+【version】VERSION 1.0.1→1.1.0(MINOR: 新ガード+新規公開API依存)。REQUIRES_KERNEL 2.0.0→3.5.0(§G: Test-FabriqProtectedPath は KERNEL_API §1.6 since 3.5.0)。kernel 無変更。
+
+【検証】parse OK / run_tests 327 passed 0 failed / check_version OK / seed OK。guard 述語を harness で全ケース実証: 空ソース→BLOCK(empty-source)、full+C:\Windows/C:\Users→BLOCK(protected-dest)、full+\server\share→ALLOW、full+C:\Stage\out\sub→ALLOW、full+//server/share→ALLOW、空ソース+UNC→BLOCK(空が UNC に優先)。
+
+【残留(本件スコープ外)】UNC 管理共有宛先(\host\c$)+非空ソースは (b) でブロックされない(UNC 許可方針)。ただし (a) が空ソース wipe を防ぐ。FileFilter×/MIR は raw ソース空判定で対応(チケットの「空ソース」が主眼)。
+
+【実機確認推奨】robocopy_list.csv に Mirror=1 + 空のソースディレクトリのジョブを 1 行入れ、[BLOCKED 相当の Refusing /MIR ...]→Fail になり宛先が消えないこと。通常の非空ソース→宛先コピーが従来どおり動くこと。UNC 共有宛先が誤ブロックされないこと。
+
+---
+2026-06-14 完了 (ユーザ判断)。実装・検証済(harness/ドライラン)、実機確認はレビューに委ねクローズ。
+
+<sub>更新: 2026-06-14 12:30 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0051] [監査B・疑い] ssid_config の live -match に日本語リテラル+BOM無し→JP Windows で WLAN 検出破綻+英語オンリー規約違反
+
+**内容:**
+
+modules/standard/ssid_config/ssid_config.ps1:47 が実行コードで日本語『プロファイル』を含む -match 行。ファイルは BOM 無し(先頭 23 20 3d)で、JP CP932 環境の PS5.1 が CP932 として読むと UTF-8 の『プロファイル』が mojibake し、netsh の日本語出力に一致せず WLAN 有でも『利用不可』と誤判定→Error を返す疑い。加えて CLAUDE.md §7 英語オンリーコード規約の違反。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査+実装完了 (commit d39b642, レビュー待ち)。※当初の機能バグ評価は過大だったため訂正済み。
+
+【訂正された結論】当初監査の「JP Windows で WLAN 検出が壊れ偽 Error」は実機では非該当。ユーザ実績(日本語を含まない SSID プロファイルを JP 環境へ配布し正常設定できていた)が反証。理由: ssid_config.ps1:47 の正規表現 "Wi-Fi|Wireless|WLAN|プロファイル|Profile" は英語代替を複数持ち、netsh wlan show profiles の JP 出力にもインターフェイス名 "Wi-Fi"(英語)が含まれ -match(大小無視)で成立する。よって プロファイル は判定を決めておらず、BOM無しUTF-8をJP CP932で読んで mojibake しても無害(冗長な dead alternative)だった。プロファイル抽出(56行〜)は " : " 区切りで locale 非依存、add/delete は XML ベース。
+
+【残った実体】§7 違反(コード内日本語リテラル)+ BOM無し非ASCII(プロファイル + コメント em-dash 3箇所)= encoding hygiene のみ。機能 pain なし。check_ps1_encoding の JP-NO-BOM 5件の1つ。
+
+【対応(d39b642)】47行の正規表現から冗長な日本語 プロファイル を削除 + 153/176/234 の em-dash を ASCII '-' 化 → ファイル純ASCII化(§7準拠・BOM不要・JP-NO-BOM 5→4)。挙動不変。VERSION 1.0.0→1.0.1(PATCH)。REQUIRES_KERNEL 据置。kernel 無変更。
+
+【検証】純ASCII確認 / parse OK / run_tests 329 passed 0 failed / check_version OK / encoding JP-NO-BOM 5→4(ssid_config 除外)。
+
+【教訓】監査の severity を実機の失敗モードまで詰めず confirm しないこと(ユーザ指摘で訂正)。
+
+---
+2026-06-14 実機確認(ノートPC・Wi-Fi有効)で修正の安全性を裏取り。`$out = netsh wlan show profiles 2>&1 | Out-String` に対し: 修正後判定(Wi-Fi|Wireless|WLAN|Profile)=True(WLAN検出成立)、Wi-Fi=True(マッチを担う)、プロファイル=False。生出力が CP932→UTF-8 コンソール取り込みで mojibake していたため -match 'プロファイル' が False=実行時点でも プロファイル は既にマッチしておらず、検出は最初から ASCII の Wi-Fi が単独で担っていた。よって プロファイル 削除は dead alternative 除去で完全に安全と実機確認。
+
+---
+2026-06-14 完了 (実機確認済み・挙動不変の hygiene 修正)。
+
+<sub>更新: 2026-06-14 13:29 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0059] Fabriq_IOS.exe が Windows Defender に検知・削除される件 — 自己昇格 .bat への回帰
+
+**内容:**
+
+ネットワーク共有(\\10.1.10.5\e\fabriq\Fabriq_IOS.exe)上の Fabriq_IOS.exe が Windows Defender に Program:Win32/Wacapew.A!ml(区分:設定改変・警告レベル高)として検知・削除されるようになった(2026-06-14 12:02 のスクリーンショットで確認)。Fabriq.exe は現状無事。\n\n即時回避策として、IOS ランチャを EXE から『自己昇格 .bat』へ回帰させる(かつて Fabriq.bat が採っていた net session 判定→Start-Process -Verb RunAs 方式)。これにより PE バイナリ向け ML 分類器(...!ml)の対象から外れ、UAC 自動昇格も維持できる。\n\n決定が必要: (1)IOS 子シェルのウィンドウを通常表示に戻すか(現行 Launcher_IOS.cs は ProcessWindowStyle.Minimized=hidden 寄りで挙動ヒューリスティックの加点要因) (2)ExecutionPolicy は Bypass に統一(現ユーザ提示 bat は Unrestricted) (3)アイコン/見栄えを .lnk 同梱で取り戻すか。
+
+**Claudeメモ:**
+
+診断(2026-06-14 セッション): 両ランチャは dev/launcher/Launcher.cs / Launcher_IOS.cs を csc.exe で固めた未署名の極小 C# wrapper(どちらも conhost 経由で powershell -ExecutionPolicy Bypass -File ... を起動・57344 bytes)。差分は2点のみ — (a)IOS は ProcessWindowStyle.Minimized で子 powershell を起動(Launcher_IOS.cs:78)、本体は通常表示 (b)IOS は 6/13 再ビルドの新規・低実績ハッシュ、本体は 4/9 ビルドで実績蓄積済み。\n検知名 Program:Win32/Wacapew.A!ml の分解: !ml=クラウド ML 判定(署名一致でない)/Program:(≠Trojan:)=PUA級『望ましくない動作の可能性』/区分『設定改変』。特定マルウェアの模倣ではなく『未署名の小 PE が requireAdministrator で昇格要求し powershell -Bypass を spawn してシステム設定を改変するスクリプトへ連結』という特徴ベクトルが Wacapew(設定をいじる素性不明ユーティリティ)クラスタに近いと ML が判定した典型的誤検知。皮肉にもこの特徴は fabriq が正当にやっていること(キッティング=設定改変)そのもの。\n加重要因(スクショで判明): 影響パスが UNC 共有 \\10.1.10.5\... =ネットワーク経由ファイルは低信頼ゾーン扱いで ML スコア閾値を越えやすい。『新規低実績ハッシュ × 共有実行(低信頼) × 未署名 × 設定改変素性』の重なりが根因。\n.bat 回帰が有効な理由: 本検知は PE バイナリ向け ML 分類なので、テキストスクリプトの .bat に戻せば対象外(共有上でも同じ)。残留リスク(AMSI スクリプト走査)はゼロでないが、難読化していない可読ランチャ bat は実用上まず弾かれない。ユーザ提示の旧 Fabriq.bat 方式(net session→powershell Start-Process -Verb RunAs で自己昇格→conhost+powershell)で UAC 自動昇格も再現可能。\n推奨修正: Unrestricted→Bypass / IOS 子シェルは最小化をやめ通常表示 / 見栄えは .lnk 同梱で回収。実装は CLAUDE.md §4 設計ゲートを経る(ただし対象はリポ直下の .bat ランチャで kernel/modules の .ps1 ロジックではない)。関連: t-0060(恒久対策=署名)。\n実装(2026-06-14): リポ直下に Fabriq.bat / Fabriq_IOS.bat を新規追加(EXE は据置=並行運用、変更でなく追加)。方式=ユーザ提示の旧 Fabriq.bat 実績パターン: net session 判定→非管理者は powershell Start-Process -Verb RunAs で自己昇格再起動→cd /d %~dp0→entry ps1 存在ガード(不在は pause+exit 2 で fail-closed)→start で conhost+powershell 起動。ExecutionPolicy は Bypass に統一(旧 bat の Unrestricted から変更)。Fabriq.bat=kernel\main.ps1 を通常ウィンドウで -File 起動(EXE 等価)。Fabriq_IOS.bat=apps\fabriq_ios\fabriq_ios.ps1 を start /min で最小化 bootstrap 起動(EXE の ProcessWindowStyle.Minimized 再現。ps1 が FABRIQ_IOS_SUBPROCESS で子 REPL を通常ウィンドウ自己スポーン)。決定: 最小化は維持(bat は PE でないため ML 検知に無関係・EXE と挙動等価が安全)/Bypass 採用/.lnk によるアイコン回収は任意で見送り(必要なら別途)。\n設計検討の過程で UNC 起動対応(PowerShell Set-Location で cwd 保持)を一度入れたが、ユーザ確認で『UNC は \\10.1.10.5 経由で検証環境へ配っていただけ・UNC から起動する必要なし』と判明したため撤去し、cd /d + -File 相対の素直形に確定(quoting リスク低・EXE 等価)。版/CHANGELOG 義務なし(リポ直下 .bat は kernel/modules/apps 等の管理対象外=Deploy.bat と同格)。エンコーディング: ASCII のみ・CRLF・BOM 無し・lone LF ゼロを検証済。\n残(実機確認・レビュー): ①非管理者ダブルクリックで UAC 昇格→fabriq メインダッシュボードが EXE と同様に起動 ②Fabriq_IOS.bat で bootstrap 最小化・IOS シェルが通常ウィンドウで前面起動し show version 等が動作 ③EXE 2 本が無改変で従来通り起動 ④検証環境(共有から配備したローカル)で Defender が .bat を隔離しないこと。\n実機確認(2026-06-14 ユーザ報告): 問題なし。IOS は NW 越し配送した瞬間に EXE が Defender に削除されるが、.bat は無傷で生存。.bat 回帰により Wacapew.A!ml 検知を回避できることを実環境で確証。完了。
+
+<sub>更新: 2026-06-14 13:00 ／ 作成: 2026-06-14 12:15</sub>
+
+## 保留 (7)
 
 ### [t-0025] [LOW] 版表記ドリフト: 起動バナー ver2.1 / Fabriq.exe AssemblyVersion 2.1.0.0
 
@@ -1150,6 +1290,49 @@ Autologonの設定をしてもしてなくても挙動は変わらず。
 
 <sub>更新: 2026-06-14 10:15 ／ 作成: 2026-06-14 06:36</sub>
 
+### [t-0048] [監査B・疑い] odt_install が確認・冪等判定より前に破壊操作(Office強制終了/Store Office削除)を実行
+
+**内容:**
+
+modules/standard/odt_config/odt_install.ps1 の Step3.5(135-179)が Stop-Process -Force(Office群)/Remove-AppxPackage/Remove-AppxProvisionedPackage/Set-Service msiserver を、確認 Confirm-ModuleExecution(257)および『既インストール→Skip』冪等判定(201-247)よりも前に無条件実行する疑い。対話実行で N 回答しても破壊済(キャンセルが no-op でない)、かつ再実行のたびに Office を kill＝冪等性違反。標準テンプレは副作用を確認後の Step5 に置く規約。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査完了→保留(ユーザ判断・コード変更なし)。
+
+【機構(確定)】odt_install.ps1 の「3.5 Environment Pre-check & Cleanup」が、破壊的 (a)Office プロセス強制終了(140-147) (b)ClickToRunSvc 停止(149-154) (c)Store版Office削除 Remove-AppxPackage/Provisioned(156-172) (d)msiserver Manual化(174-179) を、冪等判定(f, 192-248: Skip 238 / 競合 Error 246)・確認ゲート(257) より前で実行。よって Skip/Error/Cancel 経路でも破壊が先に走る。
+
+【severity 訂正(ユーザ実運用が ground truth)】最終 verdict(再実行→Skip、プリインストールC2R→Error)は正しく動作。verdict 前の破壊も実運用では実害になりにくい: (a)キッティング中 Office 未起動=見えない no-op、(b)サービスは自動再起動、(c)初回で削除済→再実行0件 no-op・触るのは UWP スタブで C2R 本体は無傷、(d)Disabled時のみ。データ消失/C2R破壊なし。t-0051 同様「規約上の副作用前置き違反だが実運用無症状」クラス。
+
+【残るエッジ(過大評価しない)】Office を開いたまま回すと確認前 force-kill(稀)/(c) Provisioned 削除は abort 後も残存(UWPスタブ除去で実害小)。
+
+【修正案(低優先・未実施)】破壊ブロック(a)(b)(c)(d)を確認ゲート後・install前へ移動(非破壊プローブ e/f は確認前に残す)。ロジック不変・移動のみ。(f)C2R検出はレジストリ読みで(a)(b)(c)(d)非依存=検出結果同一。VERSION 1.1.0→1.1.1 想定。§4フル版設計は提示済(state machine/敵対検証)。
+
+【判断】ユーザ実運用で問題なし→一旦見送り(保留)。実害を感じたら再相談。
+
+<sub>更新: 2026-06-14 14:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0056] [監査・未検証/疑い] モジュール内の生 Read-Host が AutoPilot ガード無しで無人実行をハングさせるクラス
+
+**内容:**
+
+複数モジュールが $global:AutoPilotMode ガード無しの生 Read-Host を持ち、AutoPilot/auto-resume の無人実行をハングさせる疑い(systemic)。候補: display_config:106 / dpi_config:426,461 / windows_license_install:99 / printer_driver_uninstall:73 / power_config:270。display/dpi は出荷CSV先頭が HardwareID=AUTO のためマルチモニタ機で発火し得るとの指摘。単一方針(モジュール内 Read-Host を一律 AutoPilot ガード=skip/fail-closed)で一掃できる可能性。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+2026-06-14 調査→保留(ユーザの設計思想により許容範囲・コード変更なし)。
+
+【確定】候補モジュール(display_config:106, dpi_config:426/461, power_config:271, windows_license_install:99, printer_driver_uninstall:74)は全て $global:AutoPilotMode 参照ゼロ=生 Read-Host に AutoPilot ガードなし。到達すれば runspace は $Host 共有で実 stdin を待ち、無人実行がプロンプトで無期限停止(ハング)。
+【到達条件(read-only 精査)】display_config: HardwareID=AUTO かつ複数ディスプレイ検出時のみ Select-DisplayInteractive(106) に到達(単一は184で自動選択=プロンプトなし)。出荷 display_list.csv は全行 Disabled。dpi も同型。windows_license は CSV キー無し時の手入力フォールバック。printer_driver_uninstall/power は対話選択経路。いずれも狭い条件。
+【判断(保留)】ユーザ設計思想: Fabriq AutoPilot は半自動化(operator/管理者の人的管理前提)で、十分な事前検証を経て案件投入される。対話要否は本番前に確定済で、特殊ケースは事前把握・運用対応可能な範囲。よってこれら操作系エッジは許容範囲とみなし狙い撃ち硬化はしない。詳細: memory feedback_autopilot_semiauto_triage。
+【再開条件】特定モジュールで実運用上の実害(無人ハング)が顕在化したら、その到達モジュールだけ AutoPilot ガード(if $global:AutoPilotMode { skip/fail-closed } else { Read-Host })を入れる。
+
+<sub>更新: 2026-06-14 14:32 ／ 作成: 2026-06-14 09:01</sub>
+
 ### [t-0057] テレメトリーバグ
 
 **内容:**
@@ -1166,4 +1349,16 @@ FlexProfile実行だと、子プロセス？ランエスケープかなにかの
 - 確実性評価: 修正のメカニズム的有効性は高(~90%、テレメトリ限定で blast radius 小)。ただし「この衝突がユーザ観測の正体か」は未確認(衝突未再現)。緊急度低のため保留。再開時はまず極小プロファイルで衝突再現→実装の順。
 
 <sub>更新: 2026-06-14 10:04 ／ 作成: 2026-06-14 09:34</sub>
+
+### [t-0060] ランチャ全体の Defender 恒久対策(コード署名 / 誤検知申告 / パス除外)— Fabriq.exe も構造的同リスク
+
+**内容:**
+
+t-0059 の IOS 検知は『EXE だから』ではなく『未署名の小 PE が設定改変スクリプトを起こす』特徴 × 新規低実績ハッシュ × 共有(低信頼ゾーン)実行の重なりが根因。Fabriq.exe(本体)は現状無事だが、これは古いハッシュにローカル実績が付いている『運』に過ぎず、再ビルドでハッシュが変われば同様に削除され得る(構造的に同じ地雷)。本体は UAC 自動昇格(app.manifest requireAdministrator)が load-bearing のため、IOS のような .bat 回帰より恒久策が筋。\n\n恒久対策の方針決定が必要:\n(1) コード署名(正規証明書)— Fabriq.exe / Fabriq_IOS.exe 両方に署名。未署名特徴が消え発行元 ID が安定し、再ビルドでも実績リセットされにくい。最も堅牢な根本解決(証明書コスト)。\n(2) Microsoft への誤検知申告(WDSI File Submission)— Program:...!ml は PUA級 ML 単独判定で比較的すんなり解除されやすい。ハッシュ単位なので再ビルドごとに再申告が必要。\n(3) Defender パス除外 — 配布先全台に対する運用回避。パス除外なら再ビルドでも生存。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 セッションでの t-0059 診断から派生(本体の予防/恒久対策を分離起票)。詳細な検知メカニズムは t-0059 の claudeNote 参照。\n本体 Fabriq.exe が今無事な理由: (a)4/9 ビルドの古いハッシュにローカル実績が付き ML が見慣れたファイルと判断 (b)子 powershell を最小化せず通常表示=挙動ヒューリスティックに当たりにくい。ただし両方ともコードの安全でなく現物バイナリ限定の安全であり、再ビルド or Defender 定義/クラウドモデル更新で突然検知に転びうる。\n判断材料: 即効性=パス除外>申告>署名 / 恒久性・再発防止=署名>>申告>除外。コスト=署名(証明書購入・更新)>申告(無料・都度)>除外(無料・全台展開の手間)。実運用上『キッティングフレームワーク本体 EXE が将来いきなり消える』のは痛いので、最低でも本体には何らかの手当て推奨。署名するなら build.ps1 / build_ios.ps1 に signtool ステップを追加する形。ユーザ方針決定待ち。関連: t-0059(IOS 即時回避=.bat 回帰で完了)。\n2026-06-14: ユーザ判断で保留。t-0059 の .bat 回帰で当面の運用回避は成立しているため緊急度低。署名/申告/除外の恒久対策は trigger 待ち。
+
+<sub>更新: 2026-06-14 13:00 ／ 作成: 2026-06-14 12:15</sub>
 
