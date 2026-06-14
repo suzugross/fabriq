@@ -440,10 +440,17 @@ function Invoke-BatchExecution {
 
             # Register RunOnce
             if (-not (Register-FabriqRunOnce)) {
+                # Fail-closed: the reboot-and-resume leg cannot be armed, so the
+                # remaining modules (scheduled to run AFTER the reboot) must NOT
+                # execute in this un-rebooted session. Running them on stale
+                # state (e.g. a domain join before the hostname change takes
+                # effect) causes misconfiguration. Stop the batch instead of
+                # continuing past the restart marker (TM t-0045).
+                Show-Error "RunOnce registration failed - restart aborted; remaining modules skipped"
                 Remove-ResumeState
-                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed" -Order $module.Order
-                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed" -Order $module.Order
-                continue
+                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed (restart aborted, remaining modules skipped)" -Order $module.Order
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed - restart aborted, remaining modules skipped (fail-closed)" -Order $module.Order
+                break
             }
 
             # Record in execution history
