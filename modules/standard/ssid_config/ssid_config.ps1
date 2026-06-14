@@ -44,7 +44,7 @@ $profileOutput = netsh wlan show profiles 2>&1
 # netsh returns exit code 1 even when WLAN works but has no profiles.
 # Detect actual failure by checking for interface/profile text in output.
 $outputText = ($profileOutput | Out-String)
-$hasWlanInterface = $outputText -match "Wi-Fi|Wireless|WLAN|プロファイル|Profile"
+$hasWlanInterface = $outputText -match "Wi-Fi|Wireless|WLAN|Profile"
 if (-not $hasWlanInterface) {
     Show-Error "WLAN service is not available on this system."
     Write-Host "  netsh output: $($outputText.Trim())" -ForegroundColor DarkGray
@@ -150,7 +150,7 @@ foreach ($item in $enabledItems) {
         $nonBroadcastXml = if ($item.NonBroadcast -eq "1") { "`n        <nonBroadcast>true</nonBroadcast>" } else { "" }
 
         if ($item.Authentication -ieq "open") {
-            # Open network — no sharedKey block
+            # Open network - no sharedKey block
             $xmlContent = @"
 <?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
@@ -173,7 +173,7 @@ foreach ($item in $enabledItems) {
 "@
         }
         else {
-            # PSK network (WPA2PSK, WPA3SAE, etc.) — include sharedKey block
+            # PSK network (WPA2PSK, WPA3SAE, etc.) - include sharedKey block
             $passwordEscaped = [System.Security.SecurityElement]::Escape($item.Password)
 
             $xmlContent = @"
@@ -231,7 +231,7 @@ foreach ($item in $enabledItems) {
     }
     finally {
         # ----------------------------------------
-        # 5d: Secure cleanup — always delete temp XML (contains password)
+        # 5d: Secure cleanup - always delete temp XML (contains password)
         # ----------------------------------------
         if (Test-Path $tempXml) {
             Remove-Item $tempXml -Force -ErrorAction SilentlyContinue
