@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T11:10:41+09:00",
+  "updatedAt": "2026-06-14T11:19:14+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -367,10 +367,10 @@
       "id": "t-0041",
       "title": "[監査A・疑い] Test-FabriqProtectedPath が \\\\?\\ 拡張長/UNC 管理共有で突破され保護ルートを再帰削除し得る",
       "content": "パス保護ガード Test-FabriqProtectedPath が、(1) Win32 拡張長プレフィックス付きパス（例 \\\\?\\C:\\Windows）と (2) UNC 管理共有（例 \\\\host\\c$\\Windows）をブロックできない疑い。file_delete / profile_delete / history_destroyer / driver_export がこのガード通過後に Remove-Item -Recurse を実行するため、保護ルートの再帰削除に至る恐れ。AutoPilot では確認が auto-Y なので本ガードが唯一の砦。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: kernel/common.ps1:3947 付近、[IO.Path]::GetFullPath が 拡張長/デバイス プレフィックスを保持→保護ルート一覧(3898-3916, 全て c:\\... 形)に不一致+3セグ以上で IsSafe=$true。PS5.1 で \\\\?\\C:\\Windows / \\\\fileserver\\c$\\Windows が IsSafe=True を実測との検証ノートあり。UNC 版は別指摘(C級)だが同根=同時修正可。修正方針: 評価前に device/拡張長プレフィックスと UNC を fail-closed、PathGuards.tests.ps1 にケース追加。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 追加調査(read-only・コード変更なし)。実測で突破を確定。\n\n【実測】Test-FabriqProtectedPath(common.ps1:3889)を実パスで検証。GetFullPath が代替表現を字句保持し、保護ルート一覧(全て c:\\... 形)と不一致+3セグ以上で IsSafe=True になる:\n  - \\\\?\\C:\\Windows      -> \\\\?\\c:\\windows          : IsSafe=True (突破)\n  - \\\\.\\C:\\Windows      -> \\\\.\\c:\\windows          : IsSafe=True (突破)\n  - \\\\localhost\\c$\\Windows -> \\\\localhost\\c$\\windows : IsSafe=True (突破, UNC管理共有)\n  - \\\\127.0.0.1\\c$\\Windows                          : IsSafe=True (突破)\n  - \\\\?\\UNC\\localhost\\c$\\Windows                    : IsSafe=True (突破)\n  - \\\\?\\C:\\Users\\Public                             : IsSafe=True (突破)\n  - C:\\Windows / C:\\Users                           : IsSafe=False (正しくブロック)\n  - C:\\PROGRA~1 -> c:\\program files                 : IsSafe=False (8.3は GetFullPath が展開し捕捉=安全)\n\n【根本】GetFullPath は字句正規化のみで device/拡張長(\\\\?\\, \\\\.\\)・UNC(\\\\host\\share, \\\\?\\UNC\\)プレフィクスを保持。forbidden 一覧はドライブレター形(c:\\...)のみなので一致せず、3セグ判定も通過して IsSafe=True。\n\n【callers(2件・両方 live)】\n  - file_delete.ps1:37 ガード -> 128 Remove-Item -Path $targetPath -Force -Recurse (元の突破パスを削除)\n  - history_destroyer.ps1:331 ガード -> 458 Remove-Item -Path $item.TargetPath -Force -Recurse\n  (ticket記載の profile_delete / driver_export はこの関数を未使用=記載不正確)\n\n【脅威】入力は delete_list.csv / history の TargetPath(オペレータ/CSV制御, %ENV%展開後)。AutoPilot は確認 auto-Y でガードが唯一の砦。\\\\?\\ や \\\\host\\c$ 形の誤入力/悪意CSVで C:\\Windows 等を -Force -Recurse 削除し得る。過去の Desktop 破壊事故(feedback_destructive_path_safety)と同クラス。重大度: 破滅的。UNC版はC級指摘だが同根=同時修正可。\n\n【修正案(§4ゲート対象・SECURITY)】fail-closed: 評価前に raw path をセパレータ正規化後、(a) \\\\?\\ / \\\\.\\ の device/拡張長プレフィクス、(b) \\\\ で始まる UNC(管理共有 c$ 含む)、(c) 正規化後がドライブレター形(^[a-z]:\\)でないもの、を IsSafe=False でブロック。キッティングの削除対象は常にローカル X:\\... なので実害なし(誤検出ゼロ)。kernel 単独修正(Test-FabriqProtectedPath)で2 caller を一掃。PathGuards.tests.ps1 に突破ベクタ回帰を追加。公開API署名/戻り値形は不変=PATCH + Security。8.3短縮名は GetFullPath が展開済で既に安全。junction/symlink は字句検証の対象外(既知の制限・本件スコープ外)。",
+      "status": "対応中",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T11:19:14+09:00"
     },
     {
       "id": "t-0042",
