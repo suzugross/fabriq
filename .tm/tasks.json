@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T09:01:54.550196+09:00",
+  "updatedAt": "2026-06-14T10:04:56+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -506,6 +506,15 @@
       "status": "未着手",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
       "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+    },
+    {
+      "id": "t-0057",
+      "title": "テレメトリーバグ",
+      "content": "FlexProfile実行だと、子プロセス？ランエスケープかなにかの副作用で、テレメトリーが採取できないバグがあるのでは？",
+      "claudeNote": "2026-06-14 調査(確認のみ・コード変更なし): FlexProfileでテレメトリ未採取の疑いを検証。結論=実体は非バグ(採取は正常)。\n- async runspaceはenvelopeを参照渡しで注入(common.ps1:1684-1687)+runspace内Set-Location $FabriqRoot(1714)でCWD整合し、子runspaceのShow-*も同一JSONLへ到達。実データ(_test_harness Flex run, session 074920)でenvelope.start→show.info→csv.load→show.success/error→envelope.endまで完全採取を確認(18モジュールファイル)。\n- 「採取できていない様に見えた」正体: resumeでSessionIDが原セッションに復元(main.ps1:1374)され、実モジュールテレメトリは原フォルダ<origSessionId>/modules/へ集約。resumeプロセス毎の新フォルダ(075039等)は_meta.json+resume.consumedのみのオーファン=仕様(セッション継続)。ユーザもこの集約に未認識だった。\n- 残存の潜在バグ(未発火・実害はテレメトリ整合性のみ・キッティング無害): 連番$global:_TelemetryModuleSeqはcommon.ps1:278でプロセス起動毎に0リセット。SessionIDは復元され同じmodules/へ書くため、resume跨ぎで{連番}_{ModuleName}.jsonlが一致するとAppendAllText(common.ps1:444)で2モジュールのイベントが1ファイルに追記マージ(混入)。captured 2 runは位置依存で偶然回避、衝突は未再現。\n- 修正案(保留中・未着手): 本命=_TelemetryModuleSeqをSave/Load-ResumeStateで持ち越し→キッティング全体で連番単調増加。堅牢化=ファイル名にOrderかFabriqSessionTimestamp(resumeレグ毎に異なる)を付与し構造的一意化。+回帰テスト。オーファンフォルダ抑制=resume.consumedをSessionID復元後に発火。\n- 確実性評価: 修正のメカニズム的有効性は高(~90%、テレメトリ限定で blast radius 小)。ただし「この衝突がユーザ観測の正体か」は未確認(衝突未再現)。緊急度低のため保留。再開時はまず極小プロファイルで衝突再現→実装の順。",
+      "status": "保留",
+      "createdAt": "2026-06-14T09:34:49.6130335+09:00",
+      "updatedAt": "2026-06-14T10:04:56+09:00"
     }
   ]
 }

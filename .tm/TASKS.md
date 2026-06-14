@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-14 03:02
+最終更新: 2026-06-14 09:37
 
-## 未着手 (4)
+## 未着手 (21)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -23,96 +23,6 @@
 
 <sub>更新: 2026-06-13 21:29 ／ 作成: 2026-06-13 21:29</sub>
 
-### [t-0038] wallpaper_config
-
-**内容:**
-
-# タスク: wallpaper_config モジュールの壁紙を「ローカルコピー＋既定プロファイル(NTUSER.DAT)反映」対応に改修
-
-## 背景・問題
-fabriq の標準モジュール `modules/standard/wallpaper_config` は、壁紙の絶対パスを
-そのままレジストリ（Control Panel\Desktop\WallPaper）と SystemParametersInfo に
-渡している（wallpaper_config.ps1:246 `Resolve-Path` → :249-269）。
-
-このため、FabriQ を USB メモリから実行し、モジュール内 `wallpaper/` フォルダの画像を
-指定すると、登録される参照先が USB 上の絶対パス（例: E:\...\wallpaper\foo.jpg）になる。
-結果として:
-- USB を抜く / 再起動でパス再評価された時に壁紙が黒・既定背景へ戻る
-- USB のドライブレターが変わると破綻
-- さらに、書き込み先がログオン中ユーザー or 管理者の HKCU のみ（Resolve-HkcuRoot,
-  kernel/common.ps1:3985）なので、キッティング後に作成される「新規ユーザー」には
-  一切反映されない
-
-これをキッティング用途で堅牢にしたい。
-
-## 改修要件
-
-### 要件1: 壁紙画像をローカル固定パスへコピーしてから参照する
-- モジュール内 `wallpaper/` フォルダ（相対パス指定）に置かれた画像を、適用前に
-  `C:\Windows\Web\Wallpaper\`（サブフォルダ例: `C:\Windows\Web\Wallpaper\fabriq\`）へコピーする。
-- レジストリ書き込み / SystemParametersInfo には「コピー後のローカル絶対パス」を使う。
-  USB パスは一切レジストリに残さないこと。
-- 冪等性: 既に同名・同内容がコピー済みならコピーをスキップ（ハッシュ等で判定可）。
-- コピー先ディレクトリが無ければ作成。書き込みには管理者権限が必要（本モジュールは既に前提）。
-- FileName が「USB 外の絶対パス」で指定されたケースの扱いは設計判断として明記し、
-  方針（そのまま使う / これもローカルコピーする）を決めて理由を述べること。
-- SolidColor タイプ（画像ではなく単色）はコピー対象外。従来どおりレジストリのみ。
-
-### 要件2: 新規ユーザーにも反映（既定プロファイル NTUSER.DAT への書き込み）
-- 既定プロファイル hive `C:\Users\Default\NTUSER.DAT` を `reg load` で一時マウントし、
-  以下を書き込んでから `reg unload` する。
-    キー       : \Control Panel\Desktop
-    値の名前   : WallPaper          （種類 REG_SZ）
-    値のデータ : 要件1でコピーしたローカルフルパス
-  加えてスタイル整合のため WallpaperStyle / TileWallpaper（既存 $styleMap 準拠）も
-  同キーに書くこと。SolidColor の場合は WallPaper を空に + \Control Panel\Colors\Background を
-  書く（既存の実ユーザー向けロジックと対称に）。
-- reg load/unload の注意（必ず対処）:
-    - 一意な一時マウントキー名を使う（例: HKU\fabriq_default）
-    - PowerShell が hive ハンドルを掴んだまま unload に失敗する典型バグを避ける
-      （書き込み後に変数解放 + [gc]::Collect(); [gc]::WaitForPendingFinalizers() してから unload）
-    - load 失敗 / unload 失敗を必ず失敗経路として扱い、unload は finally 等で確実に試行
-    - 既に同名キーがマウント済みの残骸ケースを考慮
-- 既存の「ログオン中ユーザー HKCU / 管理者 HKCU への即時 or ステージ反映」ロジックは
-  維持しつつ、本「既定プロファイル反映」を追加ターゲットとして組み込む（置き換えではない）。
-
-## 必ず守る fabriq の規約（CLAUDE.md 準拠）
-- これは制御フロー（状態・分岐）を増やすフル版変更。コード編集前に **設計ゲート（§4 フル版）** を提示し承認を得ること:
-    1. 概要（使用テンプレート/既存パターン）
-    2. ステートマシン図（Mermaid stateDiagram-v2、コピー分岐・load/unload 失敗・
-       新規ユーザー反映・冪等性スキップ・各失敗/スキップ経路を必ずノード化）
-    3. 敵対検証（unload 失敗時の hive リーク、コピー途中失敗、既定 hive 不在、
-       部分失敗時の整合性、再実行時の冪等性 等を自己攻撃して塞ぎ方を1行ずつ）
-    4. 変更スコープ宣言（§C: 対象/公開API影響/予想バージョン影響 等）
-- §A: 同コミットで CHANGELOG.md [Unreleased] に追記 + 該当モジュールの VERSION 昇格（§B 下段）。
-  新機能追加なので MINOR 想定だが自己判断で確定すること。Guide.txt も更新。
-- common.ps1 の既存関数を最優先で再利用（Show-*/New-ModuleResult/New-BatchResult/
-  Import-ModuleCsv/Confirm-ModuleExecution/Resolve-HkcuRoot など）。
-  既定 hive ロード用の既存ヘルパーが common.ps1 に無いか先に確認し、無ければモジュール内
-  ローカルヘルパーとして実装（既存モジュールの類似実装を参考）。新規 common.ps1 関数化は
-  影響範囲が大きいので原則避け、必要なら公開API影響として宣言・KERNEL_API.md/版同期まで行う。
-- 破壊的操作ガード（§8）: コピー先・unload 対象パスの検証ガードを必ず置く
-  （Join-Path が空に潰れていないか、想定ルート配下か）。
-- コードは英語のみ。日本語を含む .ps1/.csv が生じる場合は UTF-8 BOM 付き（CSV は BOM+CRLF）。
-- Post-Apply Verification（§6, Step5.5）の実装を推奨。コピー結果と各 hive の WallPaper 値を
-  読み返して期待一致を検証し、可能なら New-BatchResult -Verified で返す。
-  （現 Guide.txt は「未実装」と明記しているので、実装したら Guide も更新）
-
-## 検証要件（§5）
-- 検証は Windows PowerShell 5.1（powershell.exe -File）を正とする。成否は終了コードで判定。
-- 実施: `powershell.exe -File ./dev/run_tests.ps1`、`./dev/check_version.ps1`、
-  `./dev/check_ps1_encoding.ps1`。
-- 具体的なテスト手順を提示すること（例: USB 相当の別ドライブから実行 →
-  C:\Windows\Web\Wallpaper\ にコピーされる / レジストリ値がローカルパスになっている /
-  reg load→write→unload が残骸なく完了 / Default NTUSER.DAT に WallPaper が入る /
-  新規ユーザー作成後にログオンして反映される、までを確認）。
-
-## 注意
-- いきなりコードを書かない。まず設計ゲートを提示し承認を取ること。
-- 対象リポジトリ/ブランチ運用は本セッションの指示に従う。
-
-<sub>更新: 2026-06-14 02:45 ／ 作成: 2026-06-14 02:08</sub>
-
 ### [t-0039] FlexProfileの__RESTART__単発実行バグ
 
 **内容:**
@@ -120,6 +30,248 @@ fabriq の標準モジュール `modules/standard/wallpaper_config` は、壁紙
 __RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。
 
 <sub>更新: 2026-06-14 03:02 ／ 作成: 2026-06-14 03:01</sub>
+
+### [t-0040] 緊急バグ
+
+**内容:**
+
+Profile実行時（LINERでもFlexでも）初回レジューム時（__RESTART__明け）にFabriqが自動で立ち上がらなくなった。
+Autologonの設定をしてもしてなくても挙動は変わらず。
+手動で立ち上げると、そのまま続きから動き出し、次回レジューム時も問題なく自動起動する。
+
+<sub>更新: 2026-06-14 06:39 ／ 作成: 2026-06-14 06:36</sub>
+
+### [t-0041] [監査A・疑い] Test-FabriqProtectedPath が \\?\ 拡張長/UNC 管理共有で突破され保護ルートを再帰削除し得る
+
+**内容:**
+
+パス保護ガード Test-FabriqProtectedPath が、(1) Win32 拡張長プレフィックス付きパス（例 \\?\C:\Windows）と (2) UNC 管理共有（例 \\host\c$\Windows）をブロックできない疑い。file_delete / profile_delete / history_destroyer / driver_export がこのガード通過後に Remove-Item -Recurse を実行するため、保護ルートの再帰削除に至る恐れ。AutoPilot では確認が auto-Y なので本ガードが唯一の砦。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: kernel/common.ps1:3947 付近、[IO.Path]::GetFullPath が 拡張長/デバイス プレフィックスを保持→保護ルート一覧(3898-3916, 全て c:\... 形)に不一致+3セグ以上で IsSafe=$true。PS5.1 で \\?\C:\Windows / \\fileserver\c$\Windows が IsSafe=True を実測との検証ノートあり。UNC 版は別指摘(C級)だが同根=同時修正可。修正方針: 評価前に device/拡張長プレフィックスと UNC を fail-closed、PathGuards.tests.ps1 にケース追加。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0042] [監査A・疑い] Deploy.bat の robocopy /MIR が再デプロイで運用データ/エビデンスを purge
+
+**内容:**
+
+Deploy.bat:132 が robocopy ... /MIR で展開。/MIR は宛先にあってソースに無いファイルを削除するため、既デプロイ済みターゲット（既定 C:\Windows\work\fabriq）への再実行で hostlist.csv / workers.csv / 各 _list.csv / profiles/、および evidence/・logs/・resume_state.json を消去する疑い。124行『Destination exists. Updating files...』は無警告。patch ビルダの保全規約に反する。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が Deploy.bat を手動実読し /MIR と無警告分岐(124-132)を確認。初回デプロイ(空宛先)は無害、危険は『運用済みターゲットへの再デプロイ』。修正方針: /MIR→/E(削除しない)、または /XD evidence logs profiles + サイト CSV を /XF、宛先が空のときのみ /MIR 許可。要: 実運用のデプロイ手順(USB が真のソースか、PC 側で CSV 編集するか)の確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0043] [監査A・疑い] fabriq_ios の set コマンド入力秘密が共有 PSReadLine 履歴に平文残留
+
+**内容:**
+
+fabriq_ios は PSConsoleReadLine::ReadLine で入力を受けるが Initialize-FabriqIos は -PredictionSource None のみ設定し HistorySaveStyle 不問。PSReadLine 既定 SaveIncrementally により共有 ConsoleHost_history.txt に履歴保存され、set Password / set Pin 等で入力した秘密(autologon/bitlocker/builtin_admin/domain_join/local_user/ssid/robocopy/cert の秘密列)が平文残留する疑い。後続の通常 PowerShell から Up矢印/Get-Content で露出。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が apps/fabriq_ios/fabriq_ios.ps1:99-121/159 を手動実読し HistorySaveStyle 未設定を確認。enable パスフレーズは Read-Host -AsSecureString のため安全。修正方針: Initialize-FabriqIos に Set-PSReadLineOption -HistorySaveStyle SaveNothing(subprocess-scoped)を追加、または set/add 行を AddToHistoryHandler で除外。要: 実機で履歴ファイルへの残留再現確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0044] [監査B・疑い] 全行Disabled/セグメント不一致のCSVが Skipped でなく偽 Error(7モジュール・出荷状態で発火)
+
+**内容:**
+
+Import-ModuleCsv -FilterEnabled は『全行Enabled=0』『有効だがセグメント不一致』で空配列を返すが、PS5.1 は return @() を呼出側で $null に潰すため、各モジュールの『if ($null -eq $items){Error}』が発火し『Count -eq 0 の Skipped』分岐が到達不能死コードになる疑い。該当: file_delete / copyfile_config / default_app_config / dpi_api_config / driver_export_config / driver_import_config / fabriq_app_launcher。出荷 delete_list.csv は全行 Enabled=0 のため file_delete は既定で偽 Error を返す可能性。AutoPilot/Flex の ErrorMode が実失敗として扱う。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(敵対検証済=workflow、実カーネルで再現確認との検証ノートあり)。根拠: kernel/common.ps1:1058/1078 が空配列返却。credential_config:113-131 と domain_join は本罠を回避済(=直し方は確立)。波及はさらに広い可能性(wallpaper/brightness/restore_point/ssid/cert/robocopy 等が同型)。修正方針(最高レバレッジ): Import-ModuleCsv 側で空配列と null(真のロード失敗)を区別、または各モジュールを credential_config 方式(空配列で受けて Where-Object Enabled で判定)に統一。要: 全モジュールの該当パターン棚卸し。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0045] [監査B・疑い] __RESTART__ の RunOnce 登録失敗時、再起動せず後続モジュールを実行(fail-open)
+
+**内容:**
+
+kernel/main.ps1:441 付近、__RESTART__ マーカー処理で Register-FabriqRunOnce が $false を返すと Remove-ResumeState 後 continue し、foreach が次要素＝『再起動後に走る予定のモジュール群』を同一未再起動セッションで実行してしまう疑い。hostname/domain 変更後に依存モジュールが旧システム状態で動き、誤設定/失敗を招く。fail-closed であるべき箇所が barrel-on になっている。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(敵対検証済=workflow)。根拠: Invoke-BatchExecution の RESTART ハンドラ(410-458)が foreach 内、Register-FabriqRunOnce は Fabriq.exe 欠如/HKLM RunOnce 例外で実際に $false を返す(common.ps1:4350-4376)。修正方針: 登録失敗時は Error 記録+Show-Error 後 return/break でバッチ停止。resume_state は既に除去済なので修正後に再実行可能。要: 実機で RunOnce 失敗を模した挙動確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0046] [監査B・疑い] Resolve-ProfileModules の Order 直キャストが非数値 Order でプロファイル起動を落とす
+
+**内容:**
+
+kernel/common.ps1:3686(及び 3640/3670)の [int]$entry.Order 直キャストが、手編集プロファイルCSVの非数値 Order(例 abc、空白由来)で終端例外を送出する疑い。main.ps1:753/1609/1840 と flex_dashboard.ps1:38 は未 try/catch で呼ぶため、KERNEL_API が約束する graceful degradation でなくプロファイル起動/ダッシュボード構築が落ちる。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(敵対検証済=workflow)。検証ノート補足: Sort-Object の [int] 行は Continue 設定下で非終端、真の送出点は per-row 直キャスト(3640/3670/3686)、空文字/$null は 0 に化けて送出せず(非数値のみ送出)。Initialize-ModuleSystem:4308 は数字正規表現ガード済=不整合。修正方針: TryParse 化(script_looper:58 が手本)、Resolve-ProfileModules.tests.ps1 に非数値Orderケース追加。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0047] [監査B・疑い] Import-ExecutionHistory が一時ロックを破損と誤認し稼働中履歴を起動時バックアップで上書き(全行喪失)
+
+**内容:**
+
+kernel/common.ps1:2204 付近、読込3リトライ後の catch が例外種別を問わず Copy-Item で稼働中の execution_history.csv をバックアップで上書きする疑い。Import-Csv は破損に寛容で現実の例外源は共有違反(別 fabriq インスタンス/Excel で開く/AV)。.bak は起動時1回だけ取得＝陳腐のため、当該セッションの全履歴行が失われ、HTML 納品物・resume にも波及。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(敵対検証済=workflow)。検証ノート: 同一プロセス内トリガは否定(履歴書込/読込は main スレッド直列、in-proc ツールバーは in-memory)。真のトリガは外部=2nd インスタンス/Excel 排他/AV ハンドル(3x100ms を超えるロック)。修正方針: ロック(IOException)と真の破損を区別し、ロック時は live を残し空配列か直前 in-memory を返す。復元を残すなら先に live を退避。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0048] [監査B・疑い] odt_install が確認・冪等判定より前に破壊操作(Office強制終了/Store Office削除)を実行
+
+**内容:**
+
+modules/standard/odt_config/odt_install.ps1 の Step3.5(135-179)が Stop-Process -Force(Office群)/Remove-AppxPackage/Remove-AppxProvisionedPackage/Set-Service msiserver を、確認 Confirm-ModuleExecution(257)および『既インストール→Skip』冪等判定(201-247)よりも前に無条件実行する疑い。対話実行で N 回答しても破壊済(キャンセルが no-op でない)、かつ再実行のたびに Office を kill＝冪等性違反。標準テンプレは副作用を確認後の Step5 に置く規約。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が odt_install.ps1:128-258 を手動実読し、破壊ブロックが確認・冪等 return より前にあることを確認。修正方針: Step3.5 の (a)(b)(c)(d) を確認ゲート後(Step5 直前)へ移動、確認前は非破壊プローブ(ディスク空き/OSPP検出)のみ。要: 実機で N 回答時に副作用が起きないことの確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0049] [監査B・疑い] robocopy_config の /MIR が『存在するが空のソース』で宛先を全削除
+
+**内容:**
+
+modules/standard/robocopy_config/robocopy_config.ps1:131 の事前検査は Test-Path $Source(存在)のみで、空ソース判定も宛先の Test-FabriqProtectedPath も無い疑い。Mirror=1 で /MIR(213-214)時、再作成された空共有/クリア済み/誤解決ディレクトリが Source だと宛先内容を全消去。AutoPilot では per-job 確認が auto-Y のため operator は気付けない。CLAUDE.md §8 が要求する破壊前ガードが欠落。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が robocopy_config.ps1:125-219 を手動実読。修正方針: Mirror=1 時は (a) 空ソース(Get-ChildItem -Force 0件)を明示フラグ無しなら Fail、(b) 解決後 Destination に Test-FabriqProtectedPath。要: 実機で空ソース→宛先保全の確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0050] [監査B・疑い] evidence_config Section 29 が null の DIMM PartNumber/SerialNumber で .Trim() 例外→セクション失陥
+
+**内容:**
+
+modules/standard/evidence_config/evidence_config.ps1:2439-2440 の ($m.PartNumber).Trim() / ($m.SerialNumber).Trim() が null 無防備の疑い。Win32_PhysicalMemory の PartNumber/SerialNumber は VM・オンボード(LPDDR)RAM・一部 OEM SMBIOS で頻繁に null で、$null.Trim() が送出→外側 catch で Section 29 Failed→Close-Section が files=[] を強制し、生成済みで有効な 29_MemorySlots.csv まで manifest から脱落。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が evidence_config.ps1:2428-2487 を手動実読し null 無防備を確認(同所 2429 は防御的 if、2476 は Partial 使用＝著者は型を承知)。修正方針: 文字列キャスト($null→空)で Trim、Section 10/22/33 と同パターン。要: null PartNumber を持つ実機/VM での確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0051] [監査B・疑い] ssid_config の live -match に日本語リテラル+BOM無し→JP Windows で WLAN 検出破綻+英語オンリー規約違反
+
+**内容:**
+
+modules/standard/ssid_config/ssid_config.ps1:47 が実行コードで日本語『プロファイル』を含む -match 行。ファイルは BOM 無し(先頭 23 20 3d)で、JP CP932 環境の PS5.1 が CP932 として読むと UTF-8 の『プロファイル』が mojibake し、netsh の日本語出力に一致せず WLAN 有でも『利用不可』と誤判定→Error を返す疑い。加えて CLAUDE.md §7 英語オンリーコード規約の違反。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査。検証: Claude が ssid_config.ps1:47 と先頭3バイト(BOM無し)を手動確認。修正方針: 日本語リテラル除去し locale 非依存判定(英語語+exit/empty 判定、または Get-NetAdapter/netsh wlan show interfaces)へ。非ASCIIが残るなら UTF-8 BOM 付与。要: JP 実機で WLAN 検出の再現/修正確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0052] [監査B・疑い] Reset-FabriqState が FabriqMasterPassphrase を消さず、NewSession キャンセルで前顧客のパスフレーズが残存
+
+**内容:**
+
+kernel/common.ps1:3228-3327 の Reset-FabriqState が $global:FabriqMasterPassphrase をクリアしない疑い。main.ps1 の NewSession ハンドラ(1907/1931 付近)でセッション切替がキャンセルされた場合等に、前の顧客のマスターパスフレーズがプロセス内に残存し得る(セキュリティ)。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(workflow検出、当初 tracked 誤分類だが実際は新規)。修正方針: Reset-FabriqState に $global:FabriqMasterPassphrase の明示クリアを追加。要: NewSession キャンセル経路の状態残存を実機/コードで追確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0053] [監査B・疑い] bloatware_remove の standard 経路が生 UninstallString を -Wait タイムアウト無しで起動→AutoPilot ハング
+
+**内容:**
+
+modules/standard/bloatware_remove/bloatware_remove.ps1:316-323(Step5 uninstall ループの standard 分岐)が、レジストリの UninstallString を -Wait で絶対上限無く起動する疑い。サイレント不可なアンインストーラや GUI プロンプトに当たると AutoPilot 無人実行が無限待ちになる恐れ。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(workflow検出、tracked 誤分類だが実際は新規)。修正方針: 既定タイムアウト導入(generic_process_runner の TimeoutSec=0 既定上限と整合)、または対象を MSI/AppX 経路に限定。要: 実フリートで該当 UninstallString の挙動観測。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0054] [監査C・疑い] Wait-NetworkReady が AutoPilot ショートサーキット無しの while(true)(public API のハング罠)
+
+**内容:**
+
+kernel/common.ps1:1168-1185 の Wait-NetworkReady が絶対上限/AutoPilot 早期 return 無しの while(true) の疑い。ネットワーク未準備の環境で無人実行が無限待ちになり得る公開 API のハング罠。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(workflow検出、tracked 誤分類)。Confirm-Execution/Wait-KeyPress は AutoPilot 早期 return を持つ＝不整合。修正方針: 絶対上限+AutoPilot 短絡。要: 呼出元と実運用での発火条件確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0055] [監査C・疑い] AutoPilot で Error/Partial かつ ErrorMode 未指定時にタイムアウト無しブロッキング MessageBox
+
+**内容:**
+
+kernel/main.ps1:577-587 付近、AutoPilot 実行中にモジュールが Error/Partial を返し ErrorMode 未指定の場合、Show-AutoPilotErrorDialog(common.ps1:189-215)がタイムアウト無しの MessageBox を開き、無人実行がそこで停止する疑い。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査(workflow検出、tracked 誤分類)。関連: AutoPilot skip/timeout 機能は 2026-04-22 に Runspace refactor リスクで却下済(project_autopilot_skip_rejected)＝設計判断が絡む。修正方針(要議論): 既定 ErrorMode かタイムアウト付きダイアログ。要: 設計方針の確認。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0056] [監査・未検証/疑い] モジュール内の生 Read-Host が AutoPilot ガード無しで無人実行をハングさせるクラス
+
+**内容:**
+
+複数モジュールが $global:AutoPilotMode ガード無しの生 Read-Host を持ち、AutoPilot/auto-resume の無人実行をハングさせる疑い(systemic)。候補: display_config:106 / dpi_config:426,461 / windows_license_install:99 / printer_driver_uninstall:73 / power_config:270。display/dpi は出荷CSV先頭が HardwareID=AUTO のためマルチモニタ機で発火し得るとの指摘。単一方針(モジュール内 Read-Host を一律 AutoPilot ガード=skip/fail-closed)で一掃できる可能性。
+
+※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。
+
+**Claudeメモ:**
+
+出所: 2026-06-14 監査だが【敵対検証はセッション上限で未実施=finder 自己申告のみ、実在性の保証は検証済の他項目より低い】。較正: 同類の autologon Read-Host は出荷CSVが1行有効のため検証で nit 降格した前例あり=各モジュールの出荷既定で実際に分岐到達するかの確認が必須。printer_driver_uninstall は Read-Host 空→TryParse 失敗で Error になり得る(ハングでなく)。要: 各候補の到達条件を実機/コードで個別確認の上、systemic ガード設計(§4 ゲート)を検討。
+
+<sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0057] テレメトリーバグ
+
+**内容:**
+
+FlexProfile実行だと、子プロセス？ランエスケープかなにかの副作用で、テレメトリーが採取できないバグがあるのでは？
+
+<sub>更新: 2026-06-14 09:37 ／ 作成: 2026-06-14 09:34</sub>
 
 ## レビュー待ち (4)
 
@@ -228,7 +380,7 @@ KERNEL_API.md: 更新不要で確定 — Save-/Load-ResumeState/Write-ExecutionH
 
 <sub>更新: 2026-06-13 12:30 ／ 作成: 2026-06-12 22:00</sub>
 
-## 完了 (30)
+## 完了 (31)
 
 ### [t-0001] example設定値の統一
 
@@ -842,6 +994,118 @@ moduleでのEnableの扱いですが、暗黙的に1とし、setコマンドで�
 状態: 実装完了。実機(module <name> -> show / set <Tab> に Enabled が出ないこと)確認待ちでレビュー待ち。
 
 <sub>更新: 2026-06-13 17:52 ／ 作成: 2026-06-13 17:35</sub>
+
+### [t-0038] wallpaper_config
+
+**内容:**
+
+# タスク: wallpaper_config モジュールの壁紙を「ローカルコピー＋既定プロファイル(NTUSER.DAT)反映」対応に改修
+
+## 背景・問題
+fabriq の標準モジュール `modules/standard/wallpaper_config` は、壁紙の絶対パスを
+そのままレジストリ（Control Panel\Desktop\WallPaper）と SystemParametersInfo に
+渡している（wallpaper_config.ps1:246 `Resolve-Path` → :249-269）。
+
+このため、FabriQ を USB メモリから実行し、モジュール内 `wallpaper/` フォルダの画像を
+指定すると、登録される参照先が USB 上の絶対パス（例: E:\...\wallpaper\foo.jpg）になる。
+結果として:
+- USB を抜く / 再起動でパス再評価された時に壁紙が黒・既定背景へ戻る
+- USB のドライブレターが変わると破綻
+- さらに、書き込み先がログオン中ユーザー or 管理者の HKCU のみ（Resolve-HkcuRoot,
+  kernel/common.ps1:3985）なので、キッティング後に作成される「新規ユーザー」には
+  一切反映されない
+
+これをキッティング用途で堅牢にしたい。
+
+## 改修要件
+
+### 要件1: 壁紙画像をローカル固定パスへコピーしてから参照する
+- モジュール内 `wallpaper/` フォルダ（相対パス指定）に置かれた画像を、適用前に
+  `C:\Windows\Web\Wallpaper\`（サブフォルダ例: `C:\Windows\Web\Wallpaper\fabriq\`）へコピーする。
+- レジストリ書き込み / SystemParametersInfo には「コピー後のローカル絶対パス」を使う。
+  USB パスは一切レジストリに残さないこと。
+- 冪等性: 既に同名・同内容がコピー済みならコピーをスキップ（ハッシュ等で判定可）。
+- コピー先ディレクトリが無ければ作成。書き込みには管理者権限が必要（本モジュールは既に前提）。
+- FileName が「USB 外の絶対パス」で指定されたケースの扱いは設計判断として明記し、
+  方針（そのまま使う / これもローカルコピーする）を決めて理由を述べること。
+- SolidColor タイプ（画像ではなく単色）はコピー対象外。従来どおりレジストリのみ。
+
+### 要件2: 新規ユーザーにも反映（既定プロファイル NTUSER.DAT への書き込み）
+- 既定プロファイル hive `C:\Users\Default\NTUSER.DAT` を `reg load` で一時マウントし、
+  以下を書き込んでから `reg unload` する。
+    キー       : \Control Panel\Desktop
+    値の名前   : WallPaper          （種類 REG_SZ）
+    値のデータ : 要件1でコピーしたローカルフルパス
+  加えてスタイル整合のため WallpaperStyle / TileWallpaper（既存 $styleMap 準拠）も
+  同キーに書くこと。SolidColor の場合は WallPaper を空に + \Control Panel\Colors\Background を
+  書く（既存の実ユーザー向けロジックと対称に）。
+- reg load/unload の注意（必ず対処）:
+    - 一意な一時マウントキー名を使う（例: HKU\fabriq_default）
+    - PowerShell が hive ハンドルを掴んだまま unload に失敗する典型バグを避ける
+      （書き込み後に変数解放 + [gc]::Collect(); [gc]::WaitForPendingFinalizers() してから unload）
+    - load 失敗 / unload 失敗を必ず失敗経路として扱い、unload は finally 等で確実に試行
+    - 既に同名キーがマウント済みの残骸ケースを考慮
+- 既存の「ログオン中ユーザー HKCU / 管理者 HKCU への即時 or ステージ反映」ロジックは
+  維持しつつ、本「既定プロファイル反映」を追加ターゲットとして組み込む（置き換えではない）。
+
+## 必ず守る fabriq の規約（CLAUDE.md 準拠）
+- これは制御フロー（状態・分岐）を増やすフル版変更。コード編集前に **設計ゲート（§4 フル版）** を提示し承認を得ること:
+    1. 概要（使用テンプレート/既存パターン）
+    2. ステートマシン図（Mermaid stateDiagram-v2、コピー分岐・load/unload 失敗・
+       新規ユーザー反映・冪等性スキップ・各失敗/スキップ経路を必ずノード化）
+    3. 敵対検証（unload 失敗時の hive リーク、コピー途中失敗、既定 hive 不在、
+       部分失敗時の整合性、再実行時の冪等性 等を自己攻撃して塞ぎ方を1行ずつ）
+    4. 変更スコープ宣言（§C: 対象/公開API影響/予想バージョン影響 等）
+- §A: 同コミットで CHANGELOG.md [Unreleased] に追記 + 該当モジュールの VERSION 昇格（§B 下段）。
+  新機能追加なので MINOR 想定だが自己判断で確定すること。Guide.txt も更新。
+- common.ps1 の既存関数を最優先で再利用（Show-*/New-ModuleResult/New-BatchResult/
+  Import-ModuleCsv/Confirm-ModuleExecution/Resolve-HkcuRoot など）。
+  既定 hive ロード用の既存ヘルパーが common.ps1 に無いか先に確認し、無ければモジュール内
+  ローカルヘルパーとして実装（既存モジュールの類似実装を参考）。新規 common.ps1 関数化は
+  影響範囲が大きいので原則避け、必要なら公開API影響として宣言・KERNEL_API.md/版同期まで行う。
+- 破壊的操作ガード（§8）: コピー先・unload 対象パスの検証ガードを必ず置く
+  （Join-Path が空に潰れていないか、想定ルート配下か）。
+- コードは英語のみ。日本語を含む .ps1/.csv が生じる場合は UTF-8 BOM 付き（CSV は BOM+CRLF）。
+- Post-Apply Verification（§6, Step5.5）の実装を推奨。コピー結果と各 hive の WallPaper 値を
+  読み返して期待一致を検証し、可能なら New-BatchResult -Verified で返す。
+  （現 Guide.txt は「未実装」と明記しているので、実装したら Guide も更新）
+
+## 検証要件（§5）
+- 検証は Windows PowerShell 5.1（powershell.exe -File）を正とする。成否は終了コードで判定。
+- 実施: `powershell.exe -File ./dev/run_tests.ps1`、`./dev/check_version.ps1`、
+  `./dev/check_ps1_encoding.ps1`。
+- 具体的なテスト手順を提示すること（例: USB 相当の別ドライブから実行 →
+  C:\Windows\Web\Wallpaper\ にコピーされる / レジストリ値がローカルパスになっている /
+  reg load→write→unload が残骸なく完了 / Default NTUSER.DAT に WallPaper が入る /
+  新規ユーザー作成後にログオンして反映される、までを確認）。
+
+## 注意
+- いきなりコードを書かない。まず設計ゲートを提示し承認を取ること。
+- 対象リポジトリ/ブランチ運用は本セッションの指示に従う。
+
+**Claudeメモ:**
+
+実装済み (modules/standard/wallpaper_config 1.1.0 -> 1.2.0, REQUIRES_KERNEL 2.0.0 -> 3.5.0)。緊急ティケット。実機検証で新規ユーザー反映の問題を2段階で解消した。
+
+要件1(ローカル正規化コピー): Type=Image を相対/絶対問わず C:\Windows\Web\Wallpaper\fabriq へ正規化コピーし、レジストリ/SPI/Active Setup にはローカルパスのみ書込(USB抜き/再起動/ドライブレター変更に耐性)。SHA256一致でskip(冪等)、source==dest自己コピーガード。§8: Test-FabriqSafePathComponent + GetFullPath/StartsWith。
+
+要件2(新規ユーザー反映)= Active Setup 方式:
+実機で「既定 hive に WallPaper を書いてもテーマエンジンが初回ログオンで上書きする」ことが判明(壁紙は単一値でなく TranscodedWallpaper 実体ファイル等の整合一式で決まる。CopyProfile が効くのは完全な適用済み状態を運ぶから)。-> 既定 hive への壁紙書込を廃止し Active Setup(初回ログオン1回/ユーザー)へ置換。Register-FabriqActiveSetup で C:\ProgramData\fabriq\wallpaper_default_apply.ps1 を配備+HKLM登録し、初回ログオン時に SystemParametersInfo でローカルパスをライブ適用(テーマ後に走り確実表示・変更可能)。複数Imageは最終適用状態を採用。生成スクリプトは値bake、シングルクォートは '' エスケープ(単体生成して構文parse検証済み)。user 判断: A(ポリシー強制/ロック)でなく B(Active Setup/変更可能)。
+
+追加(user 指示): Desktop Spotlight(背景自動切替)が静的壁紙より優先される場合があるため、壁紙適用前に DesktopSpotlight\Settings\EnabledState=0(REG_DWORD) を無効化。現在ユーザー HKCU と既定プロファイル hive(reg load/unload)の両方へ書込。EnabledState はテーマ管理外の通常設定のため既定 hive 書込が新規ユーザーに継承される(壁紙パスと違い上書きされない)。user の検証フロー(reg_hkcu_config で同レジストリ書込->壁紙反映)と一致。
+
+自己レビューで実バグを発見・修正: redirected(SYSTEM/別ユーザー起動)時、Spotlight の hive unload で Remove-PSDrive HKU すると後続の壁紙ループが使う HKU:\<SID> が消えて書込失敗 -> unload 後に HKU PSDrive を再生成して塞いだ。
+
+Post-Apply Verification(§6): Spotlight EnabledState + コピー先存在 + 現ユーザー WallPaper 値 + Active Setup(HKLMキー+配備スクリプト)を検証 -> -Verified。Spotlight/Active Setup 登録失敗は degrade(Verified=FAIL+メッセージ)、hive unload 失敗は ntuser.dat ロック残りで Fail+1。
+
+敵対的セルフレビュー(計17指摘): 1回目(hive壁紙方式)採用5/棄却8(LASTEXITCODE誤指摘は実機反証)、2回目(Active Setup方式)4指摘全棄却(文書化済み/標準挙動/parse済み/ログオン安全側)。+今回の自己レビューで HKU PSDrive バグを追加修正。
+
+触ったファイル: modules/standard/wallpaper_config/{wallpaper_config.ps1, VERSION(1.2.0), REQUIRES_KERNEL(3.5.0), Guide.txt}, CHANGELOG.md。
+検証: 構文parse OK / 生成スクリプトparse OK / check_version exit0 / run_tests 320 pass exit0 / encoding wallpaper clean。実 SPI/copy/Spotlight/Active Setup 初回ログオン適用は実機確認待ち(壁紙本体は user 実機で反映確認済み、Spotlight 併用で新規ユーザー反映を確認済み)。
+REQUIRES_KERNEL=3.5.0(Test-FabriqSafePathComponent §1.6 since 3.5.0)。Register-FabriqActiveSetup は内部関数(§6)で §G bump 対象外。kernel公開APIサーフェス不変。
+状態: 実装完了でレビュー待ち。残: 最終形の実機再確認(別ドライブ実行->ローカルコピー / Spotlight 無効化 / Active Setup 登録 / 新規ユーザー初回ログオンで壁紙反映 / hive残骸なし)。
+
+<sub>更新: 2026-06-14 06:11 ／ 作成: 2026-06-14 02:08</sub>
 
 ## 保留 (1)
 
