@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-14 09:37
+最終更新: 2026-06-14 10:14
 
-## 未着手 (21)
+## 未着手 (18)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -22,24 +22,6 @@
 過去のGit履歴を参照し、ステータスモニタの実行履歴チェックを復活させてほしい。
 
 <sub>更新: 2026-06-13 21:29 ／ 作成: 2026-06-13 21:29</sub>
-
-### [t-0039] FlexProfileの__RESTART__単発実行バグ
-
-**内容:**
-
-__RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。
-
-<sub>更新: 2026-06-14 03:02 ／ 作成: 2026-06-14 03:01</sub>
-
-### [t-0040] 緊急バグ
-
-**内容:**
-
-Profile実行時（LINERでもFlexでも）初回レジューム時（__RESTART__明け）にFabriqが自動で立ち上がらなくなった。
-Autologonの設定をしてもしてなくても挙動は変わらず。
-手動で立ち上げると、そのまま続きから動き出し、次回レジューム時も問題なく自動起動する。
-
-<sub>更新: 2026-06-14 06:39 ／ 作成: 2026-06-14 06:36</sub>
 
 ### [t-0041] [監査A・疑い] Test-FabriqProtectedPath が \\?\ 拡張長/UNC 管理共有で突破され保護ルートを再帰削除し得る
 
@@ -264,14 +246,6 @@ kernel/main.ps1:577-587 付近、AutoPilot 実行中にモジュールが Error/
 出所: 2026-06-14 監査だが【敵対検証はセッション上限で未実施=finder 自己申告のみ、実在性の保証は検証済の他項目より低い】。較正: 同類の autologon Read-Host は出荷CSVが1行有効のため検証で nit 降格した前例あり=各モジュールの出荷既定で実際に分岐到達するかの確認が必須。printer_driver_uninstall は Read-Host 空→TryParse 失敗で Error になり得る(ハングでなく)。要: 各候補の到達条件を実機/コードで個別確認の上、systemic ガード設計(§4 ゲート)を検討。
 
 <sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
-
-### [t-0057] テレメトリーバグ
-
-**内容:**
-
-FlexProfile実行だと、子プロセス？ランエスケープかなにかの副作用で、テレメトリーが採取できないバグがあるのでは？
-
-<sub>更新: 2026-06-14 09:37 ／ 作成: 2026-06-14 09:34</sub>
 
 ## レビュー待ち (4)
 
@@ -1107,7 +1081,7 @@ REQUIRES_KERNEL=3.5.0(Test-FabriqSafePathComponent §1.6 since 3.5.0)。Register
 
 <sub>更新: 2026-06-14 06:11 ／ 作成: 2026-06-14 02:08</sub>
 
-## 保留 (1)
+## 保留 (4)
 
 ### [t-0025] [LOW] 版表記ドリフト: 起動バナー ver2.1 / Fabriq.exe AssemblyVersion 2.1.0.0
 
@@ -1123,4 +1097,39 @@ REQUIRES_KERNEL=3.5.0(Test-FabriqSafePathComponent §1.6 since 3.5.0)。Register
 関連更新(2026-06-12): ノート記載の「CLAUDE.md §I リストへのバナー/HTML フッター追記の検討」を実施完了(§I を 4→6 箇所化+『正は check_version.ps1 の Targets』を明文化)。あわせてチェッカー圏外の doc 例示 2 件(EVIDENCE_MANIFEST.md 2.2.2/1.3.0→3.5.0/1.7.1+例示注記、TELEMETRY_INTERNAL.md 3.2.3→3.5.0+注記)も更新。残件は Launcher.cs AssemblyVersion 2.1.0.0 のみで不変 — build.ps1 で即時再ビルド可能と確認済みだが、新バイナリ配布と Defender/SmartScreen 評判リセットの運用判断によりユーザー指示で保留継続(2026-06-12)。
 
 <sub>更新: 2026-06-12 21:00 ／ 作成: 2026-06-10 19:10</sub>
+
+### [t-0039] FlexProfileの__RESTART__単発実行バグ
+
+**内容:**
+
+__RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。
+
+<sub>更新: 2026-06-14 10:13 ／ 作成: 2026-06-14 03:01</sub>
+
+### [t-0040] 緊急バグ
+
+**内容:**
+
+Profile実行時（LINERでもFlexでも）初回レジューム時（__RESTART__明け）にFabriqが自動で立ち上がらなくなった。
+Autologonの設定をしてもしてなくても挙動は変わらず。
+手動で立ち上げると、そのまま続きから動き出し、次回レジューム時も問題なく自動起動する。
+
+<sub>更新: 2026-06-14 10:14 ／ 作成: 2026-06-14 06:36</sub>
+
+### [t-0057] テレメトリーバグ
+
+**内容:**
+
+FlexProfile実行だと、子プロセス？ランエスケープかなにかの副作用で、テレメトリーが採取できないバグがあるのでは？
+
+**Claudeメモ:**
+
+2026-06-14 調査(確認のみ・コード変更なし): FlexProfileでテレメトリ未採取の疑いを検証。結論=実体は非バグ(採取は正常)。
+- async runspaceはenvelopeを参照渡しで注入(common.ps1:1684-1687)+runspace内Set-Location $FabriqRoot(1714)でCWD整合し、子runspaceのShow-*も同一JSONLへ到達。実データ(_test_harness Flex run, session 074920)でenvelope.start→show.info→csv.load→show.success/error→envelope.endまで完全採取を確認(18モジュールファイル)。
+- 「採取できていない様に見えた」正体: resumeでSessionIDが原セッションに復元(main.ps1:1374)され、実モジュールテレメトリは原フォルダ<origSessionId>/modules/へ集約。resumeプロセス毎の新フォルダ(075039等)は_meta.json+resume.consumedのみのオーファン=仕様(セッション継続)。ユーザもこの集約に未認識だった。
+- 残存の潜在バグ(未発火・実害はテレメトリ整合性のみ・キッティング無害): 連番$global:_TelemetryModuleSeqはcommon.ps1:278でプロセス起動毎に0リセット。SessionIDは復元され同じmodules/へ書くため、resume跨ぎで{連番}_{ModuleName}.jsonlが一致するとAppendAllText(common.ps1:444)で2モジュールのイベントが1ファイルに追記マージ(混入)。captured 2 runは位置依存で偶然回避、衝突は未再現。
+- 修正案(保留中・未着手): 本命=_TelemetryModuleSeqをSave/Load-ResumeStateで持ち越し→キッティング全体で連番単調増加。堅牢化=ファイル名にOrderかFabriqSessionTimestamp(resumeレグ毎に異なる)を付与し構造的一意化。+回帰テスト。オーファンフォルダ抑制=resume.consumedをSessionID復元後に発火。
+- 確実性評価: 修正のメカニズム的有効性は高(~90%、テレメトリ限定で blast radius 小)。ただし「この衝突がユーザ観測の正体か」は未確認(衝突未再現)。緊急度低のため保留。再開時はまず極小プロファイルで衝突再現→実装の順。
+
+<sub>更新: 2026-06-14 10:04 ／ 作成: 2026-06-14 09:34</sub>
 
