@@ -47,6 +47,12 @@ $configItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
 if ($null -eq $configItems) {
     return (New-ModuleResult -Status "Error" -Message "Failed to load office_update_list.csv")
 }
+# All rows disabled (or no Segment match) loads as an empty array (Count 0),
+# distinct from the $null load failure above. Treat as Skip so an all-disabled
+# config does not silently run the update with default settings.
+if ($configItems.Count -eq 0) {
+    return (New-ModuleResult -Status "Skipped" -Message "No enabled entries")
+}
 
 # Parse SettingName/Value pairs into hashtable
 $config = @{}

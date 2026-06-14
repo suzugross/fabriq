@@ -5,11 +5,13 @@
 # Run    : powershell.exe -File ./dev/run_tests.ps1
 #
 # Pins the Segment-strict-match contract (KERNEL_API.md §1.2) and the
-# observable return-shape behavior at the caller boundary. Note the
-# scalar-unwrap quirk pinned in the "Caller-observable boundaries"
-# Context: Import-ModuleCsv documents a $null vs @() distinction
-# internally, but PowerShell collapses @() to $null at the assignment
-# site, so callers cannot tell them apart.
+# caller-boundary return contract: $null for a genuine load failure
+# (missing file / empty file / RequiredColumns failure) vs a PRESERVED
+# empty array (Count 0) for "loaded OK but all rows filtered out"
+# (Enabled / Segment). Import-ModuleCsv returns ,@() specifically so the
+# filtered-empty case does NOT unroll to $null at the caller's assignment
+# site, which keeps the standard template's `if ($items.Count -eq 0)`
+# Skip branch reachable instead of collapsing into the $null->Error path.
 # ========================================
 
 BeforeAll {
@@ -136,35 +138,38 @@ Describe 'Import-ModuleCsv' {
         }
     }
 
-    Context 'Caller-observable boundaries (PowerShell scalar-unwrap quirk)' {
+    Context 'Caller-observable return contract ($null=failure vs @()=filtered-empty)' {
 
-        # Import-ModuleCsv internally distinguishes:
+        # Import-ModuleCsv distinguishes, AND preserves the distinction at
+        # the caller's scalar assignment site:
         #   $null  : load error / file empty / RequiredColumns failure
-        #   @()    : filter eliminated all rows (Enabled / Segment)
-        # However, `return @()` from a function gets unwrapped to $null
-        # when the caller assigns to a scalar variable. So all of the
-        # cases below are observed as $null at the call site, and
-        # standard module template's `if ($items.Count -eq 0)` branch is
-        # effectively unreachable.
+        #   @()    : loaded OK but a filter (Enabled / Segment) eliminated
+        #            all rows -> empty array (Count 0), NOT $null.
+        # The empty case is returned as ,@() so PowerShell does not unroll
+        # it to $null. This keeps the standard module template's
+        # `if ($items.Count -eq 0) { Skipped }` branch reachable instead of
+        # mis-firing the `if ($null -eq $items) { Error }` path.
 
-        It 'collapses to $null when -FilterEnabled eliminates all rows' {
+        It 'returns an empty array (Count 0, not $null) when -FilterEnabled eliminates all rows' {
             $csv = New-TestProfileCsv -Columns @('Enabled','TargetName') -Rows @(
                 @{ Enabled = '0'; TargetName = 'a' }
                 @{ Enabled = '0'; TargetName = 'b' }
             )
             try {
                 $r = Import-ModuleCsv -Path $csv -FilterEnabled
-                $null -eq $r | Should -BeTrue
+                $null -eq $r | Should -BeFalse
+                @($r).Count | Should -Be 0
             } finally { Remove-TestProfileCsv $csv }
         }
 
-        It 'collapses to $null when Segment filter eliminates all rows' {
+        It 'returns an empty array (Count 0, not $null) when Segment filter eliminates all rows' {
             $csv = New-TestProfileCsv -Columns @('Enabled','TargetName','Segment') -Rows @(
                 @{ Enabled = '1'; TargetName = 'a'; Segment = 'beta' }
             )
             try {
                 $r = Import-ModuleCsv -Path $csv -Segment 'alpha'
-                $null -eq $r | Should -BeTrue
+                $null -eq $r | Should -BeFalse
+                @($r).Count | Should -Be 0
             } finally { Remove-TestProfileCsv $csv }
         }
 

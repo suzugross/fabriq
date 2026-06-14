@@ -1055,7 +1055,12 @@ function Import-ModuleCsv {
         $filtered = @($allItems | Where-Object { $_.Enabled -eq "1" })
         if ($filtered.Count -eq 0) {
             Show-Skip "No enabled entries in $([System.IO.Path]::GetFileName($Path))"
-            return @()
+            # Return ,@() (not @()) so PowerShell does NOT unroll the empty
+            # array to $null at the caller's assignment site. This lets callers
+            # distinguish "loaded OK but no enabled rows" (empty array, Count 0
+            # -> Skip) from a genuine load failure ($null -> Error). Pinned in
+            # tests/kernel/Import-ModuleCsv.tests.ps1.
+            return ,@()
         }
         $allItems = $filtered
     }
@@ -1075,7 +1080,10 @@ function Import-ModuleCsv {
         if ($allItems.Count -eq 0) {
             $segLabel = if ($effectiveSegment -eq "") { "(default)" } else { "'$effectiveSegment'" }
             Show-Skip "No entries matched Segment $segLabel in $([System.IO.Path]::GetFileName($Path))"
-            return @()
+            # ,@() (not @()) prevents unroll-to-$null at the call site so a
+            # segment-empty result reads as a Skip, not a load failure. See the
+            # -FilterEnabled branch above and Import-ModuleCsv.tests.ps1.
+            return ,@()
         }
     }
 
