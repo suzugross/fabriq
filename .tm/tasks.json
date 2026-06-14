@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T14:01:57+09:00",
+  "updatedAt": "2026-06-14T14:32:10+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -502,10 +502,10 @@
       "id": "t-0056",
       "title": "[監査・未検証/疑い] モジュール内の生 Read-Host が AutoPilot ガード無しで無人実行をハングさせるクラス",
       "content": "複数モジュールが $global:AutoPilotMode ガード無しの生 Read-Host を持ち、AutoPilot/auto-resume の無人実行をハングさせる疑い(systemic)。候補: display_config:106 / dpi_config:426,461 / windows_license_install:99 / printer_driver_uninstall:73 / power_config:270。display/dpi は出荷CSV先頭が HardwareID=AUTO のためマルチモニタ機で発火し得るとの指摘。単一方針(モジュール内 Read-Host を一律 AutoPilot ガード=skip/fail-closed)で一掃できる可能性。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査だが【敵対検証はセッション上限で未実施=finder 自己申告のみ、実在性の保証は検証済の他項目より低い】。較正: 同類の autologon Read-Host は出荷CSVが1行有効のため検証で nit 降格した前例あり=各モジュールの出荷既定で実際に分岐到達するかの確認が必須。printer_driver_uninstall は Read-Host 空→TryParse 失敗で Error になり得る(ハングでなく)。要: 各候補の到達条件を実機/コードで個別確認の上、systemic ガード設計(§4 ゲート)を検討。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査→保留(ユーザの設計思想により許容範囲・コード変更なし)。\n\n【確定】候補モジュール(display_config:106, dpi_config:426/461, power_config:271, windows_license_install:99, printer_driver_uninstall:74)は全て $global:AutoPilotMode 参照ゼロ=生 Read-Host に AutoPilot ガードなし。到達すれば runspace は $Host 共有で実 stdin を待ち、無人実行がプロンプトで無期限停止(ハング)。\n【到達条件(read-only 精査)】display_config: HardwareID=AUTO かつ複数ディスプレイ検出時のみ Select-DisplayInteractive(106) に到達(単一は184で自動選択=プロンプトなし)。出荷 display_list.csv は全行 Disabled。dpi も同型。windows_license は CSV キー無し時の手入力フォールバック。printer_driver_uninstall/power は対話選択経路。いずれも狭い条件。\n【判断(保留)】ユーザ設計思想: Fabriq AutoPilot は半自動化(operator/管理者の人的管理前提)で、十分な事前検証を経て案件投入される。対話要否は本番前に確定済で、特殊ケースは事前把握・運用対応可能な範囲。よってこれら操作系エッジは許容範囲とみなし狙い撃ち硬化はしない。詳細: memory feedback_autopilot_semiauto_triage。\n【再開条件】特定モジュールで実運用上の実害(無人ハング)が顕在化したら、その到達モジュールだけ AutoPilot ガード(if $global:AutoPilotMode { skip/fail-closed } else { Read-Host })を入れる。",
+      "status": "保留",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T14:32:10+09:00"
     },
     {
       "id": "t-0057",
