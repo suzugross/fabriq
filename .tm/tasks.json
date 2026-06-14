@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T13:27:49+09:00",
+  "updatedAt": "2026-06-14T13:29:40+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -457,10 +457,10 @@
       "id": "t-0051",
       "title": "[監査B・疑い] ssid_config の live -match に日本語リテラル+BOM無し→JP Windows で WLAN 検出破綻+英語オンリー規約違反",
       "content": "modules/standard/ssid_config/ssid_config.ps1:47 が実行コードで日本語『プロファイル』を含む -match 行。ファイルは BOM 無し(先頭 23 20 3d)で、JP CP932 環境の PS5.1 が CP932 として読むと UTF-8 の『プロファイル』が mojibake し、netsh の日本語出力に一致せず WLAN 有でも『利用不可』と誤判定→Error を返す疑い。加えて CLAUDE.md §7 英語オンリーコード規約の違反。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "2026-06-14 調査+実装完了 (commit d39b642, レビュー待ち)。※当初の機能バグ評価は過大だったため訂正済み。\n\n【訂正された結論】当初監査の「JP Windows で WLAN 検出が壊れ偽 Error」は実機では非該当。ユーザ実績(日本語を含まない SSID プロファイルを JP 環境へ配布し正常設定できていた)が反証。理由: ssid_config.ps1:47 の正規表現 \"Wi-Fi|Wireless|WLAN|プロファイル|Profile\" は英語代替を複数持ち、netsh wlan show profiles の JP 出力にもインターフェイス名 \"Wi-Fi\"(英語)が含まれ -match(大小無視)で成立する。よって プロファイル は判定を決めておらず、BOM無しUTF-8をJP CP932で読んで mojibake しても無害(冗長な dead alternative)だった。プロファイル抽出(56行〜)は \" : \" 区切りで locale 非依存、add/delete は XML ベース。\n\n【残った実体】§7 違反(コード内日本語リテラル)+ BOM無し非ASCII(プロファイル + コメント em-dash 3箇所)= encoding hygiene のみ。機能 pain なし。check_ps1_encoding の JP-NO-BOM 5件の1つ。\n\n【対応(d39b642)】47行の正規表現から冗長な日本語 プロファイル を削除 + 153/176/234 の em-dash を ASCII '-' 化 → ファイル純ASCII化(§7準拠・BOM不要・JP-NO-BOM 5→4)。挙動不変。VERSION 1.0.0→1.0.1(PATCH)。REQUIRES_KERNEL 据置。kernel 無変更。\n\n【検証】純ASCII確認 / parse OK / run_tests 329 passed 0 failed / check_version OK / encoding JP-NO-BOM 5→4(ssid_config 除外)。\n\n【教訓】監査の severity を実機の失敗モードまで詰めず confirm しないこと(ユーザ指摘で訂正)。\n\n---\n2026-06-14 実機確認(ノートPC・Wi-Fi有効)で修正の安全性を裏取り。`$out = netsh wlan show profiles 2>&1 | Out-String` に対し: 修正後判定(Wi-Fi|Wireless|WLAN|Profile)=True(WLAN検出成立)、Wi-Fi=True(マッチを担う)、プロファイル=False。生出力が CP932→UTF-8 コンソール取り込みで mojibake していたため -match 'プロファイル' が False=実行時点でも プロファイル は既にマッチしておらず、検出は最初から ASCII の Wi-Fi が単独で担っていた。よって プロファイル 削除は dead alternative 除去で完全に安全と実機確認。",
-      "status": "レビュー待ち",
+      "claudeNote": "2026-06-14 調査+実装完了 (commit d39b642, レビュー待ち)。※当初の機能バグ評価は過大だったため訂正済み。\n\n【訂正された結論】当初監査の「JP Windows で WLAN 検出が壊れ偽 Error」は実機では非該当。ユーザ実績(日本語を含まない SSID プロファイルを JP 環境へ配布し正常設定できていた)が反証。理由: ssid_config.ps1:47 の正規表現 \"Wi-Fi|Wireless|WLAN|プロファイル|Profile\" は英語代替を複数持ち、netsh wlan show profiles の JP 出力にもインターフェイス名 \"Wi-Fi\"(英語)が含まれ -match(大小無視)で成立する。よって プロファイル は判定を決めておらず、BOM無しUTF-8をJP CP932で読んで mojibake しても無害(冗長な dead alternative)だった。プロファイル抽出(56行〜)は \" : \" 区切りで locale 非依存、add/delete は XML ベース。\n\n【残った実体】§7 違反(コード内日本語リテラル)+ BOM無し非ASCII(プロファイル + コメント em-dash 3箇所)= encoding hygiene のみ。機能 pain なし。check_ps1_encoding の JP-NO-BOM 5件の1つ。\n\n【対応(d39b642)】47行の正規表現から冗長な日本語 プロファイル を削除 + 153/176/234 の em-dash を ASCII '-' 化 → ファイル純ASCII化(§7準拠・BOM不要・JP-NO-BOM 5→4)。挙動不変。VERSION 1.0.0→1.0.1(PATCH)。REQUIRES_KERNEL 据置。kernel 無変更。\n\n【検証】純ASCII確認 / parse OK / run_tests 329 passed 0 failed / check_version OK / encoding JP-NO-BOM 5→4(ssid_config 除外)。\n\n【教訓】監査の severity を実機の失敗モードまで詰めず confirm しないこと(ユーザ指摘で訂正)。\n\n---\n2026-06-14 実機確認(ノートPC・Wi-Fi有効)で修正の安全性を裏取り。`$out = netsh wlan show profiles 2>&1 | Out-String` に対し: 修正後判定(Wi-Fi|Wireless|WLAN|Profile)=True(WLAN検出成立)、Wi-Fi=True(マッチを担う)、プロファイル=False。生出力が CP932→UTF-8 コンソール取り込みで mojibake していたため -match 'プロファイル' が False=実行時点でも プロファイル は既にマッチしておらず、検出は最初から ASCII の Wi-Fi が単独で担っていた。よって プロファイル 削除は dead alternative 除去で完全に安全と実機確認。\n\n---\n2026-06-14 完了 (実機確認済み・挙動不変の hygiene 修正)。",
+      "status": "完了",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T13:27:49+09:00"
+      "updatedAt": "2026-06-14T13:29:40+09:00"
     },
     {
       "id": "t-0052",
