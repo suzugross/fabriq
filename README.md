@@ -49,7 +49,6 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 fabriq/
 ├── Fabriq.exe              # エントリーポイント（管理者自動昇格、GUI 起動）
 ├── Fabriq_IOS.exe          # fabriq_ios サブプロジェクト用ランチャ（独立 SemVer）
-├── Deploy.bat              # USB から対象 PC へのデプロイツール
 ├── kernel/
 │   ├── main.ps1            # メインスクリプト（Fabriq.exe から呼び出し）
 │   ├── common.ps1          # 共通関数ライブラリ（90+ 関数）
@@ -97,7 +96,7 @@ Fabriq Studio を起動し、ワークスペースとして Fabriq フォルダ�
 
 ### 2. デプロイ
 
-`Deploy.bat` を実行して USB メモリから対象 PC へ Fabriq フォルダをコピーします（フォルダを直接配置しても可）。
+Fabriq フォルダを対象 PC へ直接配置します（USB メモリ等からコピー）。
 
 ### 3. 起動
 

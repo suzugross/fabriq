@@ -233,7 +233,7 @@ definitions while preserving the operator's CSV data and profiles.
 - Framework config: ``kernel/json/async_config.json``
 - Rule manifest: ``dev/framework_overlay_rules.json``
 - ``dev/`` tooling (template, check_version, build_framework_patch, etc.)
-- ``Fabriq.exe``, ``Deploy.bat``
+- ``Fabriq.exe``
 
 ## Excluded (kept on target system, not overwritten)
 
