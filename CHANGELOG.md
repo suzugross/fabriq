@@ -92,6 +92,16 @@
   先行の t-0042 /MIR purge 修正(d11420b)はファイル削除により moot。
 
 ### Security
+- kernel/common.ps1 `Reset-FabriqState` (TM t-0052): セッション切替時に**前の顧客の
+  マスターパスフレーズがプロセスメモリに残存**する漏れを修正。`Reset-FabriqState` は
+  「全インメモリセッション状態をリセット」する関数だが、env var(SELECTED_*/PIN 等)・
+  SessionInfo・履歴は消す一方、**ENC: CSV 秘密の復号鍵 `$global:FabriqMasterPassphrase`
+  を消していなかった**。唯一の呼出元 NewSession(main.ps1:1907) は確定時に新パスフレーズで
+  上書きするが、**新セッション設定をキャンセルすると旧顧客のパスフレーズが残留**（B2B/B2G
+  多顧客での機密残留）。`$global:FabriqMasterPassphrase = $null` を Reset のクリアに追加。
+  確定経路は上書き済で無害・キャンセル経路の漏えいのみ解消。意図的保持でないことを呼出元
+  flow・t-0022 差分・関数 docstring(「Resets ALL in-memory session state」)で確認済。
+  ResumeState.tests.ps1 の Reset クリアリスト AST 契約にパスフレーズクリアを追加。
 - kernel/common.ps1 `Test-FabriqProtectedPath` (TM t-0041): 破壊的削除ガードの
   バイパスを修正。保護ルート一覧はドライブレター形（`C:\...`）だが
   `[IO.Path]::GetFullPath` が `\\?\`（拡張長）・`\\.\`（device）・`\\?\UNC\` /
