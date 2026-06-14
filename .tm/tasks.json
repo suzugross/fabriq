@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T15:55:45+09:00",
+  "updatedAt": "2026-06-15T07:22:18+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -542,6 +542,24 @@
       "status": "保留",
       "createdAt": "2026-06-14T12:15:00+09:00",
       "updatedAt": "2026-06-14T13:00:00+09:00"
+    },
+    {
+      "id": "t-0061",
+      "title": "hostlistとProfileにそれぞれホストマーカを用意して、一致するマーカがあるモジュールのみ実行。",
+      "content": "",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-15T07:17:33.4136384+09:00",
+      "updatedAt": "2026-06-15T07:18:30.9516115+09:00"
+    },
+    {
+      "id": "t-0062",
+      "title": "hostlist/Profile にホストマーカを追加し、マーカ一致モジュールのみ実行（マーカ=Segment 連動）",
+      "content": "hostlist と Profile にそれぞれホストマーカを用意し、一致するマーカがあるモジュールエントリのみ実行する。\n\n例:\n- ホスト1 のマーカ = ABD → A or B or D のいずれかのマーカを持つモジュールのみ実行。\n\n制約:\n- マーカを使用する場合は Segment も必ず併用し、ホストマーカの値と一致させる。\n- つまり「hostlist マーカ = Profile マーカ = Segment」が一致している必要がある。\n\nユースケース:\n- ある端末グループに特定のアプリを導入したいが、Profile は統一したい、というような場合に利用できるイメージ。\n\n備考:\n- hostlist と Profile の構造を変更するため、大きめの改修。",
+      "claudeNote": "（未着手・設計未）参考: 既存の Segment フィルタ機構（Import-ModuleCsv -Segment / 環境変数 FABRIQ_SEGMENT、KERNEL_API §1.2 の Segment 厳密一致契約）が土台になり得る。ホストマーカ → Segment 連動は既存 Segment の上位レイヤとして設計を検討。hostlist スキーマ（マーカ列追加）と Profile スキーマ（マーカ列追加）の SemVer 影響（kernel MAJOR/MINOR）と後方互換に注意。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T07:22:18+09:00",
+      "updatedAt": "2026-06-15T07:22:18+09:00"
     }
   ]
 }
