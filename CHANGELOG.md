@@ -118,6 +118,15 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- modules/standard/ssid_config v1.0.0 → v1.0.1 (TM t-0051): WLAN 可用性判定
+  (ssid_config.ps1:47)の正規表現から冗長な日本語リテラル `プロファイル` を削除し、
+  コメント内の em-dash 3 箇所を ASCII 化してファイルを純 ASCII 化（§7 英語オンリー準拠・
+  BOM 不要・check_ps1_encoding の JP-NO-BOM 積み残し 5→4）。BOM 無し UTF-8 を JP CP932 で
+  読むと `プロファイル` が mojibake する encoding fragility を解消。**挙動は不変**: 英語
+  キーワード `Wi-Fi|Wireless|WLAN|Profile`（`netsh wlan show profiles` 出力のインターフェイス
+  名 `Wi-Fi` 等）がマッチを担い、`プロファイル` は実運用で判定を決めていなかった（JP 環境で
+  SSID 配布が正常動作していた実績と整合）。当初の監査(t-0051)が想定した「WLAN 検出が壊れる」
+  機能バグは実機では非該当で、本件は §7/encoding hygiene として対応。
 - kernel/common.ps1 `Import-ModuleCsv` (TM t-0044): 全行 Disabled / Segment 不一致で対象ゼロの
   CSV が、本来 Skip であるべきところを **偽 Error** にしていた systemic バグを修正。原因は
   `return @()` が PS5.1 で呼出側スカラ代入時に `$null` へ unroll され、各モジュールの
