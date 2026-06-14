@@ -118,6 +118,20 @@ function Initialize-FabriqIos {
     try {
         Set-PSReadLineOption -PredictionSource None -ErrorAction Stop
     } catch {}
+
+    # Do NOT persist this REPL's command lines to the shared PowerShell
+    # history file (...\PSReadLine\ConsoleHost_history.txt). `set <col>
+    # <value>` carries secrets (autologon / bitlocker / builtin_admin /
+    # domain_join passwords, PINs, etc.) and the default SaveIncrementally
+    # would leak them in plaintext to any later session on the same user
+    # account (Up-arrow / Get-Content / Get-History). Scoped to this
+    # subprocess so the parent shell's history settings are untouched;
+    # in-session recall still works (in-memory history) - only file
+    # persistence is disabled. (enable's passphrase is already protected via
+    # Read-Host -AsSecureString; this closes the remaining `set` path.)
+    try {
+        Set-PSReadLineOption -HistorySaveStyle SaveNothing -ErrorAction Stop
+    } catch {}
 }
 
 function Show-Banner {
