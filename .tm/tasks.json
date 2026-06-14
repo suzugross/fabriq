@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T10:04:56+09:00",
+  "updatedAt": "2026-06-14T10:15:29+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -350,18 +350,18 @@
       "title": "FlexProfileの__RESTART__単発実行バグ",
       "content": "__RESTART__を「RUN」で単発実行を行うと、再起動時に自動でFabriqが起動してこない。これらの事象がコードベースで証明できるか、まずは検証してください。",
       "claudeNote": "",
-      "status": "未着手",
+      "status": "保留",
       "createdAt": "2026-06-14T03:01:34.2300058+09:00",
-      "updatedAt": "2026-06-14T03:02:55.7924808+09:00"
+      "updatedAt": "2026-06-14T10:13:52.0564369+09:00"
     },
     {
       "id": "t-0040",
       "title": "緊急バグ",
       "content": "Profile実行時（LINERでもFlexでも）初回レジューム時（__RESTART__明け）にFabriqが自動で立ち上がらなくなった。\r\nAutologonの設定をしてもしてなくても挙動は変わらず。\r\n手動で立ち上げると、そのまま続きから動き出し、次回レジューム時も問題なく自動起動する。",
-      "claudeNote": "",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査(確認のみ・コード変更なし)。共有ログ(restart_bug / 例外エラー)で切り分け。\n症状: FlexProfile(Linearでも)初回restart(__RESTART__明け)でFabriqが自動起動せず。手動起動なら続行、2回目以降は自動でOK。実機OK・動作の遅い新規VM2台で百発百中。\n\n切り分け結果:\n- UID照合ガード(t-0029/Load-ResumeState)は無関係。UIDは安定したVMware BIOSシリアルで'belongs to a different PC'拒否なし。当初仮説は棄却。\n- 自動ログオンは成功している(ユーザ確認: 再起動直後デスクトップ表示・Fabriq窓なし。WindowsUserも新名で記録)。\n- RunOnceは発火している(失敗ブート後 HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce が空=FabriqAutoStart消費済)。\n- resumeロジックは正常(手動起動で続きから動く。resume_stateは拒否時も非削除)。\n=> M2確定: RunOnceがFabriq.exeを起動するが、Start-Transcript(main.ps1:1262)到達前に早期exitしログを残さない。Applicationログにクラッシュ(1000/1026)無し=グレースフルなexit(おそらくexit 1)。\n\n残る2候補(未確定・要切り分け):\n(a) CWD/相対パス: RunOnceのCWDはsystem32。main.ps1冒頭のdot-sourceは相対(.\\kernel\\common.ps1, .\\apps\\fabriq_operator\\fabriq_operator.ps1)。CWDがfabriqルートでないとTest-Path失敗→common.ps1/GUI未ロード→main.ps1:32-35 exit 1。ただし実機OKと整合しにくい(実機もRunOnce CWD=system32のはず)。\n(b) cold bootのGUI初期化レース: fabriq_operator.ps1:9-13 Add-Type System.Windows.Forms / EnableVisualStyles() が対話的ウィンドウステーション未準備で例外→catch→UseGui=$false→exit 1。遅いVMで100%・速い実機OK・初回コールドブートのみ、に最も合致。\n\n決定的テスト(未実施): 失敗VMで `cd C:\\Windows\\System32; powershell -NoProfile -ExecutionPolicy Bypass -File \"<deployパス>\\kernel\\main.ps1\"` を実行。即GUIが出ずエラー→(a)CWD確定。普通にGUI起動→(b)cold bootレース確定。\n\n修正方針(承認後・§4設計ゲート):\n- (a)確定時: main.ps1冒頭で Set-Location $PSScriptRoot (ps2exe下で正しく解決)してCWD依存を排除。どちらの結論でも入れて損のない防御策。\n- (b)確定時: RunOnce起動に短い遅延/readiness待ち、またはGUIロード失敗時の数秒リトライ。Get-HardwareUniqueId等の早期ブートWMI/NIC依存も同根として一緒に堅牢化。\n\nユーザ判断: 遅い2VMのみ再現・実機OKのため一旦様子見(保留)。再開時はまず決定的テストでa/bを確定してから実装。",
+      "status": "保留",
       "createdAt": "2026-06-14T06:36:59.0089751+09:00",
-      "updatedAt": "2026-06-14T06:39:33.4627086+09:00"
+      "updatedAt": "2026-06-14T10:15:29+09:00"
     },
     {
       "id": "t-0041",
