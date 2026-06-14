@@ -84,6 +84,20 @@
   ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
 
 ### Security
+- Deploy.bat (TM t-0042): 再デプロイ時の `robocopy /MIR` が**ターゲット PC の納品
+  エビデンスを purge** する問題を修正。配布物（USB）は `evidence/`・`logs/` が空
+  (.gitkeep のみ・`.gitignore` で除外) だが、ターゲット PC は実行中に
+  `evidence/<session>_evidence/`・`checklist/`・`gyotaku/`・`logs/`(transcript /
+  `telemetry/` / `history/execution_history.csv`)・`resume_state.json`・
+  `wu_state.json` 等を蓄積する。`/MIR` は「宛先にあってソースに無いファイル」を削除
+  するため、運用済み PC への再デプロイで上記の蓄積（特に**納品物の本体**）を全消去して
+  いた（初回デプロイは無害、危険は再デプロイのみ・[124行]の "Updating files..." は無警告）。
+  修正: `/MIR` は維持しつつ `/XD "%FABRIQ_SRC%\evidence" "%FABRIQ_SRC%\logs"`(source パス指定。
+  dest 絶対パスは /MIR の purge を防げないことを robocopy /L で実測確認) と
+  `/XF resume_state.json wu_state.json wu_completed.json telemetry_salt.txt` で
+  ランタイム生成物を purge から除外。CSV/プロファイルは USB が source of truth のため
+  従来どおり `/MIR` でリフレッシュ（陳腐ファイル除去の有用性も維持）。再デプロイ時の
+  メッセージに「保持: evidence/logs/進行状態、削除: 陳腐ファイル」を明記。
 - kernel/common.ps1 `Test-FabriqProtectedPath` (TM t-0041): 破壊的削除ガードの
   バイパスを修正。保護ルート一覧はドライブレター形（`C:\...`）だが
   `[IO.Path]::GetFullPath` が `\\?\`（拡張長）・`\\.\`（device）・`\\?\UNC\` /
