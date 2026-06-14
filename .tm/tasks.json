@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T10:15:29+09:00",
+  "updatedAt": "2026-06-14T10:26:19+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -394,10 +394,10 @@
       "id": "t-0044",
       "title": "[監査B・疑い] 全行Disabled/セグメント不一致のCSVが Skipped でなく偽 Error(7モジュール・出荷状態で発火)",
       "content": "Import-ModuleCsv -FilterEnabled は『全行Enabled=0』『有効だがセグメント不一致』で空配列を返すが、PS5.1 は return @() を呼出側で $null に潰すため、各モジュールの『if ($null -eq $items){Error}』が発火し『Count -eq 0 の Skipped』分岐が到達不能死コードになる疑い。該当: file_delete / copyfile_config / default_app_config / dpi_api_config / driver_export_config / driver_import_config / fabriq_app_launcher。出荷 delete_list.csv は全行 Enabled=0 のため file_delete は既定で偽 Error を返す可能性。AutoPilot/Flex の ErrorMode が実失敗として扱う。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査(敵対検証済=workflow、実カーネルで再現確認との検証ノートあり)。根拠: kernel/common.ps1:1058/1078 が空配列返却。credential_config:113-131 と domain_join は本罠を回避済(=直し方は確立)。波及はさらに広い可能性(wallpaper/brightness/restore_point/ssid/cert/robocopy 等が同型)。修正方針(最高レバレッジ): Import-ModuleCsv 側で空配列と null(真のロード失敗)を区別、または各モジュールを credential_config 方式(空配列で受けて Where-Object Enabled で判定)に統一。要: 全モジュールの該当パターン棚卸し。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 詳細調査(read-only・コード変更なし)。バグ確定。\n\n【実測】PS5.1で `return @()` は呼出側で $null に潰れる(`return ,@()` なら Count=0 保持)を powershell.exe 5.1 で実証。\n【根本】Import-ModuleCsv(common.ps1:1017)は2状態を返す: return $null(1027/1028/1048=真のロード失敗/空ファイル/必須列欠落) と return @()(1058=全行Disabled / 1078=セグメント不一致)。後者が呼出側で $null に潰れ、両者が区別不能。\n【live確認】file_delete.ps1:19-24 は `if($null -eq $items){Error 'Failed to load'}` の後に `if($items.Count -eq 0){Skipped}`。出荷 delete_list.csv は全4行 Enabled=0 → return @() → $null → 20行目で偽Error。23-24のSkipは到達不能の死コード。=箱出しで file_delete が偽Errorを返す。\n\n【トリガ2系統】(A)出荷/運用CSVが全行Disabled、(B)アクティブSegmentが有効行に不一致(1078)。Bは有効行を持つモジュールでもセグメントキッティングで発火=チケット記載の7件より広い。\n\n【波及定量】脆弱パターン(潰れた@()を null→Error が捕捉)を持つ .ps1 約64件。うち Count→Skip 分岐を持つ約57件は『修正で生き返る既存Skip』。Skip分岐の無い7件(firewall_rule_config/manual_kitting_assistant/network_profile_config/office_update/sysprep_config/volume_config/windows_update)は要個別確認(Error→空進行に挙動変化)。出荷で全行Disabledの _list.csv 約25件(file_delete/directory_cleaner/display_config/dpi_config/reg_template/script_looper/server_feature_config/acl_config/bloatware_remove/cert_config/fabriq_app_launcher/firewall_rule_make_config/office_license_config/profile_delete/robocopy_config/ssid_config/startup_command_config/temp_ipaddress_config/wallpaper_config/windows_feature_config/windows_license_config 等)。\n\n【既知】credential_config(コメント108-117で本バグを明記)と domain_join は -FilterEnabled を使わず手動 Where-Object Enabled で回避済=修正手法は確立。\n\n【影響】halt とは限らず、実行結果/evidence/納品チェックリストに偽Errorが載る(B2B/B2G納品のQA問題)。Continue-on-Error 既定では記録して継続。AutoPilot で ErrorMode 次第では retry/停止に波及し得る。\n\n【修正案・最高レバレッジ】kernel 1点: Import-ModuleCsv の return @() → return ,@()(1058,1078の2箇所)。既存の到達不能Skip分岐(約57件)が一斉に生き返り、A/B両トリガを同時解決。要対応: (1)Skip分岐の無い7件に明示Skip追加 or 空進行の挙動確認、(2)-FilterEnabled 無しでSegment列CSVを読む経路(credential等)の挙動再確認、(3)回帰テストで空配列保持を固定。KERNEL_API的には Import-ModuleCsv の空時戻り値が $null→@() に変わる契約変更(後方互換だが明文化要)。CLAUDE.md §4設計ゲート対象。\n\n確度: file_delete は100%確定(実測+コード+出荷CSV)。広域リストは CSV→-FilterEnabled 対応をヒューリスティック判定のため、各件は実装時に個別確認。",
+      "status": "対応中",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T10:26:19+09:00"
     },
     {
       "id": "t-0045",
@@ -515,6 +515,15 @@
       "status": "保留",
       "createdAt": "2026-06-14T09:34:49.6130335+09:00",
       "updatedAt": "2026-06-14T10:04:56+09:00"
+    },
+    {
+      "id": "t-0058",
+      "title": "冪等性チェック",
+      "content": "冪等性が保証されていないモジュールについて調査してください。\r\n実装できなのにできてないものを特に。\r\nipaddress_configやプリンタ周りがあやしいです。",
+      "claudeNote": "",
+      "status": "未着手",
+      "createdAt": "2026-06-14T10:23:21.3546786+09:00",
+      "updatedAt": "2026-06-14T10:24:42.3211759+09:00"
     }
   ]
 }

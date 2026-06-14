@@ -3,9 +3,9 @@
 <!-- このファイルは TM アプリが .tm/tasks.json から自動生成します。
      直接編集しないでください（次回保存で上書きされます）。
      タスクの追加・更新は tasks.json か TM アプリから行ってください。 -->
-最終更新: 2026-06-14 10:14
+最終更新: 2026-06-14 10:24
 
-## 未着手 (18)
+## 未着手 (19)
 
 ### [t-0032] Fabriq_IOS機能３
 
@@ -246,6 +246,16 @@ kernel/main.ps1:577-587 付近、AutoPilot 実行中にモジュールが Error/
 出所: 2026-06-14 監査だが【敵対検証はセッション上限で未実施=finder 自己申告のみ、実在性の保証は検証済の他項目より低い】。較正: 同類の autologon Read-Host は出荷CSVが1行有効のため検証で nit 降格した前例あり=各モジュールの出荷既定で実際に分岐到達するかの確認が必須。printer_driver_uninstall は Read-Host 空→TryParse 失敗で Error になり得る(ハングでなく)。要: 各候補の到達条件を実機/コードで個別確認の上、systemic ガード設計(§4 ゲート)を検討。
 
 <sub>更新: 2026-06-14 09:01 ／ 作成: 2026-06-14 09:01</sub>
+
+### [t-0058] 冪等性チェック
+
+**内容:**
+
+冪等性が保証されていないモジュールについて調査してください。
+実装できなのにできてないものを特に。
+ipaddress_configやプリンタ周りがあやしいです。
+
+<sub>更新: 2026-06-14 10:24 ／ 作成: 2026-06-14 10:23</sub>
 
 ## レビュー待ち (4)
 
@@ -1114,7 +1124,31 @@ Profile実行時（LINERでもFlexでも）初回レジューム時（__RESTART_
 Autologonの設定をしてもしてなくても挙動は変わらず。
 手動で立ち上げると、そのまま続きから動き出し、次回レジューム時も問題なく自動起動する。
 
-<sub>更新: 2026-06-14 10:14 ／ 作成: 2026-06-14 06:36</sub>
+**Claudeメモ:**
+
+2026-06-14 調査(確認のみ・コード変更なし)。共有ログ(restart_bug / 例外エラー)で切り分け。
+症状: FlexProfile(Linearでも)初回restart(__RESTART__明け)でFabriqが自動起動せず。手動起動なら続行、2回目以降は自動でOK。実機OK・動作の遅い新規VM2台で百発百中。
+
+切り分け結果:
+- UID照合ガード(t-0029/Load-ResumeState)は無関係。UIDは安定したVMware BIOSシリアルで'belongs to a different PC'拒否なし。当初仮説は棄却。
+- 自動ログオンは成功している(ユーザ確認: 再起動直後デスクトップ表示・Fabriq窓なし。WindowsUserも新名で記録)。
+- RunOnceは発火している(失敗ブート後 HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce が空=FabriqAutoStart消費済)。
+- resumeロジックは正常(手動起動で続きから動く。resume_stateは拒否時も非削除)。
+=> M2確定: RunOnceがFabriq.exeを起動するが、Start-Transcript(main.ps1:1262)到達前に早期exitしログを残さない。Applicationログにクラッシュ(1000/1026)無し=グレースフルなexit(おそらくexit 1)。
+
+残る2候補(未確定・要切り分け):
+(a) CWD/相対パス: RunOnceのCWDはsystem32。main.ps1冒頭のdot-sourceは相対(.\kernel\common.ps1, .\apps\fabriq_operator\fabriq_operator.ps1)。CWDがfabriqルートでないとTest-Path失敗→common.ps1/GUI未ロード→main.ps1:32-35 exit 1。ただし実機OKと整合しにくい(実機もRunOnce CWD=system32のはず)。
+(b) cold bootのGUI初期化レース: fabriq_operator.ps1:9-13 Add-Type System.Windows.Forms / EnableVisualStyles() が対話的ウィンドウステーション未準備で例外→catch→UseGui=$false→exit 1。遅いVMで100%・速い実機OK・初回コールドブートのみ、に最も合致。
+
+決定的テスト(未実施): 失敗VMで `cd C:\Windows\System32; powershell -NoProfile -ExecutionPolicy Bypass -File "<deployパス>\kernel\main.ps1"` を実行。即GUIが出ずエラー→(a)CWD確定。普通にGUI起動→(b)cold bootレース確定。
+
+修正方針(承認後・§4設計ゲート):
+- (a)確定時: main.ps1冒頭で Set-Location $PSScriptRoot (ps2exe下で正しく解決)してCWD依存を排除。どちらの結論でも入れて損のない防御策。
+- (b)確定時: RunOnce起動に短い遅延/readiness待ち、またはGUIロード失敗時の数秒リトライ。Get-HardwareUniqueId等の早期ブートWMI/NIC依存も同根として一緒に堅牢化。
+
+ユーザ判断: 遅い2VMのみ再現・実機OKのため一旦様子見(保留)。再開時はまず決定的テストでa/bを確定してから実装。
+
+<sub>更新: 2026-06-14 10:15 ／ 作成: 2026-06-14 06:36</sub>
 
 ### [t-0057] テレメトリーバグ
 
