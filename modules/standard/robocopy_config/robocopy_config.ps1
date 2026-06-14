@@ -195,6 +195,45 @@ foreach ($item in $enabledItems) {
     }
 
     # ----------------------------------------
+    # Destructive /MIR safeguards (CLAUDE.md section 8)
+    # ----------------------------------------
+    # /MIR makes the destination identical to the source, so it DELETES
+    # everything in the destination that is absent from the source. Two
+    # ways this turns catastrophic: (a) the source exists but is EMPTY
+    # (a recreated/cleared/mis-resolved share) -> the entire destination is
+    # wiped; (b) the destination is a protected local root (e.g. C:\Windows).
+    # These checks run unconditionally (outside the confirmation gate) so
+    # they also hold under AutoPilot auto-Y. Source enumeration happens AFTER
+    # net use so authenticated UNC sources can be read. The guard runs before
+    # the try/finally, so net use sessions are cleaned up inline on block.
+    if ($item.Mirror -eq "1") {
+        # (a) Empty-source guard. Select -First 1 short-circuits huge trees.
+        $srcHasContent = $null -ne (Get-ChildItem -LiteralPath $item.Source -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if (-not $srcHasContent) {
+            Show-Error "Refusing /MIR from an empty source (would delete the destination): $($item.Source)"
+            foreach ($s in $connectedShares) { & net use $s /delete /y 2>&1 | Out-Null }
+            Write-Host ""
+            $failCount++
+            continue
+        }
+        # (b) Protected-path guard for LOCAL destinations only. UNC paths are
+        # legitimate network shares (guard (a) still protects them), and
+        # Test-FabriqProtectedPath blocks all UNC forms, so only drive-letter
+        # destinations are checked against the protected-root list.
+        $destNorm = "$($item.Destination)" -replace '/', '\'
+        if ($destNorm -notmatch '^\\\\') {
+            $destGuard = Test-FabriqProtectedPath -Path $item.Destination
+            if (-not $destGuard.IsSafe) {
+                Show-Error "Refusing /MIR onto a protected path ($($destGuard.Reason)): $($item.Destination)"
+                foreach ($s in $connectedShares) { & net use $s /delete /y 2>&1 | Out-Null }
+                Write-Host ""
+                $failCount++
+                continue
+            }
+        }
+    }
+
+    # ----------------------------------------
     # Main processing: Robocopy execution
     # ----------------------------------------
     try {

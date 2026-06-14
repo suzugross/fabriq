@@ -84,6 +84,16 @@
   ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
 
 ### Security
+- modules/standard/robocopy_config v1.0.1 → v1.1.0 (TM t-0049): `/MIR` の破壊ガードを追加。
+  robocopy `/MIR` は宛先をソースと同一化するため、(a) ソースが存在するが**空**(再作成/
+  クリア/誤解決された共有)だと宛先を全削除、(b) 宛先が保護ローカルルート(`C:\Windows` 等)だと
+  上書き、の危険があった。事前検査は `Test-Path`(存在)のみで、AutoPilot では per-job 確認が
+  auto-Y のため唯一の防御が欠落(§8 違反)。修正: `Mirror=1` 時に (a) 空ソース
+  (`Get-ChildItem -Force` 0件)を Fail、(b) ローカル(ドライブレター)宛先に
+  `Test-FabriqProtectedPath` を適用し保護ルートを Fail。UNC 名前付き共有宛先は正規のため
+  許可((a) が wipe を保護)、ソース列挙は net use 後。ガードは確認ゲート外で AutoPilot でも
+  有効。新規公開API依存 `Test-FabriqProtectedPath`(since 3.5.0) により REQUIRES_KERNEL
+  2.0.0 → 3.5.0(§G)。robocopy guard 述語は harness で全ケース実証。
 - Deploy.bat (TM t-0042): 再デプロイ時の `robocopy /MIR` が**ターゲット PC の納品
   エビデンスを purge** する問題を修正。配布物（USB）は `evidence/`・`logs/` が空
   (.gitkeep のみ・`.gitignore` で除外) だが、ターゲット PC は実行中に
