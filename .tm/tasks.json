@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T14:32:10+09:00",
+  "updatedAt": "2026-06-14T14:59:11+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -466,10 +466,10 @@
       "id": "t-0052",
       "title": "[監査B・疑い] Reset-FabriqState が FabriqMasterPassphrase を消さず、NewSession キャンセルで前顧客のパスフレーズが残存",
       "content": "kernel/common.ps1:3228-3327 の Reset-FabriqState が $global:FabriqMasterPassphrase をクリアしない疑い。main.ps1 の NewSession ハンドラ(1907/1931 付近)でセッション切替がキャンセルされた場合等に、前の顧客のマスターパスフレーズがプロセス内に残存し得る(セキュリティ)。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査(workflow検出、当初 tracked 誤分類だが実際は新規)。修正方針: Reset-FabriqState に $global:FabriqMasterPassphrase の明示クリアを追加。要: NewSession キャンセル経路の状態残存を実機/コードで追確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査+念入り検証+実装完了 (commit 1f02514, レビュー待ち=実機確認待ち)。\n\n【確定】Reset-FabriqState(common.ps1:3236) のクリア対象に $global:FabriqMasterPassphrase が無い。これは ENC: CSV 秘密の復号マスター鍵(1031-1036 で復号使用、3141-3143 で resume 保護保存)。\n\n【念入り検証(意図的か)→ 単なる見落とし】(1)呼出元は NewSession(main.ps1:1907)のただ1つ。必ず Show-SessionSetupForm を通り、確定なら新パスフレーズで上書き(1937)/キャンセルなら continue(1931-1933)。確定経路は上書きで無害、漏えいするのはキャンセル経路のみでクリアが正。旧鍵を持ち越して使う設計経路なし。(2)関数 docstring が「Resets ALL in-memory session state」=クリアが趣旨どおり、除外は趣旨違反の漏れ。(3)t-0022(04a2c58)は SELECTED_PIN/FABRIQ_WORKER_NAME/FABRIQ_SEGMENT を明示理由付きで追加したが passphrase には一切言及せず=スコープ外の取りこぼし。(4)「意図的に残す」コメントはどこにも無し。env var クリア網羅に対し $global だけ漏れた構造的見落としに整合。\n\n【分類】運用思想と独立した実装の穴・機密残留=修正対象(feedback_autopilot_semiauto_triage の \"implementation hole/danger\" 側)。\n\n【修正(1f02514)】Reset-FabriqState の SessionInfo クリア直後に $global:FabriqMasterPassphrase = $null を追加(セキュリティコメント付き)。ResumeState.tests.ps1 の Reset クリアリスト AST 契約に passphrase クリア($null代入 AssignmentStatementAst)を追加。KERNEL_VERSION 据置(内部関数・状態スキーマ不変)。CHANGELOG Security。\n\n【検証】parse OK / run_tests 330 passed 0 failed(AST +1) / check_version OK。\n\n【実機確認推奨】顧客A でセッション開始→NewSession→設定をキャンセルした後、$global:FabriqMasterPassphrase が $null になっていること(クリア確認)。通常のセッション切替(確定)は従来どおり動くこと。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T14:59:11+09:00"
     },
     {
       "id": "t-0053",
