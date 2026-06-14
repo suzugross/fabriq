@@ -278,6 +278,23 @@ Describe 'Save-ResumeState / Load-ResumeState' {
             $stringConsts | Should -Contain 'FABRIQ_WORKER_NAME'
             $stringConsts | Should -Contain 'FABRIQ_SEGMENT'
         }
+
+        It 'Reset-FabriqState clears the in-memory master passphrase (security, AST contract)' {
+            # $global:FabriqMasterPassphrase is a variable (not a string-named
+            # env var), so it is pinned via an assignment-to-$null lookup.
+            # Reset must null it so a cancelled new-session setup does not leak
+            # the previous customer's passphrase (TM t-0052).
+            $fnAst = (Get-Command Reset-FabriqState).ScriptBlock.Ast
+            $assigns = $fnAst.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst]
+            }, $true)
+            $clearsPassphrase = @($assigns | Where-Object {
+                $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                $_.Left.VariablePath.UserPath -match 'FabriqMasterPassphrase$' -and
+                $_.Right.Extent.Text -match '\$null'
+            }).Count -ge 1
+            $clearsPassphrase | Should -BeTrue
+        }
     }
 
     Context 'Load boundary conditions' {

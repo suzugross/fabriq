@@ -3283,6 +3283,14 @@ function Reset-FabriqState {
     # 3. Session Info + session.json (force worker re-selection)
     # ----------------------------------------
     $script:SessionInfo = $null
+
+    # Master passphrase: clear the in-memory decryption key (security). It
+    # holds the PREVIOUS session/customer's master passphrase used to decrypt
+    # ENC: CSV secrets; a new session re-collects it via Show-SessionSetupForm
+    # and the only caller (NewSession) overwrites it on confirm. Without this,
+    # cancelling the new-session setup leaves the prior customer's passphrase
+    # resident in process memory (cross-session confidentiality leak, TM t-0052).
+    $global:FabriqMasterPassphrase = $null
     if (Test-Path $script:SessionFilePath) {
         Remove-Item $script:SessionFilePath -Force -ErrorAction SilentlyContinue
     }
