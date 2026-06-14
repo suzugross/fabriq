@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T11:31:58+09:00",
+  "updatedAt": "2026-06-14T11:56:32+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -376,10 +376,10 @@
       "id": "t-0042",
       "title": "[監査A・疑い] Deploy.bat の robocopy /MIR が再デプロイで運用データ/エビデンスを purge",
       "content": "Deploy.bat:132 が robocopy ... /MIR で展開。/MIR は宛先にあってソースに無いファイルを削除するため、既デプロイ済みターゲット（既定 C:\\Windows\\work\\fabriq）への再実行で hostlist.csv / workers.csv / 各 _list.csv / profiles/、および evidence/・logs/・resume_state.json を消去する疑い。124行『Destination exists. Updating files...』は無警告。patch ビルダの保全規約に反する。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査。検証: Claude が Deploy.bat を手動実読し /MIR と無警告分岐(124-132)を確認。初回デプロイ(空宛先)は無害、危険は『運用済みターゲットへの再デプロイ』。修正方針: /MIR→/E(削除しない)、または /XD evidence logs profiles + サイト CSV を /XF、宛先が空のときのみ /MIR 許可。要: 実運用のデプロイ手順(USB が真のソースか、PC 側で CSV 編集するか)の確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査+実装完了 (commit d11420b, レビュー待ち=実機確認待ち)。\n\n【確定】配布物(USB/git)は evidence/・logs/ が .gitkeep のみ(空)。.gitignore で /evidence/gyotaku/*, /evidence/export_history/*, /logs/*, /logs/history/* 等を除外。ターゲットPCは実行中に evidence/<session>_evidence/・checklist/・gyotaku/・pc_information/・logs/(transcript, telemetry/, history/execution_history.csv)・kernel/json/resume_state.json・telemetry_salt.txt・modules/standard/windows_update/wu_state.json を蓄積。Deploy.bat:132 robocopy /MIR は宛先にあってソースに無いファイルを削除するため、運用済みPCへの再デプロイで上記(特に納品エビデンス本体)を全消去。初回(空宛先)は無害、危険は再デプロイのみ。124行 \"Updating files...\" は無警告。\n\n【運用確認】CSV/プロファイルは USB(配布元)が source of truth・PCはデプロイのみ(ユーザ回答)。よって /MIR で CSV/プロファイルをリフレッシュするのは正、保護対象は runtime 生成物のみ。\n\n【robocopy 実測(/L ドライラン)で判明した重要点】/XD に dest 絶対パスを渡しても /MIR の purge を防げない(EXTRA のまま)。robocopy /XD は source-rooted で評価されるため source パス(または bare name)が必要。bare name は同名ネストを誤除外するリスクがあるため source の最上位パス指定を採用。\n\n【修正(d11420b)】robocopy \"%FABRIQ_SRC%\" \"%DEST_DIR%\" /MIR /XD \"%FABRIQ_SRC%\\evidence\" \"%FABRIQ_SRC%\\logs\" /XF resume_state.json wu_state.json wu_completed.json telemetry_salt.txt /NJH /NJS /NDL /NP /R:2 /W:1。再デプロイ時メッセージに保持/削除を明記。CHANGELOG [Unreleased] Security。Deploy.bat は root 直下で §A/§4 対象外だがデータ保護のため CHANGELOG 追記。\n\n【検証】/L ドライランで実構成(modules/ あり)を再現し EXTRA=stale ファイルのみ、evidence/logs/resume_state/wu_state/telemetry_salt 全保護、フレームワーク refresh(common.ps1更新/hostlist/新規flag)維持を確認。.ps1 非変更のため run_tests 対象外。\n\n【実機確認推奨】運用済みPC(evidence 蓄積あり)に再デプロイし、evidence/logs/履歴が消えないこと + フレームワーク/CSV が更新されること。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T11:56:32+09:00"
     },
     {
       "id": "t-0043",
