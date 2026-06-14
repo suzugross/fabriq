@@ -49,6 +49,14 @@ $configItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
 if ($null -eq $configItems) {
     return @{ Status = "Error"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
 }
+# All rows disabled (or no Segment match) loads as an empty array (Count 0),
+# distinct from the $null load failure above. Skip rather than run Windows
+# Update with default settings the operator did not enable. The loop consumer
+# (main.ps1 Invoke-WindowsUpdateLoop) records Status and does not reboot when
+# RebootRequired=$false / InstalledCount=0.
+if ($configItems.Count -eq 0) {
+    return @{ Status = "Skipped"; RebootRequired = $false; InstalledCount = 0; FailedCount = 0; InstalledKBs = @(); FailedKBs = @(); UpdatesFound = 0 }
+}
 
 # Parse SettingName/Value pairs into hashtable
 $config = @{}

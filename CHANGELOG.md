@@ -97,6 +97,22 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- kernel/common.ps1 `Import-ModuleCsv` (TM t-0044): 全行 Disabled / Segment 不一致で対象ゼロの
+  CSV が、本来 Skip であるべきところを **偽 Error** にしていた systemic バグを修正。原因は
+  `return @()` が PS5.1 で呼出側スカラ代入時に `$null` へ unroll され、各モジュールの
+  `if ($null -eq $items) { Error }` が発火、`if ($items.Count -eq 0) { Skipped }` が到達不能
+  死コード化していたこと（実測確認）。出荷 `delete_list.csv`（全行 Enabled=0）で file_delete が
+  箱出しで偽 Error を返すなど、`-FilterEnabled` を使う約 58 モジュールに波及。修正は `return @()`
+  → **`return ,@()`**（有効ゼロ／Segment ゼロの 2 箇所）で空配列を呼出側へ保持し、既存の
+  `Count -eq 0 → Skipped` 分岐を一斉に復活（モジュール側は無変更で改善）。真のロード失敗は
+  従来どおり `$null` → Error を維持し、両者を区別可能化。KERNEL_API.md §1.2 に戻り値契約を明文化。
+  `Import-ModuleCsv.tests.ps1` の旧「`$null` 潰れ」ピン留め 2 件を新契約（空配列・Count 0）へ更新。
+- modules/standard/office_update v1.1.0 → v1.1.1 (TM t-0044): 上記修正で全行 Disabled 時に
+  `$null` チェックを素通りして既定値で Office Update を実行してしまう経路を、明示的な
+  `if ($configItems.Count -eq 0) { Skipped }` ガードで封鎖。
+- modules/standard/windows_update v1.1.0 → v1.1.1 (TM t-0044): 同様に全行 Disabled 時へ
+  `Count -eq 0 → Status="Skipped"`（同形ハッシュテーブル / RebootRequired=$false / InstalledCount=0）
+  ガードを追加し、既定設定での WU 実行を防止（ループ消費側は Status 記録のみで再起動しない）。
 - apps/fabriq_ios v0.7.0 → v0.7.1 (TM t-0036): ModuleConfig で `Enabled` カラムをオペレータ
   から隠蔽。`show` の列一覧・Tab 補完・インライン `?` の候補から `Enabled` を除外し、`show` の
   Notes からも Enabled の記述を削除（オペレータが Enabled の存在を意識しないようにする要望）。
