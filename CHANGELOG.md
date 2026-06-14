@@ -84,6 +84,19 @@
   ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
 
 ### Security
+- kernel/common.ps1 `Test-FabriqProtectedPath` (TM t-0041): 破壊的削除ガードの
+  バイパスを修正。保護ルート一覧はドライブレター形（`C:\...`）だが
+  `[IO.Path]::GetFullPath` が `\\?\`（拡張長）・`\\.\`（device）・`\\?\UNC\` /
+  `\\host\c$`（UNC 管理共有）プレフィクスを保持するため、`\\?\C:\Windows` や
+  `\\localhost\c$\Windows` 等が `IsSafe=$true` となり、caller（file_delete /
+  history_destroyer）が `Remove-Item -Force -Recurse` で保護ルートを再帰削除し得た
+  （PS5.1 で実測確認。AutoPilot では確認 auto-Y のため本ガードが唯一の砦）。修正は
+  評価前に `/`→`\` 正規化のうえ device/拡張長・UNC を純文字列で fail-closed ブロックし、
+  GetFullPath 後がドライブレター形（`^[a-z]:\`）でなければブロック（多層防御）。
+  device/UNC 判定は文字列のみで既存のワイルドカード leaf 機能に非干渉。キッティングの
+  削除対象は常にローカル `X:\...` のため誤検出ゼロ。8.3短縮名は GetFullPath が展開し既に
+  捕捉済。`PathGuards.tests.ps1` に全バイパスベクタ（forward-slash/混在含む）回帰を追加。
+  公開 API 署名・戻り値形不変。
 - kernel/common.ps1 (Write-ExecutionHistory): 実行履歴 CSV / HTML チェックリストの
   Message 欄に host PIN が混入した場合に備え、telemetry と同じハードリダクト
   （SELECTED_PIN → [REDACTED]）を CSV エスケープ前の単一チョークポイントに追加

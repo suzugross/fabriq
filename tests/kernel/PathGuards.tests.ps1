@@ -103,6 +103,40 @@ Describe 'Test-FabriqProtectedPath' {
         }
     }
 
+    Context 'device / UNC / extended-length namespace bypass (TM t-0041)' {
+        # The protected-root list is drive-letter form (C:\...), but
+        # [IO.Path]::GetFullPath preserves \\?\ / \\.\ / UNC prefixes, so
+        # these alternate spellings resolve to a protected root yet evade
+        # the list. Must be blocked fail-closed (verified bypass on PS 5.1).
+        It 'blocks extended-length \\?\ pointing at a protected root' {
+            (Test-FabriqProtectedPath -Path '\\?\C:\Windows').IsSafe | Should -BeFalse
+            (Test-FabriqProtectedPath -Path '\\?\C:\Users\Public').IsSafe | Should -BeFalse
+        }
+        It 'blocks device namespace \\.\ pointing at a protected root' {
+            (Test-FabriqProtectedPath -Path '\\.\C:\Windows').IsSafe | Should -BeFalse
+        }
+        It 'blocks \\?\UNC\ form' {
+            (Test-FabriqProtectedPath -Path '\\?\UNC\localhost\c$\Windows').IsSafe | Should -BeFalse
+        }
+        It 'blocks UNC administrative shares (\\host\c$)' {
+            (Test-FabriqProtectedPath -Path '\\localhost\c$\Windows').IsSafe | Should -BeFalse
+            (Test-FabriqProtectedPath -Path '\\127.0.0.1\c$\Windows').IsSafe | Should -BeFalse
+        }
+        It 'blocks forward-slash and mixed-separator variants (normalize-first)' {
+            (Test-FabriqProtectedPath -Path '//?/C:/Windows').IsSafe | Should -BeFalse
+            (Test-FabriqProtectedPath -Path '//./C:/Windows').IsSafe | Should -BeFalse
+            (Test-FabriqProtectedPath -Path '//localhost/c$/Windows').IsSafe | Should -BeFalse
+            (Test-FabriqProtectedPath -Path '\\?/C:/Windows').IsSafe | Should -BeFalse
+        }
+        It 'reports a namespace-specific block reason (not a generic pass)' {
+            (Test-FabriqProtectedPath -Path '\\?\C:\Windows').Reason | Should -Match 'namespace'
+            (Test-FabriqProtectedPath -Path '\\localhost\c$\Windows').Reason | Should -Match 'UNC'
+        }
+        It 'still allows a legit deep drive-letter target (no false positive)' {
+            (Test-FabriqProtectedPath -Path 'C:\Users\fabriq-test-no-such-user\AppData\Local\Temp\junk').IsSafe | Should -BeTrue
+        }
+    }
+
     Context 'legitimate targets pass (shipped CSV regression pins)' {
         It 'allows a sibling user profile folder (profile_delete purpose)' {
             (Test-FabriqProtectedPath -Path 'C:\Users\fabriq-test-no-such-user').IsSafe | Should -BeTrue
