@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T12:03:24+09:00",
+  "updatedAt": "2026-06-14T13:00:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -524,6 +524,24 @@
       "status": "未着手",
       "createdAt": "2026-06-14T10:23:21.3546786+09:00",
       "updatedAt": "2026-06-14T10:24:42.3211759+09:00"
+    },
+    {
+      "id": "t-0059",
+      "title": "Fabriq_IOS.exe が Windows Defender に検知・削除される件 — 自己昇格 .bat への回帰",
+      "content": "ネットワーク共有(\\\\10.1.10.5\\e\\fabriq\\Fabriq_IOS.exe)上の Fabriq_IOS.exe が Windows Defender に Program:Win32/Wacapew.A!ml(区分:設定改変・警告レベル高)として検知・削除されるようになった(2026-06-14 12:02 のスクリーンショットで確認)。Fabriq.exe は現状無事。\\n\\n即時回避策として、IOS ランチャを EXE から『自己昇格 .bat』へ回帰させる(かつて Fabriq.bat が採っていた net session 判定→Start-Process -Verb RunAs 方式)。これにより PE バイナリ向け ML 分類器(...!ml)の対象から外れ、UAC 自動昇格も維持できる。\\n\\n決定が必要: (1)IOS 子シェルのウィンドウを通常表示に戻すか(現行 Launcher_IOS.cs は ProcessWindowStyle.Minimized=hidden 寄りで挙動ヒューリスティックの加点要因) (2)ExecutionPolicy は Bypass に統一(現ユーザ提示 bat は Unrestricted) (3)アイコン/見栄えを .lnk 同梱で取り戻すか。",
+      "claudeNote": "診断(2026-06-14 セッション): 両ランチャは dev/launcher/Launcher.cs / Launcher_IOS.cs を csc.exe で固めた未署名の極小 C# wrapper(どちらも conhost 経由で powershell -ExecutionPolicy Bypass -File ... を起動・57344 bytes)。差分は2点のみ — (a)IOS は ProcessWindowStyle.Minimized で子 powershell を起動(Launcher_IOS.cs:78)、本体は通常表示 (b)IOS は 6/13 再ビルドの新規・低実績ハッシュ、本体は 4/9 ビルドで実績蓄積済み。\\n検知名 Program:Win32/Wacapew.A!ml の分解: !ml=クラウド ML 判定(署名一致でない)/Program:(≠Trojan:)=PUA級『望ましくない動作の可能性』/区分『設定改変』。特定マルウェアの模倣ではなく『未署名の小 PE が requireAdministrator で昇格要求し powershell -Bypass を spawn してシステム設定を改変するスクリプトへ連結』という特徴ベクトルが Wacapew(設定をいじる素性不明ユーティリティ)クラスタに近いと ML が判定した典型的誤検知。皮肉にもこの特徴は fabriq が正当にやっていること(キッティング=設定改変)そのもの。\\n加重要因(スクショで判明): 影響パスが UNC 共有 \\\\10.1.10.5\\... =ネットワーク経由ファイルは低信頼ゾーン扱いで ML スコア閾値を越えやすい。『新規低実績ハッシュ × 共有実行(低信頼) × 未署名 × 設定改変素性』の重なりが根因。\\n.bat 回帰が有効な理由: 本検知は PE バイナリ向け ML 分類なので、テキストスクリプトの .bat に戻せば対象外(共有上でも同じ)。残留リスク(AMSI スクリプト走査)はゼロでないが、難読化していない可読ランチャ bat は実用上まず弾かれない。ユーザ提示の旧 Fabriq.bat 方式(net session→powershell Start-Process -Verb RunAs で自己昇格→conhost+powershell)で UAC 自動昇格も再現可能。\\n推奨修正: Unrestricted→Bypass / IOS 子シェルは最小化をやめ通常表示 / 見栄えは .lnk 同梱で回収。実装は CLAUDE.md §4 設計ゲートを経る(ただし対象はリポ直下の .bat ランチャで kernel/modules の .ps1 ロジックではない)。関連: t-0060(恒久対策=署名)。\\n実装(2026-06-14): リポ直下に Fabriq.bat / Fabriq_IOS.bat を新規追加(EXE は据置=並行運用、変更でなく追加)。方式=ユーザ提示の旧 Fabriq.bat 実績パターン: net session 判定→非管理者は powershell Start-Process -Verb RunAs で自己昇格再起動→cd /d %~dp0→entry ps1 存在ガード(不在は pause+exit 2 で fail-closed)→start で conhost+powershell 起動。ExecutionPolicy は Bypass に統一(旧 bat の Unrestricted から変更)。Fabriq.bat=kernel\\main.ps1 を通常ウィンドウで -File 起動(EXE 等価)。Fabriq_IOS.bat=apps\\fabriq_ios\\fabriq_ios.ps1 を start /min で最小化 bootstrap 起動(EXE の ProcessWindowStyle.Minimized 再現。ps1 が FABRIQ_IOS_SUBPROCESS で子 REPL を通常ウィンドウ自己スポーン)。決定: 最小化は維持(bat は PE でないため ML 検知に無関係・EXE と挙動等価が安全)/Bypass 採用/.lnk によるアイコン回収は任意で見送り(必要なら別途)。\\n設計検討の過程で UNC 起動対応(PowerShell Set-Location で cwd 保持)を一度入れたが、ユーザ確認で『UNC は \\\\10.1.10.5 経由で検証環境へ配っていただけ・UNC から起動する必要なし』と判明したため撤去し、cd /d + -File 相対の素直形に確定(quoting リスク低・EXE 等価)。版/CHANGELOG 義務なし(リポ直下 .bat は kernel/modules/apps 等の管理対象外=Deploy.bat と同格)。エンコーディング: ASCII のみ・CRLF・BOM 無し・lone LF ゼロを検証済。\\n残(実機確認・レビュー): ①非管理者ダブルクリックで UAC 昇格→fabriq メインダッシュボードが EXE と同様に起動 ②Fabriq_IOS.bat で bootstrap 最小化・IOS シェルが通常ウィンドウで前面起動し show version 等が動作 ③EXE 2 本が無改変で従来通り起動 ④検証環境(共有から配備したローカル)で Defender が .bat を隔離しないこと。\\n実機確認(2026-06-14 ユーザ報告): 問題なし。IOS は NW 越し配送した瞬間に EXE が Defender に削除されるが、.bat は無傷で生存。.bat 回帰により Wacapew.A!ml 検知を回避できることを実環境で確証。完了。",
+      "status": "完了",
+      "createdAt": "2026-06-14T12:15:00+09:00",
+      "updatedAt": "2026-06-14T13:00:00+09:00"
+    },
+    {
+      "id": "t-0060",
+      "title": "ランチャ全体の Defender 恒久対策(コード署名 / 誤検知申告 / パス除外)— Fabriq.exe も構造的同リスク",
+      "content": "t-0059 の IOS 検知は『EXE だから』ではなく『未署名の小 PE が設定改変スクリプトを起こす』特徴 × 新規低実績ハッシュ × 共有(低信頼ゾーン)実行の重なりが根因。Fabriq.exe(本体)は現状無事だが、これは古いハッシュにローカル実績が付いている『運』に過ぎず、再ビルドでハッシュが変われば同様に削除され得る(構造的に同じ地雷)。本体は UAC 自動昇格(app.manifest requireAdministrator)が load-bearing のため、IOS のような .bat 回帰より恒久策が筋。\\n\\n恒久対策の方針決定が必要:\\n(1) コード署名(正規証明書)— Fabriq.exe / Fabriq_IOS.exe 両方に署名。未署名特徴が消え発行元 ID が安定し、再ビルドでも実績リセットされにくい。最も堅牢な根本解決(証明書コスト)。\\n(2) Microsoft への誤検知申告(WDSI File Submission)— Program:...!ml は PUA級 ML 単独判定で比較的すんなり解除されやすい。ハッシュ単位なので再ビルドごとに再申告が必要。\\n(3) Defender パス除外 — 配布先全台に対する運用回避。パス除外なら再ビルドでも生存。",
+      "claudeNote": "出所: 2026-06-14 セッションでの t-0059 診断から派生(本体の予防/恒久対策を分離起票)。詳細な検知メカニズムは t-0059 の claudeNote 参照。\\n本体 Fabriq.exe が今無事な理由: (a)4/9 ビルドの古いハッシュにローカル実績が付き ML が見慣れたファイルと判断 (b)子 powershell を最小化せず通常表示=挙動ヒューリスティックに当たりにくい。ただし両方ともコードの安全でなく現物バイナリ限定の安全であり、再ビルド or Defender 定義/クラウドモデル更新で突然検知に転びうる。\\n判断材料: 即効性=パス除外>申告>署名 / 恒久性・再発防止=署名>>申告>除外。コスト=署名(証明書購入・更新)>申告(無料・都度)>除外(無料・全台展開の手間)。実運用上『キッティングフレームワーク本体 EXE が将来いきなり消える』のは痛いので、最低でも本体には何らかの手当て推奨。署名するなら build.ps1 / build_ios.ps1 に signtool ステップを追加する形。ユーザ方針決定待ち。関連: t-0059(IOS 即時回避=.bat 回帰で完了)。\\n2026-06-14: ユーザ判断で保留。t-0059 の .bat 回帰で当面の運用回避は成立しているため緊急度低。署名/申告/除外の恒久対策は trigger 待ち。",
+      "status": "保留",
+      "createdAt": "2026-06-14T12:15:00+09:00",
+      "updatedAt": "2026-06-14T13:00:00+09:00"
     }
   ]
 }
