@@ -53,7 +53,7 @@
 ### 1.6 破壊的削除ガード（since 3.5.0）
 | 関数 | シグネチャ | 用途 |
 |---|---|---|
-| `Test-FabriqProtectedPath` | `-Path <string>`（`{IsSafe; Reason; NormalizedPath}` 返却） | 再帰削除対象パスの検証。保護ルート（C:\Users 等）・保護ルートの親・3 セグメント未満・解決不能パスを `IsSafe=$false` でブロック。leaf がワイルドカード（`*`/`?`）の場合は親ディレクトリを検証（PS5.1 の GetFullPath はワイルドカードで throw するため）。字句検証のみ（junction/symlink は解決しない） |
+| `Test-FabriqProtectedPath` | `-Path <string>`（`{IsSafe; Reason; NormalizedPath}` 返却） | 再帰削除対象パスの検証。保護ルート（C:\Users 等）・保護ルートの親・3 セグメント未満・解決不能パスを `IsSafe=$false` でブロック。**device/拡張長（`\\?\`・`\\.\`）・UNC（`\\host\share`、管理共有 `c$` 含む）・非ドライブレター形のパスも fail-closed でブロック**（GetFullPath はこれらのプレフィクスを保持しドライブレター形の保護ルート一覧を回避するため。`/` は事前に `\` へ正規化して変種も捕捉）。leaf がワイルドカード（`*`/`?`）の場合は親ディレクトリを検証（PS5.1 の GetFullPath はワイルドカードで throw するため。device/UNC 判定は純文字列でワイルドカード安全）。字句検証のみ（junction/symlink・8.3短縮名は解決せず GetFullPath 任せ） |
 | `Test-FabriqSafePathComponent` | `-Value <string>`（bool 返却） | 固定ベース配下に Join-Path される単一パス成分の検証。空/空白・`.`/`..`・区切り文字・ワイルドカード等の不正ファイル名文字・末尾ドット/空白を拒否 |
 
 **契約**: CSV 由来のパスに対する `Remove-Item -Recurse` 等の再帰削除（CLAUDE.md §8）の前には、これらのガード（または同等の containment 検証）を確認ゲートの**外側**（AutoPilot 自動 Y でも有効な位置）に置くこと。ブロック行は Fail として計上する（fail-closed）。

@@ -3903,6 +3903,24 @@ function Test-FabriqProtectedPath {
         return [PSCustomObject]@{ IsSafe = $false; Reason = "Empty path"; NormalizedPath = "" }
     }
 
+    # Fail-closed on non-local path namespaces BEFORE GetFullPath. The
+    # protected-root list below is all drive-letter form (C:\...), but
+    # [IO.Path]::GetFullPath preserves device / extended-length / UNC
+    # prefixes verbatim, so e.g. \\?\C:\Windows or \\host\c$\Windows would
+    # normalize to a string that never matches the list yet still resolves
+    # to a protected root at the filesystem layer (verified on PS 5.1).
+    # Kitting deletion targets are always local drive-letter paths, so we
+    # block any other namespace outright. This is a pure STRING check (no
+    # GetFullPath) so it is safe on wildcard-leaf inputs (C:\dir\*), which
+    # GetFullPath would otherwise throw on.
+    $sepNormalized = $Path -replace '/', '\'
+    if ($sepNormalized.StartsWith('\\?\') -or $sepNormalized.StartsWith('\\.\')) {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Device / extended-length path namespace (\\?\ or \\.\)"; NormalizedPath = "" }
+    }
+    if ($sepNormalized.StartsWith('\\')) {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "UNC path / administrative share (\\host\share)"; NormalizedPath = "" }
+    }
+
     $protectedRoots = @(
         "C:\",
         "C:\Windows",
@@ -3958,6 +3976,14 @@ function Test-FabriqProtectedPath {
     }
     catch {
         return [PSCustomObject]@{ IsSafe = $false; Reason = "Unresolvable path"; NormalizedPath = "" }
+    }
+
+    # Defense in depth: after wildcard-leaf stripping + GetFullPath the target
+    # must be a plain local drive-letter path (X:\...). Anything else (a UNC
+    # form that slipped through, or a relative path that resolved oddly) is
+    # blocked fail-closed, since the protected-root list is drive-letter form.
+    if ($normalizedTarget -notmatch '^[a-z]:\\') {
+        return [PSCustomObject]@{ IsSafe = $false; Reason = "Not a local drive-letter path"; NormalizedPath = $normalizedTarget }
     }
 
     if ($normalizedForbidden -contains $normalizedTarget) {
