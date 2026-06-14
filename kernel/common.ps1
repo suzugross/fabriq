@@ -3376,7 +3376,8 @@ function Initialize-Session {
     # --- Determine Media Serial ---
     $mediaSerial = ""
 
-    # Priority 2: source_media.id (created by Deploy.bat)
+    # Priority 2: source_media.id (optional external provisioning marker;
+    # not created by fabriq itself - absent under normal use, then Priority 3)
     if (Test-Path $script:SourceMediaIdPath) {
         try {
             $mediaSerial = (Get-Content $script:SourceMediaIdPath -Raw -ErrorAction Stop).Trim()

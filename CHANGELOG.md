@@ -83,43 +83,15 @@
   待機窓として表示されていた。対話シェル（子プロセス）は従来どおり通常表示・フォーカスで開く。
   ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
 
+### Removed
+- Deploy.bat (TM t-0042): USB→対象 PC デプロイツールを廃止（運用で一度も使用しておらず不要）。
+  `source_media.id`(MediaSerial の Priority 2)の唯一の生成元だったが、消費側は
+  `Get-VolumeSerial` フォールバック付き(common.ps1 / main.ps1)のため MediaSerial に影響なし
+  (未使用環境では元々フォールバック経路)。README / KERNEL_API.md(§I 対象パス) /
+  dev/build_framework_patch.ps1 の参照と common.ps1 の Priority 2 コメントを整理。
+  先行の t-0042 /MIR purge 修正(d11420b)はファイル削除により moot。
+
 ### Security
-- apps/fabriq_ios v0.7.1 → v0.7.2 (TM t-0043): `set <col> <value>` で入力した秘密
-  (autologon / bitlocker / builtin_admin / domain_join のパスワード・PIN 等)が共有
-  PowerShell 履歴ファイル(`...\PSReadLine\ConsoleHost_history.txt`)に**平文残留**する
-  問題を修正。fabriq_ios は `[PSConsoleReadLine]::ReadLine` で入力を受けるが
-  `Initialize-FabriqIos` は `-PredictionSource None` のみ設定し `HistorySaveStyle`
-  未設定＝既定 `SaveIncrementally` で確定行が共有履歴へ即保存され、終了後に同一ユーザーの
-  通常 PowerShell から Up矢印 / `Get-Content` / `Get-History` で露出していた(PS5.1 で
-  既定オプション実測)。`enable` のパスフレーズは `Read-Host -AsSecureString` で保護済の
-  非対称だった。修正: `Initialize-FabriqIos` に `Set-PSReadLineOption -HistorySaveStyle
-  SaveNothing`(subprocess-scoped・親シェル非影響・in-session の in-memory 履歴は従来どおり)
-  を追加し履歴ファイルへの永続化を遮断。AST ソース契約テストで固定。既存
-  `ConsoleHost_history.txt` の過去残留分は本修正の対象外(将来の流入のみ遮断)。
-- modules/standard/robocopy_config v1.0.1 → v1.1.0 (TM t-0049): `/MIR` の破壊ガードを追加。
-  robocopy `/MIR` は宛先をソースと同一化するため、(a) ソースが存在するが**空**(再作成/
-  クリア/誤解決された共有)だと宛先を全削除、(b) 宛先が保護ローカルルート(`C:\Windows` 等)だと
-  上書き、の危険があった。事前検査は `Test-Path`(存在)のみで、AutoPilot では per-job 確認が
-  auto-Y のため唯一の防御が欠落(§8 違反)。修正: `Mirror=1` 時に (a) 空ソース
-  (`Get-ChildItem -Force` 0件)を Fail、(b) ローカル(ドライブレター)宛先に
-  `Test-FabriqProtectedPath` を適用し保護ルートを Fail。UNC 名前付き共有宛先は正規のため
-  許可((a) が wipe を保護)、ソース列挙は net use 後。ガードは確認ゲート外で AutoPilot でも
-  有効。新規公開API依存 `Test-FabriqProtectedPath`(since 3.5.0) により REQUIRES_KERNEL
-  2.0.0 → 3.5.0(§G)。robocopy guard 述語は harness で全ケース実証。
-- Deploy.bat (TM t-0042): 再デプロイ時の `robocopy /MIR` が**ターゲット PC の納品
-  エビデンスを purge** する問題を修正。配布物（USB）は `evidence/`・`logs/` が空
-  (.gitkeep のみ・`.gitignore` で除外) だが、ターゲット PC は実行中に
-  `evidence/<session>_evidence/`・`checklist/`・`gyotaku/`・`logs/`(transcript /
-  `telemetry/` / `history/execution_history.csv`)・`resume_state.json`・
-  `wu_state.json` 等を蓄積する。`/MIR` は「宛先にあってソースに無いファイル」を削除
-  するため、運用済み PC への再デプロイで上記の蓄積（特に**納品物の本体**）を全消去して
-  いた（初回デプロイは無害、危険は再デプロイのみ・[124行]の "Updating files..." は無警告）。
-  修正: `/MIR` は維持しつつ `/XD "%FABRIQ_SRC%\evidence" "%FABRIQ_SRC%\logs"`(source パス指定。
-  dest 絶対パスは /MIR の purge を防げないことを robocopy /L で実測確認) と
-  `/XF resume_state.json wu_state.json wu_completed.json telemetry_salt.txt` で
-  ランタイム生成物を purge から除外。CSV/プロファイルは USB が source of truth のため
-  従来どおり `/MIR` でリフレッシュ（陳腐ファイル除去の有用性も維持）。再デプロイ時の
-  メッセージに「保持: evidence/logs/進行状態、削除: 陳腐ファイル」を明記。
 - kernel/common.ps1 `Test-FabriqProtectedPath` (TM t-0041): 破壊的削除ガードの
   バイパスを修正。保護ルート一覧はドライブレター形（`C:\...`）だが
   `[IO.Path]::GetFullPath` が `\\?\`（拡張長）・`\\.\`（device）・`\\?\UNC\` /
