@@ -84,6 +84,18 @@
   ランチャ経路のみの変更で、operator ダッシュボード（in-process `& $appPath`）経路は無影響。
 
 ### Security
+- apps/fabriq_ios v0.7.1 → v0.7.2 (TM t-0043): `set <col> <value>` で入力した秘密
+  (autologon / bitlocker / builtin_admin / domain_join のパスワード・PIN 等)が共有
+  PowerShell 履歴ファイル(`...\PSReadLine\ConsoleHost_history.txt`)に**平文残留**する
+  問題を修正。fabriq_ios は `[PSConsoleReadLine]::ReadLine` で入力を受けるが
+  `Initialize-FabriqIos` は `-PredictionSource None` のみ設定し `HistorySaveStyle`
+  未設定＝既定 `SaveIncrementally` で確定行が共有履歴へ即保存され、終了後に同一ユーザーの
+  通常 PowerShell から Up矢印 / `Get-Content` / `Get-History` で露出していた(PS5.1 で
+  既定オプション実測)。`enable` のパスフレーズは `Read-Host -AsSecureString` で保護済の
+  非対称だった。修正: `Initialize-FabriqIos` に `Set-PSReadLineOption -HistorySaveStyle
+  SaveNothing`(subprocess-scoped・親シェル非影響・in-session の in-memory 履歴は従来どおり)
+  を追加し履歴ファイルへの永続化を遮断。AST ソース契約テストで固定。既存
+  `ConsoleHost_history.txt` の過去残留分は本修正の対象外(将来の流入のみ遮断)。
 - modules/standard/robocopy_config v1.0.1 → v1.1.0 (TM t-0049): `/MIR` の破壊ガードを追加。
   robocopy `/MIR` は宛先をソースと同一化するため、(a) ソースが存在するが**空**(再作成/
   クリア/誤解決された共有)だと宛先を全削除、(b) 宛先が保護ローカルルート(`C:\Windows` 等)だと
