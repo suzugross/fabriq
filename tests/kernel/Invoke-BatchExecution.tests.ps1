@@ -187,7 +187,7 @@ Describe 'Invoke-BatchExecution' {
             $state.ResumeAfterOrder | Should -Be 20
         }
 
-        It 'on RunOnce failure: removes the resume state, records the Error, skips the restart and keeps executing' {
+        It 'on RunOnce failure: removes the resume state, records the Error, aborts the restart and STOPS (fail-closed) - post-reboot modules do not run' {
             Mock Register-FabriqRunOnce { $false }
             $mods = @(
                 (New-BatchModule -Order 10),
@@ -198,13 +198,20 @@ Describe 'Invoke-BatchExecution' {
             Invoke-BatchExecution -SelectedModules $mods `
                 -ProfilePath 'C:\profiles\test.csv' -ProfileName 'TestProfile'
 
-            # No reboot; the failure is recorded; the batch continued to
-            # the module after the marker.
+            # No reboot; the failure is recorded; the batch STOPS at the marker
+            # (fail-closed, TM t-0045) so the post-reboot module (Order 30) does
+            # NOT run on the un-rebooted/stale system state.
             Should -Invoke Invoke-CountdownRestart -Exactly -Times 0
             Should -Invoke Add-ExecutionResult -Exactly -Times 1 -ParameterFilter {
                 $Operation -eq '[RESTART]' -and $Status -eq 'Error'
             }
-            Should -Invoke Invoke-SafeCommand -Exactly -Times 2
+            # Only the pre-marker module (Order 10) ran; Order 30 was skipped.
+            Should -Invoke Invoke-SafeCommand -Exactly -Times 1
+
+            # Unlike the RunOnce-success path (which returns before finalize so
+            # the post-reboot resume can finalize later), the abort falls through
+            # to natural completion and finalizes once with the Error recorded.
+            Should -Invoke Complete-ProfileExecution -Exactly -Times 1
 
             # No stale resume file is left behind (failure-path Remove +
             # natural-completion Remove both target the temp file).

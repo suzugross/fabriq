@@ -128,6 +128,16 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- kernel/main.ps1 Invoke-BatchExecution `__RESTART__` (TM t-0045): RunOnce 登録失敗時の
+  **fail-open を fail-closed に修正**。`Register-FabriqRunOnce` が `$false`（Fabriq.exe 不在 /
+  HKLM RunOnce 書込例外）を返すと、Error 記録後に `continue` してバッチ foreach の次要素
+  （＝**再起動後に走る予定のモジュール群**）を**再起動せず同一セッションで実行**していた。
+  hostname 変更後の domain join 等が旧システム状態で走り誤設定の恐れ。`continue` → `break`
+  に変更し、`Show-Error` で「restart aborted・残りスキップ」を明示。残りモジュールは実行せず
+  自然完了経路で finalize（Error 記録済）して返る。**正常系（RunOnce 登録成功 → 再起動 →
+  resume）は完全に不変**（変更は登録失敗ブロック内に閉じている）。FlexProfile ダッシュボードの
+  RestartNow(main.ps1:901) は `continue`=ダッシュボード復帰で元から fail-closed のため不変。
+  Invoke-BatchExecution.tests.ps1 の旧 fail-open ピン留めを fail-closed 契約へ更新。
 - modules/standard/evidence_config v1.8.0 → v1.8.1 (TM t-0050): Section 29（Memory Slots）が
   DIMM の `PartNumber`/`SerialNumber` null で `.Trim()` 例外 → セクション失陥していた問題を修正。
   `Win32_PhysicalMemory` の PartNumber/SerialNumber は **はんだ付け LPDDR ノート PC・一部
