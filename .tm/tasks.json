@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T13:48:44+09:00",
+  "updatedAt": "2026-06-14T14:01:57+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -430,10 +430,10 @@
       "id": "t-0048",
       "title": "[監査B・疑い] odt_install が確認・冪等判定より前に破壊操作(Office強制終了/Store Office削除)を実行",
       "content": "modules/standard/odt_config/odt_install.ps1 の Step3.5(135-179)が Stop-Process -Force(Office群)/Remove-AppxPackage/Remove-AppxProvisionedPackage/Set-Service msiserver を、確認 Confirm-ModuleExecution(257)および『既インストール→Skip』冪等判定(201-247)よりも前に無条件実行する疑い。対話実行で N 回答しても破壊済(キャンセルが no-op でない)、かつ再実行のたびに Office を kill＝冪等性違反。標準テンプレは副作用を確認後の Step5 に置く規約。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査。検証: Claude が odt_install.ps1:128-258 を手動実読し、破壊ブロックが確認・冪等 return より前にあることを確認。修正方針: Step3.5 の (a)(b)(c)(d) を確認ゲート後(Step5 直前)へ移動、確認前は非破壊プローブ(ディスク空き/OSPP検出)のみ。要: 実機で N 回答時に副作用が起きないことの確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 調査完了→保留(ユーザ判断・コード変更なし)。\n\n【機構(確定)】odt_install.ps1 の「3.5 Environment Pre-check & Cleanup」が、破壊的 (a)Office プロセス強制終了(140-147) (b)ClickToRunSvc 停止(149-154) (c)Store版Office削除 Remove-AppxPackage/Provisioned(156-172) (d)msiserver Manual化(174-179) を、冪等判定(f, 192-248: Skip 238 / 競合 Error 246)・確認ゲート(257) より前で実行。よって Skip/Error/Cancel 経路でも破壊が先に走る。\n\n【severity 訂正(ユーザ実運用が ground truth)】最終 verdict(再実行→Skip、プリインストールC2R→Error)は正しく動作。verdict 前の破壊も実運用では実害になりにくい: (a)キッティング中 Office 未起動=見えない no-op、(b)サービスは自動再起動、(c)初回で削除済→再実行0件 no-op・触るのは UWP スタブで C2R 本体は無傷、(d)Disabled時のみ。データ消失/C2R破壊なし。t-0051 同様「規約上の副作用前置き違反だが実運用無症状」クラス。\n\n【残るエッジ(過大評価しない)】Office を開いたまま回すと確認前 force-kill(稀)/(c) Provisioned 削除は abort 後も残存(UWPスタブ除去で実害小)。\n\n【修正案(低優先・未実施)】破壊ブロック(a)(b)(c)(d)を確認ゲート後・install前へ移動(非破壊プローブ e/f は確認前に残す)。ロジック不変・移動のみ。(f)C2R検出はレジストリ読みで(a)(b)(c)(d)非依存=検出結果同一。VERSION 1.1.0→1.1.1 想定。§4フル版設計は提示済(state machine/敵対検証)。\n\n【判断】ユーザ実運用で問題なし→一旦見送り(保留)。実害を感じたら再相談。",
+      "status": "保留",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T14:01:57+09:00"
     },
     {
       "id": "t-0049",
