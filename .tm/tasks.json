@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-14T12:51:56+09:00",
+  "updatedAt": "2026-06-14T13:02:36+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -457,10 +457,10 @@
       "id": "t-0051",
       "title": "[監査B・疑い] ssid_config の live -match に日本語リテラル+BOM無し→JP Windows で WLAN 検出破綻+英語オンリー規約違反",
       "content": "modules/standard/ssid_config/ssid_config.ps1:47 が実行コードで日本語『プロファイル』を含む -match 行。ファイルは BOM 無し(先頭 23 20 3d)で、JP CP932 環境の PS5.1 が CP932 として読むと UTF-8 の『プロファイル』が mojibake し、netsh の日本語出力に一致せず WLAN 有でも『利用不可』と誤判定→Error を返す疑い。加えて CLAUDE.md §7 英語オンリーコード規約の違反。\n\n※本件は 2026-06-14 の多エージェント監査による検出で、現時点では『問題の疑いあり』の段階。確証には追加調査・実機確認が必要。コード修正は CLAUDE.md §4 設計ゲート（実装前宣言＋承認）を経ること。",
-      "claudeNote": "出所: 2026-06-14 監査。検証: Claude が ssid_config.ps1:47 と先頭3バイト(BOM無し)を手動確認。修正方針: 日本語リテラル除去し locale 非依存判定(英語語+exit/empty 判定、または Get-NetAdapter/netsh wlan show interfaces)へ。非ASCIIが残るなら UTF-8 BOM 付与。要: JP 実機で WLAN 検出の再現/修正確認。",
-      "status": "未着手",
+      "claudeNote": "2026-06-14 追加調査(read-only・コード変更なし)。確定。\n【機構】ssid_config.ps1:43 $profileOutput = netsh wlan show profiles。47 $hasWlanInterface = $outputText -match \"Wi-Fi|Wireless|WLAN|プロファイル|Profile\" で WLAN 可用性判定。一致しないと Error \"WLAN service not available\"。\n【BOM/§7】ファイルは BOM 無し(先頭 23 20 3d)。非ASCII行: 47(プロファイル=日本語リテラル, §7違反), 153/176/234(英語コメント内の em-dash — U+2014)。check_ps1_encoding の JP-NO-BOM 5件の1つ。\n【バグ】JP CP932 環境の PS5.1 は BOM 無し UTF-8 を CP932 として読むため、47行の プロファイル が mojibake → 正規表現リテラルが壊れる。JP Windows の netsh 出力は日本語で英語キーワード(Wi-Fi/Profile 等)を含まず プロファイル 依存だったため、WLAN 有(特に Wi-Fi 搭載ノート)でも一致せず偽 Error を返す。プロファイル抽出(56行〜)は既に \" : \" 区切りで locale 非依存。add/delete は XML ベースで非依存。localized-text 依存は47行のみ。\n【実機確認】dev VM は Wi-Fi 無し(Ethernet PhysicalMediaType=802.3)。Wi-Fi は PhysicalMediaType='Native 802.11'(NdisPhysicalMedium 由来の locale 非依存 enum)を確認。\n【修正案(§4・module ssid_config)】(1) 47行を locale 非依存の Wi-Fi アダプタ検出へ: $hasWlanInterface = @(Get-NetAdapter -EA SilentlyContinue | ? { $_.PhysicalMediaType -eq 'Native 802.11' -or $_.NdisPhysicalMedium -eq 'Native802_11' }).Count -gt 0。$profileOutput(43)は下流抽出のため維持。(2) 153/176/234 の em-dash を ASCII '-' に置換。→ ファイルが純ASCII化=§7準拠+BOM不要(JP-NO-BOM 積み残しも解消)。(3) VERSION PATCH bump、CHANGELOG Fixed。kernel 無変更。挙動: Wi-Fi アダプタ無し(デスクトップ)は従来どおり Error(可用性なし)、JP ノートで偽Error解消。\n【残留】\"WLAN サービス停止だがアダプタ有り\" は Get-NetAdapter では可用性ありと判定→netsh add 失敗で報告(現状の netsh keyword 検出も完全ではない、実害低)。",
+      "status": "対応中",
       "createdAt": "2026-06-14T09:01:54.550196+09:00",
-      "updatedAt": "2026-06-14T09:01:54.550196+09:00"
+      "updatedAt": "2026-06-14T13:02:36+09:00"
     },
     {
       "id": "t-0052",
