@@ -118,6 +118,16 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- modules/standard/evidence_config v1.8.0 → v1.8.1 (TM t-0050): Section 29（Memory Slots）が
+  DIMM の `PartNumber`/`SerialNumber` null で `.Trim()` 例外 → セクション失陥していた問題を修正。
+  `Win32_PhysicalMemory` の PartNumber/SerialNumber は **はんだ付け LPDDR ノート PC・一部
+  Hyper-V/OEM SMBIOS** で null になり、`($m.PartNumber).Trim()`（evidence_config.ps1:2439-2440）が
+  Export-Csv より前の foreach 内で throw → 外側 catch で Section 29 が `Failed` + `$failCount++` →
+  (1) `29_MemorySlots.csv` が**生成されず欠落**、(2) `$failCount` が `New-BatchResult -Fail` に入り
+  **evidence_config モジュールが Partial/Fail として記録**（納品に失敗フラグ）。修正は null 安全な
+  文字列キャスト `"$($m.PartNumber)".Trim()` / `"$($m.SerialNumber)".Trim()`（Section 10/22/33 と
+  同方針）。null → 空欄、非 null 値の trim 挙動は不変（実測確認）。Section 29 内で null 無防備なのは
+  この 2 行のみ（他フィールドは null 耐性あり）。
 - modules/standard/ssid_config v1.0.0 → v1.0.1 (TM t-0051): WLAN 可用性判定
   (ssid_config.ps1:47)の正規表現から冗長な日本語リテラル `プロファイル` を削除し、
   コメント内の em-dash 3 箇所を ASCII 化してファイルを純 ASCII 化（§7 英語オンリー準拠・

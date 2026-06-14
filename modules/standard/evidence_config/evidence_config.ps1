@@ -2436,8 +2436,8 @@ try {
             ConfiguredClockSpeed_MHz = $m.ConfiguredClockSpeed
             ConfiguredVoltage_mV   = $m.ConfiguredVoltage
             Manufacturer           = $m.Manufacturer
-            PartNumber             = ($m.PartNumber).Trim()
-            SerialNumber           = ($m.SerialNumber).Trim()
+            PartNumber             = "$($m.PartNumber)".Trim()
+            SerialNumber           = "$($m.SerialNumber)".Trim()
             FormFactor             = $ffName
             SMBIOSMemoryType       = $mtName
             DataWidth_bit          = $m.DataWidth
