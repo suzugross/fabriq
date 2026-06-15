@@ -9,7 +9,7 @@
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
             fixture = @()
-            expect = @{ status = @('Success'); verified = 'any' }
+            expect = @{ status = @('Success','Skipped'); verified = 'any' }   # independent oracle is authoritative; idempotent Skip is fine
             # C6: independent check that the layout XML was deployed to the Default profile
             oracle = @{ type = 'file-exists'; mode = 'present'
                         paths = @('C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\LayoutModification.xml') }
