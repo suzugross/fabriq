@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T23:46:39+09:00",
+  "updatedAt": "2026-06-16T07:46:27+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -659,6 +659,60 @@
       "status": "完了",
       "createdAt": "2026-06-15T22:03:58+09:00",
       "updatedAt": "2026-06-15T22:59:52+09:00"
+    },
+    {
+      "id": "t-0075",
+      "title": "[監査2026-06-16] CSV ENC: 復号が固定ソルトで鍵導出（hardening の穴・要判断）",
+      "content": "Unprotect-FabriqValue が AES-256 鍵を PBKDF2 で導出する際、ソース埋め込みの固定ソルト「fabriq-fixed-salt-2024」を使う（common.ps1:962）。ソルトがリポジトリ・README・テストに露出しており、全 fabriq 配備で鍵空間が共通化する。precompute/rainbow テーブルを一度作れば全配備の ENC: 値を横断攻撃でき、ソルトの存在意義（事前計算の無効化）が失われている。\n\n対比（カーネルは正しいやり方を既に持つ）: テレメトリ層のハッシュは乱数のサイト別ソルトを使っている（common.ps1:303-308）。CSV 暗号だけが固定。\n\n影響範囲: ENC: で保護される CSV 値（Wi-Fi キー / プロダクトキー / 資格情報など）。\n\n実害評価（severity-validation）: 真の秘密は実行時入力・非保存のパスフレーズ。固定ソルトの主リスクは『全配備が同一鍵空間 → 一度の事前計算で全配備を攻撃』。パスフレーズが十分強ければ実害は限定的だが、hardening としては明確な穴。\n\n要判断: これが crypto hardening レビュー（memory project_crypto_security_review, A1-A3 完了）で意図的に残された許容債務か、見落としか。まず意図を確認。\n\n修正案（採るなら）: ENC ブロブ先頭に乱数ソルトを前置する版付きフォーマット（例 ENC2:base64(salt|iv|ct)）を新設。旧 ENC: は固定ソルトで復号継続（後方互換）。ソルトは ciphertext 同梱のため『パスフレーズだけで decrypt-anywhere』の可搬性は不変。\n\nSemVer 影響（予想）: kernel 新フォーマット追加（後方互換）= MINOR。KERNEL_API の暗号仕様節を同期。\n\n着手時の必須プロセス: CLAUDE.md §4 フル設計ゲート（暗号フォーマット = 契約変更）。既存 tests/kernel/UnprotectFabriqValue.tests.ps1 が PBKDF2/AES を独立再実装して round-trip 検証済 → 新フォーマットに拡張。\n\n関連: t-0024（ENC:復号テスト・完了）, memory project_crypto_security_review。\n\n出所: 2026-06-16 成熟度監査（カーネル深掘り）。",
+      "claudeNote": "2026-06-16 監査で抽出。唯一の『観測可能な実害候補』の暗号衛生指摘。固定ソルトは可搬性のためではない（前置ソルトでも decrypt-anywhere は維持できる）ため技術的には修正可能。ただし crypto review で意図的に残された可能性があるため、status は未着手だが着手前に『許容債務か否か』の user 判断を要する。severity は誇張しない: パスフレーズが本命の秘密。",
+      "status": "未着手",
+      "createdAt": "2026-06-16T07:35:01+09:00",
+      "updatedAt": "2026-06-16T07:35:01+09:00"
+    },
+    {
+      "id": "t-0076",
+      "title": "[監査2026-06-16] 最小 CI ゲート新設（既存テスト+静的チェックを exit code 強制実行）",
+      "content": "CI が完全に不在。.github/ workflow なし、azure-pipelines/gitlab-ci/Jenkinsfile なし、.git/hooks は全て .sample のまま。run_tests.ps1（Pester）・check_version.ps1・check_ps1_encoding.ps1 は全て人間が手動起動で、安全網がゲートではなく習慣依存になっている。\n\n改善: Windows PowerShell 5.1 上で以下を exit code 判定（0=pass）で回す最小ゲート1枚を新設:\n  1. dev/run_tests.ps1（kernel Pester 約230 It）\n  2. dev/check_version.ps1（版表記6点同期）\n  3. dev/check_ps1_encoding.ps1（JP-no-BOM / CP932 検出）\n実装形態は (a) GitHub Actions workflow か (b) ローカル pre-push フックの二択。既に優秀な3つの手動ガードを『強制力』へ昇格させるだけで、新規ロジックは不要。\n\nレバレッジ: テスト自動化監査で最高 ROI（約1日）。\n\n判断要素（conservative-bias チェック）: ソロ開発で手動規律は実際に機能してきた（4ヶ月495コミット、kernel touched 時にテスト実行が習慣化）。CI の価値は『実行忘れリスクの排除』に限定される。リモート Git ホスティングを使っていない/プライベート運用なら pre-push フックの方が軽量で十分。リモート CI を入れるかローカルフックで足りるかは運用形態次第 → user 判断。\n\n注意: 開発機に pwsh 不在（memory project_test_execution_env）。CI も Windows PowerShell 5.1 を正とする（CLAUDE.md §5）。GitHub-hosted windows runner は 5.1 同梱だが Pester v5 は要インストール（run_tests.ps1 ヘッダ参照）。\n\n関連: t-0063 エピック（VM ベースのモジュール統合テスト＝別物。本タスクは既存 kernel テスト+静的チェックの自動強制）。\n\n出所: 2026-06-16 成熟度監査（テスト自動化）。",
+      "claudeNote": "2026-06-16 監査で抽出。テスト監査の最高レバレッジ項目。ガード自体は完成度が高く、足りないのは『自動で走ること』だけ。ソロ運用では pre-push フックが現実解の可能性。実装は user 判断（CI 形態）待ち。",
+      "status": "未着手",
+      "createdAt": "2026-06-16T07:35:01+09:00",
+      "updatedAt": "2026-06-16T07:35:01+09:00"
+    },
+    {
+      "id": "t-0077",
+      "title": "[監査2026-06-16] 高複雑度モジュールの純ヘルパに no-VM ユニットテスト層（t-0063 補完）",
+      "content": "79 モジュールはリポ内に実行可能アサーションがゼロ。ロジック回帰は VM rig 統合テスト（手動・低速）でしか捕まらない。\n\n改善: reg_hklm_config の Test-RegistryValueMatch のような『純粋・冪等性 critical な比較/正規化ヘルパ』に限定して、kernel スイートと同じ dot-source 方式で tests/ に薄いユニット層を足す。VM 不要・run_tests.ps1 で数秒・フィードバック即時。\n\nスコープ（conservative・全モジュールはやらない）: 複雑な比較/パーサ/正規化を持つ少数モジュール限定。例: reg 系 DWORD/QWORD の unsigned→Int32 ビット等価変換（reg_hklm_config.ps1:61-75）、printer_backup の osArch/osVersion ゲート判定。多くのモジュールは薄い命令型で抽出価値が低い。\n\nt-0063 との境界（重複ではない）: t-0063 エピック+C1〜C9 は VM ベースのフルモジュール統合テスト（実機副作用 → 独立 oracle 突合）。本タスクは no-VM のロジック単体テストで、統合テストが拾えない/遅い『純関数の回帰』を高速に埋める補完層。t-0064（A〜E 分類）の triage 結果を流用して対象を選ぶ。\n\n着手: 対象モジュールの純ヘルパ抽出可能性を triage（dot-source して副作用なくテストできる関数の洗い出し）。tests/_helpers/test_state.ps1 の AST 抽出パターンを流用可。\n\n関連: t-0063, t-0064, _helpers/test_state.ps1。\n\n出所: 2026-06-16 成熟度監査（テスト自動化・推奨#4）。",
+      "claudeNote": "2026-06-16 監査で抽出。t-0063（VM 統合）と補完関係の no-VM 層。独立タスクにするか t-0063 配下へ吸収するかは user 判断。conservative に『複雑ヘルパ限定』でスコープ。architectural-interest ではなく real pain（ロジック回帰が VM 時にしか出ない・遅い）が根拠。",
+      "status": "未着手",
+      "createdAt": "2026-06-16T07:35:01+09:00",
+      "updatedAt": "2026-06-16T07:35:01+09:00"
+    },
+    {
+      "id": "t-0078",
+      "title": "[監査2026-06-16] fabriq_ios の smoke スクリプトを Pester 統合（眠っている約100アサーションを常時実行）",
+      "content": "apps/fabriq_ios/tests/_phase*_smoke.ps1（約7本）が自前の Check / exit $Fail ハーネスで書かれており、dev/run_tests.ps1 のディスカバリ（*.tests.ps1）に乗らず孤立している。個別に手動起動した時しか走らない＝約100のアサーションが常時テストパスで実行されていない。\n\n改善: smoke を Pester 化（Describe/It へ移植）するか、run_tests.ps1 側で _phase*_smoke.ps1 も実行対象に含める。前者が望ましい（結果集計・exit code が統一される）。\n\n価値: 既存資産（約100アサーション）を『眠っている』状態から常時自動実行へ。低工数。fabriq_ios は9アプリ中唯一テストが充実しているので、その投資を無駄にしない。\n\n関連: t-0030〜t-0036（IOS 機能・多くは完了）, dev/run_tests.ps1, t-0076（CI ゲートに乗れば自動実行効果が増す）。\n\n出所: 2026-06-16 成熟度監査（テスト自動化・推奨#2）。",
+      "claudeNote": "2026-06-16 監査で抽出。低工数・明確な価値（既存アサーションの自動実行化）。t-0076 の CI ゲートと組み合わせると効果増。",
+      "status": "未着手",
+      "createdAt": "2026-06-16T07:35:01+09:00",
+      "updatedAt": "2026-06-16T07:35:01+09:00"
+    },
+    {
+      "id": "t-0079",
+      "title": "[監査2026-06-16] bitlocker_config に enable 受理レベルの -Verified 追加（要判断・非同期注意）",
+      "content": "bitlocker_config が最終結果を New-BatchResult で -Verified 無しで返す（bitlocker_config.ps1:524）。冪等性チェックでは ProtectionStatus を読んでいる（同 334 付近）のに、検証結果を契約に乗せていない。memory project_verification_exclusions の正式除外リスト（acl/spi/copyfile/credential）に bitlocker は含まれないため、意図的除外か単なる省略か不明。\n\n要判断（severity-validation）: BitLocker 暗号化は非同期で、companion bitlocker_await.ps1 が完了を待つ。bitlocker_config 完了時点では encryption in-progress（VolumeStatus=EncryptionInProgress）のことがあり、『完全暗号化』を -Verified=true にするのは時期尚早・false は失敗に見える。これが省略の正当な理由の可能性。\n\n検討: 役割分担を『bitlocker_config = enable 受理の検証 / bitlocker_await = 暗号化完了の検証』と明確化し、enable 受理レベル（鍵保護器の存在 + Enable 成功 + ProtectionStatus トグル受理 + 暗号化方式設定）なら完了を待たずに検証可能。\n\n結論候補: (a) enable 受理 -Verified を追加（module MINOR）/ (b) sysprep 同様 $null のまま『非同期のため検証は await 側』とコメント明文化して現状を正当化（module PATCH）。どちらでも可、要設計判断。\n\n関連: memory project_verification_exclusions, CLAUDE.md §6（Post-Apply Verification）, bitlocker_await.ps1。\n\n出所: 2026-06-16 成熟度監査（モジュール）。",
+      "claudeNote": "2026-06-16 監査で抽出。セキュリティ重要モジュールで検証が契約に乗っていない点が発端だが、非同期暗号化という正当な省略理由があり得るため誇張しない。(a)追加 か (b)コメントで正当化 の二択を user 判断。",
+      "status": "未着手",
+      "createdAt": "2026-06-16T07:35:01+09:00",
+      "updatedAt": "2026-06-16T07:35:01+09:00"
+    },
+    {
+      "id": "t-0080",
+      "title": "FlexProfile 右クリック「ステータスリセット」が即座に反映されない（次の実行まで遅延）",
+      "content": "FlexProfile ダッシュボードで行を右クリック →「Mark as Pending (reset state)」でリセットしても、その場では表示ステータスが変わらず Pending にならない。その後に別モジュールを実行するなどすると、ようやく反映される。\n\n再現確認（コード上で確定的に再現済み・2026-06-16）:\n実 Write-/Import-ExecutionHistory + 実 $script:LastBatchResults を使い、Show-FlexDashboard のステータス合成を逐語再現した harness で再現。\n  After batch:                 Order 10 = Success\n  After reset (LBR stale):     Order 10 = Success   <- 期待は Pending（バグ）\n  After running another module: Order 10 = Pending  <- ここで初めて反映\n\n根本原因:\nFlexProfile の表示ステータスは Show-FlexDashboard（flex_dashboard.ps1:42-134）で3段重ね（後勝ち）で構築される:\n  1. 全行を Pending で seed\n  2. history.csv を上書き（current session・Order 最新）\n  3. $script:LastBatchResults を上書き ← 最後＝最優先\nResetState ハンドラ（main.ps1:1006-1021）は Add-ExecutionResult（$script:ExecutionResults）と Write-ExecutionHistory（history.csv に Pending 行追記）は行うが、3段目で最優先の $script:LastBatchResults を更新しない。そのため直前バッチの古いステータス（例 Success）が history の Pending を上書きし、リセットが見えない。別モジュール実行で Invoke-BatchExecution が LastBatchResults をその実行分だけで作り直す（main.ps1:349 で初期化→finally で publish）と、リセット対象 Order が LBR から消え、history の Pending が勝ってようやく反映される。\n\n修正方針（最小・局所）:\nResetState ハンドラで history 書き込みに加え、$script:LastBatchResults 内の該当 Order エントリを Pending（Verified=$null・Message='Reset by operator'）へ更新する1段を足す。エントリが無ければ no-op（history の Pending が勝つ）。制御フロー新規状態なし＝CLAUDE.md §4 軽量版。touched=main.ps1 のみ。公開 API 影響なし。\n\n検証:\n再現 harness を「修正後は After reset で Pending」へ更新して確認 + powershell.exe -File ./dev/run_tests.ps1 回帰。GUI 目視（右クリックリセット即反映）は実機。",
+      "claudeNote": "2026-06-16 起票。user 報告→コード上で再現確認まで完了。原因＝ResetState が最優先の $script:LastBatchResults を更新しない（history/ExecutionResults のみ更新）。修正は ResetState ハンドラに LBR 更新1段を追加する局所修正。t-0073/t-0074 と同じ設計ゲート→実装→検証フローで進行予定。",
+      "status": "対応中",
+      "createdAt": "2026-06-16T07:46:27+09:00",
+      "updatedAt": "2026-06-16T07:46:27+09:00"
     }
   ]
 }
