@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T17:30:00+09:00",
+  "updatedAt": "2026-06-15T18:30:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -592,10 +592,10 @@
       "id": "t-0067",
       "title": "C6 AI の役割と決定性境界ポリシー",
       "content": "決定層(ModuleResult 契約+状態 oracle)が pass/fail を gate し AI は CI を gate しない、を明文化。AI の仕事=oracle 不在モジュールの独立 oracle 合成(キャッシュ&人レビュー)、失敗トリアージ・説明、回帰差分解釈、副作用発見(CSV 未宣言の変更検出)。実装前に確定する横断ポリシー。",
-      "claudeNote": "C5 実装に織り込む前提。",
-      "status": "未着手",
+      "claudeNote": "完了(2026-06-15)。決定性境界ポリシー確立 + self-verified→独立 oracle 昇格。ポリシー: 決定層(ModuleResult 契約 + 独立 oracle)が pass/fail を gate、AI は run-time で gate しない。AI(=Claude がモジュール+CSV を読む)が state-query/command/file-exists oracle を合成→査読→記述子に保存し決定的実行。oracle 不能/Skip-moot/対話読取要/ビルド依存の箇所は self-verified を『理由つきで』維持(oracle 捏造禁止=これも C6 ポリシー)。昇格実績(全 PASS): ipv6(state-query 非loopback ms_tcpip6 有効=0) / scheduled_task(state-query 対象タスク State=Disabled) / taskbar(file-exists Default profile の LayoutModification.xml) / firewall_rule_export(command backup\\<ts>\\policy.wfw 存在)。独立 oracle 計 13/30。PSD1 罠: query/run はシングルクォート(変数 $_ 展開回避)+内側 double quote。残 self-verified=Skip-moot(process_killer/bloatware/directory_cleaner/network_profile/brightness) / 対話読取要(spi/dpi_api/resolution/volume) / 困難(restore_point/history_destroyer/storeapp=ビルド依存)。次の昇格は実コード変更時に pain-driven で。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-15T14:43:00+09:00",
-      "updatedAt": "2026-06-15T14:43:00+09:00"
+      "updatedAt": "2026-06-15T18:30:00+09:00"
     },
     {
       "id": "t-0068",

@@ -9,8 +9,10 @@
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
             fixture = @()
-            expect = @{ status = @('Success','Skipped'); verified = 'any' }
-            oracle = @{ type = 'self-verified' }   # deploys LayoutModification.xml; C6 can synthesize a file-exists oracle on the deployed path
+            expect = @{ status = @('Success'); verified = 'any' }
+            # C6: independent check that the layout XML was deployed to the Default profile
+            oracle = @{ type = 'file-exists'; mode = 'present'
+                        paths = @('C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\LayoutModification.xml') }
             idempotent = @{ secondRun = 'Success' }
             cleanup = 'none'
             notes = 'Deploys taskbar LayoutModification.xml to the Default profile + sysprep source.'
