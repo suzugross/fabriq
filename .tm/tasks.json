@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T18:30:00+09:00",
+  "updatedAt": "2026-06-15T18:50:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -628,10 +628,10 @@
       "id": "t-0071",
       "title": "C8 新規モジュール統合（テンプレ+設計ゲート連携）",
       "content": "dev/template にテスト記述子 stub を載せ、設計ゲート §4 のステートマシン図を assertable なテストケースに落とす。新規モジュール AI 駆動テストの入口。既存モジュール優先のため後段。",
-      "claudeNote": "C2 コントラクト確定後。",
-      "status": "未着手",
+      "claudeNote": "雛形 dev/template/test.psd1 追加(afa01b3)。新規モジュールがテンプレから標準で test.psd1 を持つ(全枠+oracle/fixture 型カタログ+運用注記: query/run シングルクォート・独立 oracle 優先・冪等は status 寛容・C 分類は非対象明記=捏造禁止)。運用ルール=モジュール改修/新規時は完了前に VM テスト実施を提案、新規は test.psd1 同梱([[feedback_module_test_workflow]] に確定記録)。残(任意): 設計ゲート §4 ステートマシン→assertable test ケースへの自動写像は未実装(手動で expect に落とす運用で当面足りる)。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-15T14:43:00+09:00",
-      "updatedAt": "2026-06-15T14:43:00+09:00"
+      "updatedAt": "2026-06-15T18:50:00+09:00"
     },
     {
       "id": "t-0072",
