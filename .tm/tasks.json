@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T07:22:18+09:00",
+  "updatedAt": "2026-06-15T17:30:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -544,15 +544,6 @@
       "updatedAt": "2026-06-14T13:00:00+09:00"
     },
     {
-      "id": "t-0061",
-      "title": "hostlistとProfileにそれぞれホストマーカを用意して、一致するマーカがあるモジュールのみ実行。",
-      "content": "",
-      "claudeNote": "",
-      "status": "未着手",
-      "createdAt": "2026-06-15T07:17:33.4136384+09:00",
-      "updatedAt": "2026-06-15T07:18:30.9516115+09:00"
-    },
-    {
       "id": "t-0062",
       "title": "hostlist/Profile にホストマーカを追加し、マーカ一致モジュールのみ実行（マーカ=Segment 連動）",
       "content": "hostlist と Profile にそれぞれホストマーカを用意し、一致するマーカがあるモジュールエントリのみ実行する。\n\n例:\n- ホスト1 のマーカ = ABD → A or B or D のいずれかのマーカを持つモジュールのみ実行。\n\n制約:\n- マーカを使用する場合は Segment も必ず併用し、ホストマーカの値と一致させる。\n- つまり「hostlist マーカ = Profile マーカ = Segment」が一致している必要がある。\n\nユースケース:\n- ある端末グループに特定のアプリを導入したいが、Profile は統一したい、というような場合に利用できるイメージ。\n\n備考:\n- hostlist と Profile の構造を変更するため、大きめの改修。",
@@ -560,6 +551,96 @@
       "status": "未着手",
       "createdAt": "2026-06-15T07:22:18+09:00",
       "updatedAt": "2026-06-15T07:22:18+09:00"
+    },
+    {
+      "id": "t-0063",
+      "title": "VM検証機を用いたモジュールAI駆動テスト自動化（土台構築・エピック）",
+      "content": "VMware sibling VM(10.1.10.8)に Claude が WinRM 越しに接続し、既設/新規モジュールを headless 実行→独立 oracle 突合→AI 解析するテスト自動化基盤を構築する。2026-06-15 に PoC 成立(reg_hklm_config 6/6 PASS)。本エピックは土台フェーズの課題 C1〜C9 を束ねる。real pain=t-0058 深掘り監査(79モジュール自動テストゼロ・verify 予算切れ)。詳細は memory project_vm_test_rig。",
+      "claudeNote": "子タスク t-0064(C1)〜t-0072(C9)。着手順=C1+C2+C3 を土台として先行、その後 C4→C5→C6 を実装、最後に C7/C8/C9。",
+      "status": "対応中",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0064",
+      "title": "C1 モジュール検証適性トリアージ（79モジュールを A〜E 分類）",
+      "content": "std 61 + extended 18 = 79 モジュールを5分類する。A=headless でそのまま検証可、B=fixture/前提状態が必要、C=外部インフラ必須でVM単体不可(domain/printer/cert 等)、D=破壊的だが revert で安全網化、E=__RESTART__ 跨ぎ。各モジュールが mutate する状態種別・前提・oracle 可否・除外理由を表にする。silent under-coverage を避け除外を明示。既存 test_harness_config/test_error_module の素性も確認。",
+      "claudeNote": "完了(2026-06-15・並列4エージェントで79モジュール分類)。A(headless即可)33 / B(fixture要)17 / C(外部インフラ要・VM単体不可)19 / D(破壊的だが revert で安全網)6 / E(__RESTART__跨ぎ)4。横断注意: WinRM切断リスク(ipaddress/hostname/firewall_config/firewall_rule import/restart/signout)・AutoPilot非抑止 Read-Host ハング(autologon L71/firewall_config L140/power ProfileMenu/temp_ipaddress modal/display/dpi/printer_driver uninstall/windows_license L99=deep audit の Read-Host class 一致)・oracle不能(credential/acl/copyfile=検証除外既載)・GUI不可(pianist/manual_kitting_assistant/fabriq_app_launcher)・ENC要(office_license/ssid/pianist/bitlocker)・テスト足場(test_error_module/test_harness_config=分母から除外しハーネス自己テストへ転用)。Wave1 PoC候補(純A無留保)=reg_hklm(実証済)/reg_hkcu/browser_addon/spi/network_profile/ipv6/process_killer/storeapp/builtin_admin/system_finalize/time_sync/evidence。全量表=e:/tmp/c1_triage_coverage_map.md。次=ユーザレビュー後 C2/C3。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T15:10:00+09:00"
+    },
+    {
+      "id": "t-0065",
+      "title": "C2 テスト記述子コントラクト設計（モジュールがテスト契約を自己宣言）",
+      "content": "モジュールが前提条件(fixture)・envelope(必要な SELECTED_*/globals)・期待 ModuleResult(Status/Verified)・oracle 仕様・多状態期待(2回目=Skip)を宣言する形式を決める。配置(モジュール隣 test.psd1 か中央か)・CSV 導出 vs 手書きを決定。ハーネスが汎用化できる芯。",
+      "claudeNote": "完了(2026-06-15・設計+5 archetype)。決定: 配置=モジュール同居 test.psd1 / 形式=PSD1(Import-PowerShellDataFile 安全パース) / 非出荷(Deploy 除外)・モジュール VERSION/CHANGELOG 据置(テストデータのみ)。スキーマ v1: scenarios[] (name/script/context{noninteractive|interactive}/winrmSafe/reboot/secrets/envelope/fixture/expect{status[]/verified}/oracle/idempotent/cleanup{snapshot|undo|none})。oracle型: registry-csv / state-query / file-exists{mode=present|absent} / command / self-verified(最下位・要明示・レポートで旗) / none(検証不能)。fixture型: create-files / create-localuser / stage-asset / run-module / expr。AI役割(C6連動): oracle不在は AI が state-query 合成→人が1回査読→記述子に保存し実行時は決定的(AI は pass/fail を gate しない)。派生: C1 coverage map 行から seed。作成・5/5 パース確認(Import-PowerShellDataFile): reg_hklm(A) / file_delete(D+fixture+absent oracle) / spi(interactive) / hostname(E・winrmSafe=false・state-query) / credential(none・Verified=null)。全文=e:/tmp/c2_descriptor_contract.md。次=C3(revert自動化) or C5(ハーネス本体)。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T15:40:00+09:00"
+    },
+    {
+      "id": "t-0066",
+      "title": "C3 snapshot/revert 自動化（vmrun 到達経路の確立）",
+      "content": "vmrun は物理 VMware ホスト層で sibling guest の Claude から届かない。現状は人手 revert で自動化のスループット律速。経路を決める: (a)物理ホストへ WinRM して vmrun (b)VMware REST API (c)オーケストレータを物理ホスト側で実行 (d)可逆モジュールは in-guest undo+破壊系のみ snapshot。",
+      "claudeNote": "着手(2026-06-15)。revert 自動化(当初パート3)は物理 VMware ホスト不可(ユーザ確定: ホスト管理対象外・vmrun 到達不可)のため構造的に断念 → 代替: in-guest teardown(cleanup=undo の自動 undo) + 破壊系(cleanup=snapshot)はハーネスが MANUAL REVERT REQUIRED 列挙。運用=Claude 指示→ユーザが GUI revert(ユーザ確定の運用)。実装・検証済(2026-06-15): (1)リポ同期 -SyncRepo: kernel\\common.ps1 + 対象モジュール dir を WinRM Copy-Item -ToSession で push(VM の C:\\fabriq stale 問題を解消・file_delete が事前 push 無しで PASS)。(2)teardown 型: restore-asset(stage 時 .harnessbak へ自動退避→復元) / delete-files / delete-localuser / reg-delete / expr。検証: reg_hklm cleanup=none / file_delete cleanup=undo(staged CSV 復元+scratch 掃除=undone) / manual-revert 0。残パート: session-(b) 対話ランナー(autologon + interactive scheduled task で user32/SPI/credential/display/dpi 系を解禁)。これは autologon を clean-base に焼くため revert→設定→clean-base-v2 再取得が前提。 session-b 実装・実証(2026-06-15): VM に既存の対話 console Session 1(VMセットアップ時のログオンが clean-base に内包されていた)を利用 → autologon 併設(reboot 耐性)+ 対話セッション内 scheduled task 'FabriqRigInteractive' が dev/test_rig/_rig_interactive_runner.ps1(VM の C:\\fabriq_test\\rig\\ に配備)を実行し result.json を WinRM 側がポーリング回収。実証: spi_config が headless では SystemParametersInfo returned false(7 Fail)→ session-b で Status=Success(7/1/0)・sessionId=1。残ポリッシュ: 対話パスを run_module_tests.ps1 へ統合(現状 interactive は SKIP。fixture/oracle/teardown を session-0/session-b で共有する factor が必要)+ clean-base-v2(scaffolding 込み)取得済。 対話パス統合 完了(2026-06-15): run_module_tests.ps1 に ApplyMode(inproc=Session0 / task=Session1) を追加し、interactive は SKIP でなく session-b task へ自動ルーティング(fixture/oracle/teardown は Session0、apply のみ Session1)。clean-base-v2 で全5記述子 green: reg_hklm/file_delete=PASS(winrm s0)、spi=PASS(SELF)/credential=PASS(NONE)(session-b s1)、hostname=SKIP(winrmSafe=false)、FAIL/ERROR 0・manual-revert 0・exit 0。教訓(C7 先取り): テストは shipped CSV の enabled 状態や baseline 綺麗さに依存させない — 冪等モジュールは expect.status=@(Success,Skipped)+verified=any、必要なら test CSV を stage(file_delete 方式)。C3 三本柱(同期/teardown/session-b)すべて完了。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T17:30:00+09:00"
+    },
+    {
+      "id": "t-0067",
+      "title": "C6 AI の役割と決定性境界ポリシー",
+      "content": "決定層(ModuleResult 契約+状態 oracle)が pass/fail を gate し AI は CI を gate しない、を明文化。AI の仕事=oracle 不在モジュールの独立 oracle 合成(キャッシュ&人レビュー)、失敗トリアージ・説明、回帰差分解釈、副作用発見(CSV 未宣言の変更検出)。実装前に確定する横断ポリシー。",
+      "claudeNote": "C5 実装に織り込む前提。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0068",
+      "title": "C4 構造化結果キャプチャ（観測性）",
+      "content": "コンソール出力が CP932 mojibake で AI 解析不能。ModuleResult オブジェクト+テレメトリイベント列(Write-TelemetryEvent)+正しいエンコードの per-module transcript を機械可読スキーマで吸い上げる。AI 解析の質=入力の質。",
+      "claudeNote": "C5 ハーネスの一部として実装。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0069",
+      "title": "C5 ハーネス骨格+結果スキーマ",
+      "content": "revert→fixture→envelope→Invoke-SafeCommand→oracle→capture→構造化レポートの1本 runner。配置は dev/ か tests/integration/(kernel には同梱しない=出荷物でない)。モジュール名を渡せば回る形。今日の手打ちを契約駆動ランナーへ昇格。",
+      "claudeNote": "完了(2026-06-15・descriptor 駆動ランナー実証)。配置=dev/test_rig/run_module_tests.ps1 (非出荷 dev ツール・English-only)。フロー: test.psd1 探索→コンテキストルーティング(interactive / winrmSafe=false は理由付き SKIP)→fixture(create-files/stage-asset/create-localuser/expr)→envelope→Invoke-SafeCommand→oracle 分岐(registry-csv/file-exists{mode}/state-query/command/self-verified/none)→verdict→表+JSON(-JsonReport)+exit code(0=FAIL/ERROR 無し)+UNCOVERED 明示。実証: reg_hklm=PASS(registry-csv 6/6) / file_delete=PASS(fixture→delete→file-exists absent 2/2) / spi・credential=interactive SKIP / hostname=winrmSafe SKIP。摘出した粗: VM の C:\\fabriq は初回コピーで stale → fixture/最新コードの VM 同期がテスト前提(C3/セットアップ要件として確定)。次=C3(revert 自動化+リポ同期+session-b 対話ランナー) or 記述子を全 A 群へ量産。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T16:10:00+09:00"
+    },
+    {
+      "id": "t-0070",
+      "title": "C7 多状態テスト分類（冪等性+__RESTART__）",
+      "content": "fabriq の核契約=冪等性+再起動 resume。テストは初回・2回目(Skip)・reboot 跨ぎ(WinRM断→再接続→resume)を覆う。ハーネスが2回実行して2回目 Skip を assert、reboot 跨ぎを再接続で継続する形をモデル化。",
+      "claudeNote": "C5 骨格の上に拡張。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0071",
+      "title": "C8 新規モジュール統合（テンプレ+設計ゲート連携）",
+      "content": "dev/template にテスト記述子 stub を載せ、設計ゲート §4 のステートマシン図を assertable なテストケースに落とす。新規モジュール AI 駆動テストの入口。既存モジュール優先のため後段。",
+      "claudeNote": "C2 コントラクト確定後。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0072",
+      "title": "C9 無人実行の安全ベースライン",
+      "content": "資格情報の保管(平文パスワード脱却=DPAPI/SecretStore on dev機)・本番 secret を VM に置かない・victim network が実LANへ逃げないネットワーク隔離・テスト専用パスフレーズ。supervised PoC から無人自動化への移行条件。",
+      "claudeNote": "無人化フェーズ直前に実施。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T14:43:00+09:00",
+      "updatedAt": "2026-06-15T14:43:00+09:00"
     }
   ]
 }

@@ -1,0 +1,3 @@
+Enabled,Description,TargetPath,IfNotFound,Segment
+1,Test scratch file,C:\fabriq_test\scratch\del_a.txt,Error,
+1,Test scratch subdir,C:\fabriq_test\scratch\sub,Error,
