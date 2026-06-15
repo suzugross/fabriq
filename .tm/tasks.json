@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-16T07:46:27+09:00",
+  "updatedAt": "2026-06-16T07:49:56+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -709,10 +709,10 @@
       "id": "t-0080",
       "title": "FlexProfile 右クリック「ステータスリセット」が即座に反映されない（次の実行まで遅延）",
       "content": "FlexProfile ダッシュボードで行を右クリック →「Mark as Pending (reset state)」でリセットしても、その場では表示ステータスが変わらず Pending にならない。その後に別モジュールを実行するなどすると、ようやく反映される。\n\n再現確認（コード上で確定的に再現済み・2026-06-16）:\n実 Write-/Import-ExecutionHistory + 実 $script:LastBatchResults を使い、Show-FlexDashboard のステータス合成を逐語再現した harness で再現。\n  After batch:                 Order 10 = Success\n  After reset (LBR stale):     Order 10 = Success   <- 期待は Pending（バグ）\n  After running another module: Order 10 = Pending  <- ここで初めて反映\n\n根本原因:\nFlexProfile の表示ステータスは Show-FlexDashboard（flex_dashboard.ps1:42-134）で3段重ね（後勝ち）で構築される:\n  1. 全行を Pending で seed\n  2. history.csv を上書き（current session・Order 最新）\n  3. $script:LastBatchResults を上書き ← 最後＝最優先\nResetState ハンドラ（main.ps1:1006-1021）は Add-ExecutionResult（$script:ExecutionResults）と Write-ExecutionHistory（history.csv に Pending 行追記）は行うが、3段目で最優先の $script:LastBatchResults を更新しない。そのため直前バッチの古いステータス（例 Success）が history の Pending を上書きし、リセットが見えない。別モジュール実行で Invoke-BatchExecution が LastBatchResults をその実行分だけで作り直す（main.ps1:349 で初期化→finally で publish）と、リセット対象 Order が LBR から消え、history の Pending が勝ってようやく反映される。\n\n修正方針（最小・局所）:\nResetState ハンドラで history 書き込みに加え、$script:LastBatchResults 内の該当 Order エントリを Pending（Verified=$null・Message='Reset by operator'）へ更新する1段を足す。エントリが無ければ no-op（history の Pending が勝つ）。制御フロー新規状態なし＝CLAUDE.md §4 軽量版。touched=main.ps1 のみ。公開 API 影響なし。\n\n検証:\n再現 harness を「修正後は After reset で Pending」へ更新して確認 + powershell.exe -File ./dev/run_tests.ps1 回帰。GUI 目視（右クリックリセット即反映）は実機。",
-      "claudeNote": "2026-06-16 起票。user 報告→コード上で再現確認まで完了。原因＝ResetState が最優先の $script:LastBatchResults を更新しない（history/ExecutionResults のみ更新）。修正は ResetState ハンドラに LBR 更新1段を追加する局所修正。t-0073/t-0074 と同じ設計ゲート→実装→検証フローで進行予定。",
-      "status": "対応中",
+      "claudeNote": "2026-06-16 起票。user 報告→コード上で再現確認まで完了。原因＝ResetState が最優先の $script:LastBatchResults を更新しない（history/ExecutionResults のみ更新）。修正は ResetState ハンドラに LBR 更新1段を追加する局所修正。t-0073/t-0074 と同じ設計ゲート→実装→検証フローで進行予定。\n\n\n---\n2026-06-16 実装（レビュー待ち）。ResetState ハンドラ（main.ps1）に $script:LastBatchResults の該当 Order を Pending へ in-place 更新する1段を追加（history/ExecutionResults の Pending 更新はそのまま）。LBR エントリは hashtable（main.ps1:658）なので参照ミューテーションで配列要素に反映。該当 Order が LBR に無ければ no-op。\n\n検証:\n- 再現 harness を修正後ロジックで再実行: After batch=Success → After reset(patched)=Pending（即時反映）= FIX VERIFIED。修正前は After reset=Success（次の実行まで遅延）。\n- powershell.exe -File ./dev/run_tests.ps1 → Passed 350 / Failed 0（回帰なし）。\n- CHANGELOG [Unreleased] Fixed 追記。\n\nバージョン影響: kernel 内部実装のみ（公開 API 不変）→ PATCH 相当・KERNEL_VERSION 据置。touched=main.ps1 のみ。\n\n残: GUI 目視（実機で右クリックリセット→その場で Pending 表示）。ロジック層は precedence harness で確定的に実証済み。",
+      "status": "レビュー待ち",
       "createdAt": "2026-06-16T07:46:27+09:00",
-      "updatedAt": "2026-06-16T07:46:27+09:00"
+      "updatedAt": "2026-06-16T07:49:56+09:00"
     }
   ]
 }
