@@ -1,0 +1,2 @@
+Enabled,DisplayName,Name,Description,Group,Direction,Action,RuleEnabled,Profile,Protocol,LocalPort,RemotePort,LocalAddress,RemoteAddress,IcmpType,EdgeTraversalPolicy,Program,Service,InterfaceType,InterfaceAlias,LocalUser,RemoteUser,RemoteMachine,Segment
+1,FabriqRigTestRule,FabriqRigTest,Rig test rule,FabriqRig,Inbound,Allow,True,Any,TCP,65000,,,,,,,,,,,,,

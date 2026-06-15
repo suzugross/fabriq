@@ -1,0 +1,4 @@
+Enabled,FileName,DestPath,Overwrite,Description,Segment
+1,test.txt,C:\Users\Public\Desktop,1,Rig test copy,
+1,test2.txt,C:\Users\Public\Desktop,1,Rig test copy,
+1,test3.txt,C:\Users\Public\Desktop,1,Rig test copy,
