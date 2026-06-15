@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T18:50:00+09:00",
+  "updatedAt": "2026-06-15T19:10:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -619,10 +619,10 @@
       "id": "t-0070",
       "title": "C7 多状態テスト分類（冪等性+__RESTART__）",
       "content": "fabriq の核契約=冪等性+再起動 resume。テストは初回・2回目(Skip)・reboot 跨ぎ(WinRM断→再接続→resume)を覆う。ハーネスが2回実行して2回目 Skip を assert、reboot 跨ぎを再接続で継続する形をモデル化。",
-      "claudeNote": "C5 骨格の上に拡張。",
-      "status": "未着手",
+      "claudeNote": "Part A 冪等性2回目実行=実装・検証済(2026-06-15)。-Idempotency opt-in スイッチ。apply を Invoke-Apply に factor し fixture→apply1→oracle→[idempotency 時 apply2(再fixture/teardown 無し)]→teardown。2回目 status を idempotent.secondRun と照合、Idem 列(OK/FAIL/-)、不一致は overall FAIL、secondRun=$null は検査スキップ。inproc/session-b(task 2回再トリガ)両パス対応。検証: reg_hklm(2回目 Success)/browser_addon・scheduled_task・spi(2回目 Skipped)=全 Idem OK。Part B __RESTART__ 跨ぎ(hostname/ppkg/restart)=未実装(reboot→Test-WSMan 再接続ポーリング→resume の別チャンク要、現状 winrmSafe=false で SKIP)。冪等性が fabriq 核契約のため Part A が本命、Part B は E 系少数+複雑で pain-driven に後回し可。",
+      "status": "対応中",
       "createdAt": "2026-06-15T14:43:00+09:00",
-      "updatedAt": "2026-06-15T14:43:00+09:00"
+      "updatedAt": "2026-06-15T19:10:00+09:00"
     },
     {
       "id": "t-0071",

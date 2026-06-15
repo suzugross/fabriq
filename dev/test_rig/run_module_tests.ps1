@@ -32,7 +32,8 @@ param(
     [string]$Password,                       # plaintext fallback for automation; C9 will replace with a secret store
     [string]$RepoPathOnVM = 'C:\fabriq',
     [string]$JsonReport,
-    [switch]$SyncRepo                        # push kernel\common.ps1 + tested module dirs to the VM before running (fixes stale VM)
+    [switch]$SyncRepo,                       # push kernel\common.ps1 + tested module dirs to the VM before running (fixes stale VM)
+    [switch]$Idempotency                     # C7: re-apply each module a 2nd time and assert idempotent.secondRun (slower; off by default)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -68,8 +69,8 @@ Write-Host ""
 
 # --- remote runner (executes ON the VM where the state lives) ---
 $remote = {
-    param($RepoPath, $ModuleDirVM, $ModuleName, $Scn, $ApplyMode)
-    $res = [ordered]@{ status='(not run)'; verified=$null; message=''; durationSec=0; oracleVerdict='(none)'; oracleDetail=''; teardown=''; via='' }
+    param($RepoPath, $ModuleDirVM, $ModuleName, $Scn, $ApplyMode, $Idempotency)
+    $res = [ordered]@{ status='(not run)'; verified=$null; message=''; durationSec=0; oracleVerdict='(none)'; oracleDetail=''; teardown=''; via=''; secondStatus='' }
     try {
         Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
         Set-Location $RepoPath
@@ -102,22 +103,28 @@ $remote = {
         }
         if (-not $fixOk) { $res.status = '(fixture failed)'; $res.message = $fixDetail; return [pscustomobject]$res }
 
-        # run -- inproc (Session 0 / WinRM) or task (Session 1 / interactive desktop via session-b)
+        # run -- factored so idempotency can apply twice. inproc (Session 0 / WinRM) or task (Session 1 / session-b)
         $modPath = Join-Path $ModuleDirVM $Scn.script
         if (-not (Test-Path $modPath)) { $res.status = '(missing entry)'; return [pscustomobject]$res }
-        if ($ApplyMode -eq 'task') {
-            $req = @{ repoPath=$RepoPath; moduleDirVM=$ModuleDirVM; script=$Scn.script; moduleName=$ModuleName; passphrase=[string]$Scn.envelope.passphrase; selected=$Scn.envelope.selected; segment=[string]$Scn.envelope.segment } | ConvertTo-Json -Compress
-            Set-Content 'C:\fabriq_test\rig\request.json' -Value $req -Encoding UTF8
-            Remove-Item 'C:\fabriq_test\rig\result.json' -ErrorAction SilentlyContinue
-            try { Start-ScheduledTask -TaskName 'FabriqRigInteractive' -ErrorAction Stop } catch { $res.status = '(no session-b task)'; $res.message = $_.Exception.Message; return [pscustomobject]$res }
-            $tr = $null; $deadline = (Get-Date).AddSeconds(120)
-            while ((Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 800; if (Test-Path 'C:\fabriq_test\rig\result.json') { try { $tr = Get-Content 'C:\fabriq_test\rig\result.json' -Raw | ConvertFrom-Json } catch { $tr = $null }; if ($tr) { break } } }
-            if ($tr) { $res.status=$tr.status; $res.verified=$tr.verified; $res.message=$tr.message; $res.durationSec=$tr.durationSec; $res.via="session-b(s$($tr.sessionId))" } else { $res.status='(task timeout)'; $res.via='session-b' }
-        } else {
-            $r = Invoke-SafeCommand -ScriptBlock { & $modPath } -OperationName $ModuleName 6>$null 4>$null 5>$null 3>$null 2>$null
-            if ($r) { $res.status = $r.Status; $res.verified = $r.Verified; $res.message = $r.Message; $res.durationSec = [math]::Round($r.Duration.TotalSeconds, 2) } else { $res.status = '(null result)' }
-            $res.via = 'winrm(s0)'
+        function Invoke-Apply {
+            $o = @{ status='(null result)'; verified=$null; message=''; dur=0; via='' }
+            if ($ApplyMode -eq 'task') {
+                $req = @{ repoPath=$RepoPath; moduleDirVM=$ModuleDirVM; script=$Scn.script; moduleName=$ModuleName; passphrase=[string]$Scn.envelope.passphrase; selected=$Scn.envelope.selected; segment=[string]$Scn.envelope.segment } | ConvertTo-Json -Compress
+                Set-Content 'C:\fabriq_test\rig\request.json' -Value $req -Encoding UTF8
+                Remove-Item 'C:\fabriq_test\rig\result.json' -ErrorAction SilentlyContinue
+                try { Start-ScheduledTask -TaskName 'FabriqRigInteractive' -ErrorAction Stop } catch { $o.status='(no session-b task)'; $o.message=$_.Exception.Message; return $o }
+                $tr = $null; $deadline = (Get-Date).AddSeconds(120)
+                while ((Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 800; if (Test-Path 'C:\fabriq_test\rig\result.json') { try { $tr = Get-Content 'C:\fabriq_test\rig\result.json' -Raw | ConvertFrom-Json } catch { $tr = $null }; if ($tr) { break } } }
+                if ($tr) { $o.status=$tr.status; $o.verified=$tr.verified; $o.message=$tr.message; $o.dur=$tr.durationSec; $o.via="session-b(s$($tr.sessionId))" } else { $o.status='(task timeout)'; $o.via='session-b' }
+            } else {
+                $r = Invoke-SafeCommand -ScriptBlock { & $modPath } -OperationName $ModuleName 6>$null 4>$null 5>$null 3>$null 2>$null
+                if ($r) { $o.status=$r.Status; $o.verified=$r.Verified; $o.message=$r.Message; $o.dur=[math]::Round($r.Duration.TotalSeconds, 2) } else { $o.status='(null result)' }
+                $o.via='winrm(s0)'
+            }
+            return $o
         }
+        $a1 = Invoke-Apply
+        $res.status=$a1.status; $res.verified=$a1.verified; $res.message=$a1.message; $res.durationSec=$a1.dur; $res.via=$a1.via
 
         # oracle
         $o = $Scn.oracle; $ov = '(none)'; $od = ''
@@ -152,6 +159,12 @@ $remote = {
             default         { $ov = '(none)'; $od = "unknown oracle type: $($o.type)" }
         }
         $res.oracleVerdict = $ov; $res.oracleDetail = $od
+
+        # idempotency 2nd run (C7) -- re-apply WITHOUT re-fixture/teardown, capture status to assert against secondRun
+        if ($Idempotency -and $null -ne $Scn.idempotent.secondRun -and $res.status -in @('Success', 'Skipped', 'Partial')) {
+            $a2 = Invoke-Apply
+            $res.secondStatus = $a2.status
+        }
 
         # teardown (in-guest undo) - only when cleanup = undo
         if ($Scn.cleanup -eq 'undo') {
@@ -193,14 +206,14 @@ try {
         $rel = $entry.Dir.Substring($repoRoot.Length).TrimStart('\')
         $moduleDirVM = Join-Path $RepoPathOnVM $rel
         foreach ($scn in @($d.scenarios)) {
-            $row = [ordered]@{ Module=$d.module; Scenario=$scn.name; Verdict=''; Status=''; Verified=''; Via=''; Oracle=''; Cleanup=''; Dur=''; Detail='' }
+            $row = [ordered]@{ Module=$d.module; Scenario=$scn.name; Verdict=''; Status=''; Verified=''; Idem='-'; Via=''; Oracle=''; Cleanup=''; Dur=''; Detail='' }
 
             if ($scn.winrmSafe -eq $false) {
                 $row.Verdict = 'SKIP'; $row.Detail = 'winrmSafe=false (needs console/spare-NIC path)'
             }
             else {
                 $applyMode = if ($scn.context -eq 'interactive') { 'task' } else { 'inproc' }
-                $rr = Invoke-Command -Session $sess -ScriptBlock $remote -ArgumentList $RepoPathOnVM, $moduleDirVM, $d.module, $scn, $applyMode
+                $rr = Invoke-Command -Session $sess -ScriptBlock $remote -ArgumentList $RepoPathOnVM, $moduleDirVM, $d.module, $scn, $applyMode, $Idempotency
                 $row.Status = $rr.status; $row.Verified = $rr.verified; $row.Dur = $rr.durationSec; $row.Via = $rr.via
                 $row.Oracle = "$($rr.oracleVerdict) $($rr.oracleDetail)".Trim()
                 $row.Cleanup = $rr.teardown
@@ -217,6 +230,16 @@ try {
                 else                                             { $row.Verdict = 'PASS?'; $row.Detail = $rr.oracleDetail }
 
                 if ($rr.message -and -not $row.Detail) { $row.Detail = $rr.message }
+
+                # idempotency verdict (C7): independent of the 1st-run verdict
+                if ($Idempotency -and $null -ne $scn.idempotent.secondRun -and $rr.secondStatus) {
+                    if ($rr.secondStatus -eq $scn.idempotent.secondRun) { $row.Idem = 'OK' }
+                    else {
+                        $row.Idem = "FAIL($($rr.secondStatus))"
+                        if ($row.Verdict -notlike 'FAIL*' -and $row.Verdict -ne 'ERROR') { $row.Verdict = 'FAIL'; $row.Detail = "idempotency: 2nd run '$($rr.secondStatus)' != expected '$($scn.idempotent.secondRun)'" }
+                    }
+                }
+
                 if ($scn.cleanup -eq 'snapshot') { $manualRevert += "$($d.module)/$($scn.name)" }
             }
             $results += [pscustomobject]$row
@@ -226,7 +249,7 @@ try {
 finally { Remove-PSSession $sess }
 
 # --- report ---
-$results | Format-Table Module, Scenario, Verdict, Status, Verified, Via, Cleanup, Dur, Oracle -AutoSize
+$results | Format-Table Module, Scenario, Verdict, Status, Idem, Via, Cleanup, Dur, Oracle -AutoSize
 if ($manualRevert.Count -gt 0) {
     Write-Host ""
     Write-Host ("MANUAL REVERT REQUIRED (cleanup=snapshot): {0}" -f ($manualRevert -join ', ')) -ForegroundColor Yellow
