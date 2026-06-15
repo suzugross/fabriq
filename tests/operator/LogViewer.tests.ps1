@@ -28,11 +28,21 @@ BeforeAll {
             [Parameter(Mandatory)][string]$Name,
             [Parameter(Mandatory)][int]$Order,
             [string[]]$ShowLines = @(),
-            [datetime]$LastWrite = ([datetime]'2026-01-01T00:00:00Z')
+            [datetime]$LastWrite = ([datetime]'2026-01-01T00:00:00Z'),
+            [switch]$LegacyOrder
         )
         if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
         $lines = @()
-        $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":{1}}}' -f $Name, $Order)
+        # Mirror the production telemetry writer: `order` is always 0 and the
+        # real per-entry Order lives in `profileOrder` (set from the Profile
+        # context). Pass -LegacyOrder to instead emit only the plain `order`
+        # field (no profileOrder), exercising the fallback path.
+        if ($LegacyOrder) {
+            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":{1}}}' -f $Name, $Order)
+        }
+        else {
+            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":0,"profileOrder":{1}}}' -f $Name, $Order)
+        }
         $lines += $ShowLines
         $lines += '{"ts":"2026-01-01T00:00:05.000+09:00","type":"envelope.end","status":"Error"}'
         $path = Join-Path $Dir "$Name.jsonl"
@@ -60,6 +70,30 @@ Describe 'Get-ModuleTelemetryLog' {
             $log[1].Level   | Should -Be 'error'
             $log[1].Tag     | Should -Be 'error'
             $log[1].Message | Should -Be 'boom'
+        }
+
+        It 'keys on profileOrder (production: order is always 0)' {
+            # Reproduces the real writer: order=0, profileOrder carries the
+            # Profile Order. Matching on order would fail here.
+            $dir = Join-Path $TestDrive 'modules_po'
+            New-TestTelemetryFile -Dir $dir -Name '0001_demo' -Order 110 -ShowLines @(
+                '{"ts":"t1","type":"show.info","tag":"info","msg":"via profileOrder"}'
+            ) | Out-Null
+
+            (@(Get-ModuleTelemetryLog -Order 110 -ModulesDir $dir)).Count | Should -Be 1
+            # order==0 must NOT match a real Profile Order row.
+            (@(Get-ModuleTelemetryLog -Order 0 -ModulesDir $dir)).Count | Should -Be 0
+        }
+
+        It 'falls back to the plain order field when profileOrder is absent' {
+            $dir = Join-Path $TestDrive 'modules_legacy'
+            New-TestTelemetryFile -Dir $dir -Name '0001_demo' -Order 70 -LegacyOrder -ShowLines @(
+                '{"ts":"t1","type":"show.success","tag":"info","msg":"legacy order"}'
+            ) | Out-Null
+
+            $log = @(Get-ModuleTelemetryLog -Order 70 -ModulesDir $dir)
+            $log.Count | Should -Be 1
+            $log[0].Message | Should -Be 'legacy order'
         }
 
         It 'excludes envelope.start / envelope.end events' {
@@ -93,23 +127,19 @@ Describe 'Get-ModuleTelemetryLog' {
     }
 
     Context 'Empty / robustness contracts' {
-        It 'returns an empty array (not $null) when no file matches the order' {
+        It 'yields zero lines under @() when no file matches the order' {
             $dir = Join-Path $TestDrive 'modules_none'
             New-TestTelemetryFile -Dir $dir -Name '0001_demo' -Order 80 -ShowLines @(
                 '{"ts":"t1","type":"show.info","tag":"info","msg":"x"}'
             ) | Out-Null
 
-            $log = Get-ModuleTelemetryLog -Order 999 -ModulesDir $dir
-            # Must be a preserved empty array, NOT collapsed to $null
-            # (so the caller's `.Count` stays valid). Asserted without the
-            # pipeline, since piping an empty array sends zero objects.
-            $log -is [array] | Should -BeTrue
-            @($log).Count | Should -Be 0
+            # Canonical caller idiom is @(call); empty must collapse to 0,
+            # not to a single blank element (the ,@() nesting footgun).
+            (@(Get-ModuleTelemetryLog -Order 999 -ModulesDir $dir)).Count | Should -Be 0
         }
 
-        It 'returns an empty array when the modules dir does not exist' {
-            $log = Get-ModuleTelemetryLog -Order 1 -ModulesDir (Join-Path $TestDrive 'no_such_dir')
-            @($log).Count | Should -Be 0
+        It 'yields zero lines when the modules dir does not exist' {
+            (@(Get-ModuleTelemetryLog -Order 1 -ModulesDir (Join-Path $TestDrive 'no_such_dir'))).Count | Should -Be 0
         }
 
         It 'skips malformed JSONL lines without throwing' {

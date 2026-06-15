@@ -23,7 +23,9 @@
   read-only で読み、`Show-ModuleLogViewer`（モーダル）が RichTextBox に level 別の色で描画する。
   分離ログは新設せず既存テレメトリを流用（transcript と異なり async 子ランスペースの行も欠落しない）。
   堅牢性: 現 `$script:SessionID` フォルダのみ参照（オーファン/他 Profile を隔離）、エントリ識別は
-  `envelope.start.order`（ファイル名 seq は `__RESTART__` でリセット衝突するため不使用）、同一 Order の
+  `envelope.start.profileOrder`（本番では `Invoke-SafeCommand[Async]` が `Start-ModuleTelemetry` を
+  `-Order` 無しで呼ぶため `order` は常に 0。profile context 由来の `profileOrder` が正。`order` は
+  フォールバック扱い。ファイル名 seq は `__RESTART__` でリセット衝突するため不使用）、同一 Order の
   複数 run は `LastWriteTimeUtc` 最大＝最新を選択、壊れた JSONL 行はスキップ、未捕捉時は空表示。
   表示は redact 済みテキスト、巨大ログは上限超過を明示（サイレント切り捨てなし）。kernel 公開 API は不変・
   テレメトリは read-only 消費のみ。新規テスト `tests/operator/LogViewer.tests.ps1`。
