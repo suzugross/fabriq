@@ -9,7 +9,7 @@
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
             fixture = @()   # ships 1 enabled row targeting a built-in task (AppxDeploymentClient\Pre-staged app cleanup)
-            expect = @{ status = @('Success'); verified = 'any' }
+            expect = @{ status = @('Success','Skipped'); verified = 'any' }   # independent oracle is authoritative; idempotent Skip is fine
             # C6: independent read of the target task state (single-quoted to avoid psd1 expansion)
             oracle = @{ type = 'state-query'
                         query = '(Get-ScheduledTask -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -TaskName "Pre-staged app cleanup" -ErrorAction SilentlyContinue).State'

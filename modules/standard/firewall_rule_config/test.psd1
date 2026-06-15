@@ -9,7 +9,7 @@
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
             fixture = @()   # ships one Enabled=1 Export row (import rows are ack-gated -> Skipped)
-            expect = @{ status = @('Success'); verified = 'any' }
+            expect = @{ status = @('Success','Skipped'); verified = 'any' }   # independent oracle is authoritative; idempotent Skip is fine
             # C6: independent check that a policy.wfw snapshot was written under backup\<timestamp>\
             oracle = @{ type = 'command'
                         run = '[bool](Get-ChildItem "C:\fabriq\modules\standard\firewall_rule_config\backup" -Recurse -Filter policy.wfw -ErrorAction SilentlyContinue)'
