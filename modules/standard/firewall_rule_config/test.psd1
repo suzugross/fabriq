@@ -9,8 +9,11 @@
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
             fixture = @()   # ships one Enabled=1 Export row (import rows are ack-gated -> Skipped)
-            expect = @{ status = @('Success','Skipped'); verified = 'any' }
-            oracle = @{ type = 'self-verified' }   # writes policy.wfw + manifests; C6 can synthesize a file-exists/.wfw-size oracle
+            expect = @{ status = @('Success'); verified = 'any' }
+            # C6: independent check that a policy.wfw snapshot was written under backup\<timestamp>\
+            oracle = @{ type = 'command'
+                        run = '[bool](Get-ChildItem "C:\fabriq\modules\standard\firewall_rule_config\backup" -Recurse -Filter policy.wfw -ErrorAction SilentlyContinue)'
+                        equals = 'True' }
             idempotent = @{ secondRun = 'Success' }
             cleanup = 'none'   # export appends an Import row to its CSV; -SyncRepo restores the shipped CSV each run
             notes = 'Exports the firewall policy snapshot (.wfw). The import variant is ack-gated and Skips by default (would be D / WinRM-risky).'
