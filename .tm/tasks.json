@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T21:14:20+09:00",
+  "updatedAt": "2026-06-15T21:37:13+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -641,6 +641,15 @@
       "status": "未着手",
       "createdAt": "2026-06-15T14:43:00+09:00",
       "updatedAt": "2026-06-15T14:43:00+09:00"
+    },
+    {
+      "id": "t-0073",
+      "title": "__GATE__ マーカ: 下流依存を守る前進バリア（上流に NG/Partial が残る間は先へ進ませない）",
+      "content": "Profile に特殊マーカ __GATE__ を追加する。実行がこのマーカに到達した時、直前ゲート以降の窓に Error/Partial が1つでも残っていれば batch を停止し FlexProfile 画面へ戻す。operator が失敗エントリを直して再実行し、窓が全 Success/Skip になって初めてゲート以降へ進める。\n\n動機（既存の穴）:\n- 各モジュールは -ContinueOnError 実行で、失敗しても必ず次へ進む（main.ps1:549）。\n- 唯一のガード ErrorMode（main.ps1:563-595）は「失敗したそのエントリ自身」への反応であって、下流の依存モジュールを守らない。\n- 例: hostname_change が Partial でも domain_join がそのまま走り、間違ったホスト名でドメイン参加 → 手戻り。現状これを構造的に防げない。__GATE__ は「下流依存を守る前進バリア」という新しい層でこの穴を埋める。\n\nユースケース例（Profile 並び）:\n  1. hostname_change\n  2. __RESTART__\n  3. __GATE__      <- ここで hostname_change の成否を確認\n  4. domain_join   <- 上流がグリーンの時だけ走る\n\n確定した設計判断:\n- 実行モデル = (ii) 最小型 + admission control。ゲートで batch を止めるだけでなく、Order が実行に admit される地点で拒否する（停止だけでは「選び直せば走る」穴が残るため）。\n- 窓の範囲 = 直前ゲート以降（②後者）。ゲートは連鎖し、各ゲートは「直前ゲート〜自分」の窓を守る。\n- 逃げ道 = なし（③絶対ゲート）。窓がグリーンになるまで突破不可。v1 はシンプルに。\n- マーカ表記 = __GATE__（英数+_。__OK?__ の '?' は CSV/正規表現で脆いため不採用。「OK?」は人間向けラベルに留める）。\n- バリア再計算 = (a) 静的。バリア線は batch 開始時のサマリで固定。上流を直しても同 batch 内では下流は拒否され、operator は「上流を直す→グリーン確認→次に下流を流す」の2パス。確実・単純・趣旨（確実にエラーを消してから進む）に忠実。\n\nゲートの不変条件（本体）:\n- 最初の「未充足ゲート」をバリア線とする。バリア線の Order 以降は一切実行できない。\n- ゲート G が守る窓内に Error/Partial が残れば G は未充足。\n- 未充足ゲートを越える Order は UI で選ばれても kernel が拒否する。\n- 窓内の失敗を直して再実行 → 窓が全 Success/Skip → G 充足 → バリア線が次のゲートへ下がる。\n\n実装スコープ（2層・kernel が権威）:\n- kernel（権威）: __GATE__ をマーカテーブル（common.ps1:3676 の _IsRestart と同型で _IsGate）で認識。batch ループが各 Order 実行前にバリア線を蓄積サマリ（$completedResults）から判定し、バリア線以降を blocked として拒否。dashboard を経由しない経路でも破れない。ゲート到達時に FlexProfile へ戻す停止パス（__RESTART__ の early-exit パスの軟版＝再起動なし）。\n- operator app（操作性）: flex_dashboard がバリア線以降の行のチェックボックスをグレーアウト＋理由表示（flex_dashboard.ps1:144/275 の SelectedOrders 生成にバリア判定を1段）。UI で先に弾きサイレント skip を避ける。enforcement の権威は必ず kernel 側に置く（UI を信頼して穴を operator 任せにしない原則）。\n\n検討すべき実装詳細（着手時に詰める）:\n- __RESTART__ 跨ぎ: ゲートが pre-restart の失敗を見るには、post-restart 再開で $completedResults に pre-restart 結果が復元されている必要。resume state の中身確認が要る。\n- AutoPilot 下でもゲートは止まる（auto-continue countdown がゲートを素通りしないこと）。ゲートの本質は auto-advance の上書き。\n- 停止して Flex へ戻った後の「続行」UX: 既存の選択 Order 再実行（$flexSelectedSet）を流用。グレーアウト解除後に operator が後続を選択実行。\n- Skip は窓をブロックしない（Error/Partial のみ）。\n\nSemVer 影響（予想）:\n- kernel: 新特殊マーカ追加 = 後方互換な追加 → MINOR。KERNEL_API §4 特殊マーカ一覧 + §1.2 付近に __GATE__ 契約追記。\n- operator app（fabriq_operator/lib/flex_dashboard.ps1）: dashboard グレーアウト追加。\n- 既存 Profile に __GATE__ が無ければ挙動不変（後方互換）。\n\n着手時の必須プロセス: CLAUDE.md §4 フル設計ゲート（ステートマシン図 + 敵対検証。停止/再開/__RESTART__跨ぎ/AutoPilot 上書きの状態遷移を図示）+ リモート VM テスト（feedback_module_test_workflow）。\n\nステータス: 設計確定・未着手。実装は別途指示で。",
+      "claudeNote": "2026-06-15 議論で設計確定。当初の __OK?__ 案から、実行モデル(ii)+admission control / 直前ゲート窓 / 絶対ゲート / __GATE__ 表記 / 静的バリアに収束。「停止だけではゲート以降を選び直せば走る」穴を user が指摘し、enforcement を admission control（kernel 権威）+ dashboard グレーアウト（操作性）の2層に置くことで absolute ゲートを成立させた。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T21:37:13+09:00",
+      "updatedAt": "2026-06-15T21:37:13+09:00"
     }
   ]
 }
