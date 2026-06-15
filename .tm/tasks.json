@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T19:10:00+09:00",
+  "updatedAt": "2026-06-15T20:40:28+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -547,10 +547,10 @@
       "id": "t-0062",
       "title": "hostlist/Profile にホストマーカを追加し、マーカ一致モジュールのみ実行（マーカ=Segment 連動）",
       "content": "hostlist と Profile にそれぞれホストマーカを用意し、一致するマーカがあるモジュールエントリのみ実行する。\n\n例:\n- ホスト1 のマーカ = ABD → A or B or D のいずれかのマーカを持つモジュールのみ実行。\n\n制約:\n- マーカを使用する場合は Segment も必ず併用し、ホストマーカの値と一致させる。\n- つまり「hostlist マーカ = Profile マーカ = Segment」が一致している必要がある。\n\nユースケース:\n- ある端末グループに特定のアプリを導入したいが、Profile は統一したい、というような場合に利用できるイメージ。\n\n備考:\n- hostlist と Profile の構造を変更するため、大きめの改修。",
-      "claudeNote": "（未着手・設計未）参考: 既存の Segment フィルタ機構（Import-ModuleCsv -Segment / 環境変数 FABRIQ_SEGMENT、KERNEL_API §1.2 の Segment 厳密一致契約）が土台になり得る。ホストマーカ → Segment 連動は既存 Segment の上位レイヤとして設計を検討。hostlist スキーマ（マーカ列追加）と Profile スキーマ（マーカ列追加）の SemVer 影響（kernel MAJOR/MINOR）と後方互換に注意。",
+      "claudeNote": "（未着手・設計未）参考: 既存の Segment フィルタ機構（Import-ModuleCsv -Segment / 環境変数 FABRIQ_SEGMENT、KERNEL_API §1.2 の Segment 厳密一致契約）が土台になり得る。ホストマーカ → Segment 連動は既存 Segment の上位レイヤとして設計を検討。hostlist スキーマ（マーカ列追加）と Profile スキーマ（マーカ列追加）の SemVer 影響（kernel MAJOR/MINOR）と後方互換に注意。\n\n\n---\n2026-06-15 設計検討（実装はせず・所見のみ）。t-0062 を詰めた結論。\n\n【結論: 行レベル HostMarker = Segment の兄弟フィルタ案（モジュール CSV へ列追加）】\n当初案（hostlist マーカ=Profile マーカ=Segment の3点統一 / エントリ単位ゲート）は却下。理由:\n- (a) 3点を手で同期させる構造はズレで誤実行（同期ミスの温床）。\n- (b) エントリ単位ゲートは「共通エントリ(マーカ無)＋グループエントリ(マーカ有)」で同一モジュールが2回起動し、非冪等モジュールで二重インストール（ユーザ指摘の Chrome 再インストール問題）。\n- (c) Segment を端末依存へ統一すると、既存の「order 別 Segment（端末非依存・Profile 内の同一モジュールを設定値別に使い分け）」運用が壊れる。\n\n採用案（CSV 列追加）:\n- hostlist に「Markers」列を追加（集合・区切り付き 例: A,B,D）。端末をグループ分け。\n- 各モジュール CSV に「HostMarker」列を追加（単一トークン）。\n- 行の適用条件 = （既存 Segment 一致）AND（HostMarker 空 OR HostMarker ∈ 選択ホストの Markers）。\n- 実装は Import-ModuleCsv の行フィルタに HostMarker を1段足すだけ（kernel チョークポイント1箇所）。Profile 構造は不変＝線形維持（project_nextgprofile_deferred と整合）。\n\n【動作例（ユーザと確認済み）】\n- 行 Segment=CH, HostMarker=A → Profile の CH エントリのタイミングで、A グループ端末のみ適用。\n- 行 Segment=（空）, HostMarker=B → Profile の Segment 未指定エントリのタイミングで、B グループのみ適用。\n- モジュールはそのタイミングで全端末で起動するが、行は条件一致端末でのみ効く（一致行ゼロ＝Skip/no-op）。再起動でなく1回実行のまま行で出し分ける＝二重起動なし。\n\n【2軸の性質】Segment = WHEN（Profile のどのエントリ/順番＝時間軸）× HostMarker = WHO（どの端末グループ＝対象軸）の AND。各行ごとに「いつ×誰に」を持つ。\n\n【後方互換】HostMarker 列が無い既存 CSV は全行通過＝現状のまま。order 別 Segment 運用は無傷（Segment 据え置き・HostMarker は別列）。\n\n【既知の穴・留意点】\n1.（最重要）CSV 行ベースのモジュール限定。*_list.csv を持たない/単発動作のモジュール（単一 domain_join, sysprep 系等）は行レベルで端末別にできない。その種は全端末実行 or エントリ単位ゲート（二重起動リスク再来）に戻る。端末別にしたい対象が CSV 行ベースに限られる点は把握要。\n2. 行は「対応する Segment のエントリが Profile に在る時」しか効かない（既存 Segment 性質。今回はホスト一致も AND）。\n3. AND 意味論。hostlist Markers が空の端末は HostMarker 空の共通行のみ適用（OR ではない・要明示）。\n4. マーカ表記は区切り付き集合（A,B,D）＋マーカ単一トークン必須（「ABD」連結は AB か A+B か曖昧で不可）。\n5. 既存の二重適用（Segment 空行 × 複数の Segment 空エントリで複数回適用）は不変。非冪等モジュールを Segment 空で複数回置く運用は従来どおり operator 管理。\n6. 各行が2次元条件になり複雑構成では追いにくい（ただしデータ駆動・破綻なし）。\n\n【SemVer/実装メモ】hostlist スキーマに Markers 任意列追加 + 各モジュール CSV に HostMarker 任意列追加 + Import-ModuleCsv 行フィルタ拡張（KERNEL_API §1.2 契約に追記）。任意列追加は後方互換のため kernel MINOR 想定。実装時は §4 フル設計ゲート＋リモート VM テスト（feedback_module_test_workflow）。",
       "status": "未着手",
       "createdAt": "2026-06-15T07:22:18+09:00",
-      "updatedAt": "2026-06-15T07:22:18+09:00"
+      "updatedAt": "2026-06-15T20:40:28+09:00"
     },
     {
       "id": "t-0063",
