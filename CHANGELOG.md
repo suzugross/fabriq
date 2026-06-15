@@ -16,6 +16,18 @@
 ## [Unreleased]
 
 ### Added
+- kernel + apps/fabriq_operator: 特殊マーカー `__GATE__`（前進バリア）を追加 (TM t-0073)。
+  Profile に `__GATE__` 行を置くと、直前ゲート〜当該マーカの窓に `Error`/`Partial` を持つ
+  モジュールが残る間、`Invoke-BatchExecution` が当該マーカ以降の `Order` の実行を拒否する
+  （下流依存モジュールが上流失敗の上で走るのを防ぐ）。判定は各モジュール実行直前に live な状態
+  （当該 run の蓄積 + session history。`__RESTART__` 跨ぎも history 経由で保持）で動的に行い、
+  フォワード実行中に発生した失敗でもゲートで止まる。`Success`/`Skipped`/`Cancelled`/`Pending` は
+  非ブロック（失敗を防ぐが省略は防がない）。ブロックされたモジュールは `Pending` 据え置きで
+  `ModuleResult` 契約は不変。FlexProfile dashboard は同じ判定で該当行をグレーアウト（チェックボックス
+  + Run 無効化・`Log` は有効）し、enforcement の権威は kernel 側に置く。内部ヘルパ
+  `Get-FabriqGateBarrier`（common.ps1・純関数）を新設。`__GATE__` を含まない既存 profile は挙動完全不変。
+  KERNEL_API §4 マーカ表 + §8 に 3.6.0（MINOR・Unreleased）として追記。新規テスト
+  `tests/kernel/GateBarrier.tests.ps1`。
 - apps/fabriq_operator: FlexProfile ダッシュボードに per-row `[Log]` ボタンと専用ログビューワを追加
   (TM t-0074)。各モジュールエントリの実行ログ（Show-* の出力）を、conhost 窓や生 transcript を
   追わずにその場で色分け表示できる。新規 `lib/log_viewer.ps1` の `Get-ModuleTelemetryLog`

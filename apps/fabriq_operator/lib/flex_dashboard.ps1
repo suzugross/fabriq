@@ -133,6 +133,15 @@ function Show-FlexDashboard {
         }
     }
 
+    # __GATE__ barrier (TM t-0073): the Order of the first unsatisfied gate
+    # (window before it has an Error/Partial), or $null. Rows at/after the
+    # barrier are blocked here in the UI (checkbox + Run disabled); the
+    # kernel (Invoke-BatchExecution) enforces the same rule authoritatively,
+    # so this grayout is the operator-facing reflection, not the rule itself.
+    $gateStatusMap = @{}
+    foreach ($k in $stateMap.Keys) { $gateStatusMap[[int]$k] = $stateMap[$k].Status }
+    $gateBarrier = Get-FabriqGateBarrier -Rows $rows -StatusMap $gateStatusMap
+
     # ----------------------------------------
     # Result hashtable returned to caller
     # ----------------------------------------
@@ -257,6 +266,11 @@ function Show-FlexDashboard {
                 $clickedGroup = $s.Tag
                 $groupOrders = @()
                 foreach ($row in $grid.Rows) {
+                    # Skip gate checkpoints and gate-blocked rows (mirror the
+                    # per-row Run / Select-All guards; the kernel enforces this
+                    # too, but pre-filtering keeps the UI consistent and avoids
+                    # spurious [GATE] Blocked warnings for dimmed rows).
+                    if ($row.Tag.IsGate -or $row.Tag.Blocked) { continue }
                     if ("$($row.Tag.Group)" -eq "$clickedGroup") {
                         $groupOrders += [int]$row.Tag.Order
                     }
@@ -405,15 +419,20 @@ function Show-FlexDashboard {
         )
         $row = $grid.Rows[$rowIndex]
         $rowGroup = if ($r.PSObject.Properties.Name -contains '_Group') { "$($r._Group)".Trim() } else { "" }
+        $isGateRow = ($r.PSObject.Properties.Name -contains '_IsGate') -and [bool]$r._IsGate
+        $isBlocked = ($null -ne $gateBarrier) -and ($ord -ge [int]$gateBarrier)
+
         $row.Tag = @{
             Order            = $ord
             MenuName         = $r.MenuName
             RelativePath     = $r.RelativePath
             IsRestart        = [bool]$r._IsRestart
             IsReexplorer     = [bool]$r._IsReexplorer
+            IsGate           = $isGateRow
             IsCheckedDefault = [bool]$r._IsCheckedDefault
             Group            = $rowGroup
             Message          = $st.Message
+            Blocked          = $isBlocked
         }
 
         # Tooltip on Status cell shows the full Message
@@ -424,6 +443,24 @@ function Show-FlexDashboard {
         # Visual hint for special markers
         if ($r._IsRestart -or $r._IsReexplorer) {
             $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(232, 224, 200)
+        }
+        # __GATE__ checkpoint row: distinct tint, not runnable.
+        if ($isGateRow) {
+            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(214, 224, 240)
+            $row.Cells['Checked'].ReadOnly = $true
+            $row.Cells['Status'].ToolTipText = "Gate checkpoint: blocks Orders at/after it while the prior window has Error/Partial."
+        }
+        # Blocked rows (at/after an unsatisfied gate): disable selection and
+        # dim, so the operator cannot queue them until upstream is cleared.
+        # Status/Verified badge colors still render via CellFormatting so the
+        # failure that caused the block stays visible; the [Log] button also
+        # stays active so the operator can inspect it.
+        if ($isBlocked) {
+            $row.Cells['Checked'].Value = $false
+            $row.Cells['Checked'].ReadOnly = $true
+            $row.Cells['MenuName'].Style.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
+            $row.Cells['Order'].Style.ForeColor    = [System.Drawing.Color]::FromArgb(150, 150, 150)
+            $row.Cells['MenuName'].ToolTipText = "Blocked by unsatisfied gate at Order $gateBarrier; resolve upstream failure(s) and re-run."
         }
     }
 
@@ -622,6 +659,19 @@ function Show-FlexDashboard {
         }
 
         if ($colName -ne 'RunBtn') { return }
+        # Gate checkpoints are not executable; blocked rows are barred until
+        # the upstream failure is cleared. The kernel enforces both too, so
+        # this is the operator-facing guard.
+        if ($tag.IsGate) { return }
+        if ($tag.Blocked) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "This module is blocked by an unsatisfied gate.`n`nResolve the Error / Partial module(s) above the gate and re-run them first.",
+                "FlexProfile - Gate",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+            return
+        }
         $result.Action = "RunSingle"
         $result.TargetOrder = [int]$tag.Order
         $form.Close()
@@ -646,6 +696,11 @@ function Show-FlexDashboard {
         $flexState.BulkUpdating = $true
         try {
             foreach ($row in $grid.Rows) {
+                # Gate checkpoints and gate-blocked rows are never bulk-selected.
+                if ($row.Tag.IsGate -or $row.Tag.Blocked) {
+                    $row.Cells['Checked'].Value = $false
+                    continue
+                }
                 $row.Cells['Checked'].Value = [bool]$row.Tag.IsCheckedDefault
             }
         }

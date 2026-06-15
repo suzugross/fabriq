@@ -3675,6 +3675,7 @@ function Resolve-ProfileModules {
         $specialMarkers = @{
             '__RESTART__'    = @{ MenuName = "[RESTART]";    Flag = "_IsRestart" }
             '__REEXPLORER__' = @{ MenuName = "[REEXPLORER]"; Flag = "_IsReexplorer" }
+            '__GATE__'       = @{ MenuName = "[GATE]";       Flag = "_IsGate" }
         }
 
         if ($specialMarkers.ContainsKey($path)) {
@@ -3741,6 +3742,62 @@ function Resolve-ProfileModules {
         AutoPilot        = $autoPilot
         AutoPilotWaitSec = $autoPilotWaitSec
     }
+}
+
+function Get-FabriqGateBarrier {
+    # __GATE__ forward-barrier resolver (TM t-0073).
+    #
+    # Walks the profile rows in ascending Order. A __GATE__ marker guards
+    # the window of modules between the previous gate (or profile start)
+    # and itself: if any module in that window has an Error or Partial
+    # status, the gate is "unsatisfied". The FIRST unsatisfied gate is the
+    # barrier — its Order is returned, and the caller blocks execution of
+    # every Order >= that value until the window is cleared. Returns $null
+    # when no gate is unsatisfied (no barrier).
+    #
+    # Evaluation is dynamic by contract: callers pass a StatusMap reflecting
+    # the state AT THE MOMENT of the check (prior-run history overlaid with
+    # the in-progress batch), so a failure occurring mid-run is seen as soon
+    # as the next Order is considered — which is what stops a forward run at
+    # the gate. Only Error / Partial block; Success / Skipped / Cancelled /
+    # Pending (absent from the map) do not (per t-0073 decisions: the gate
+    # guards against failure, not omission).
+    param(
+        # Default @() (not Mandatory): an empty profile is a valid input that
+        # simply yields no barrier. Mandatory would reject @() as "missing".
+        [array]$Rows = @(),
+        [hashtable]$StatusMap = @{}
+    )
+
+    # Deterministic order: by Order, then non-gate (0) before gate (1) so a
+    # module sharing a gate's Order is counted INSIDE that gate's window
+    # (conservative). PS 5.1 Sort-Object is not stable, hence the explicit
+    # secondary key — without it a duplicate-Order gate/module pair would
+    # have non-deterministic window membership.
+    $sorted = @($Rows | Sort-Object `
+        @{ Expression = { [int]$_.Order } }, `
+        @{ Expression = { if (($_.PSObject.Properties.Name -contains '_IsGate') -and [bool]$_._IsGate) { 1 } else { 0 } } })
+    $windowFailed = $false
+    foreach ($row in $sorted) {
+        $isGate = $false
+        if ($row.PSObject.Properties.Name -contains '_IsGate') { $isGate = [bool]$row._IsGate }
+
+        if ($isGate) {
+            if ($windowFailed) { return [int]$row.Order }
+            # Gate satisfied: open a fresh window for the next segment.
+            $windowFailed = $false
+            continue
+        }
+
+        $ord = $null
+        try { $ord = [int]$row.Order } catch { continue }
+        if ($StatusMap.ContainsKey($ord)) {
+            $st = "$($StatusMap[$ord])"
+            if ($st -eq 'Error' -or $st -eq 'Partial') { $windowFailed = $true }
+        }
+    }
+
+    return $null
 }
 
 function Show-ProfileMenu {

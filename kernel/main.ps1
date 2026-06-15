@@ -392,6 +392,49 @@ function Invoke-BatchExecution {
     $prevModuleName   = ""
     $prevModuleStatus = ""
 
+    # __GATE__ admission control (TM t-0073). $gateRows is the FULL ordered
+    # profile (so gate positions / window membership are known even when the
+    # operator runs a sparse Flex selection); $statusByOrder is the live
+    # per-Order status used to evaluate the barrier dynamically. It is seeded
+    # from the current session's history (captures prior runs AND modules
+    # completed before a __RESTART__) and updated as each module finishes.
+    $gateRows = if ($null -ne $FullProfileModules) { $FullProfileModules } else { $SelectedModules }
+
+    # Order -> MenuName for the CURRENT profile. execution_history.csv has no
+    # profile column and Order is per-profile-local, so the seed below only
+    # accepts a history row whose ModuleName matches the module occupying
+    # that Order in this profile. Without this, a same-Order module from a
+    # DIFFERENT profile run earlier in the same session (master-image flow
+    # runs Pre/Config stages back-to-back with overlapping Orders) could seed
+    # a false barrier and silently leave legitimate modules Pending.
+    $gateMenuByOrder = @{}
+    foreach ($gr in $gateRows) {
+        $gro = $null
+        try { $gro = [int]$gr.Order } catch { $gro = $null }
+        if ($null -ne $gro -and -not $gateMenuByOrder.ContainsKey($gro)) {
+            $gateMenuByOrder[$gro] = "$($gr.MenuName)"
+        }
+    }
+
+    $statusByOrder = @{}
+    if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
+        $gateHist = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO | Where-Object { $_.SessionID -eq $script:SessionID })
+        foreach ($gh in $gateHist) {
+            $gho = $null
+            try { $gho = [int]$gh.Order } catch { $gho = $null }
+            if ($null -eq $gho -or $gho -le 0 -or $statusByOrder.ContainsKey($gho)) { continue }
+            # Import-ExecutionHistory is descending by Timestamp (second
+            # resolution), so the first occurrence per Order is the latest;
+            # the live in-run update below corrects any same-second tie once
+            # the Order is re-executed this batch. Bind the row to this
+            # profile by MenuName before trusting it.
+            if ($gateMenuByOrder.ContainsKey($gho) -and "$($gh.ModuleName)" -eq $gateMenuByOrder[$gho]) {
+                $statusByOrder[$gho] = $gh.Status
+            }
+        }
+    }
+    $gateBlockedOrders = @()
+
     foreach ($module in $SelectedModules) {
         $current++
 
@@ -404,6 +447,29 @@ function Invoke-BatchExecution {
             ExecutionMode    = $ExecutionMode
             PrevModuleName   = $prevModuleName
             PrevModuleStatus = $prevModuleStatus
+        }
+
+        # __GATE__ marker: a checkpoint, not an executable module. It never
+        # runs anything; Get-FabriqGateBarrier accounts for its position
+        # when computing the barrier below.
+        if ($module._IsGate) {
+            Show-BatchProgress -Current $current -Total $total -ItemName "[GATE]"
+            Show-Info "[GATE] checkpoint at Order $($module.Order)"
+            continue
+        }
+
+        # __GATE__ admission control (TM t-0073): refuse any Order at or
+        # beyond the first unsatisfied gate. Evaluated dynamically against
+        # the live status map, so a failure earlier in THIS run (or a prior
+        # run / pre-__RESTART__ run via history) blocks everything past the
+        # gate until the operator clears it and re-runs. Blocked modules are
+        # left untouched (Pending), not recorded as a new status.
+        $gateBarrier = Get-FabriqGateBarrier -Rows $gateRows -StatusMap $statusByOrder
+        if ($null -ne $gateBarrier -and [int]$module.Order -ge $gateBarrier) {
+            Show-BatchProgress -Current $current -Total $total -ItemName $module.MenuName
+            Show-Warning "[GATE] Blocked: Order $($module.Order) ($($module.MenuName)) is beyond the unsatisfied gate at Order $gateBarrier. Resolve the failure(s) above and re-run."
+            $gateBlockedOrders += [int]$module.Order
+            continue
         }
 
         # __RESTART__ marker handling
@@ -502,6 +568,7 @@ function Invoke-BatchExecution {
                 Verified = $null
                 Message  = $reexplorerMessage
             }
+            $statusByOrder[[int]$module.Order] = $reexplorerStatus
             continue
         }
 
@@ -618,10 +685,21 @@ function Invoke-BatchExecution {
             Message  = $result.Message
         }
 
+        # Feed this result into the live gate status map so a downstream
+        # __GATE__ sees it on the next iteration (dynamic evaluation).
+        $statusByOrder[[int]$module.Order] = $result.Status
+
         # Update cross-module dependency tracker for next iteration's
         # envelope.start (consumed via $global:_FabriqCurrentProfileContext).
         $prevModuleName   = $module.MenuName
         $prevModuleStatus = $result.Status
+    }
+
+    # __GATE__: surface a single summary when downstream modules were
+    # blocked, so the operator knows execution stopped at a gate rather
+    # than completing the whole selection.
+    if ($gateBlockedOrders.Count -gt 0) {
+        Show-Warning "[GATE] $($gateBlockedOrders.Count) module(s) blocked by an unsatisfied gate (Orders: $($gateBlockedOrders -join ', ')). Resolve the upstream failure(s) and re-run."
     }
 
     # All modules completed (no restart, or all restarts done)
