@@ -38,13 +38,18 @@ function Get-ModuleTelemetryLog {
         [string]$ModulesDir = $null
     )
 
+    # Callers wrap the call in @(...) (e.g. @(Get-ModuleTelemetryLog ...)),
+    # so empty results are returned as a plain @(). Note: the ,@() "preserve
+    # empty array" idiom must NOT be used here — under an @(call) wrap it
+    # nests into a single empty-array element (Count 1), which would render
+    # as one blank log line instead of the empty state.
     if ([string]::IsNullOrWhiteSpace($ModulesDir)) {
         $sid = $script:SessionID
-        if ([string]::IsNullOrWhiteSpace($sid)) { return ,@() }
+        if ([string]::IsNullOrWhiteSpace($sid)) { return @() }
         $ModulesDir = Join-Path (Join-Path ".\logs\telemetry" $sid) "modules"
     }
 
-    if (-not (Test-Path -LiteralPath $ModulesDir)) { return ,@() }
+    if (-not (Test-Path -LiteralPath $ModulesDir)) { return @() }
 
     # Find every JSONL whose envelope.start.order matches. envelope.start is
     # the first event written per module, so the order is near the top; we
@@ -55,13 +60,25 @@ function Get-ModuleTelemetryLog {
         $lines = $null
         try { $lines = [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8) }
         catch { continue }
+        # The authoritative per-entry Order is envelope.start.profileOrder
+        # (set from the Profile context in main.ps1). The plain `order`
+        # field is always 0 in production because Invoke-SafeCommand /
+        # Invoke-SafeCommandAsync call Start-ModuleTelemetry without -Order;
+        # it is only honored as a fallback for callers that do pass one.
         $fileOrder = $null
         foreach ($ln in $lines) {
             if ([string]::IsNullOrWhiteSpace($ln)) { continue }
             $obj = $null
             try { $obj = $ln | ConvertFrom-Json } catch { continue }
             if ("$($obj.type)" -eq "envelope.start") {
-                if ($null -ne $obj.order) {
+                $po = $null
+                if ($null -ne $obj.profileOrder) {
+                    try { $po = [int]$obj.profileOrder } catch { $po = $null }
+                }
+                if ($null -ne $po -and $po -ne 0) {
+                    $fileOrder = $po
+                }
+                elseif ($null -ne $obj.order) {
                     try { $fileOrder = [int]$obj.order } catch { $fileOrder = $null }
                 }
                 break
@@ -72,7 +89,7 @@ function Get-ModuleTelemetryLog {
         }
     }
 
-    if ($matchFiles.Count -eq 0) { return ,@() }
+    if ($matchFiles.Count -eq 0) { return @() }
 
     # Newest run wins. LastWriteTimeUtc is real wall-clock and therefore
     # survives __RESTART__ (where the in-process sequence counter resets).
@@ -93,11 +110,8 @@ function Get-ModuleTelemetryLog {
         }
     }
 
-    # ,@() preserves an empty array at the caller's scalar assignment site
-    # (a bare `return @()` collapses to $null). A populated array must NOT
-    # be wrapped that way, or the unary comma nests it and the caller sees
-    # a single element. So return the populated array plain.
-    if ($result.Count -eq 0) { return ,@() }
+    # Plain return; callers wrap in @(...). Empty $result emits nothing,
+    # which @(call) collapses to an empty array (Count 0).
     return $result
 }
 
