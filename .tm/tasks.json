@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-15T21:37:13+09:00",
+  "updatedAt": "2026-06-15T22:03:58+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -650,6 +650,15 @@
       "status": "未着手",
       "createdAt": "2026-06-15T21:37:13+09:00",
       "updatedAt": "2026-06-15T21:37:13+09:00"
+    },
+    {
+      "id": "t-0074",
+      "title": "FlexProfile 実行ログビューワ: エントリ別のログをボタン/ダブルクリックで色分け表示（既存テレメトリ流用・表示専用）",
+      "content": "FlexProfile 画面で、各モジュールエントリのログをその場で確認できるようにする。現状はモジュールの最終 Message が Status セルのツールチップに出るだけ（flex_dashboard.ps1:404-406）で、ステップ単位の失敗詳細を見る導線がない。実行中の conhost は速すぎて追えず、生ログ（transcript）は async 子ランスペースの詳細を取りこぼす（後述）ため実用にならなかった。\n\n要望（理想形）:\n1. ログは永続的に残す → 既に達成済み（追加実装不要。下記参照）。\n2. エントリ別の「ログ」ボタン（or 行ダブルクリック）→ そのエントリ分のログを Fabriq 専用の簡易ビューワで表示（メモ帳ではなく）。\n3. 成功分も捕捉 → 既に達成済み。\n4. わかりやすく色分け。\n\n重要な前提調査の結論（捕捉・永続化は既に存在する）:\n- テレメトリはモジュールエントリごとに専用 JSONL を生成済み: logs/telemetry/<SessionID>/modules/<seq>_<name>.jsonl（common.ps1:635）。中身は envelope.start（order 入り common.ps1:641）→ 全 show.<level> 行（_TrackShowEvent が tag + msg 本文を記録 common.ps1:471-490）→ envelope.end（showCounts/errors）。\n- この封筒はランスペース境界を参照渡しで越えるため、async 子モジュールの行も同じ JSONL に残る（transcript の async 欠落はここでは起きない）。transcript が「ランスペースで実行」程度しか残らないのは Start-Transcript（common.ps1:3259）が親ランスペースのコンソールしか拾わないため。\n- したがって要望 1（永続）・3（成功も）・4 の色分けデータ（各行 tag）は既に揃っている。残る実装は要望 2 の表示ビューワのみ。\n\n方針: 案 (a) テレメトリ流用・表示専用ビューワ（新しい分離ログは出さない）。\n- 理由: 永続化・事後解析は transcript + テレメトリ JSONL の二重で既に十分。足りないのは Fabriq 画面上の見やすさだけなので、捕捉・保存層は作らず表示層だけ足す。分離ログ案 (b) は SessionID ピン留め等を作り直すだけで旨味が薄く却下。\n\nオーファン/他Profile/再起動跨ぎへの耐性（調査で確定。設計前提）:\n- SessionID は起動時刻文字列（common.ps1:22）。__RESTART__ レジューム時に main.ps1:1381 で元の SessionID に復元される（resume state 保存 common.ps1:3117）。よって1回の Profile run の全エントリは、再起動を何回挟んでも「元フォルダ」logs/telemetry/<元SessionID>/modules/ に集約される。再起動直後の新タイムスタンプで作られる空オーファンフォルダには実モジュールテレメトリは入らない。\n- ビューワは実行中の $script:SessionID（＝復元済みの元の値）のフォルダだけを読む → オーファンは射程外、他 Profile（別 SessionID）とも隔離。dashboard は既に同方式で履歴を絞っている（flex_dashboard.ps1:58）。\n- 取り違え防止の必須ルール: ファイル名の seq は使わない。$global:_TelemetryModuleSeq はプロセス global で再起動リセットされ pre/post restart で重複し得るため。各 JSONL の envelope.start.order（Profile Order・エントリ一意・再起動跨ぎ不変）で索引する。dashboard 行も Order キーなので「Order → そのファイル」で引けば再起動跨ぎでも取り違えゼロ。\n\n実装スコープ（kernel ほぼ不触・operator app が本体）:\n- operator app（fabriq_operator/lib/flex_dashboard.ps1 + 新規ビューワ lib）: 各行に「ログ」ボタン or ダブルクリックハンドラ。押下で現 SessionID フォルダ内の該当 Order の JSONL を読み、show.* 行を tag→色マップで RichTextBox 等に色分け描画する Fabriq 専用ウィンドウを開く。既存 MessageBox/WinForms 基盤（flex_dashboard.ps1:265 等）を流用。\n- kernel: 理想は read-only で不触。必要なら「現 run のテレメトリ modules フォルダパスを解決する薄いヘルパ」を1本足す程度。\n\n(a) 採用で受け入れる前提（明記）:\n- ビューワはテレメトリ内部スキーマ（show.<level>/tag/envelope.start.order）に依存する。テレメトリ形式変更時はビューワも追従。欠損フィールドに寛容な防御的読み込みにし、依存をコメント明記。\n- 表示テキストは redact 済み（common.ps1:482）。秘密はマスクされた状態で出る（診断には十分・安全。生値が要る時は transcript で棲み分け）。\n- テレメトリが立たなかったエントリはログ無し → ビューワは「ログ未捕捉」と素直に表示して落ちない。\n\n着手時に詰める細部:\n- 導線: ログボタン / 行ダブルクリック / 展開パネル のどれか（推奨はダブルクリック詳細ダイアログ）。\n- 色マップ: tag（apply/skip/notFound/verifyPass/verifyFail/autopilot/async/restart/info/success/warning/error）→ 色。\n- 表示範囲: show.* 全行 + envelope.end のエラー要約を出すか。\n- 大量出力モジュール（windows_update 等）のスクロール/検索性。\n\nSemVer 影響（予想）:\n- operator app（fabriq_operator）側の機能追加が主。kernel は不触 or 薄いヘルパ追加（後方互換 → PATCH/MINOR 程度）。\n- 既存挙動は不変（表示を足すだけ）。\n\n着手時の必須プロセス: CLAUDE.md §4（表示専用で新規状態は乏しいが、ビューワ起動/空/エラーの分岐は軽量版で提示）+ リモート VM テスト（feedback_module_test_workflow）。\n\nステータス: 設計確定・未着手。実装は別途指示で。",
+      "claudeNote": "2026-06-15 議論で設計確定。出発点は「FlexProfile で実行ログを見たい / 生ログは async 欠落で使えない」。調査で「捕捉・永続化は既存テレメトリ（エントリ別 JSONL・tag 付き・async も残る）で達成済み」と判明し、機能は表示専用ビューワに縮小。案(a)テレメトリ流用を採用（user 合意: transcript+テレメトリで事後解析は十分、画面の見やすさだけ足せばよい）。オーファン/SessionID 復元/seq リセットの罠を調査で確定し、「現 SessionID フォルダ × envelope.start.order キー」で取り違えゼロを設計前提に明記。t-0073(__GATE__) と同じ FlexProfile 強化系。",
+      "status": "未着手",
+      "createdAt": "2026-06-15T22:03:58+09:00",
+      "updatedAt": "2026-06-15T22:03:58+09:00"
     }
   ]
 }
