@@ -153,6 +153,13 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- kernel/main.ps1 FlexProfile 右クリック「Mark as Pending (reset state)」が即座に反映されない
+  バグを修正 (TM t-0080)。`ResetState` ハンドラは history.csv と `$script:ExecutionResults` を
+  Pending 化していたが、ダッシュボードのステータス合成で**最優先（最後に上書き）される
+  `$script:LastBatchResults`** を更新していなかったため、直前バッチの古いステータスが history の
+  Pending を上書きし、リセットが見えなかった（別モジュール実行で `LastBatchResults` が作り直されて
+  初めて反映）。`ResetState` 分岐に、該当 Order の `LastBatchResults` エントリを Pending へ in-place
+  更新する1段を追加。新規状態なし・公開 API 不変。コード上で再現確認 → 修正後即反映を harness で検証。
 - kernel/main.ps1 Invoke-BatchExecution `__RESTART__` (TM t-0045): RunOnce 登録失敗時の
   **fail-open を fail-closed に修正**。`Register-FabriqRunOnce` が `$false`（Fabriq.exe 不在 /
   HKLM RunOnce 書込例外）を返すと、Error 記録後に `continue` してバッチ foreach の次要素
