@@ -348,6 +348,21 @@ function Show-FlexDashboard {
     $colVerified.ReadOnly = $true
     $grid.Columns.Add($colVerified) | Out-Null
 
+    # Per-row Log button. Opens a modal viewer over the entry's captured
+    # telemetry (Show-ModuleLogViewer) so the operator can see HOW a module
+    # behaved/failed without chasing the conhost window or the raw
+    # transcript. Non-destructive: unlike RunBtn it does NOT set
+    # $result.Action or close the dashboard.
+    $colLog = New-Object System.Windows.Forms.DataGridViewButtonColumn
+    $colLog.Name = "LogBtn"
+    $colLog.HeaderText = ""
+    $colLog.Text = "Log"
+    $colLog.UseColumnTextForButtonValue = $true
+    $colLog.Width = 52
+    $colLog.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $colLog.DefaultCellStyle.Alignment = "MiddleCenter"
+    $grid.Columns.Add($colLog) | Out-Null
+
     # Per-row Run button. Same dispatch as the legacy footer
     # [Run This: M] button (RunSingle action) — added at right end of
     # each row so single-execution becomes a 1-click action without
@@ -595,9 +610,18 @@ function Show-FlexDashboard {
     $grid.Add_CellContentClick({
         param($s, $e)
         if ($e.RowIndex -lt 0) { return }
-        if ($grid.Columns[$e.ColumnIndex].Name -ne 'RunBtn') { return }
+        $colName = $grid.Columns[$e.ColumnIndex].Name
         $tag = $grid.Rows[$e.RowIndex].Tag
         if ($null -eq $tag) { return }
+
+        # [Log] is non-destructive: open the viewer modally and return to
+        # the dashboard. Must NOT touch $result / close the form.
+        if ($colName -eq 'LogBtn') {
+            Show-ModuleLogViewer -Order ([int]$tag.Order) -ModuleName "$($tag.MenuName)"
+            return
+        }
+
+        if ($colName -ne 'RunBtn') { return }
         $result.Action = "RunSingle"
         $result.TargetOrder = [int]$tag.Order
         $form.Close()

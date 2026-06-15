@@ -16,6 +16,17 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_operator: FlexProfile ダッシュボードに per-row `[Log]` ボタンと専用ログビューワを追加
+  (TM t-0074)。各モジュールエントリの実行ログ（Show-* の出力）を、conhost 窓や生 transcript を
+  追わずにその場で色分け表示できる。新規 `lib/log_viewer.ps1` の `Get-ModuleTelemetryLog`
+  （純データ関数）が既存のエントリ別テレメトリ JSONL（`logs/telemetry/<SessionID>/modules/`）を
+  read-only で読み、`Show-ModuleLogViewer`（モーダル）が RichTextBox に level 別の色で描画する。
+  分離ログは新設せず既存テレメトリを流用（transcript と異なり async 子ランスペースの行も欠落しない）。
+  堅牢性: 現 `$script:SessionID` フォルダのみ参照（オーファン/他 Profile を隔離）、エントリ識別は
+  `envelope.start.order`（ファイル名 seq は `__RESTART__` でリセット衝突するため不使用）、同一 Order の
+  複数 run は `LastWriteTimeUtc` 最大＝最新を選択、壊れた JSONL 行はスキップ、未捕捉時は空表示。
+  表示は redact 済みテキスト、巨大ログは上限超過を明示（サイレント切り捨てなし）。kernel 公開 API は不変・
+  テレメトリは read-only 消費のみ。新規テスト `tests/operator/LogViewer.tests.ps1`。
 - modules/standard/wallpaper_config v1.1.0 → v1.2.0 (TM t-0038): キッティング向けに堅牢化。
   (1) Type=Image の画像を相対/絶対を問わず `C:\Windows\Web\Wallpaper\fabriq\` へ正規化コピーし、
   レジストリ/SystemParametersInfo にはコピー後のローカルパスのみを書き込む（USB を抜く/再起動/
