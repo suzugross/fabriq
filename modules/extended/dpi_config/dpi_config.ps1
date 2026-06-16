@@ -483,6 +483,7 @@ function Write-DpiValue {
     $hkcuChanged = $false
     $hiveChanged = $false
     $hasError = $false
+    $verifyFail = $false
 
     # --- HKCU ---
     $hkcuPath = Join-Path $script:PerMonitorBasePath $FullKeyName
@@ -505,6 +506,9 @@ function Write-DpiValue {
             }
             Write-Host "  [HKCU] Configured" -ForegroundColor Green
             $hkcuChanged = $true
+            # Post-Apply Verification: re-read the value just written (compare as [int]; DpiValue is signed).
+            $vHkcu = Get-CurrentDpiValue -KeyPath $hkcuPath
+            if ($null -eq $vHkcu -or [int]$vHkcu -ne [int]$DpiValue) { Write-Host "  [HKCU] Verify FAILED (read $vHkcu, expected $DpiValue)" -ForegroundColor Red; $verifyFail = $true }
         }
         catch {
             Write-Host "  [HKCU] Error: $_"
@@ -534,6 +538,8 @@ function Write-DpiValue {
                 }
                 Write-Host "  [HIVE] Configured" -ForegroundColor Green
                 $hiveChanged = $true
+                $vHive = Get-CurrentDpiValue -KeyPath $hivePath
+                if ($null -eq $vHive -or [int]$vHive -ne [int]$DpiValue) { Write-Host "  [HIVE] Verify FAILED (read $vHive, expected $DpiValue)" -ForegroundColor Red; $verifyFail = $true }
             }
             catch {
                 Write-Host "  [HIVE] Error: $_"
@@ -549,6 +555,7 @@ function Write-DpiValue {
         HkcuChanged = $hkcuChanged
         HiveChanged = $hiveChanged
         HasError    = $hasError
+        Verified    = (-not $verifyFail)
     }
 }
 
@@ -772,6 +779,8 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 $index = 0
 foreach ($target in $targets) {
@@ -828,12 +837,15 @@ foreach ($target in $targets) {
 
         if ($result.HasError) {
             $failCount++
+            $verifyFail++
         }
         elseif (-not $result.HkcuChanged -and -not $result.HiveChanged) {
             $skipCount++
+            $verifyPass++
         }
         else {
             $successCount++
+            if ($result.Verified) { $verifyPass++ } else { $verifyFail++ }
         }
 
         Write-Host ""
@@ -879,4 +891,5 @@ if ($successCount -gt 0) {
     Show-Warning "Sign-out or restart may be required for changes to take effect."
     Write-Host ""
 }
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -Verified $verified)
