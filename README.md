@@ -12,7 +12,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 - **GUI ダッシュボード**（WinForms）から個別モジュール実行・プロファイル一括実行・セッション切替を操作
 - **AutoPilot** による省人化キッティング。モジュール単位のエラー処理ポリシー（`skip` / `retry`）、再起動跨ぎ自動再開、HTML チェックリスト出力、スクリーンショット自動取得（運用上は仕上げ・確認のため operator の立ち会いを想定）
 - **AES-256-CBC + PBKDF2** による CSV 内機密値の暗号化保持
-- **76 種類の標準・拡張モジュール**を同梱
+- **79 種類の標準・拡張モジュール**を同梱
 
 ## 前提条件
 
@@ -27,7 +27,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 60 種、Extended 16 種、計 76 種のモジュール（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等） |
+| **モジュールシステム** | Standard 61 種・Extended 18 種・計 79 種（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等。うち `windows_update` は GUI ボタン専用） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -37,7 +37,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 | **暗号化** | AES-256-CBC + PBKDF2-SHA256（10 万回、固定ソルト）で CSV 中の機密値を `ENC:<Base64>` 形式で保持 |
 | **エビデンス自動取得** | モジュール実行ごとにスクリーンショットを自動保存 |
 | **HTML チェックリスト** | プロファイル実行後に実行結果・ネットワーク照合・プリンタ照合を HTML レポート出力 |
-| **ステータスモニタ** | 別ウィンドウで実行状況・PC 情報比較をリアルタイム表示 |
+| **Execution Toolbar** | ダッシュボード内蔵（in-process）の実行状況バー。旧・別プロセスの Status Monitor は kernel 3.4.0 で Defender/ASR ブロック対策のため撤去し in-process 化 |
 | **セグメント** | 同じモジュールをプロファイル内で設定値別に呼び分け可能（厳密マッチ） |
 | **Post-Apply Verification** | 設定適用後に読み返し検証を行い、実行履歴に `Verified` 列として記録 |
 | **プリセット UI** | 各モジュールの `preset.csv` により、設定 CSV の列挙型列を Fabriq Studio 側でドロップダウン編集可能 |
@@ -51,7 +51,7 @@ fabriq/
 ├── Fabriq_IOS.exe          # fabriq_ios サブプロジェクト用ランチャ（独立 SemVer）
 ├── kernel/
 │   ├── main.ps1            # メインスクリプト（Fabriq.exe から呼び出し）
-│   ├── common.ps1          # 共通関数ライブラリ（90+ 関数）
+│   ├── common.ps1          # 共通関数ライブラリ（96 関数）
 │   ├── KERNEL_VERSION      # カーネル API SemVer（真のソース）
 │   ├── KERNEL_API.md       # 公開 API サーフェスの明文化
 │   ├── EVIDENCE_MANIFEST.md # evidence manifest 公開契約（外部 consumer 向け）
@@ -166,9 +166,10 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 | マーカー | 動作 |
 |---|---|
 | `__AUTOPILOT__` | 以降のプロファイル実行を AutoPilot モードで自動化。`Description` に `WaitSec=N` でモジュール間ウェイト秒を指定可能 |
-| `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行。ハング時に Status Monitor の **Skip** ボタン、または `async_config.json` の `DefaultTimeoutSec` で強制スキップ可能（`Enabled: false` で全体無効化） |
+| `__ASYNC__` | （任意）以降のモジュールを監視付き Runspace で実行。kernel 3.3.0 以降は DefaultAsync が既定 ON のため通常は不要。ハング時は Execution Toolbar の **Skip** ボタン、または `async_config.json` の `DefaultTimeoutSec` で強制スキップ（`Enabled: false` で全体無効化） |
 | `__RESTART__` | Windows を再起動し、RunOnce 経由で次モジュールから自動再開 |
 | `__REEXPLORER__` | Explorer を再起動（レジストリ変更の即時反映等） |
+| `__GATE__` | 前進バリア（kernel 3.6.0〜）。直前ゲート〜本マーカの窓に `Error`/`Partial` または Post-Apply Verification 失敗（`Verified=False`）のモジュールが残る間、本マーカ以降の `Order` 実行を拒否（動的評価）。FlexProfile では該当行をグレーアウト。窓が解消すると解除 |
 | `__AUTO_to_<User>__` | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを呼び出す（例: `__AUTO_to_admin01__`） |
 
 > kernel 3.0.0 で旧マーカー `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` を破壊的に削除しました。これらを含む旧プロファイルは graceful degradation（"module not found" 警告として降格、他モジュールの実行は継続）で動作します。
@@ -183,6 +184,7 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 |---|---|
 | **Status / Verified バッジ** | 各行が `Success` / `Partial` / `Error` / `Skipped` / `Pending` を背景色付きバッジで表示。`Verified` 列は Post-Apply Verification の `PASS` / `FAIL` を緑/赤で表示 |
 | **`[Run]`（行ごと）** | 各行末尾の `[Run]` ボタンで該当モジュール 1 件を即時単発実行（AutoConfirmMode で Y/N プロンプト・Press-Enter 待機をスキップ） |
+| **`[Log]`（行ごと）** | 各行の `[Log]` ボタンで該当モジュールの実行ログ（Show-* 出力）をその場で色分け表示。conhost 窓や生 transcript を追わずに確認（kernel 3.6.0〜） |
 | **`[Run Selected (N)]`** | チェックボックスで選択した行を Order 昇順で一括実行（AutoPilot 挙動 + finalize は手動委譲） |
 | **`[Run: <Group>]`（Groups バー）** | プロファイル CSV の `Group` 列で集約された行群を 1 クリックで一括実行。Group 跨ぎの `__RESTART__` は当該 Group 実行時にスキップ（literal interpretation） |
 | **`[Select All]` / `[Clear All]`** | bulk-select。`[Select All]` は CSV `Enabled=1` 行のみチェック |
@@ -197,14 +199,14 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 ## モジュール一覧
 
-### Standard モジュール（60）
+### Standard モジュール（61）
 
 | カテゴリ | モジュール |
 |---|---|
 | **Network** | `hostname_config`, `ipaddress_config`, `temp_ipaddress_config`, `domain_join`, `ssid_config` |
 | **Display** | `brightness_config`, `dpi_api_config`, `resolution_api_config` |
 | **Desktop** | `wallpaper_config`, `taskbar_config`, `startlayout_config` |
-| **Security** | `bitlocker_config`, `firewall_config`, `firewall_rule_config`, `firewall_rule_make_config`, `cert_config`, `office_license_config`, `windows_license_config` |
+| **Security** | `bitlocker_config`, `firewall_config`, `firewall_rule_config`, `firewall_rule_make_config`, `cert_config`, `credential_config`, `office_license_config`, `windows_license_config` |
 | **User Management** | `local_user_config`, `profile_delete` |
 | **Printer** | `printer_driver_config`, `printer_delete` |
 | **Applications** | `app_config`, `winget_install`, `bloatware_remove`, `storeapp_config`, `odt_config`, `browser_addon_config`, `fabriq_app_launcher` |
@@ -218,7 +220,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 `windows_update` は GUI ダッシュボードの **Windows Update** ボタン専用で、`module.csv` を持たず Script Menu には表示されません。
 
-### Extended モジュール（16）
+### Extended モジュール（18）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -231,6 +233,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Scripts** | `script_looper` |
 | **ManualWorks** | `manual_kitting_assistant`, `pianist` |
 | **Evidence** | `log_uploader` |
+| **Backup** | `printer_backup`, `userdata_backup` |
 
 ## モジュール構成
 
@@ -350,6 +353,10 @@ pwsh ./dev/run_tests.ps1                   # PowerShell 7+ でも可（導入済
 ```
 
 `tests/` と `apps/fabriq_ios/tests/` 以下の `*.tests.ps1` を一括実行します。
+
+### CI（GitHub Actions）
+
+push（main）/ PR で `.github/workflows/ci.yml` が Windows PowerShell 5.1 上で `run_tests.ps1` / `check_version.ps1` / `check_ps1_encoding.ps1` を exit code 判定で実行します（3 チェックを独立ステップで全実行）。
 
 ### 構成
 
