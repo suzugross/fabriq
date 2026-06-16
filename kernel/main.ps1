@@ -1012,6 +1012,20 @@ function Invoke-FlexProfileLoop {
                     # Profile row (not its MenuName twin).
                     Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
                     $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
+
+                    # The dashboard overlays $script:LastBatchResults LAST
+                    # (highest precedence), so a stale entry from the prior
+                    # batch would mask this reset until the next run
+                    # republishes it. Update the matching entry in place so
+                    # the reset is reflected immediately (TM t-0080).
+                    foreach ($lbr in $script:LastBatchResults) {
+                        if ([int]$lbr.Order -eq [int]$tgt.Order) {
+                            $lbr.Status   = "Pending"
+                            $lbr.Verified = $null
+                            $lbr.Message  = "Reset by operator"
+                        }
+                    }
+
                     Show-Info "Reset state: Order $($tgt.Order) ($($tgt.MenuName)) -> Pending"
                     # State changed since last [Complete] (if any) —
                     # mark pending so the operator is reminded to
