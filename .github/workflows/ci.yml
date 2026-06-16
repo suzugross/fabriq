@@ -18,8 +18,19 @@ name: CI
 on:
   push:
     branches: [main]
+    # Skip CI when a push touches ONLY docs / TM task files (no code impact).
+    # A push that also changes any non-listed file still runs. Caveat:
+    # check_version.ps1 also reads README.md / KERNEL_API.md, so a .md-only
+    # version edit could escape the gate - acceptable because real version
+    # bumps (CLAUDE.md section I) always touch .ps1 too, so that push runs CI.
+    paths-ignore:
+      - '.tm/**'
+      - '**/*.md'
   pull_request:
-  workflow_dispatch:
+    paths-ignore:
+      - '.tm/**'
+      - '**/*.md'
+  workflow_dispatch:  # manual runs always execute, regardless of paths
 
 concurrency:
   group: ci-${{ github.ref }}
