@@ -21,6 +21,10 @@
   SequenceNumber 比較(L259-281)を -Verified に接続。set_storage_size は vssadmin 出力 parse が
   ロケール脆弱のため対象外(success/fail 計上は従来通り)。$null=検証対象ゼロ/skip は idempotency-verified。
   VERSION 1.1.1→1.2.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/extended/ipv6_config: Post-Apply Verification を追加(-Verified)。適用後に各対象アダプタの
+  Get-NetAdapterBinding(ms_tcpip6).Enabled を読返し targetState と照合(即時反映・再glob せず適用集合のみ)。
+  バインドのみ対象で DisabledComponents 不使用=単一機構・偽PASS Low。$null=対象アダプタなし。
+  VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
