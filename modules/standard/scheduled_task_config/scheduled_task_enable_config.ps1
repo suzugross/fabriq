@@ -77,6 +77,8 @@ Write-Host ""
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
+$verifyPass   = 0
+$verifyFail   = 0
 
 foreach ($item in $enabledItems) {
     $displayName = if ($item.Description) { $item.Description } else { $item.TaskName }
@@ -89,6 +91,7 @@ foreach ($item in $enabledItems) {
     if (-not $task) {
         Show-Warning "Task not found: $($item.TaskPath)$($item.TaskName)"
         $failCount++
+        $verifyFail++
         Write-Host ""
         continue
     }
@@ -99,6 +102,7 @@ foreach ($item in $enabledItems) {
     if ($task.State -ne "Disabled") {
         Show-Skip "Already enabled: $displayName ($($task.State))"
         $skipCount++
+        $verifyPass++
         Write-Host ""
         continue
     }
@@ -110,10 +114,14 @@ foreach ($item in $enabledItems) {
         $null = Enable-ScheduledTask -TaskName $item.TaskName -TaskPath $item.TaskPath -ErrorAction Stop
         Show-Success "Enabled: $displayName"
         $successCount++
+        # Step 5.5: Post-Apply Verification - re-read the task state.
+        $vt = Get-ScheduledTask -TaskName $item.TaskName -TaskPath $item.TaskPath -ErrorAction SilentlyContinue
+        if ($vt -and $vt.State -ne "Disabled") { $verifyPass++ } else { Show-Warning "Verify: $displayName state is $($vt.State) (expected not Disabled)"; $verifyFail++ }
     }
     catch {
         Show-Error "Failed to enable: $displayName - $_"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -122,5 +130,6 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Result
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Verified $verified `
     -Title "Scheduled Task Enable Results")
