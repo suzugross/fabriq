@@ -332,7 +332,14 @@ function Get-CurrentDpiValue {
     param([string]$KeyPath)
     try {
         $props = Get-ItemProperty $KeyPath -Name 'DpiValue' -ErrorAction Stop
-        return [int]$props.DpiValue
+        $raw = [long]$props.DpiValue
+        # DpiValue is a signed offset stored as a DWORD; PS 5.1 reads 0xFFFFFFFF
+        # back as the unsigned 4294967295, so reinterpret values above Int32.Max
+        # as their signed equivalent (e.g. 4294967295 -> -1) instead of [int]-
+        # casting (which overflows and used to return $null, breaking idempotency
+        # and verification for negative DPI offsets).
+        if ($raw -gt 2147483647) { return [int]($raw - 4294967296) }
+        return [int]$raw
     }
     catch {
         return $null
