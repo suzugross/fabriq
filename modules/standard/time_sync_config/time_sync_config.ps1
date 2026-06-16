@@ -233,6 +233,29 @@ foreach ($line in ($finalStatus.Trim() -split "\r?\n")) {
 Write-Host ""
 
 # ========================================
+# Step 5.6: Post-Apply Verification (acceptance-level, locale-independent)
+# ========================================
+# Verify config ACCEPTANCE only (service Running+Automatic + registry NtpServer/
+# Type match the CSV) - NOT sync completion (async, network-gated, observable
+# only via locale-fragile w32tm text). Read the registry, not w32tm output.
+$verified = $null
+try {
+    $vSvc = Get-Service -Name "W32Time" -ErrorAction Stop
+    $vCim = Get-CimInstance -ClassName Win32_Service -Filter "Name='W32Time'" -ErrorAction SilentlyContinue
+    $vSvcOk = ($vSvc.Status -eq "Running") -and ($null -ne $vCim -and $vCim.StartMode -eq "Auto")
+    if ($enabledItems.Count -gt 0) {
+        $vExpectedPeers = ($enabledItems | ForEach-Object { "$($_.NtpServer),0x9" }) -join " "
+        $vParam = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters" -ErrorAction SilentlyContinue
+        $verified = [bool]($vSvcOk -and ($null -ne $vParam -and $vParam.NtpServer -eq $vExpectedPeers -and $vParam.Type -eq "NTP"))
+    }
+    else {
+        $verified = [bool]$vSvcOk
+    }
+    if (-not $verified) { Show-Warning "Verify (acceptance): W32Time state / NtpServer registry did not match the configured peers" }
+}
+catch { $verified = $false }
+
+# ========================================
 # Step 6: Result
 # ========================================
 if ($enabledItems.Count -gt 0) {
@@ -244,7 +267,7 @@ else {
 }
 
 if (-not $syncSuccess) {
-    return (New-ModuleResult -Status "Partial" -Message "$msg (sync not confirmed after $maxRetries attempts)")
+    return (New-ModuleResult -Status "Partial" -Message "$msg (sync not confirmed after $maxRetries attempts)" -Verified $verified)
 }
 
-return (New-ModuleResult -Status "Success" -Message $msg)
+return (New-ModuleResult -Status "Success" -Message $msg -Verified $verified)

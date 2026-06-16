@@ -44,6 +44,10 @@
   EnumDisplaySettings(ENUM_CURRENT) で live 解像度を読返し W×H 照合(refresh 未設定=非照合・nearest mode 強制は正しく FAIL)。
   DISP_CHANGE_RESTART 行は pending(再起動まで live 不変)=検証除外。skip=idempotency-verified、fail/例外=verifyFail。
   $null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
+- modules/standard/time_sync_config: Post-Apply Verification を追加(-Verified・acceptance-level)。適用後に
+  W32Time の Running+Automatic と registry NtpServer/Type(=CSV ピア)を照合(locale-fragile な w32tm テキスト
+  parse を回避・registry ベース)。sync 完了は非同期のため -Verified に載せない(従来 Partial 判定は不変)。
+  0件モードは service のみ検証。VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
