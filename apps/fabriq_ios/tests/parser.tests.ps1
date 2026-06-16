@@ -1,4 +1,4 @@
-# Pester tests for the command parser.
+﻿# Pester tests for the command parser.
 # Run: Invoke-Pester apps\fabriq_ios\tests\parser.tests.ps1
 
 BeforeAll {
