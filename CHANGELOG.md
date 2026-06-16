@@ -18,9 +18,10 @@
 ### Added
 - modules/standard/restore_point: Post-Apply Verification を追加(-Verified)。24h-limit は適用後に既存
   Test-RestoreRegistryValue で読返検証、restore-point 作成は既存の pre/post MAX SequenceNumber 比較
-  (L259-281)を -Verified に接続。enable_protection は「SR 有効」の信頼できる registry 読返が無いため対象外
-  (DisableSR は modern Windows で SR 有効時 ABSENT=0でない・VM 実機で確認。効果は restore-point 作成成功が
-  transitively 証明)、set_storage_size も vssadmin parse 脆弱で対象外(両者とも success/fail 計上は従来通り)。
+  (L259-281)を -Verified に接続。enable_protection は RPSessionInterval(>=1=有効。Enable-ComputerRestore が
+  0→1 にする)で直接検証し、冪等性チェックも同指標へ修正(従来の DisableSR=0 は modern Windows で常時 ABSENT な
+  死指標〔clean=0/disabled=0/enabled=1 を VM 実測〕で skip が一度も効いていなかった既存バグを解消)。
+  set_storage_size のみ vssadmin parse 脆弱で対象外(success/fail 計上は従来通り)。
   $null=検証対象ゼロ/skip は idempotency-verified。VERSION 1.1.1→1.2.0(MINOR・REQUIRES_KERNEL 据置)。
 - modules/extended/ipv6_config: Post-Apply Verification を追加(-Verified)。適用後に各対象アダプタの
   Get-NetAdapterBinding(ms_tcpip6).Enabled を読返し targetState と照合(即時反映・再glob せず適用集合のみ)。

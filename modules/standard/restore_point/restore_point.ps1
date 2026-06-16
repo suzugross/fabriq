@@ -38,6 +38,20 @@ function Test-RestoreRegistryValue {
     catch { return $false }
 }
 
+function Test-SystemRestoreEnabled {
+    # "SR enabled on the drive" indicator. Enable-ComputerRestore sets
+    # RPSessionInterval to a non-zero value (1 on Win10/11); it is 0 when SR is
+    # not enabled. The legacy DisableSR flag is ABSENT on modern Windows and
+    # cannot be used as an indicator - verified empirically on the test VM
+    # (clean=0 / disabled=0 / enabled=1; DisableSR absent in all three states).
+    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore"
+    try {
+        $v = (Get-ItemProperty -Path $regPath -Name "RPSessionInterval" -ErrorAction SilentlyContinue).RPSessionInterval
+        return ($null -ne $v -and [int]$v -ge 1)
+    }
+    catch { return $false }
+}
+
 function Get-ShadowStorageInfo {
     param([string]$Drive)
     # Implementation modeled on ssid_config's netsh-output parsing.
@@ -162,12 +176,9 @@ $successCount = 0
 $skipCount    = 0
 $failCount    = 0
 # Post-Apply Verification tally (read-back of applied/skipped settings).
-# Excluded from -Verified (still count toward success/fail):
-#  - set_storage_size : exact maxsize% only readable via locale-fragile vssadmin parse.
-#  - enable_protection: no reliable registry read-back for "SR enabled on drive"
-#    (DisableSR is ABSENT, not 0, when SR is enabled on modern Windows - confirmed
-#    on the test VM); its effect is transitively proven when create_restore_point
-#    succeeds (a checkpoint cannot be taken on a disabled SR).
+# enable_protection / remove_24h_limit / restore-point creation are verified.
+# Excluded (still counts toward success/fail): set_storage_size, whose exact
+# maxsize% is only readable via locale-fragile vssadmin-list parsing.
 $verifyPass = 0
 $verifyFail = 0
 
@@ -182,10 +193,11 @@ foreach ($item in $enabledItems) {
     switch ($settingName) {
 
         'enable_protection' {
-            # Idempotency: skip when DisableSR is already 0
-            if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
+            # Idempotency: skip when SR is already enabled (RPSessionInterval >= 1).
+            if (Test-SystemRestoreEnabled) {
                 Show-Skip "System protection already enabled"
                 $skipCount++
+                $verifyPass++
                 Write-Host ""
                 continue
             }
@@ -195,10 +207,17 @@ foreach ($item in $enabledItems) {
                 Enable-ComputerRestore -Drive $drive -ErrorAction Stop
                 Show-Success "System protection enabled on $drive"
                 $successCount++
+                if (Test-SystemRestoreEnabled) {
+                    $verifyPass++
+                } else {
+                    Show-Warning "Verify: System Restore not reported enabled (RPSessionInterval) after Enable-ComputerRestore"
+                    $verifyFail++
+                }
             }
             catch {
                 Show-Error "Failed to enable system protection: $_"
                 $failCount++
+                $verifyFail++
             }
         }
 
@@ -319,10 +338,10 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Aggregate and return result
 # ========================================
-# -Verified covers the read-back-verifiable settings (24h-limit reads back as 0,
-# restore-point creation confirmed by a strictly-newer SequenceNumber). $null
-# when none were in scope, $true when all read back as expected, $false on any
-# mismatch or apply failure among them.
+# -Verified covers the read-back-verifiable settings: SR enabled (RPSessionInterval),
+# 24h-limit reads back as 0, restore-point creation confirmed by a strictly-newer
+# SequenceNumber. $null when none were in scope, $true when all read back as
+# expected, $false on any mismatch or apply failure among them.
 $verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
 
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
