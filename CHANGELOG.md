@@ -154,6 +154,12 @@
   で後方互換。新規テスト ResumeState +6 / Write-ExecutionHistory +3。
 
 ### Fixed
+- kernel/main.ps1 を純 ASCII 化（非 ASCII 12箇所: em-dash `—`→`-`、矢印 `→`→`->`、
+  集合記号 `∩`→`intersect`。コメント11 + ログ文字列1）。BOM 無し UTF-8 ファイルに非 ASCII が
+  混在しており、既定 ANSI が CP932 でないロケール（CI の en-US ランナー等）で PS 5.1 が文字列リテラル内の
+  em-dash を `"` 化けと誤読 → 文字列を早期終了 → `main.ps1` パース不能となり、AST 抽出する kernel テスト
+  3本（Invoke-BatchExecution / Set-SelectedHostEnvironment / Invoke-WindowsUpdateLoop）が CI で失敗していた。
+  ロケール非依存でパース安定。制御フロー・公開 API・ログ挙動は不変（句読点のみ）。
 - kernel/main.ps1 FlexProfile 右クリック「Mark as Pending (reset state)」が即座に反映されない
   バグを修正 (TM t-0080)。`ResetState` ハンドラは history.csv と `$script:ExecutionResults` を
   Pending 化していたが、ダッシュボードのステータス合成で**最優先（最後に上書き）される
