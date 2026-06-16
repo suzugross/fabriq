@@ -417,6 +417,7 @@ function Invoke-BatchExecution {
     }
 
     $statusByOrder = @{}
+    $verifiedByOrder = @{}
     if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
         $gateHist = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO | Where-Object { $_.SessionID -eq $script:SessionID })
         foreach ($gh in $gateHist) {
@@ -430,6 +431,8 @@ function Invoke-BatchExecution {
             # profile by MenuName before trusting it.
             if ($gateMenuByOrder.ContainsKey($gho) -and "$($gh.ModuleName)" -eq $gateMenuByOrder[$gho]) {
                 $statusByOrder[$gho] = $gh.Status
+                # History Verified column is "True"/"False"/"" -> bool/$null.
+                $verifiedByOrder[$gho] = if ($gh.Verified -eq 'True') { $true } elseif ($gh.Verified -eq 'False') { $false } else { $null }
             }
         }
     }
@@ -464,7 +467,7 @@ function Invoke-BatchExecution {
         # run / pre-__RESTART__ run via history) blocks everything past the
         # gate until the operator clears it and re-runs. Blocked modules are
         # left untouched (Pending), not recorded as a new status.
-        $gateBarrier = Get-FabriqGateBarrier -Rows $gateRows -StatusMap $statusByOrder
+        $gateBarrier = Get-FabriqGateBarrier -Rows $gateRows -StatusMap $statusByOrder -VerifiedMap $verifiedByOrder
         if ($null -ne $gateBarrier -and [int]$module.Order -ge $gateBarrier) {
             Show-BatchProgress -Current $current -Total $total -ItemName $module.MenuName
             Show-Warning "[GATE] Blocked: Order $($module.Order) ($($module.MenuName)) is beyond the unsatisfied gate at Order $gateBarrier. Resolve the failure(s) above and re-run."
@@ -569,6 +572,7 @@ function Invoke-BatchExecution {
                 Message  = $reexplorerMessage
             }
             $statusByOrder[[int]$module.Order] = $reexplorerStatus
+            $verifiedByOrder[[int]$module.Order] = $null
             continue
         }
 
@@ -687,7 +691,10 @@ function Invoke-BatchExecution {
 
         # Feed this result into the live gate status map so a downstream
         # __GATE__ sees it on the next iteration (dynamic evaluation).
+        # Verified (PASS/FAIL/$null) is tracked too: a Verified=FAIL also
+        # trips the gate even when Status is Success.
         $statusByOrder[[int]$module.Order] = $result.Status
+        $verifiedByOrder[[int]$module.Order] = $result.Verified
 
         # Update cross-module dependency tracker for next iteration's
         # envelope.start (consumed via $global:_FabriqCurrentProfileContext).

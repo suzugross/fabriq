@@ -17,7 +17,8 @@
 
 ### Added
 - kernel + apps/fabriq_operator: 特殊マーカー `__GATE__`（前進バリア）を追加 (TM t-0073)。
-  Profile に `__GATE__` 行を置くと、直前ゲート〜当該マーカの窓に `Error`/`Partial` を持つ
+  Profile に `__GATE__` 行を置くと、直前ゲート〜当該マーカの窓に `Error`/`Partial` または
+  **Post-Apply Verification 失敗（`Verified=False`）** を持つ
   モジュールが残る間、`Invoke-BatchExecution` が当該マーカ以降の `Order` の実行を拒否する
   （下流依存モジュールが上流失敗の上で走るのを防ぐ）。判定は各モジュール実行直前に live な状態
   （当該 run の蓄積 + session history。`__RESTART__` 跨ぎも history 経由で保持）で動的に行い、

@@ -110,4 +110,27 @@ Describe 'Get-FabriqGateBarrier' {
             Get-FabriqGateBarrier -Rows $rows -StatusMap $map | Should -Be 20
         }
     }
+
+    Context 'Post-Apply Verification (Verified=FALSE) blocks' {
+        It 'blocks the gate when a window module is Success but Verified=$false' {
+            $rows = @((New-GateRow 10), (New-GateRow 20 -Gate), (New-GateRow 30))
+            $status = New-StatusMap @{ 10 = 'Success' }
+            $verified = @{}; $verified[10] = $false
+            Get-FabriqGateBarrier -Rows $rows -StatusMap $status -VerifiedMap $verified | Should -Be 20
+        }
+
+        It 'does NOT block on Verified=$true or Verified=$null (unverified)' {
+            $rows = @((New-GateRow 10), (New-GateRow 15), (New-GateRow 20 -Gate))
+            $status = New-StatusMap @{ 10 = 'Success'; 15 = 'Success' }
+            $verified = @{}; $verified[10] = $true; $verified[15] = $null
+            Get-FabriqGateBarrier -Rows $rows -StatusMap $status -VerifiedMap $verified | Should -Be $null
+        }
+
+        It 'attributes a Verified=$false to the correct window (second gate)' {
+            $rows = @((New-GateRow 10), (New-GateRow 20 -Gate), (New-GateRow 30), (New-GateRow 40 -Gate))
+            $status = New-StatusMap @{ 10 = 'Success'; 30 = 'Success' }
+            $verified = @{}; $verified[30] = $false
+            Get-FabriqGateBarrier -Rows $rows -StatusMap $status -VerifiedMap $verified | Should -Be 40
+        }
+    }
 }
