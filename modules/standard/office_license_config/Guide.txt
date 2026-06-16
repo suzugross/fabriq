@@ -95,9 +95,10 @@ install / auth の両方とも Confirm-ModuleExecution を経由します。
 
 ■ Post-Apply Verification
 [office_license_install.ps1]
-  プロダクトキー登録の検証は実装していません。New-BatchResult に
-  -Verified は渡していないため、実行履歴の Verified 列は空欄になります。
-  登録結果は cscript の ExitCode のみで判定します。
+  プロダクトキー登録の検証を実装しています。/inpkey の ExitCode は信頼できない
+  （エラーでも 0 を返す）ため、適用後に /dstatus を読み返し、登録キー末尾 5 文字が
+  存在するかを照合します。New-BatchResult に -Verified（$true=適用キー全件確認 /
+  $false=1 件以上欠落 / $null=読み返し対象なし）を渡します。
 
 [office_license_auth.ps1]
   適用後に cscript OSPP.vbs /dstatus を再実行し、全製品の
