@@ -162,8 +162,12 @@ $successCount = 0
 $skipCount    = 0
 $failCount    = 0
 # Post-Apply Verification tally (read-back of applied/skipped settings).
-# set_storage_size is excluded (its exact maxsize% is only readable via
-# locale-fragile vssadmin-list parsing); it still counts toward success/fail.
+# Excluded from -Verified (still count toward success/fail):
+#  - set_storage_size : exact maxsize% only readable via locale-fragile vssadmin parse.
+#  - enable_protection: no reliable registry read-back for "SR enabled on drive"
+#    (DisableSR is ABSENT, not 0, when SR is enabled on modern Windows - confirmed
+#    on the test VM); its effect is transitively proven when create_restore_point
+#    succeeds (a checkpoint cannot be taken on a disabled SR).
 $verifyPass = 0
 $verifyFail = 0
 
@@ -182,7 +186,6 @@ foreach ($item in $enabledItems) {
             if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
                 Show-Skip "System protection already enabled"
                 $skipCount++
-                $verifyPass++
                 Write-Host ""
                 continue
             }
@@ -192,17 +195,10 @@ foreach ($item in $enabledItems) {
                 Enable-ComputerRestore -Drive $drive -ErrorAction Stop
                 Show-Success "System protection enabled on $drive"
                 $successCount++
-                if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
-                    $verifyPass++
-                } else {
-                    Show-Warning "Verify: DisableSR is not 0 after enabling protection"
-                    $verifyFail++
-                }
             }
             catch {
                 Show-Error "Failed to enable system protection: $_"
                 $failCount++
-                $verifyFail++
             }
         }
 
@@ -323,9 +319,9 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Aggregate and return result
 # ========================================
-# -Verified covers the read-back-verifiable settings (protection / 24h-limit
-# / restore-point creation). $null when none were in scope (e.g. only
-# set_storage_size ran), $true when all read back as expected, $false on any
+# -Verified covers the read-back-verifiable settings (24h-limit reads back as 0,
+# restore-point creation confirmed by a strictly-newer SequenceNumber). $null
+# when none were in scope, $true when all read back as expected, $false on any
 # mismatch or apply failure among them.
 $verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
 
