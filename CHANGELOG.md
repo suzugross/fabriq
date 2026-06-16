@@ -40,6 +40,10 @@
 - modules/standard/scheduled_task_config (enable/disable 両 .ps1): Post-Apply Verification を追加(-Verified)。
   適用後に Get-ScheduledTask で State を読返(disable=State==Disabled / enable=State!=Disabled〔Running 許容〕)。
   skip=idempotency-verified、task 不在/失敗=verifyFail。$null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
+- modules/standard/resolution_api_config: Post-Apply Verification を追加(-Verified)。DISP_CHANGE_SUCCESSFUL 行は
+  EnumDisplaySettings(ENUM_CURRENT) で live 解像度を読返し W×H 照合(refresh 未設定=非照合・nearest mode 強制は正しく FAIL)。
+  DISP_CHANGE_RESTART 行は pending(再起動まで live 不変)=検証除外。skip=idempotency-verified、fail/例外=verifyFail。
+  $null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った

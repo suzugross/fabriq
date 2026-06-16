@@ -128,6 +128,8 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 $hasChanges = $false
 
@@ -177,6 +179,7 @@ foreach ($item in $enabledItems) {
     if ($targetW -eq $currentW -and $targetH -eq $currentH) {
         Show-Skip "$targetW x $targetH$desc - already set"
         $skipCount++
+        $verifyPass++
         continue
     }
 
@@ -193,20 +196,34 @@ foreach ($item in $enabledItems) {
                 # Update current resolution for subsequent checks
                 $currentW = $targetW
                 $currentH = $targetH
+
+                # Step 5.5: Post-Apply Verification - read the live current mode back.
+                $cur = [ResolutionHandler]::GetCurrentResolution()
+                if ($cur[0] -eq $targetW -and $cur[1] -eq $targetH) {
+                    $verifyPass++
+                }
+                else {
+                    Show-Warning "Verify: current $($cur[0])x$($cur[1]) (expected ${targetW}x${targetH})"
+                    $verifyFail++
+                }
             }
             ([ResolutionHandler]::DISP_CHANGE_RESTART) {
                 Show-Warning "Resolution set but restart required to take effect"
                 $successCount++
+                # Pending until reboot - the live mode still reads the old value, so
+                # this row is not verifiable now (leaves -Verified unaffected).
             }
             default {
                 Show-Error "Failed to change resolution - unsupported resolution or hardware limitation"
                 $failCount++
+                $verifyFail++
             }
         }
     }
     catch {
         Show-Error "$($_.Exception.Message)"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -215,4 +232,7 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Resolution Configuration Results")
+# -Verified: SUCCESSFUL rows verified via live read-back (W x H, refresh not set);
+# RESTART rows are pending (unverifiable until reboot) and excluded. $null=none in scope.
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Resolution Configuration Results" -Verified $verified)
