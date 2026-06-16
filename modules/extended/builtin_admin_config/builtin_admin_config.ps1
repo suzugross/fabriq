@@ -43,7 +43,6 @@ if ($null -eq $adminUser) {
 # ========================================
 # Display Configuration
 # ========================================
-$enableText = if ($config.Enabled -eq "1") { "Enable" } else { "Disable" }
 $pwdExpireText = if ($config.PasswordNeverExpires -eq "1") { "Never" } else { "Expires" }
 
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -54,7 +53,7 @@ Write-Host "  Target User:     $ADMIN_NAME" -ForegroundColor Yellow
 Write-Host "  Current Status:  $(if ($adminUser.Enabled) { 'Enabled' } else { 'Disabled' })" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  [Settings to Apply]" -ForegroundColor Cyan
-Write-Host "    Account:            $enableText" -ForegroundColor White
+Write-Host "    Account:            Enable" -ForegroundColor White
 Write-Host "    Password:           ********" -ForegroundColor White
 Write-Host "    Password Expiry:    $pwdExpireText" -ForegroundColor White
 Write-Host "    Description:        $($config.Description)" -ForegroundColor White
@@ -74,16 +73,13 @@ Write-Host ""
 # Apply Configuration
 # ========================================
 try {
-    # --- Enable / Disable ---
-    Show-Info "Setting account status..."
-    if ($config.Enabled -eq "1") {
-        Enable-LocalUser -Name $ADMIN_NAME -ErrorAction Stop
-        Show-Success "Account enabled"
-    }
-    else {
-        Disable-LocalUser -Name $ADMIN_NAME -ErrorAction Stop
-        Show-Success "Account disabled"
-    }
+    # --- Enable account ---
+    # Rows load with -FilterEnabled, so only Enabled=1 reaches here; this
+    # module enables the built-in Administrator and sets its password.
+    # (Enabled=0 rows are skipped - the standard run/skip semantics.)
+    Show-Info "Enabling account..."
+    Enable-LocalUser -Name $ADMIN_NAME -ErrorAction Stop
+    Show-Success "Account enabled"
 
     # --- Password ---
     Show-Info "Setting password..."

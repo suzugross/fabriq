@@ -15,6 +15,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
+  「`Enabled=0` で Administrator を無効化／`-FilterEnabled` 不使用」という記述を実態へ修正。
+  実際は初版から `-FilterEnabled`（[common.ps1] `Where-Object {$_.Enabled -eq "1"}`）で `Enabled=0`
+  行が除外されており、Disable 分岐は一度も到達していなかった（Guide が動かない機能を記載していた）。
+  本モジュールは「有効化＋パスワード等設定」専用、`Enabled` は標準どおり 1=実行/0=スキップに統一。
+  到達可能な挙動は不変。VERSION 1.0.0→1.0.1（PATCH）。
+
 ## [3.6.0] - 2026-06-16
 
 ### Added
