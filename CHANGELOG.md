@@ -48,6 +48,10 @@
   W32Time の Running+Automatic と registry NtpServer/Type(=CSV ピア)を照合(locale-fragile な w32tm テキスト
   parse を回避・registry ベース)。sync 完了は非同期のため -Verified に載せない(従来 Partial 判定は不変)。
   0件モードは service のみ検証。VERSION 1.0.0→1.1.0(MINOR)。
+- modules/standard/startup_command_config: Post-Apply Verification を追加(-Verified)。配備3成果物
+  (apply_startup_commands.ps1 / fabriq_user_setup.ps1 / Default-user の FabriqUserSetup.cmd)の Test-Path と
+  Deploy ヘルパ戻り値 bool の AND で検証(shared 成果物の pre-existence 偽PASS を bool で抑止)。
+  VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った

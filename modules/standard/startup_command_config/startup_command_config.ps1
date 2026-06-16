@@ -189,7 +189,21 @@ else {
 Write-Host ""
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+# Confirm all three deployed artifacts exist on disk AND the deploy helpers
+# reported success. The helper booleans guard against a stale pre-existing
+# artifact (e.g. left by reg_hkcu_config) being mistaken for this run.
+$vScript = Test-Path $scriptPath
+$vLauncher = Test-Path (Join-Path $env:ProgramData "fabriqabriq_user_setup.ps1")
+$vTrigger = Test-Path (Join-Path $env:SystemDrive "Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\FabriqUserSetup.cmd")
+$verified = [bool]($vScript -and $vLauncher -and $vTrigger -and $launcherResult -and $triggerResult)
+if (-not $verified) {
+    Show-Warning "Verify: deploy artifacts incomplete (script=$vScript launcher=$vLauncher trigger=$vTrigger helperL=$launcherResult helperT=$triggerResult)"
+}
+
+# ========================================
 # Step 6: Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Verified $verified `
     -Title "Startup Command Deploy Results")
