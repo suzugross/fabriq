@@ -46,8 +46,9 @@ FlexProfile では失敗しても dashboard に戻り、Status バッジで Erro
 視認できるため、[Run] ボタンで domain_join のみ単発再試行することも可能です。
 
 ■ Post-Apply Verification
-本モジュールは現在 Post-Apply Verification を実装していません。
-New-ModuleResult に -Verified は渡していないため、実行履歴の Verified 列は
-空欄になります。Add-Computer の戻り値（throw 有無）で結果判定しています。
-ドメイン参加状態は再起動後に
-`(Get-WmiObject Win32_ComputerSystem).PartOfDomain` 等で手動確認してください。
+本モジュールは Post-Apply Verification を実装しています。
+Add-Computer 成功直後に Win32_ComputerSystem を読み返し、PartOfDomain が真かつ
+Domain が CSV の Domain と一致するかを検証して New-ModuleResult に
+-Verified（$true/$false）を渡します（実行履歴の Verified 列に記録）。
+ドメイン参加は再起動を待たずに Win32_ComputerSystem へ即時反映されるため
+（再起動は参加の完了のみ）、適用直後でも検証が成立します。
