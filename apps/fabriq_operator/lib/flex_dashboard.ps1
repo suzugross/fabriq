@@ -133,14 +133,19 @@ function Show-FlexDashboard {
         }
     }
 
-    # __GATE__ barrier (TM t-0073): the Order of the first unsatisfied gate
-    # (window before it has an Error/Partial), or $null. Rows at/after the
-    # barrier are blocked here in the UI (checkbox + Run disabled); the
-    # kernel (Invoke-BatchExecution) enforces the same rule authoritatively,
-    # so this grayout is the operator-facing reflection, not the rule itself.
+    # __GATE__ barrier (TM t-0073): the Order of the first unsatisfied gate,
+    # or $null. A window is unsatisfied if a module in it has Status
+    # Error/Partial OR a failed Post-Apply Verification (Verified = $false).
+    # Rows at/after the barrier are blocked here in the UI (checkbox + Run
+    # disabled); the kernel (Invoke-BatchExecution) enforces the same rule
+    # authoritatively, so this grayout is the operator-facing reflection.
     $gateStatusMap = @{}
-    foreach ($k in $stateMap.Keys) { $gateStatusMap[[int]$k] = $stateMap[$k].Status }
-    $gateBarrier = Get-FabriqGateBarrier -Rows $rows -StatusMap $gateStatusMap
+    $gateVerifiedMap = @{}
+    foreach ($k in $stateMap.Keys) {
+        $gateStatusMap[[int]$k]   = $stateMap[$k].Status
+        $gateVerifiedMap[[int]$k] = $stateMap[$k].Verified
+    }
+    $gateBarrier = Get-FabriqGateBarrier -Rows $rows -StatusMap $gateStatusMap -VerifiedMap $gateVerifiedMap
 
     # ----------------------------------------
     # Result hashtable returned to caller

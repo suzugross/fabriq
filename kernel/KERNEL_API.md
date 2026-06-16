@@ -114,7 +114,7 @@
 | `__ASYNC__` | 以降のモジュールを監視付き Runspace で実行（Skip ボタン / timeout で強制中断可能、since kernel 2.1.0）。**since kernel 3.3.0**: `async_config.json` の `DefaultAsync=true`（shipped default）時はマーカー有無に関わらず全モジュールが async 化されるため、本マーカーは idempotent な ON-only no-op として扱われる（後方互換）。マーカーで明示的に async 化したい場合や `DefaultAsync=false` 環境への portable な profile を作る場合は引き続き有効 |
 | `__RESTART__` | Windows 再起動 + RunOnce 経由で再開 |
 | `__REEXPLORER__` | Explorer 再起動 |
-| `__GATE__` | 前進バリア（**since kernel 3.6.0**）。直前ゲート〜本マーカの窓に `Error`/`Partial` が残る間、本マーカ以降の Order の実行を `Invoke-BatchExecution` が拒否する（動的評価）。FlexProfile では該当行をグレーアウト。窓が全 `Success`/`Skipped` になると解除。未実行(`Pending`)は窓をブロックしない（失敗を防ぐが省略は防がない） |
+| `__GATE__` | 前進バリア（**since kernel 3.6.0**）。直前ゲート〜本マーカの窓に `Error`/`Partial` または **Post-Apply Verification 失敗（`Verified=False`）** のモジュールが残る間、本マーカ以降の Order の実行を `Invoke-BatchExecution` が拒否する（動的評価）。FlexProfile では該当行をグレーアウト。窓が解消すると解除。`Verified=$null`（検証非対応）/`Pending`（未実行）はブロックしない（失敗を防ぐが省略は防がない） |
 | `__AUTO_to_<User>__` | `autologon_config` に User 指定で呼び出し |
 
 ---
@@ -325,7 +325,7 @@ formal SemVer の出発点。以下すべて利用可能:
 ### 3.6.0
 
 - **§4 特殊マーカーに `__GATE__` 追加（後方互換 / MINOR）**: 前進バリア（TM t-0073）
-  - `Invoke-BatchExecution` が、直前ゲート〜当該 `__GATE__` の窓に `Error`/`Partial` を持つモジュールがある間、当該マーカ以降の `Order` の実行を拒否する（admission control）。判定は各モジュール実行直前に live な状態（当該 run の蓄積 + session history）で動的に行うため、フォワード実行中に発生した失敗もゲートで止まる。`Success`/`Skipped`/`Cancelled`/`Pending` はブロックしない
+  - `Invoke-BatchExecution` が、直前ゲート〜当該 `__GATE__` の窓に `Error`/`Partial` または **Post-Apply Verification 失敗（`Verified=False`）** を持つモジュールがある間、当該マーカ以降の `Order` の実行を拒否する（admission control）。判定は各モジュール実行直前に live な状態（当該 run の蓄積 + session history）で動的に行うため、フォワード実行中に発生した失敗もゲートで止まる。`Success`（かつ `Verified` が `True`/`$null`）/`Skipped`/`Cancelled`/`Pending` はブロックしない。`Verified=False` は「適用は成功扱いだが読み返し検証が不一致＝設定が効いていない」を意味し、下流依存を守る趣旨からブロック対象に含む
   - ブロックされたモジュールは未実行（`Pending`）のまま据え置き、`ModuleResult` 契約は不変（新ステータス無し）。`__GATE__` を含まない既存 profile は挙動完全不変
   - FlexProfile dashboard は同じ判定で該当行をグレーアウト（チェックボックス + Run 無効化・`Log` は有効）。enforcement の権威は kernel 側で、UI はその反映
   - 内部ヘルパ `Get-FabriqGateBarrier`（common.ps1）を新設。最初の未充足ゲートの `Order` を返す純関数（kernel と bundled fabriq_operator が consume、外部契約ではない）

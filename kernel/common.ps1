@@ -3759,14 +3759,20 @@ function Get-FabriqGateBarrier {
     # the state AT THE MOMENT of the check (prior-run history overlaid with
     # the in-progress batch), so a failure occurring mid-run is seen as soon
     # as the next Order is considered — which is what stops a forward run at
-    # the gate. Only Error / Partial block; Success / Skipped / Cancelled /
-    # Pending (absent from the map) do not (per t-0073 decisions: the gate
-    # guards against failure, not omission).
+    # the gate. A module blocks its window if its Status is Error / Partial
+    # OR its Post-Apply Verification failed (VerifiedMap[Order] -eq $false):
+    # a Success whose readback did not match means the setting did not take,
+    # which is exactly what a downstream dependent must not run on. Verified
+    # $null (modules without verification) and $true never block. Success /
+    # Skipped / Cancelled / Pending (absent) do not block on Status either
+    # (per t-0073 decisions: the gate guards against failure, not omission).
     param(
         # Default @() (not Mandatory): an empty profile is a valid input that
         # simply yields no barrier. Mandatory would reject @() as "missing".
         [array]$Rows = @(),
-        [hashtable]$StatusMap = @{}
+        [hashtable]$StatusMap = @{},
+        # Order -> $true / $false / $null (PASS / FAIL / not-verified).
+        [hashtable]$VerifiedMap = @{}
     )
 
     # Deterministic order: by Order, then non-gate (0) before gate (1) so a
@@ -3795,6 +3801,10 @@ function Get-FabriqGateBarrier {
             $st = "$($StatusMap[$ord])"
             if ($st -eq 'Error' -or $st -eq 'Partial') { $windowFailed = $true }
         }
+        # Post-Apply Verification FAIL also blocks. $false only — $null
+        # (unverified) and $true do not. ($VerifiedMap[$ord] is $null for
+        # absent keys, and $null -eq $false is false, so this is safe.)
+        if ($VerifiedMap[$ord] -eq $false) { $windowFailed = $true }
     }
 
     return $null
