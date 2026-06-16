@@ -2,7 +2,7 @@
 
 function Get-InterfaceCompletionFromAdapters {
     # Returns InterfaceAlias values from physical, non-disabled
-    # adapters. Japanese aliases (e.g. イーサネット) are intentionally
+    # adapters. Japanese aliases (e.g. the localized "Ethernet") are intentionally
     # preserved.
     $adapters = @()
     try {

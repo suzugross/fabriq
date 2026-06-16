@@ -30,7 +30,7 @@ Write-Host ""
 # The PS 5.1 `& exe 2>&1` capture path attaches a real console and reads
 # via [Console]::OutputEncoding, which can drift out of sync with the
 # actual console CP and produce mojibake (UTF-8 bytes decoded as CP932 ->
-# "規則名:" becomes "隕丞援蜷・"). Process API + explicit StandardOutput-
+# the "rule name" kanji becomes unreadable mojibake). Process API + explicit StandardOutput-
 # Encoding=UTF8 bypasses that mismatch entirely without mutating any host
 # console state.
 function Invoke-NetshCapture {

@@ -26,19 +26,19 @@ Write-Host ""
 # Use the .NET Process API with StandardOutputEncoding=UTF-8. Empirical
 # observation on Windows 10/11 (verified on a JP host with consoleCP=932):
 # when netsh's stdout is redirected to a pipe, netsh writes its output in
-# UTF-8 regardless of the parent's chcp state — querying the raw bytes
+# UTF-8 regardless of the parent's chcp state - querying the raw bytes
 # from the redirected pipe shows UTF-8 sequences that correctly decode to
-# Japanese rule names (e.g. bytes E8 A6 8F E5 89 87 E5 90 8D = "規則名").
+# Japanese rule names (e.g. bytes E8 A6 8F E5 89 87 E5 90 8D = the "rule name" kanji).
 #
 # The PS 5.1 `& exe 2>&1` capture path attaches a real console and reads
 # via [Console]::OutputEncoding, which can drift out of sync with the
 # actual console CP and produce mojibake (UTF-8 bytes decoded as CP932 ->
-# "規則名:" becomes "隕丞援蜷・"). Process API + explicit StandardOutput-
+# the "rule name" kanji becomes unreadable mojibake). Process API + explicit StandardOutput-
 # Encoding=UTF8 bypasses that mismatch entirely without mutating any host
 # console state.
 #
 # Note: this differs from Invoke-CScriptCapture in evidence_config, which
-# uses the OEM codepage — cscript's redirected-stdout encoding behavior
+# uses the OEM codepage - cscript's redirected-stdout encoding behavior
 # differs from netsh's. The choice here is netsh-specific and validated
 # empirically.
 function Invoke-NetshCapture {
