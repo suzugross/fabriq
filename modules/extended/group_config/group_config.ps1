@@ -159,6 +159,8 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 $index = 0
 foreach ($item in $items) {
@@ -171,6 +173,7 @@ foreach ($item in $items) {
     if (-not (Test-LocalGroupExists -GroupName $item.LocalGroup)) {
         Show-Error "Local group '$($item.LocalGroup)' not found"
         $failCount++
+        $verifyFail++
         Write-Host ""
         continue
     }
@@ -180,6 +183,7 @@ foreach ($item in $items) {
     if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType) {
         Show-Skip "Already a member"
         $skipCount++
+        $verifyPass++
         Write-Host ""
         continue
     }
@@ -189,10 +193,19 @@ foreach ($item in $items) {
         Add-LocalGroupMember -Group $item.LocalGroup -Member $memberDisplay -ErrorAction Stop
         Show-Success "Member added"
         $successCount++
+        # Step 5.5: Post-Apply Verification - re-read membership via the same helper.
+        if (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType) {
+            $verifyPass++
+        }
+        else {
+            Show-Warning "Verify: '$memberDisplay' not found in '$($item.LocalGroup)' after add"
+            $verifyFail++
+        }
     }
     catch {
         Show-Error "$($_.Exception.Message)"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -201,4 +214,5 @@ foreach ($item in $items) {
 # ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -Verified $verified)
