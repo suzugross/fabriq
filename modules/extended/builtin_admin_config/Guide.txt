@@ -3,12 +3,10 @@
 
 ■ 設定ファイル
 [builtin_admin.csv]
-  Enabled              : 有効フラグ（1=実行, 0=スキップ）
-                         ※ この列は有効化フラグと Enable/Disable の両方を兼ねます。
-                           1 = Administrator アカウントを有効化してパスワードを設定
-                           0 = Administrator アカウントを無効化
-                         ※ Import-ModuleCsv -FilterEnabled を使わず手動で取得するため、
-                           0 の行でも読み込まれ、Disable 操作が実行されます。
+  Enabled              : 有効フラグ（1=実行, 0=スキップ）。
+                         標準どおり Import-ModuleCsv -FilterEnabled で 0 の行は除外されます。
+                         本モジュールは Administrator の有効化とパスワード等の設定が用途で、
+                         無効化（Disable）は行いません。
   Password             : 設定するパスワード（ENC: プレフィックス暗号化対応）
   PasswordNeverExpires : パスワード無期限（1=無期限, 0=有効期限あり）
   Description          : 説明（表示用）
@@ -21,7 +19,7 @@
 
 ■ 前提条件
 ・管理者権限が必要です
-  - Set-LocalUser / Enable-LocalUser / Disable-LocalUser の実行に必須
+  - Set-LocalUser / Enable-LocalUser の実行に必須
   - 本スクリプトは Test-AdminPrivilege の明示チェックを持ちませんが、
     管理者権限なしでは Set-LocalUser が失敗します
 ・Administrator アカウントが存在すること（Get-LocalUser で事前確認）
@@ -54,5 +52,5 @@ Verified 列は空欄になります。
 ■ 動作の流れ
 1. builtin_admin.csv を読み込み
 2. Administrator アカウントの存在を確認
-3. 実行確認（Y/N）後、アカウント Enable/Disable → パスワード設定 →
+3. 実行確認（Y/N）後、アカウント有効化 → パスワード設定 →
    PasswordNeverExpires → Description の順に適用
