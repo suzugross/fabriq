@@ -51,7 +51,7 @@ $HOSTLIST_CSV = ".\kernel\csv\hostlist.csv"
 $APPS_DIR = ".\apps"
 $script:AutoPilotMaxRetry = 5
 # Passphrase verification token (Studio-generated). Defined here at script
-# scope so EVERY Show-SessionSetupForm call site receives a real path —
+# scope so EVERY Show-SessionSetupForm call site receives a real path -
 # defining it only inside the fresh-start branch left it $null on the
 # resume-entry path, and session_form silently SKIPS verification when the
 # token path is empty (any wrong passphrase was accepted via NewSession).
@@ -876,7 +876,7 @@ function Invoke-FlexProfileLoop {
                 # group filter (one-click [Run: <Group>] button) instead
                 # of the checkbox state. Per the literal-Group contract,
                 # rows whose Group value differs from the clicked group
-                # are excluded — including __RESTART__ markers in other
+                # are excluded - including __RESTART__ markers in other
                 # groups (operator must put RESTART in the desired group
                 # to be honored). FinalizeOnComplete:$false keeps
                 # completion as an explicit operator action.
@@ -917,7 +917,7 @@ function Invoke-FlexProfileLoop {
 
                 # 3.1.5 onward: execution is unconditionally AutoPilot
                 # (unattended batch with ErrorMode dispatch / inter-module
-                # wait). Finalize is unconditionally manual — operator
+                # wait). Finalize is unconditionally manual - operator
                 # presses [Complete] when ready. This decouples
                 # "execution mode" from "completion declaration".
                 Invoke-BatchExecution -SelectedModules $batch `
@@ -997,7 +997,7 @@ function Invoke-FlexProfileLoop {
                     continue
                 }
 
-                # [RESTART NOW] is profile-external — Order=0 marks
+                # [RESTART NOW] is profile-external - Order=0 marks
                 # "no Profile row association" (CSV cell stays empty).
                 Add-ExecutionResult -Operation "[RESTART NOW]" -Status "Success" -Message "FlexProfile Restart Now" -Order 0
                 $null = Write-ExecutionHistory -ModuleName "[RESTART NOW]" -Category "System" -Status "Success" -Message "FlexProfile Restart Now (dashboard reopen on resume)" -Order 0
@@ -1034,7 +1034,7 @@ function Invoke-FlexProfileLoop {
                     }
 
                     Show-Info "Reset state: Order $($tgt.Order) ($($tgt.MenuName)) -> Pending"
-                    # State changed since last [Complete] (if any) —
+                    # State changed since last [Complete] (if any) -
                     # mark pending so the operator is reminded to
                     # regenerate the checklist.
                     $pendingFinalize = $true
@@ -1384,7 +1384,7 @@ $isWuResuming = $false
 $resumeState = Load-ResumeState
 
 # Windows Update resume detection (wu_state.json presence = mid-loop reboot)
-# WU resume runs immediately — no passphrase, worker, or host selection needed.
+# WU resume runs immediately - no passphrase, worker, or host selection needed.
 # Uses Invoke-WindowsUpdateLoop which follows the Profile __RESTART__ pattern.
 # After WU completes (all loops done), main.ps1 continues normal startup.
 $wuStatePath = Join-Path $PSScriptRoot "..\modules\standard\windows_update\wu_state.json"
@@ -1429,12 +1429,12 @@ if ($null -ne $resumeState) {
     if ($isFlexResuming) {
         # FlexProfile resume branches on (AutoPilot, ResumeAfterOrder):
         #   - AutoPilot=true  + ResumeAfterOrder>=0 (mid-batch __RESTART__)
-        #     → honor unattended contract: countdown + auto-continue
+        #     -> honor unattended contract: countdown + auto-continue
         #     execution (Linear-symmetric); fall through to Flex
         #     auto-continue execution block below.
         #   - AutoPilot=false (manual mode mid-batch) OR
         #     ResumeAfterOrder=-1 ([Restart Now] sentinel)
-        #     → reopen the FlexProfile dashboard so the operator decides
+        #     -> reopen the FlexProfile dashboard so the operator decides
         #     what to run next.
         $flexHasMidBatch = ([int]$resumeState.ResumeAfterOrder -ge 0)
         if ($resumeIsAutoPilot -and $flexHasMidBatch) {
@@ -1755,7 +1755,7 @@ if ($isResuming -and -not $isFlexResuming) {
             }
         }
         if ($null -eq $resumedProfileStart) {
-            Show-Warning "Legacy resume_state.json without ProfileStartTime — elapsed time will be measured from now (pre-restart duration not included)."
+            Show-Warning "Legacy resume_state.json without ProfileStartTime - elapsed time will be measured from now (pre-restart duration not included)."
             $resumedProfileStart = Get-Date
         }
 
@@ -1812,7 +1812,7 @@ if ($isFlexResuming) {
 
     if ($flexAutoContinue) {
         # Auto-continue: build remaining set as
-        # (Order > ResumeAfterOrder) ∩ SelectedOrders so we re-run only
+        # (Order > ResumeAfterOrder) intersect SelectedOrders so we re-run only
         # the operator's previously-checked subset (not the entire
         # post-restart Profile tail).
         $flexResolved = Resolve-ProfileModules -ProfileCsvPath $resumeState.ProfilePath -AllModules $allModules -IncludeDisabled
@@ -1998,7 +1998,7 @@ $script:guiExitRequested = $false
 
             "NewSession" {
                 # Fail-closed: never open the session form without a
-                # verification token — session_form refuses to verify
+                # verification token - session_form refuses to verify
                 # against an empty/missing token, and an unverified
                 # passphrase silently breaks every ENC: decryption later.
                 if (-not (Test-Path $verifyTokenPath)) {
@@ -2035,7 +2035,7 @@ $script:guiExitRequested = $false
                 Show-ConsoleWindow
 
                 if ($sessionSetup.Cancelled) {
-                    # User cancelled — return to dashboard
+                    # User cancelled - return to dashboard
                     continue
                 }
 
