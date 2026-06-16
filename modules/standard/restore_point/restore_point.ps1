@@ -161,6 +161,11 @@ Write-Host ""
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
+# Post-Apply Verification tally (read-back of applied/skipped settings).
+# set_storage_size is excluded (its exact maxsize% is only readable via
+# locale-fragile vssadmin-list parsing); it still counts toward success/fail.
+$verifyPass = 0
+$verifyFail = 0
 
 foreach ($item in $enabledItems) {
     $displayName = $item.Description
@@ -177,6 +182,7 @@ foreach ($item in $enabledItems) {
             if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
                 Show-Skip "System protection already enabled"
                 $skipCount++
+                $verifyPass++
                 Write-Host ""
                 continue
             }
@@ -186,10 +192,17 @@ foreach ($item in $enabledItems) {
                 Enable-ComputerRestore -Drive $drive -ErrorAction Stop
                 Show-Success "System protection enabled on $drive"
                 $successCount++
+                if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
+                    $verifyPass++
+                } else {
+                    Show-Warning "Verify: DisableSR is not 0 after enabling protection"
+                    $verifyFail++
+                }
             }
             catch {
                 Show-Error "Failed to enable system protection: $_"
                 $failCount++
+                $verifyFail++
             }
         }
 
@@ -198,6 +211,7 @@ foreach ($item in $enabledItems) {
             if (Test-RestoreRegistryValue -Name "SystemRestorePointCreationFrequency" -ExpectedValue 0) {
                 Show-Skip "24h limit already removed"
                 $skipCount++
+                $verifyPass++
                 Write-Host ""
                 continue
             }
@@ -214,10 +228,17 @@ foreach ($item in $enabledItems) {
                 }
                 Show-Success "24h creation limit removed"
                 $successCount++
+                if (Test-RestoreRegistryValue -Name "SystemRestorePointCreationFrequency" -ExpectedValue 0) {
+                    $verifyPass++
+                } else {
+                    Show-Warning "Verify: SystemRestorePointCreationFrequency is not 0 after apply"
+                    $verifyFail++
+                }
             }
             catch {
                 Show-Error "Failed to remove 24h limit: $_"
                 $failCount++
+                $verifyFail++
             }
         }
 
@@ -273,16 +294,19 @@ foreach ($item in $enabledItems) {
                 if ($created) {
                     Show-Success "Restore point created: $rpDesc (SequenceNumber=$($created.SequenceNumber))"
                     $successCount++
+                    $verifyPass++
                 }
                 else {
                     $warnText = if ($cpWarnings.Count -gt 0) { " ($($cpWarnings -join '; '))" } else { "" }
                     Show-Error "Restore point was NOT created: $rpDesc$warnText"
                     $failCount++
+                    $verifyFail++
                 }
             }
             catch {
                 Show-Error "Failed to create restore point: $_"
                 $failCount++
+                $verifyFail++
             }
         }
 
@@ -299,5 +323,11 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 6: Aggregate and return result
 # ========================================
+# -Verified covers the read-back-verifiable settings (protection / 24h-limit
+# / restore-point creation). $null when none were in scope (e.g. only
+# set_storage_size ran), $true when all read back as expected, $false on any
+# mismatch or apply failure among them.
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "Restore Point Configuration Results")
+    -Title "Restore Point Configuration Results" -Verified $verified)
