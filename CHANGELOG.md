@@ -34,6 +34,9 @@
   Default-hive 各経路の書込後に Get-CurrentDpiValue で読返し DpiValue([int]・符号付)を照合し集計。
   skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
   (dpi も interactive 経路に Read-Host あり=VM 検証は非 interactive fixture で実施予定)
+- modules/extended/group_config: Post-Apply Verification を追加(-Verified)。Add-LocalGroupMember 後に既存
+  Test-LocalGroupMemberExists でメンバ存在を読返(leaf 名照合=presence 証明)、skip=idempotency-verified、
+  group 不在/add 失敗=verifyFail。$null=対象なし。VERSION 1.1.0→1.2.0(MINOR)。
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
