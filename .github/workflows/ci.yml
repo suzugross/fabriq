@@ -1,0 +1,57 @@
+name: CI
+
+# Minimal CI gate (TM t-0076). Promotes the three already-existing manual
+# guards into enforced, exit-code-judged checks so the safety net stops
+# depending on remembering to run them by hand.
+#
+# Canonical engine is Windows PowerShell 5.1 (shell: powershell, NOT pwsh):
+# the kernel ships on 5.1, so the gate must run on 5.1 to catch 5.1-specific
+# regressions (mirrors dev/run_tests.ps1 and CLAUDE.md section 5).
+#
+# Each check is its own step with `if: ${{ !cancelled() }}` so all three
+# always run and report independently. Today check_ps1_encoding turns the
+# job red on its own because of 4 known JP-no-BOM legacy files; keeping the
+# checks separate means a glance shows that only encoding is red while
+# tests / version stay green (per the agreed "leave it red, ignore case by
+# case" policy).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Fabriq gate (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Windows PowerShell 5.1 (Desktop) - the canonical kernel engine.
+        shell: powershell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester v5
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Import-Module Pester -MinimumVersion 5.0.0 -Force
+          Get-Module Pester | Format-Table Name, Version | Out-String | Write-Host
+
+      - name: Tests (dev/run_tests.ps1)
+        if: ${{ !cancelled() }}
+        run: .\dev\run_tests.ps1
+
+      - name: Version drift (dev/check_version.ps1)
+        if: ${{ !cancelled() }}
+        run: .\dev\check_version.ps1
+
+      - name: Encoding (dev/check_ps1_encoding.ps1)
+        if: ${{ !cancelled() }}
+        run: .\dev\check_ps1_encoding.ps1
