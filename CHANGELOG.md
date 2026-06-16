@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-06-16
+
 ### Added
 - kernel + apps/fabriq_operator: 特殊マーカー `__GATE__`（前進バリア）を追加 (TM t-0073)。
   Profile に `__GATE__` 行を置くと、直前ゲート〜当該マーカの窓に `Error`/`Partial` または
