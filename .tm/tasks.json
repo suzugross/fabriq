@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-16T09:42:59+09:00",
+  "updatedAt": "2026-06-16T09:59:02+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -691,10 +691,10 @@
       "id": "t-0078",
       "title": "[監査2026-06-16] fabriq_ios の smoke スクリプトを Pester 統合（眠っている約100アサーションを常時実行）",
       "content": "apps/fabriq_ios/tests/_phase*_smoke.ps1（約7本）が自前の Check / exit $Fail ハーネスで書かれており、dev/run_tests.ps1 のディスカバリ（*.tests.ps1）に乗らず孤立している。個別に手動起動した時しか走らない＝約100のアサーションが常時テストパスで実行されていない。\n\n改善: smoke を Pester 化（Describe/It へ移植）するか、run_tests.ps1 側で _phase*_smoke.ps1 も実行対象に含める。前者が望ましい（結果集計・exit code が統一される）。\n\n価値: 既存資産（約100アサーション）を『眠っている』状態から常時自動実行へ。低工数。fabriq_ios は9アプリ中唯一テストが充実しているので、その投資を無駄にしない。\n\n関連: t-0030〜t-0036（IOS 機能・多くは完了）, dev/run_tests.ps1, t-0076（CI ゲートに乗れば自動実行効果が増す）。\n\n出所: 2026-06-16 成熟度監査（テスト自動化・推奨#2）。",
-      "claudeNote": "2026-06-16 監査で抽出。低工数・明確な価値（既存アサーションの自動実行化）。t-0076 の CI ゲートと組み合わせると効果増。\n\n2026-06-16 確認(read-only・実測):\n- 【事実確定】run_tests.ps1 は既に apps/fabriq_ios/tests/ を探索対象に含む(L49-52)。→ 10本の *.tests.ps1(It 85 / Describe+Context 28)は既に常時実行されている。\n- 眠っているのは 7本の _phase*_smoke.ps1(自前 Check/exit ハーネス・*.tests.ps1 命名でないため未探索)。\n- 【アサーション数を訂正】content の約100は過小。実測 Check 数= phase3:26 / 4:17 / 5:32 / 6:41 / 7:67 / 9:74 / 9b:82 = 合計 339。\n- 【腐敗していない】7本を powershell.exe 5.1 で実走→全 339 passed / 0 failed。今すぐ統合しても安全。\n- 統合3案: (a)全 Pester 移植(~339 It・最も工数大・統一レポート) / (b)薄い Pester ラッパ(tests/IosSmoke.tests.ps1: 7 It、各 smoke を子プロセス起動し exit 0 を Should・Check ハーネス温存・最小工数で discovery+exit 統一)←推奨 / (c)run_tests.ps1 で smoke も実行し exit code 合算(結果書式が二系統)。\n- 推奨: (b)。約30分・低リスクで 339 アサーションを run_tests.ps1 の exit-code ゲート配下へ。t-0076(B)導入時に自動実行効果が増す。",
-      "status": "未着手",
+      "claudeNote": "2026-06-16 監査で抽出。低工数・明確な価値（既存アサーションの自動実行化）。t-0076 の CI ゲートと組み合わせると効果増。\n\n2026-06-16 確認(read-only・実測):\n- 【事実確定】run_tests.ps1 は既に apps/fabriq_ios/tests/ を探索対象に含む(L49-52)。→ 10本の *.tests.ps1(It 85 / Describe+Context 28)は既に常時実行されている。\n- 眠っているのは 7本の _phase*_smoke.ps1(自前 Check/exit ハーネス・*.tests.ps1 命名でないため未探索)。\n- 【アサーション数を訂正】content の約100は過小。実測 Check 数= phase3:26 / 4:17 / 5:32 / 6:41 / 7:67 / 9:74 / 9b:82 = 合計 339。\n- 【腐敗していない】7本を powershell.exe 5.1 で実走→全 339 passed / 0 failed。今すぐ統合しても安全。\n- 統合3案: (a)全 Pester 移植(~339 It・最も工数大・統一レポート) / (b)薄い Pester ラッパ(tests/IosSmoke.tests.ps1: 7 It、各 smoke を子プロセス起動し exit 0 を Should・Check ハーネス温存・最小工数で discovery+exit 統一)←推奨 / (c)run_tests.ps1 で smoke も実行し exit code 合算(結果書式が二系統)。\n- 推奨: (b)。約30分・低リスクで 339 アサーションを run_tests.ps1 の exit-code ゲート配下へ。t-0076(B)導入時に自動実行効果が増す。\n\n2026-06-16 実装完了(ラッパ方式 b): tests/IosSmoke.tests.ps1 を新設。discovery 時に apps/fabriq_ios/tests/_phase*_smoke.ps1(7本) を列挙し、各本を powershell.exe -File の子プロセスで起動して exit 0 を Should -Be 0 で検証(7 It)。Check ハーネス・smoke 本体は無改変。0件検出時は discovery で throw(消失回帰ガード)。検証: powershell.exe -File ./dev/run_tests.ps1 = 360 passed/0 failed/exit 0(従来353+7)。check_ps1_encoding=新規ファイルはクリーン(既存JP-NO-BOM 4件は無関係の cleanup queue)。tests/ 配下のため §A CHANGELOG/VERSION 義務なし。",
+      "status": "完了",
       "createdAt": "2026-06-16T07:35:01+09:00",
-      "updatedAt": "2026-06-16T09:42:59+09:00"
+      "updatedAt": "2026-06-16T09:59:02+09:00"
     },
     {
       "id": "t-0079",
