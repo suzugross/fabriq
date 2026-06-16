@@ -195,7 +195,7 @@ Write-Host ""
 # reported success. The helper booleans guard against a stale pre-existing
 # artifact (e.g. left by reg_hkcu_config) being mistaken for this run.
 $vScript = Test-Path $scriptPath
-$vLauncher = Test-Path (Join-Path $env:ProgramData "fabriqabriq_user_setup.ps1")
+$vLauncher = Test-Path (Join-Path $env:ProgramData "fabriq\fabriq_user_setup.ps1")
 $vTrigger = Test-Path (Join-Path $env:SystemDrive "Users\Default\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\FabriqUserSetup.cmd")
 $verified = [bool]($vScript -and $vLauncher -and $vTrigger -and $launcherResult -and $triggerResult)
 if (-not $verified) {

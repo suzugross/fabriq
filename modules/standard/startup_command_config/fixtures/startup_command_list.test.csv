@@ -1,0 +1,2 @@
+Enabled,Order,Description,Command,Segment
+1,10,RigTest echo,cmd.exe /c echo fabriq-rig-test,
