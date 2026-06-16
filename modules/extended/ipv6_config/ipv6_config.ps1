@@ -74,6 +74,8 @@ Write-Host ""
 $successCount = 0
 $failCount = 0
 $skipCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 foreach ($item in $enabledItems) {
     $pattern = $item.AdapterPattern
@@ -102,10 +104,22 @@ foreach ($item in $enabledItems) {
             
             Show-Success "$($adapter.Name): IPv6 $actionName"
             $successCount++
+
+            # Step 5.5: Post-Apply Verification - re-read the binding state of
+            # the exact adapter just configured (immediate, no reboot needed).
+            $actual = (Get-NetAdapterBinding -Name $adapter.Name -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue).Enabled
+            if ($null -ne $actual -and [bool]$actual -eq $targetState) {
+                $verifyPass++
+            }
+            else {
+                Show-Warning "Verify: $($adapter.Name) ms_tcpip6 Enabled=$actual (expected $targetState)"
+                $verifyFail++
+            }
         }
         catch {
             Show-Error "Failed to configure $($adapter.Name): $_"
             $failCount++
+            $verifyFail++
         }
     }
     Write-Host ""
@@ -114,4 +128,8 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results")
+# -Verified reflects per-adapter ms_tcpip6 binding read-back over the actually-
+# configured adapters. $null when nothing was configured (no pattern matched).
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -Verified $verified)
