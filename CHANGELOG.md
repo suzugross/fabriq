@@ -15,6 +15,13 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/restore_point: Post-Apply Verification を追加(-Verified)。protection / 24h-limit は
+  適用後に既存 Test-RestoreRegistryValue で読返検証、restore-point 作成は既存の pre/post MAX
+  SequenceNumber 比較(L259-281)を -Verified に接続。set_storage_size は vssadmin 出力 parse が
+  ロケール脆弱のため対象外(success/fail 計上は従来通り)。$null=検証対象ゼロ/skip は idempotency-verified。
+  VERSION 1.1.1→1.2.0(MINOR・REQUIRES_KERNEL 据置)。
+
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
   「`Enabled=0` で Administrator を無効化／`-FilterEnabled` 不使用」という記述を実態へ修正。
