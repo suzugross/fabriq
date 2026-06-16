@@ -30,6 +30,10 @@
   subkey($subKeyPath)から PrimSurfSize.cx/cy を読返し target と照合(write-acceptance・live は reboot)。
   skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
   (VM headless 検証は AUTO 経路の生 Read-Host ハング〔別件・t-0056〕のため検証フェーズで非 AUTO fixture で実施予定)
+- modules/extended/dpi_config: Post-Apply Verification を追加(-Verified)。Write-DpiValue 内で HKCU /
+  Default-hive 各経路の書込後に Get-CurrentDpiValue で読返し DpiValue([int]・符号付)を照合し集計。
+  skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
+  (dpi も interactive 経路に Read-Host あり=VM 検証は非 interactive fixture で実施予定)
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
