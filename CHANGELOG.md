@@ -26,6 +26,10 @@
   Get-NetAdapterBinding(ms_tcpip6).Enabled を読返し targetState と照合(即時反映・再glob せず適用集合のみ)。
   バインドのみ対象で DisabledComponents 不使用=単一機構・偽PASS Low。$null=対象アダプタなし。
   VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/extended/display_config: Post-Apply Verification を追加(-Verified)。適用後に書込んだ正確な
+  subkey($subKeyPath)から PrimSurfSize.cx/cy を読返し target と照合(write-acceptance・live は reboot)。
+  skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR)。
+  (VM headless 検証は AUTO 経路の生 Read-Host ハング〔別件・t-0056〕のため検証フェーズで非 AUTO fixture で実施予定)
 
 ### Fixed
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った

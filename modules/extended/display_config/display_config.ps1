@@ -278,6 +278,8 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 $index = 0
 foreach ($target in $targets) {
@@ -349,6 +351,7 @@ foreach ($target in $targets) {
         if ([int]$currentCx -eq $targetW -and [int]$currentCy -eq $targetH) {
             Show-Skip "Already $targetW x $targetH"
             $skipCount++
+            $verifyPass++
             Write-Host ""
             continue
         }
@@ -359,10 +362,21 @@ foreach ($target in $targets) {
             Set-ItemProperty -Path $subKeyPath -Name 'PrimSurfSize.cy' -Value $targetH -Type DWord -ErrorAction Stop
             Show-Success "Changed from ${currentCx}x${currentCy} to ${targetW}x${targetH}"
             $successCount++
+            # Step 5.5: Post-Apply Verification - re-read the exact subkey just
+            # written (write-acceptance; the live resolution changes on reboot).
+            $vp = Get-ItemProperty -Path $subKeyPath -ErrorAction SilentlyContinue
+            if ($null -ne $vp -and [int]$vp.'PrimSurfSize.cx' -eq $targetW -and [int]$vp.'PrimSurfSize.cy' -eq $targetH) {
+                $verifyPass++
+            }
+            else {
+                Show-Warning "Verify: PrimSurfSize read back as $($vp.'PrimSurfSize.cx')x$($vp.'PrimSurfSize.cy') (expected ${targetW}x${targetH})"
+                $verifyFail++
+            }
         }
         catch {
             Show-Error "$($_.Exception.Message)"
             $failCount++
+            $verifyFail++
         }
 
         Write-Host ""
@@ -377,4 +391,5 @@ if ($successCount -gt 0) {
     Write-Host ""
 }
 $suffix = if ($successCount -gt 0) { "(Restart required)" } else { "" }
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -MessageSuffix $suffix)
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "Execution Results" -MessageSuffix $suffix -Verified $verified)
