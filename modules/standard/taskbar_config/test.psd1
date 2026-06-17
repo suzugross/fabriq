@@ -8,14 +8,18 @@
             name = 'apply'; script = 'taskbar_config.ps1'
             context = 'noninteractive'; winrmSafe = $true; reboot = $false; secrets = $false
             envelope = @{ autopilot = $true; selected = @{}; passphrase = '' }
-            fixture = @()
-            expect = @{ status = @('Success','Skipped'); verified = 'any' }   # independent oracle is authoritative; idempotent Skip is fine
-            # C6: independent check that the layout XML was deployed to the Default profile
+            fixture = @()   # ships 2 enabled rows (File Explorer, Chrome) -> real 2-pin deploy
+            expect = @{ status = @('Success'); verified = 'True' }   # pinned-app count (2) == items -> Verified True
+            # C6 independent oracle: the layout XML was deployed to the Default profile
             oracle = @{ type = 'file-exists'; mode = 'present'
                         paths = @('C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\LayoutModification.xml') }
-            idempotent = @{ secondRun = 'Success' }
-            cleanup = 'none'
-            notes = 'Deploys taskbar LayoutModification.xml to the Default profile + sysprep source.'
+            idempotent = @{ secondRun = 'Success' }   # always regenerates/overwrites -> Success again
+            cleanup = 'undo'
+            teardown = @(
+                @{ type = 'expr'; run = 'Remove-Item "C:\Users\Default\AppData\Local\Microsoft\Windows\Shell\LayoutModification.xml" -Force -EA SilentlyContinue' }
+                @{ type = 'expr'; run = 'Remove-Item (Join-Path (Split-Path $ModuleDirVM -Parent) "sysprep_config\source\LayoutModification.xml") -Force -EA SilentlyContinue' }
+            )
+            notes = 'Ships 2 enabled rows -> deploys LayoutModification.xml (2 pins) to the Default profile + sysprep source. Independent file-exists oracle; -Verified asserts pinned-app count == items. Teardown removes both artifacts.'
         }
     )
 }

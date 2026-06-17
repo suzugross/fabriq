@@ -13,7 +13,7 @@
             oracle = @{ type = 'self-verified' }   # live DisplayConfig DPI P/Invoke; needs an active display path
             idempotent = @{ secondRun = 'Skipped' }
             cleanup = 'none'
-            notes = 'Live per-monitor DPI via DisplayConfigSetDeviceInfo. Headless/limited VM display may Skip/error.'
+            notes = 'Live per-monitor DPI via DisplayConfigSetDeviceInfo. NOT VM-verifiable: the test VM basic/virtual display exposes no active DisplayConfig path (measured 2026-06-17: GetMonitorCount=0, GetCurrentDpi(0)=-1, SetDpi returns "Failed to query display configuration"), so apply legitimately Errors and -Verified is False. The verify logic (read back GetCurrentDpi==scale after a Success) mirrors the validated dpi_config module and is exercised only on real display hardware.'
         }
     )
 }
