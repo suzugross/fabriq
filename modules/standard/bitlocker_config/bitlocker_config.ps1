@@ -516,18 +516,32 @@ foreach ($drive in $validDrives) {
     }
 
     # --- Post-apply verification: confirm the encryption was accepted ---
-    # Do NOT use ProtectionStatus: it stays Off until the TPM/used-space conversion completes
-    # (often only after a reboot), which would yield a false FAIL. Instead confirm an
-    # enable-acceptance signature: a key protector exists, the conversion is underway or done,
-    # and a real encryption method is set.
+    # Do NOT use ProtectionStatus: it stays Off until the conversion completes (often only after
+    # a reboot), which would yield a false FAIL. Confirm an enable-acceptance signature instead.
+    # Two valid acceptance shapes:
+    #   (a) immediate  - conversion is underway/done (data drives; OS drive with SkipHardwareTest):
+    #                    VolumeStatus EncryptionInProgress/FullyEncrypted + a real method.
+    #   (b) deferred   - OS drive without SkipHardwareTest schedules encryption for the next boot,
+    #                    so VolumeStatus stays FullyDecrypted while a RecoveryPassword protector is
+    #                    already in place. Per CLAUDE.md section 6, verify "acceptance" (protector
+    #                    present) for such reboot-pending state rather than active conversion.
     $vbl = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
-    $encAccepted = ($null -ne $vbl) -and
-                   ($vbl.KeyProtector.Count -gt 0) -and
-                   ($vbl.VolumeStatus -in @("EncryptionInProgress", "FullyEncrypted")) -and
-                   ($vbl.EncryptionMethod -and $vbl.EncryptionMethod -ne "None")
-    if (-not $encAccepted) {
-        $vs = if ($vbl) { $vbl.VolumeStatus } else { "n/a" }
-        Show-Warning "Verification: $driveLetter encryption not confirmed (VolumeStatus=$vs)"
+    $rpPresent = ($null -ne $vbl) -and
+                 [bool]($vbl.KeyProtector | Where-Object { $_.KeyProtectorType -eq "RecoveryPassword" })
+    if ($null -eq $vbl) {
+        Show-Warning "Verification: $driveLetter volume info unavailable"
+        $verifyFail++
+    }
+    elseif (($vbl.VolumeStatus -in @("EncryptionInProgress", "FullyEncrypted")) -and
+            ($vbl.EncryptionMethod -and $vbl.EncryptionMethod -ne "None")) {
+        # (a) immediate: encryption underway or complete -> confirmed.
+    }
+    elseif ($rpPresent -and ($vbl.VolumeStatus -eq "FullyDecrypted")) {
+        # (b) deferred: protectors in place, encryption scheduled for next boot -> accepted.
+        Show-Info "$driveLetter encryption is scheduled (pending hardware test / reboot)"
+    }
+    else {
+        Show-Warning "Verification: $driveLetter encryption not confirmed (VolumeStatus=$($vbl.VolumeStatus), recoveryProtector=$rpPresent)"
         $verifyFail++
     }
 
