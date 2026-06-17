@@ -16,6 +16,12 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/bitlocker_config: Post-Apply Verification を追加(-Verified)。Enable-BitLocker 後に
+  「暗号化受理」署名(KeyProtector.Count>0 かつ VolumeStatus∈{EncryptionInProgress,FullyEncrypted} かつ
+  EncryptionMethod≠None)を読返照合。ProtectionStatus は不使用(TPM/used-space は完了/reboot まで Off=偽FAIL)。
+  既暗号化 skip=desired-state 確認、readback 不一致は Success 維持+Verified=False。会計は $verifyFail のみ追加し
+  verified 式に failCount を織込(失敗 continue 群は非改変=回帰最小)。$null=対象ドライブなし。
+  VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
 - modules/standard/dpi_api_config: Post-Apply Verification を追加(-Verified)。SetDpi 成功後に同一
   native チャネルの GetCurrentDpi(idx) で読返し ScalePercent と照合(冪等性チェックと同経路・偽PASS Low)。
   skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。

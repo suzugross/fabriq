@@ -1,0 +1,2 @@
+Enabled,TargetDrive,EncryptionMethod,UsedSpaceOnly,SkipHardwareTest,AutoUnlock,Description,Pin,Segment
+1,T:,XtsAes128,TRUE,TRUE,FALSE,Rig scratch VHD volume,,

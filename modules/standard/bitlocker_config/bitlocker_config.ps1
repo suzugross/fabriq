@@ -320,6 +320,7 @@ if (-not (Test-Path $evidenceDir)) {
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyFail = 0
 
 foreach ($drive in $validDrives) {
     $driveLetter = $drive.TargetDrive
@@ -514,6 +515,22 @@ foreach ($drive in $validDrives) {
         }
     }
 
+    # --- Post-apply verification: confirm the encryption was accepted ---
+    # Do NOT use ProtectionStatus: it stays Off until the TPM/used-space conversion completes
+    # (often only after a reboot), which would yield a false FAIL. Instead confirm an
+    # enable-acceptance signature: a key protector exists, the conversion is underway or done,
+    # and a real encryption method is set.
+    $vbl = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
+    $encAccepted = ($null -ne $vbl) -and
+                   ($vbl.KeyProtector.Count -gt 0) -and
+                   ($vbl.VolumeStatus -in @("EncryptionInProgress", "FullyEncrypted")) -and
+                   ($vbl.EncryptionMethod -and $vbl.EncryptionMethod -ne "None")
+    if (-not $encAccepted) {
+        $vs = if ($vbl) { $vbl.VolumeStatus } else { "n/a" }
+        Show-Warning "Verification: $driveLetter encryption not confirmed (VolumeStatus=$vs)"
+        $verifyFail++
+    }
+
     $successCount++
     Write-Host ""
 }
@@ -521,4 +538,10 @@ foreach ($drive in $validDrives) {
 # ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "BitLocker Configuration Results")
+# Verified: True only when something ran and every drive that ran is confirmed (no readback
+# mismatch and no apply failure). Skip-because-already-encrypted is a desired-state confirmation.
+# $null when no drive ran (no valid drives -> early Skipped return above).
+$verified = if (($successCount + $skipCount + $failCount) -gt 0) {
+    (($verifyFail -eq 0) -and ($failCount -eq 0))
+} else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Verified $verified -Title "BitLocker Configuration Results")
