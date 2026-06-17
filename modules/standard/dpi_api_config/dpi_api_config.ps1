@@ -260,6 +260,8 @@ Write-Host ""
 $successCount = 0
 $skipCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 
 $hasChanges = $false
 
@@ -314,6 +316,7 @@ foreach ($item in $enabledItems) {
     if ($currentDpi -eq $scale) {
         Show-Skip "Monitor[$idx] -> ${scale}%$desc - already set"
         $skipCount++
+        $verifyPass++
         continue
     }
 
@@ -325,15 +328,27 @@ foreach ($item in $enabledItems) {
         if ($result -eq "Success") {
             Show-Success "Monitor[$idx] DPI changed to ${scale}%"
             $successCount++
+
+            # Post-apply verification: read back via the same native channel
+            $appliedDpi = [NativeDpiHelper]::GetCurrentDpi($idx)
+            if ($appliedDpi -eq $scale) {
+                $verifyPass++
+            }
+            else {
+                Show-Warning "Verification mismatch: Monitor[$idx] reads ${appliedDpi}% (expected ${scale}%)"
+                $verifyFail++
+            }
         }
         else {
             Show-Error "$result"
             $failCount++
+            $verifyFail++
         }
     }
     catch {
         Show-Error "$($_.Exception.Message)"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -342,4 +357,5 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Result Summary
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Title "DPI Scaling Results")
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Verified $verified -Title "DPI Scaling Results")

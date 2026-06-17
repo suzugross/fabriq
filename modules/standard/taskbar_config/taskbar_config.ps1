@@ -139,6 +139,7 @@ $pinEntries      </taskbar:TaskbarPinList>
 "@
 
 # 5-3: Write into the Default User profile
+$deployVerified = $null
 try {
     $xmlContent | Out-File -FilePath $deployPath -Encoding UTF8 -Force -ErrorAction Stop
 
@@ -159,6 +160,25 @@ try {
     Show-Success "LayoutModification.xml deployed ($($items.Count) apps, $fileSize bytes)"
     Write-Host "  Path: $deployPath" -ForegroundColor DarkGray
     Write-Host ""
+
+    # Step 5.5: Post-apply verification (content-level)
+    # Read the file back and confirm BOTH: (1) the entry count matches (no truncation / no extras),
+    # and (2) every requested LinkPath value is actually present. Substring/.Contains is robust to
+    # BOM / trailing newline that an exact-string compare would trip on, and ordinal .Contains avoids
+    # wildcard/regex interpretation of path characters.
+    $deployedRaw = Get-Content -Path $deployPath -Raw -ErrorAction Stop
+    $pinCount = ([regex]::Matches($deployedRaw, 'DesktopApplicationLinkPath')).Count
+    $allPathsPresent = $true
+    foreach ($it in $items) {
+        if (-not $deployedRaw.Contains([string]$it.LinkPath)) { $allPathsPresent = $false; break }
+    }
+    if (($pinCount -eq $items.Count) -and $allPathsPresent) {
+        $deployVerified = $true
+    }
+    else {
+        Show-Warning "Verification mismatch: deployed XML pins=$pinCount/$($items.Count), all paths present=$allPathsPresent"
+        $deployVerified = $false
+    }
 }
 catch {
     Show-Error "Failed to write XML: $_"
@@ -187,4 +207,4 @@ catch {
 # ========================================
 # Step 6: Return result
 # ========================================
-return (New-ModuleResult -Status "Success" -Message "LayoutModification.xml deployed ($($items.Count) apps)")
+return (New-ModuleResult -Status "Success" -Message "LayoutModification.xml deployed ($($items.Count) apps)" -Verified $deployVerified)

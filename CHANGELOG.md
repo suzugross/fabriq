@@ -16,6 +16,19 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/dpi_api_config: Post-Apply Verification を追加(-Verified)。SetDpi 成功後に同一
+  native チャネルの GetCurrentDpi(idx) で読返し ScalePercent と照合(冪等性チェックと同経路・偽PASS Low)。
+  skip=idempotency-verified/$null=対象なし。VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/standard/taskbar_config: Post-Apply Verification を追加(-Verified)。LayoutModification.xml 書込後に
+  読返し、(1)DesktopApplicationLinkPath 出現数==$items.Count(切り詰め/余剰検出) かつ (2)各 LinkPath 値が
+  実在(ordinal .Contains・値の正しさ担保)の両方を照合(内容レベル・BOM/末尾改行非依存)。
+  VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/standard/profile_delete: Post-Apply Verification を追加(-Verified)。削除成功後に 2 信号
+  (フォルダ Test-Path 不在 かつ Win32_UserProfile に該当 LocalPath 無し)で照合。存在せず=desired state 達成で
+  verifyPass、Guard-blocked/catch=verifyFail。VERSION 1.1.0→1.2.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/extended/reg_template(reg_backup): Post-Apply Verification を追加(-Verified)。reg.exe export
+  ExitCode 0 後に書出ファイルの存在 かつ '^\[' キー節の有無を照合(reg.exe が exit 0 でヘッダのみ書く
+  hollow-export を封鎖)。reg_import は不透明 .reg のため対象外。VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
 - modules/standard/restore_point: Post-Apply Verification を追加(-Verified)。24h-limit は適用後に既存
   Test-RestoreRegistryValue で読返検証、restore-point 作成は既存の pre/post MAX SequenceNumber 比較
   (L259-281)を -Verified に接続。enable_protection は RPSessionInterval(>=1=有効。Enable-ComputerRestore が

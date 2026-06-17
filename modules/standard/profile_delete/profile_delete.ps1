@@ -138,6 +138,8 @@ Write-Host ""
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
+$verifyPass   = 0
+$verifyFail   = 0
 
 foreach ($entry in $profileList) {
     $displayName = if ($entry.Description) { $entry.Description } else { $entry.UserName }
@@ -153,6 +155,7 @@ foreach ($entry in $profileList) {
         Show-Error "Blocked: UserName '$userName' ($($entry._GuardReason))"
         Write-Host ""
         $failCount++
+        $verifyFail++
         continue
     }
 
@@ -161,6 +164,7 @@ foreach ($entry in $profileList) {
         Show-Skip "Profile folder not found: $profilePath"
         Write-Host ""
         $skipCount++
+        $verifyPass++
         continue
     }
 
@@ -188,10 +192,24 @@ foreach ($entry in $profileList) {
 
         Show-Success "Deleted profile: $displayName"
         $successCount++
+
+        # Post-apply verification: two-signal — folder gone AND no WMI profile record
+        $folderGone = -not (Test-Path $profilePath)
+        $wmiGone = -not (Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue |
+            Where-Object { $_.LocalPath -like "*\$userName" })
+        if ($folderGone -and $wmiGone) {
+            $verifyPass++
+        }
+        else {
+            $detail = if (-not $folderGone) { "folder still present" } else { "WMI record still present" }
+            Show-Warning "Verification mismatch: profile '$displayName' ($detail)"
+            $verifyFail++
+        }
     }
     catch {
         Show-Error "Failed to delete profile '$displayName': $_"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -201,5 +219,6 @@ foreach ($entry in $profileList) {
 # ========================================
 # Step 6: Result
 # ========================================
-return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount -Verified $verified `
     -Title "Profile Deletion Results")

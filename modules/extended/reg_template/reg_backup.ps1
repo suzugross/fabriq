@@ -67,6 +67,8 @@ Write-Host ""
 # --- Execute backup ---
 $successCount = 0
 $failCount = 0
+$verifyPass = 0
+$verifyFail = 0
 $total = $items.Count
 $current = 0
 
@@ -86,15 +88,33 @@ foreach ($item in $items) {
         if ($process.ExitCode -eq 0) {
             Show-Success "Exported: $([System.IO.Path]::GetFileName($exportFile))"
             $successCount++
+
+            # Post-apply verification: file exists AND contains a real key section.
+            # reg.exe can exit 0 yet write only the version header (hollow export);
+            # a '[...]' section line confirms actual key data was captured.
+            $exportOk = $false
+            if (Test-Path $exportFile) {
+                $exportRaw = Get-Content -Path $exportFile -Raw -ErrorAction SilentlyContinue
+                if ($exportRaw -match '(?m)^\[') { $exportOk = $true }
+            }
+            if ($exportOk) {
+                $verifyPass++
+            }
+            else {
+                Show-Warning "Verification: export file missing or contains no registry keys"
+                $verifyFail++
+            }
         }
         else {
             Show-Error "reg.exe exit code: $($process.ExitCode)"
             $failCount++
+            $verifyFail++
         }
     }
     catch {
         Show-Error "$($_.Exception.Message)"
         $failCount++
+        $verifyFail++
     }
 
     Write-Host ""
@@ -103,4 +123,5 @@ foreach ($item in $items) {
 # --- Summary ---
 Show-Info "Location: $backupDir"
 Write-Host ""
-return (New-BatchResult -Success $successCount -Fail $failCount -Title "Registry Backup Results")
+$verified = if (($verifyPass + $verifyFail) -gt 0) { ($verifyFail -eq 0) } else { $null }
+return (New-BatchResult -Success $successCount -Fail $failCount -Verified $verified -Title "Registry Backup Results")
