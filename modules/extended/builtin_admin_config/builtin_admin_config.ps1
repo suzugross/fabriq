@@ -100,8 +100,61 @@ try {
         Show-Success "Description set"
     }
 
+    # ========================================
+    # Step 5.5: Post-Apply Verification
+    # ========================================
+    # Read back the account state and confirm the applied settings took
+    # effect. Partial verification: the password value cannot be read back
+    # (the SAM hash is not retrievable), so it is intentionally NOT verified
+    # - a presence check would false-PASS for a wrong password (same rationale
+    # family as credential_config; see Guide).
     Write-Host ""
-    return (New-ModuleResult -Status "Success" -Message "Built-in Administrator configured successfully")
+    Show-Info "Verifying applied settings..."
+    Write-Host ""
+
+    $verified = $true
+    try {
+        $check = Get-LocalUser -Name $ADMIN_NAME -ErrorAction Stop
+
+        # (1) Account enabled
+        if ($check.Enabled) {
+            Write-Host "  [VERIFIED] Account enabled" -ForegroundColor Green
+        } else {
+            Write-Host "  [VERIFY FAILED] Account is not enabled" -ForegroundColor Red
+            $verified = $false
+        }
+
+        # (2) Password-never-expires flag. PasswordExpires is $null when the
+        #     account never expires. Edge: a system policy of
+        #     MaximumPasswordAge=0 makes the 'expires' case read $null too -
+        #     that is a false-FAIL (safe direction), never a false-PASS.
+        $expectNeverExpires = ($config.PasswordNeverExpires -eq "1")
+        $actualNeverExpires = ($null -eq $check.PasswordExpires)
+        if ($actualNeverExpires -eq $expectNeverExpires) {
+            Write-Host "  [VERIFIED] Password expiry: $pwdExpireText" -ForegroundColor Green
+        } else {
+            Write-Host "  [VERIFY FAILED] Password expiry mismatch (expected never-expires=$expectNeverExpires)" -ForegroundColor Red
+            $verified = $false
+        }
+
+        # (3) Description (only verified when the apply step set it)
+        if (-not [string]::IsNullOrWhiteSpace($config.Description)) {
+            if ($check.Description -eq $config.Description) {
+                Write-Host "  [VERIFIED] Description" -ForegroundColor Green
+            } else {
+                Write-Host "  [VERIFY FAILED] Description mismatch" -ForegroundColor Red
+                $verified = $false
+            }
+        }
+    }
+    catch {
+        # Fail-closed: if the read-back itself fails we cannot confirm.
+        Write-Host "  [VERIFY FAILED] Could not read back account state: $_" -ForegroundColor Red
+        $verified = $false
+    }
+
+    Write-Host ""
+    return (New-ModuleResult -Status "Success" -Message "Built-in Administrator configured successfully" -Verified $verified)
 }
 catch {
     Show-Error "Failed to configure Built-in Administrator: $_"

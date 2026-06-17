@@ -16,6 +16,22 @@
 ## [Unreleased]
 
 ### Added
+- modules/extended/directory_cleaner: Post-Apply Verification を追加(-Verified)。削除を実行した項目を
+  読返す absence oracle (file_delete/profile_delete 同 idiom): directory モード=フォルダ消失(Test-Path false)、
+  contents モード=フォルダ残置かつ空(子要素ゼロ)。検証対象は実削除した項目のみ(Blocked/不在/既に空 の Skip は
+  対象外)、実削除ゼロは Verified=$null。偽PASS は構造的に無し(残ファイルは必ず観測される)。唯一のエッジは
+  稼働プロセスによる再生成での偽FAIL(安全側・偽PASS ではない)で、temp 行を __GATE__ 配下に置く場合のみ下流
+  ブロックに注意。本モジュールの主用途はショートカット/不要フォルダ一掃で再生成は起きない。contents 部分削除
+  (ロック残)も verify が residue で Verified=False に表面化。Guide の「verify 非実装」記述を更新。test descriptor を
+  fixture+absence oracle の自動実行可能版へ更新(従来 stub=snapshot/self-verified)。
+  VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
+- modules/extended/builtin_admin_config: Post-Apply Verification を追加(-Verified)。Enable/Set 成功後に
+  Get-LocalUser を読返し (1)Enabled==true (2)PasswordExpires の null 性==PasswordNeverExpires
+  (3)Description 完全一致(apply が設定した場合のみ) を照合。Password は SAM ハッシュ読返不可のため検証対象外
+  (presence チェックは偽PASS=credential_config 同系・Guide L47)。readback 例外/不一致は Success 維持+
+  Verified=False(fail-closed)。PasswordNeverExpires=0 かつ system policy MaxPasswordAge=0 の偽FAIL エッジは
+  安全側として許容(偽PASS ではない)。apply は all-or-nothing のため verify は Success パスのみ実行。
+  VERSION 1.0.1→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
 - modules/standard/bitlocker_config: Post-Apply Verification を追加(-Verified)。Enable-BitLocker 後に
   「暗号化受理」署名を読返照合。受理は2形態を許容: (a)即時=VolumeStatus∈{EncryptionInProgress,FullyEncrypted}
   かつ EncryptionMethod≠None(データドライブ/OS+SkipHardwareTest)、(b)延期=OS ドライブで SkipHardwareTest なしの

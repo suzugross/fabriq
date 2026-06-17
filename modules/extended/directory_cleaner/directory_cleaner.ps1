@@ -202,6 +202,7 @@ Write-Host ""
 $successCount = 0
 $skipCount    = 0
 $failCount    = 0
+$verifyTargets = @()   # items actually deleted -> checked in Step 5.5 (absence oracle)
 
 foreach ($item in $enabledItems) {
     $displayName = if ($item.Description) { $item.Description } else { $item.TargetPath }
@@ -260,6 +261,7 @@ foreach ($item in $enabledItems) {
     # ----------------------------------------
     # Execute deletion
     # ----------------------------------------
+    $itemSucceeded = $false
     try {
         switch ($item.Mode) {
             "contents" {
@@ -292,10 +294,15 @@ foreach ($item in $enabledItems) {
                 $successCount++
             }
         }
+        $itemSucceeded = $true
     }
     catch {
         Show-Error "Failed: $($_.Exception.Message)"
         $failCount++
+    }
+
+    if ($itemSucceeded) {
+        $verifyTargets += [pscustomobject]@{ Path = $item.TargetPath; Mode = $item.Mode; Name = $displayName }
     }
 
     Write-Host ""
@@ -303,7 +310,67 @@ foreach ($item in $enabledItems) {
 
 
 # ========================================
+# Step 5.5: Post-Apply Verification
+# ========================================
+# Absence oracle (same idiom as file_delete / profile_delete): read back
+# each executed target and confirm the deletion took effect.
+#   directory mode -> the folder must be gone   (Test-Path == $false)
+#   contents  mode -> the folder remains but must be empty (no children)
+# Only items that were actually deleted are checked; Blocked / NotFound /
+# AlreadyEmpty skips are desired-state already and are not verify targets.
+# No executed target -> $verified stays $null (nothing applied to verify).
+#
+# false-PASS is structurally absent: residue is always observable, so a failed
+# delete can never read back as "absent/empty". The one edge is a false-FAIL
+# when a live process regenerates files between the delete and the read-back
+# (e.g. an active %TEMP% directory) - that is the safe direction (Verified=False
+# on Success), never a false-PASS. NOTE: under a __GATE__ profile a Verified=False
+# blocks downstream Orders, so do not place regenerating temp-dir rows behind a
+# gate. This module's primary use is wiping unwanted shortcuts/folders, where no
+# such regeneration occurs.
+$verified = $null
+if ($verifyTargets.Count -gt 0) {
+    Show-Info "Verifying deletion..."
+    Write-Host ""
+
+    $verifyFail = 0
+    foreach ($vt in $verifyTargets) {
+        try {
+            if ($vt.Mode -eq "directory") {
+                if (-not (Test-Path $vt.Path)) {
+                    Write-Host "  [VERIFIED] Removed: $($vt.Name)" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "  [VERIFY FAILED] Still present: $($vt.Name)" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+            else {
+                # contents mode: folder retained, must be empty
+                $remaining = @(Get-ChildItem $vt.Path -Force -ErrorAction SilentlyContinue)
+                if ($remaining.Count -eq 0) {
+                    Write-Host "  [VERIFIED] Emptied: $($vt.Name)" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "  [VERIFY FAILED] $($remaining.Count) item(s) remain: $($vt.Name)" -ForegroundColor Red
+                    $verifyFail++
+                }
+            }
+        }
+        catch {
+            # Fail-closed: cannot confirm absence -> treat as verify failure
+            Write-Host "  [VERIFY FAILED] Read-back error: $($vt.Name) - $($_.Exception.Message)" -ForegroundColor Red
+            $verifyFail++
+        }
+    }
+
+    Write-Host ""
+    $verified = ($verifyFail -eq 0)
+}
+
+
+# ========================================
 # Step 6: Result
 # ========================================
 return (New-BatchResult -Success $successCount -Skip $skipCount -Fail $failCount `
-    -Title "Directory Cleaner Results")
+    -Title "Directory Cleaner Results" -Verified $verified)

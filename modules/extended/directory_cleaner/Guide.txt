@@ -40,9 +40,24 @@ CSV 投入時の表示ステップと実行ステップの両方で二重チェ�
 ■ AutoPilot
 AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
 
+■ 主な用途
+不要なアプリのショートカットや不要フォルダの一掃を主目的とします
+（例: 全ユーザーデスクトップ C:\Users\Public\Desktop の中身を contents
+モードで一掃）。一時ファイル/キャッシュのクリーンアップにも使えますが、
+その場合は下記 Verification の注意を参照してください。
+
 ■ Post-Apply Verification
-本モジュールは Post-Apply Verification を実装していません。
-contents モードでは削除直後に新たな一時ファイルが生成され得るため、
-読み返し検証による false PASS/FAIL リスクを避ける設計です。
-New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
-空欄になります。
+削除を実行した項目について「不在」を読み返して検証します（file_delete /
+profile_delete と同じ absence oracle）。
+  directory モード: フォルダが消えたか（Test-Path == false）
+  contents  モード: フォルダは残し中身が空か（子要素ゼロ）
+検証対象は実際に削除した項目のみ（Blocked / 不在 / 既に空 の Skip は対象外）。
+削除実行がゼロなら Verified 列は空欄（$null）になります。
+
+偽PASS は構造的に発生しません（残ファイルは必ず観測されるため、失敗した削除が
+「不在/空」と読まれることはない）。唯一のエッジは、稼働中プロセスが削除直後に
+ファイルを再生成する場合（例: 使用中の %TEMP%）で、これは Verified=False に
+なり得ますが安全側の偽FAIL であり偽PASS ではありません。
+注意: __GATE__ を含む Profile では Verified=False が下流 Order をブロックします。
+再生成し得る temp ディレクトリ行を gate 配下に置かないでください。ショートカット
+一掃のような再生成の起きない用途では問題ありません。
