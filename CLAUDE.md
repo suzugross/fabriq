@@ -79,7 +79,7 @@ stateDiagram-v2
 
 - 設定を適用するモジュールでは、適用後に**システム状態を読み返して期待値と一致するか検証する**ステップ（Step 5.5）の実装を推奨する。
 - 実装可能なら `New-ModuleResult` / `New-BatchResult` の `-Verified` で検証結果を返す。
-- 検証ロジックは可能な限り既存の冪等性チェック関数（例: `reg_hklm_config` の `Test-RegistryValueMatch`）を再利用する。
+- 検証ロジックは可能な限り既存の状態一致チェック関数（値の一致判定。例: `reg_hklm_config` の `Test-RegistryValueMatch`）を再利用する。なお `Test-RegistryValueMatch` は `reg_hklm_config` では preview/verify 専用で、apply-loop の skip は `$FORCE_OVERWRITE=$true` により既定無効＝**冪等性 skip の手本ではない**（冪等性 skip の手本は `power_config` / `windows_feature_config` / `volume_config`）。
 - 再起動後に反映される設定（ホスト名変更等）は、レジストリの保留値など「適用が受理されたこと」を検証する。
 - 検証が技術的に困難なモジュール（例: `sysprep_config`）は `-Verified` を省略（`$null`）してよい。
 
