@@ -16,6 +16,14 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/ipaddress_config: 厳格な pre-apply skip(冪等性)を追加。各アダプタの適用前に新ヘルパ
+  `Test-IpConfigMatch` で実状態と目標を照合し、**完全一致時のみ netsh を呼ばず skip**(単一 Manual IPv4==IP/prefix
+  ∧ 単一既定GW==target ∧ DNS が個数+順序まで完全一致)。1つでも不一致/読取り例外は fail-closed で適用側に倒す
+  (false-skip 回避が最優先=非対称リスク)。skip は「既に目的状態」として configured 計上(失敗ではない・全 skip=Skipped)、
+  skip したアダプタも Step 5.5 verify に通す。Step 5.5(適用後検証)の既存 lenient 判定は意図的に据置(skip だけ厳格化、
+  verify を厳しくすると DHCP 由来の余分 DNS 等で `__GATE__` 下流ブロックが増える非対称ゆえ混ぜない)。skip は netsh を
+  呼ばないため WinRM 瞬断なし。test.psd1 を新設(category C・winrmSafe=$false=mgmt NIC 変更で rig 自身が切断するため
+  apply 経路は rig 非実行・skip は制御スクリプトで実証)。VERSION 1.0.0→1.1.0(MINOR・REQUIRES_KERNEL 据置)。
 - modules/extended/directory_cleaner: Post-Apply Verification を追加(-Verified)。削除を実行した項目を
   読返す absence oracle (file_delete/profile_delete 同 idiom): directory モード=フォルダ消失(Test-Path false)、
   contents モード=フォルダ残置かつ空(子要素ゼロ)。検証対象は実削除した項目のみ(Blocked/不在/既に空 の Skip は

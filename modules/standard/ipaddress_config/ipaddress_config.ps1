@@ -203,6 +203,58 @@ function Set-IPConfiguration {
 }
 
 # ========================================
+# Function: Strict idempotency probe (pre-apply skip gate)
+# ========================================
+# Returns $true ONLY when the adapter's live IPv4 config EXACTLY matches the
+# target: a single Manual IPv4 == IP/prefix, a single default gateway == target
+# (when a gateway is specified), and the DNS list equal in BOTH count and order.
+# Any read failure or ambiguity returns $false (fail-closed) so the caller
+# APPLIES rather than wrongly skipping. The asymmetric risk here is false-skip
+# (leaving a wrong config), so the predicate is deliberately strict and only
+# skips on a provable full match. Step 5.5 verification keeps its own (lenient)
+# "the values I set are present" semantics on purpose - see CLAUDE.md notes.
+function Test-IpConfigMatch {
+    param(
+        [object]$Adapter,
+        [string]$IPAddress,
+        [string]$SubnetMask,
+        [string]$Gateway,
+        [array]$DNSServers
+    )
+    try {
+        $ifIndex = $Adapter.ifIndex
+        $expectedPrefix = Convert-SubnetMaskToPrefix -SubnetMask $SubnetMask
+
+        # (1) exactly one Manual IPv4, equal to target IP + prefix
+        $manual = @(Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction Stop |
+                    Where-Object { $_.PrefixOrigin -eq 'Manual' -and $_.SuffixOrigin -eq 'Manual' })
+        if ($manual.Count -ne 1) { return $false }
+        if ($manual[0].IPAddress -ne $IPAddress -or $manual[0].PrefixLength -ne $expectedPrefix) { return $false }
+
+        # (2) gateway (when target specifies one): exactly one default GW == target
+        if ($Gateway -and $Gateway.Trim() -ne '') {
+            $cfg = Get-NetIPConfiguration -InterfaceIndex $ifIndex -ErrorAction Stop
+            $gws = @($cfg.IPv4DefaultGateway.NextHop)
+            if ($gws.Count -ne 1 -or $gws[0] -ne $Gateway) { return $false }
+        }
+
+        # (3) DNS exact ordered equality (when target specifies DNS)
+        $validDNS = @($DNSServers | Where-Object { $_ -and $_.Trim() -ne '' })
+        if ($validDNS.Count -gt 0) {
+            $cur = @((Get-DnsClientServerAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction Stop).ServerAddresses)
+            if ($cur.Count -ne $validDNS.Count) { return $false }
+            for ($i = 0; $i -lt $validDNS.Count; $i++) {
+                if ($cur[$i] -ne $validDNS[$i]) { return $false }
+            }
+        }
+        return $true
+    }
+    catch {
+        return $false   # fail-closed: any read failure -> not a match -> apply
+    }
+}
+
+# ========================================
 # Main Process
 # ========================================
 
@@ -214,6 +266,7 @@ Write-Host ""
 $dnsServers = @($config.DNS1, $config.DNS2, $config.DNS3, $config.DNS4) | Where-Object { $_ -and $_.Trim() -ne '' }
 
 $successCount = 0
+$skipCount    = 0
 $totalAdapters = 0
 
 # Ethernet Configuration
@@ -221,8 +274,14 @@ if ($config.EthIP -and $config.EthIP.Trim() -ne '') {
     $totalAdapters++
     $ethAdapter = Get-NetworkAdapter -Type "Ethernet"
     if ($ethAdapter) {
-        $result = Set-IPConfiguration -Adapter $ethAdapter -IPAddress $config.EthIP -SubnetMask $config.EthSubnet -Gateway $config.EthGateway -DNSServers $dnsServers -AdapterType "Ethernet"
-        if ($result) { $successCount++ }
+        if (Test-IpConfigMatch -Adapter $ethAdapter -IPAddress $config.EthIP -SubnetMask $config.EthSubnet -Gateway $config.EthGateway -DNSServers $dnsServers) {
+            Show-Skip "Ethernet already matches target configuration (no change applied)"
+            $skipCount++
+        }
+        else {
+            $result = Set-IPConfiguration -Adapter $ethAdapter -IPAddress $config.EthIP -SubnetMask $config.EthSubnet -Gateway $config.EthGateway -DNSServers $dnsServers -AdapterType "Ethernet"
+            if ($result) { $successCount++ }
+        }
     }
     else {
         Show-Warning "Ethernet adapter not found. Skipping."
@@ -234,8 +293,14 @@ if ($config.WiFiIP -and $config.WiFiIP.Trim() -ne '') {
     $totalAdapters++
     $wifiAdapter = Get-NetworkAdapter -Type "WiFi"
     if ($wifiAdapter) {
-        $result = Set-IPConfiguration -Adapter $wifiAdapter -IPAddress $config.WiFiIP -SubnetMask $config.WiFiSubnet -Gateway $config.WiFiGateway -DNSServers $dnsServers -AdapterType "Wi-Fi"
-        if ($result) { $successCount++ }
+        if (Test-IpConfigMatch -Adapter $wifiAdapter -IPAddress $config.WiFiIP -SubnetMask $config.WiFiSubnet -Gateway $config.WiFiGateway -DNSServers $dnsServers) {
+            Show-Skip "Wi-Fi already matches target configuration (no change applied)"
+            $skipCount++
+        }
+        else {
+            $result = Set-IPConfiguration -Adapter $wifiAdapter -IPAddress $config.WiFiIP -SubnetMask $config.WiFiSubnet -Gateway $config.WiFiGateway -DNSServers $dnsServers -AdapterType "Wi-Fi"
+            if ($result) { $successCount++ }
+        }
     }
     else {
         Show-Warning "Wi-Fi adapter not found. Skipping."
@@ -249,11 +314,13 @@ Write-Host "Configuration Completed" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor White
 Write-Host ""
 
-if ($successCount -eq $totalAdapters -and $totalAdapters -gt 0) {
-    Show-Success "All network adapters configured successfully ($successCount/$totalAdapters)"
+# A skipped adapter is already in the desired state -> counts as configured (not a failure).
+$configured = $successCount + $skipCount
+if ($totalAdapters -gt 0 -and $configured -eq $totalAdapters) {
+    Show-Success "All network adapters in desired state (applied: $successCount, already-matched: $skipCount / $totalAdapters)"
 }
-elseif ($successCount -gt 0) {
-    Show-Warning "Some network adapters configured successfully ($successCount/$totalAdapters)"
+elseif ($configured -gt 0) {
+    Show-Warning "Some network adapters configured (applied: $successCount, already-matched: $skipCount / $totalAdapters)"
 }
 else {
     Show-Error "Failed to configure network adapters"
@@ -353,8 +420,10 @@ Write-Host ""
 $verified = if ($adapterChecks.Count -eq 0) { $null } else { $verifyFail -eq 0 }
 
 # Return ModuleResult
+# Skipped adapters (already matching) count as configured, not failures.
 $overallStatus = if ($totalAdapters -eq 0) { "Skipped" }
-    elseif ($successCount -eq $totalAdapters) { "Success" }
-    elseif ($successCount -gt 0) { "Partial" }
+    elseif ($configured -eq $totalAdapters -and $successCount -eq 0) { "Skipped" }   # all already in desired state
+    elseif ($configured -eq $totalAdapters) { "Success" }                            # applied + already-matched, none failed
+    elseif ($configured -gt 0) { "Partial" }                                         # some configured, some failed/not-found
     else { "Error" }
-return (New-ModuleResult -Status $overallStatus -Message "Success: $successCount/$totalAdapters adapters" -Verified $verified)
+return (New-ModuleResult -Status $overallStatus -Message "Applied: $successCount, Skipped(match): $skipCount / $totalAdapters adapters" -Verified $verified)
