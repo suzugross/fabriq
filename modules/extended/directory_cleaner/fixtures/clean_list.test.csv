@@ -1,0 +1,3 @@
+Enabled,TargetPath,Mode,Description,Segment
+1,C:\fabriq_test\cleaner_scratch\dir_a,directory,Test directory mode,
+1,C:\fabriq_test\cleaner_scratch\dir_b,contents,Test contents mode,
