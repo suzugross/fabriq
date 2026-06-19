@@ -14,12 +14,19 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 - **AES-256-CBC + PBKDF2** による CSV 内機密値の暗号化保持
 - **79 種類の標準・拡張モジュール**を同梱
 
+Fabriq には、本体（PowerShell フレームワーク）と連携する 2 つの GUI アプリケーション（いずれも別リポジトリ・WPF / .NET 8.0）があります。設定・運用は本体だけでも完結しますが、これらを併用することで「設定の整備 → キッティング実行 → エビデンスの納品」までを一貫してカバーできます。
+
+- **Fabriq Studio** — Fabriq ワークスペースの設定管理 GUI（ホスト・モジュール設定・プロファイル・暗号化・パスフレーズ設定）。<https://github.com/suzugross/fabriq_studio>（後述「[Fabriq Studio との関係](#fabriq-studio-との関係)」）
+- **Fabriq Evidence Manager** — キッティング実行で出力されたエビデンスを読み込み、顧客納品用フォーマットへ一括エクスポートする GUI。<https://github.com/suzugross/fabriq_evidence_manager>（後述「[Fabriq Evidence Manager との関係](#fabriq-evidence-manager-との関係)」）
+
 ## 前提条件
 
 - **Windows 11**
 - **PowerShell 5.1** 以降
-- **管理者権限**（`Fabriq.exe` が自動昇格）
+- **管理者権限**（`Fabriq.exe` / `Fabriq.bat` が自動昇格）
 - **Fabriq Studio** によるマスターパスフレーズ設定（後述）
+
+> **ランチャの `.exe` / `.bat` 並列同梱**: ルートには `Fabriq.exe` と `Fabriq.bat`（`Fabriq_IOS` も同様）を併置しています。`.bat` は `.exe` の代替手段で、ウイルス対策ソフト（Defender 等）のヒューリスティックが未署名の EXE ランチャを誤検知・隔離した場合でも起動できるようにするためのものです。両者は同じ挙動（管理者へ自動昇格 → 作業ディレクトリを fabriq ルートへ固定 → `kernel/main.ps1` を起動）で、どちらか一方が使えればよく、互いを置き換えるものではありません。
 
 > **重要**: Fabriq の起動時にはマスターパスフレーズの入力が必須です。パスフレーズ検証トークン（`kernel/txt/passphrase_verify.txt`）が存在しない場合、Fabriq は起動できません。このトークンは **Fabriq Studio** でパスフレーズを設定することで生成されます。必ず初回起動前に Fabriq Studio でパスフレーズを設定してください。
 
@@ -48,7 +55,9 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 ```
 fabriq/
 ├── Fabriq.exe              # エントリーポイント（管理者自動昇格、GUI 起動）
+├── Fabriq.bat              # 同上の .bat 版（AV が未署名 EXE を隔離した場合の代替・同挙動）
 ├── Fabriq_IOS.exe          # fabriq_ios サブプロジェクト用ランチャ（独立 SemVer）
+├── Fabriq_IOS.bat          # Fabriq_IOS.exe の .bat 版（代替・同挙動）
 ├── kernel/
 │   ├── main.ps1            # メインスクリプト（Fabriq.exe から呼び出し）
 │   ├── common.ps1          # 共通関数ライブラリ（96 関数）
@@ -100,7 +109,7 @@ Fabriq フォルダを対象 PC へ直接配置します（USB メモリ等か�
 
 ### 3. 起動
 
-`Fabriq.exe` をダブルクリックします（UAC により管理者権限へ自動昇格 → PowerShell コンソールを経由してダッシュボード GUI が立ち上がります）。
+`Fabriq.exe` をダブルクリックします（UAC により管理者権限へ自動昇格 → PowerShell コンソールを経由してダッシュボード GUI が立ち上がります）。ウイルス対策ソフトが `Fabriq.exe` を隔離するなどして起動できない場合は、同じ挙動の `Fabriq.bat` を代わりに使用します。
 
 ### 4. セッション開始
 
@@ -321,7 +330,7 @@ Fabriq Studio でフィールド単位・行単位・列単位で暗号化／復
 
 ## Fabriq Studio との関係
 
-Fabriq Studio（別プロジェクト。WPF / .NET 8.0）は Fabriq の **GUI 管理ツール** です。本体 Fabriq との接点は以下に限定されます。
+Fabriq Studio（別プロジェクト。WPF / .NET 8.0 / リポジトリ: <https://github.com/suzugross/fabriq_studio>）は Fabriq の **GUI 管理ツール** です。本体 Fabriq との接点は以下に限定されます。
 
 | 機能 | 本体との関係 |
 |---|---|
@@ -332,6 +341,21 @@ Fabriq Studio（別プロジェクト。WPF / .NET 8.0）は Fabriq の **GUI �
 | レジストリカタログ | レジストリ設定のライブラリからワークスペースへエクスポート |
 
 本体 Fabriq は Studio のバージョン・機能に依存しません。Studio 側の具体的な機能セットは Studio リポジトリを参照してください。
+
+## Fabriq Evidence Manager との関係
+
+Fabriq Evidence Manager（別プロジェクト。WPF / .NET 8.0 / リポジトリ: <https://github.com/suzugross/fabriq_evidence_manager>）は、キッティング実行で本体 Fabriq が `evidence/` 配下へ出力したエビデンス（スクリーンショット・各種ログ・マニフェスト・HTML チェックリスト・実行履歴 CSV）を読み込み、GUI 上で整理・確認したうえで、顧客への**納品用フォーマット（Excel 一覧表 + 個別 PC 詳細シート + 収集アーティファクト）へ一括エクスポート**する **GUI 管理ツール** です。
+
+エビデンス本体には一切変更を加えず、**外側から読み取るだけの consumer** として設計されています。本体との接点は、`kernel/EVIDENCE_MANIFEST.md` で明文化された **evidence manifest 公開契約（schemaVersion 1）** に限定されます。
+
+| 機能 | 本体との関係 |
+|---|---|
+| マニフェスト検出 | 各 PC の `manifest.json`（`manifestType: "fabriq-evidence-manifest"` / `schemaVersion: 1`）を起点にエビデンスを認識（`kernel/EVIDENCE_MANIFEST.md` 準拠） |
+| エビデンス読み込み | `pc_information/`（システム情報・ライセンス・セキュリティベースライン等の各種ログ）、`auto_capture/`（スクリーンショット）、`bitlocker/`、`checklist/`（HTML チェックリスト）、`export_history/`（実行履歴 CSV）を読み取り専用で参照 |
+| ホスト突合 | `hostlist.csv` を読み込み、出力されたエビデンスと照合 |
+| 納品エクスポート | `{timestamp}_fabriq_evi/` に Excel の PC 情報一覧表・個別詳細シートを生成し、収集アーティファクトを併せて出力 |
+
+本体 Fabriq は Evidence Manager に依存しません。両者の連携は `kernel/EVIDENCE_MANIFEST.md` の公開契約を介してのみ行われ、Evidence Manager はその外部 consumer です。Evidence Manager 側の具体的な機能セット・バージョンは Evidence Manager リポジトリを参照してください。
 
 ## テスト
 
