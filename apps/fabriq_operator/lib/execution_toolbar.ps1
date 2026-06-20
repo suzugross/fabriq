@@ -145,6 +145,7 @@ function Show-ExecutionToolbar {
             $successGreen = [System.Drawing.Color]::FromArgb(80, 220, 80)
             $errorRed     = [System.Drawing.Color]::FromArgb(255, 80, 80)
             $orangeSkip   = [System.Drawing.Color]::FromArgb(255, 170, 60)
+            $warnYellow   = [System.Drawing.Color]::FromArgb(230, 220, 90)
 
             # ----- Fonts -----
             $fontNormal = New-Object System.Drawing.Font("Consolas", 9)
@@ -206,6 +207,11 @@ function Show-ExecutionToolbar {
             $script:artBufferGraphics = $null
             $script:artLastStatusWriteTime = [DateTime]::MinValue
             $script:artLastDetailCount = 0
+            # Independent status.json change-guard for the Execution panel
+            # (kept separate from the art sync above so the two render paths
+            # do not steal each other's "unchanged -> skip" short-circuit).
+            $script:execLastStatusWriteTime = [DateTime]::MinValue
+            $script:lastExecText = $null
             $script:artCurrentPhase = "idle"
             $script:artSilent = $false
 
@@ -239,10 +245,13 @@ function Show-ExecutionToolbar {
             $form = New-Object System.Windows.Forms.Form
             $form.Text = "Fabriq - Status Monitor"
             $formW = [int](600 * $script:dpiScale)
-            $formH = [int](700 * $script:dpiScale)
-            $form.Size = New-Object System.Drawing.Size($formW, $formH)
+            $formH = [int](940 * $script:dpiScale)
             $form.StartPosition = "Manual"
             $workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+            # Clamp height to the working area so the 3-panel window never
+            # runs off the bottom on short / low-resolution real displays.
+            if ($formH -gt $workingArea.Height) { $formH = $workingArea.Height }
+            $form.Size = New-Object System.Drawing.Size($formW, $formH)
             $form.Location = New-Object System.Drawing.Point(
                 ($workingArea.Right - $formW - [int](20 * $script:dpiScale)),
                 ([int](50 * $script:dpiScale))
@@ -256,13 +265,14 @@ function Show-ExecutionToolbar {
             $form.Font = $fontNormal
             $form.TopMost = $true
 
-            # ----- Main layout: PC Info (top, 60%) + Surkitinisme (bottom, 40%) -----
+            # ----- Main layout: PC Info (42%) + Execution (33%) + Surkitinisme (25%) -----
             $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
             $mainLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
-            $mainLayout.RowCount = 2
+            $mainLayout.RowCount = 3
             $mainLayout.ColumnCount = 1
-            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 60))) | Out-Null
-            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 40))) | Out-Null
+            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 42))) | Out-Null
+            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 33))) | Out-Null
+            $mainLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 25))) | Out-Null
             $mainLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
             $mainLayout.Padding = New-Object System.Windows.Forms.Padding(6, 6, 6, 0)
             $form.Controls.Add($mainLayout)
@@ -286,13 +296,32 @@ function Show-ExecutionToolbar {
             $pcInfoRtb.Text = "Waiting for host selection..."
             $pcInfoGroup.Controls.Add($pcInfoRtb)
 
+            # ----- Execution result GroupBox -----
+            $execGroup = New-Object System.Windows.Forms.GroupBox
+            $execGroup.Text = " Execution "
+            $execGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $execGroup.ForeColor = $accentCyan
+            $execGroup.Font = $fontBold
+            $mainLayout.Controls.Add($execGroup, 0, 1)
+
+            $execRtb = New-Object System.Windows.Forms.RichTextBox
+            $execRtb.Dock = [System.Windows.Forms.DockStyle]::Fill
+            $execRtb.ForeColor = $textWhite
+            $execRtb.BackColor = $darkBg
+            $execRtb.Font = $fontNormal
+            $execRtb.ReadOnly = $true
+            $execRtb.BorderStyle = "None"
+            $execRtb.TabStop = $false
+            $execRtb.Text = "No execution data yet."
+            $execGroup.Controls.Add($execRtb)
+
             # ----- Surkitinisme art GroupBox -----
             $artGroup = New-Object System.Windows.Forms.GroupBox
             $artGroup.Text = " Surkitinisme "
             $artGroup.Dock = [System.Windows.Forms.DockStyle]::Fill
             $artGroup.ForeColor = $accentCyan
             $artGroup.Font = $fontBold
-            $mainLayout.Controls.Add($artGroup, 0, 1)
+            $mainLayout.Controls.Add($artGroup, 0, 2)
 
             $artCanvas = New-Object System.Windows.Forms.PictureBox
             $artCanvas.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -384,7 +413,12 @@ function Show-ExecutionToolbar {
                 $markerMap = @(
                     @{ Token = "[OK]"; Color = $successGreen },
                     @{ Token = "[!!]"; Color = $errorRed     },
-                    @{ Token = "[--]"; Color = $errorRed     }
+                    @{ Token = "[--]"; Color = $errorRed     },
+                    @{ Token = "[ER]"; Color = $errorRed     },
+                    @{ Token = "[SK]"; Color = $orangeSkip   },
+                    @{ Token = "[CA]"; Color = $textGray     },
+                    @{ Token = "[PT]"; Color = $warnYellow   },
+                    @{ Token = "[WN]"; Color = $warnYellow   }
                 )
                 foreach ($m in $markerMap) {
                     $pos = 0
@@ -648,6 +682,107 @@ function Show-ExecutionToolbar {
                     Set-ColorizedText -RichTextBox $pcInfoRtb -Text $pcText
                     $script:lastPcInfoText = $pcText
                 }
+            }
+
+            # ========================================
+            # Execution panel (ported from status_monitor.ps1
+            # Update-StatusDisplay execution-summary block). Self-contained
+            # status.json read with its own LastWriteTime change-guard.
+            # ========================================
+            function Update-ExecutionDisplay {
+                if (-not (Test-Path $statusFilePath)) {
+                    if ($script:lastExecText -ne '__WAITING__') {
+                        Set-ColorizedText -RichTextBox $execRtb -Text "Waiting for status..."
+                        $script:lastExecText = '__WAITING__'
+                    }
+                    return
+                }
+                try {
+                    $fileInfo = Get-Item $statusFilePath -ErrorAction Stop
+                    # Skip reparse when the file has not changed since last tick.
+                    if ($fileInfo.LastWriteTime -eq $script:execLastStatusWriteTime) { return }
+                    $script:execLastStatusWriteTime = $fileInfo.LastWriteTime
+
+                    # Lock-free read with retry (kernel writes atomically via
+                    # temp + Move-Item, so a partial read is never observed;
+                    # the retry only covers the brief rename window).
+                    $jsonText = $null
+                    for ($retry = 0; $retry -lt 3; $retry++) {
+                        try {
+                            $jsonText = [System.IO.File]::ReadAllText($statusFilePath, [System.Text.Encoding]::UTF8)
+                            break
+                        } catch { Start-Sleep -Milliseconds 50 }
+                    }
+                    if ([string]::IsNullOrEmpty($jsonText)) { return }
+
+                    $status = $jsonText | ConvertFrom-Json
+                    $exec = $status.Execution
+
+                    $execText = ""
+                    if ($null -eq $exec -or ($exec.TotalCount -eq 0 -and $exec.Phase -eq "idle")) {
+                        $execText = "No execution data yet."
+                    }
+                    else {
+                        $phaseLabel = switch ($exec.Phase) {
+                            "idle"      { "Idle" }
+                            "executing" { ">> Running..." }
+                            "complete"  { "Complete" }
+                            default     { [string]$exec.Phase }
+                        }
+                        $execText += "Phase: $phaseLabel`r`n"
+                        $execText += "Total: $($exec.TotalCount)`r`n"
+                        $execText += "`r`n"
+                        $execText += "  Success:   $($exec.SuccessCount)`r`n"
+                        $execText += "  Error:     $($exec.ErrorCount)`r`n"
+                        $execText += "  Skipped:   $($exec.SkippedCount)`r`n"
+                        $execText += "  Cancelled: $($exec.CancelledCount)`r`n"
+                        $execText += "  Partial:   $($exec.PartialCount)`r`n"
+
+                        $details = @($exec.Details)
+                        if ($details.Count -gt 0) {
+                            $execText += "`r`n--- Details ---`r`n"
+                            for ($i = 0; $i -lt $details.Count; $i++) {
+                                $d = $details[$i]
+
+                                # Session-boundary separator
+                                if ($d.Status -eq "Separator") {
+                                    $execText += "------------------------------`r`n"
+                                    continue
+                                }
+
+                                $icon = switch ($d.Status) {
+                                    "Success"   { "[OK]" }
+                                    "Error"     { "[ER]" }
+                                    "Skipped"   { "[SK]" }
+                                    "Skip"      { "[SK]" }
+                                    "Cancelled" { "[CA]" }
+                                    "Partial"   { "[PT]" }
+                                    "Warning"   { "[WN]" }
+                                    default     { "[--]" }
+                                }
+
+                                # Prefix restored (pre-__RESTART__) entries with ^
+                                $prefix = ""
+                                if ($d.IsRestored -eq $true) { $prefix = "^ " }
+
+                                $msg = if ($d.Message) { " $($d.Message)" } else { "" }
+                                $line = "$prefix$icon $($d.Operation)$msg"
+                                if ($line.Length -gt 70) { $line = $line.Substring(0, 67) + "..." }
+                                $execText += "$line`r`n"
+                            }
+                        }
+                    }
+
+                    if ($script:lastExecText -ne $execText) {
+                        Set-ColorizedText -RichTextBox $execRtb -Text $execText
+                        $script:lastExecText = $execText
+                        # Follow the tail so the newest module stays visible
+                        # as Details grows during a long profile run.
+                        $execRtb.SelectionStart = $execRtb.Text.Length
+                        $execRtb.ScrollToCaret()
+                    }
+                }
+                catch { }
             }
 
             # ========================================
@@ -1143,6 +1278,7 @@ function Show-ExecutionToolbar {
                 }
 
                 Update-PCInfoDisplay
+                Update-ExecutionDisplay
 
                 $running = ($FabriqToolbarShared.State -eq 'Running')
                 $modName = $FabriqToolbarShared.ModuleName
@@ -1192,6 +1328,7 @@ function Show-ExecutionToolbar {
 
             Update-CurrentSnapshot -Tier 'all'
             Update-PCInfoDisplay
+            Update-ExecutionDisplay
 
             $timer.Start()
             $artRenderTimer.Start()
