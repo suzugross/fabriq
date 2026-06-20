@@ -2570,9 +2570,33 @@ function Export-HtmlChecklist {
     $skipTotal      = 0
     $errorTotal     = 0
     $notRunTotal    = 0
+    $gateRowTotal   = 0
 
     $rowsHtml = ""
     foreach ($module in $DefinedModules) {
+        # __GATE__ is a non-runnable forward barrier (kernel 3.6.0): by
+        # design it records no ExecutionResult, so counting it as "Not Run"
+        # would force the overall checklist to "Incomplete" forever. Render
+        # a neutral, non-counting checkpoint row - visible for traceability
+        # but excluded from notRun / Total / the Not-Run summary chip.
+        $isGateRow = (($module.PSObject.Properties.Name -contains '_IsGate') -and [bool]$module._IsGate) -or ("$($module.MenuName)" -eq '[GATE]')
+        if ($isGateRow) {
+            $gateRowTotal++
+            $gateRelPath = if ($module.RelativePath) { $module.RelativePath } else { "" }
+            $gateDesc    = if ($descriptionMap.ContainsKey($gateRelPath)) { [System.Web.HttpUtility]::HtmlEncode($descriptionMap[$gateRelPath]) } else { "" }
+            $rowsHtml += @"
+        <tr class="marker-row">
+            <td class="col-order">$($module.Order)</td>
+            <td class="col-name">$([System.Web.HttpUtility]::HtmlEncode($module.MenuName))$(if($gateDesc){"<br><span class='desc'>$gateDesc</span>"})</td>
+            <td class="col-cat">$([System.Web.HttpUtility]::HtmlEncode($module.Category))</td>
+            <td class="col-status"><span class="badge gate">Gate</span></td>
+            <td class="col-status"><span class="badge gate">&mdash;</span></td>
+            <td class="col-time">-</td>
+            <td class="col-msg">Checkpoint (forward barrier)</td>
+        </tr>
+"@
+            continue
+        }
         # Match prefers Order (per-row precision; supports multiple
         # Profile rows sharing the same MenuName). Falls back to
         # MenuName for legacy entries that lack Order (pre-3.1.3
@@ -2794,6 +2818,7 @@ $vPrtRows      </tbody>
   .skip    { background: #e2e3e5; color: #383d41; }
   .ng      { background: #f8d7da; color: #721c24; }
   .notrun  { background: #fff3cd; color: #856404; }
+  .gate    { background: #eceff1; color: #607d8b; }
 
   /* System Info sections */
   .section { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; margin-top: 20px; }
@@ -2848,7 +2873,7 @@ $vPrtRows      </tbody>
     <span class="chip chip-skip">Skip $skipTotal</span>
     <span class="chip chip-ng">NG $errorTotal</span>
     <span class="chip chip-notrun">Not Run $notRunTotal</span>
-    <span style="margin-left:auto; font-size:11px; color:#888;">Total: $($DefinedModules.Count) items</span>
+    <span style="margin-left:auto; font-size:11px; color:#888;">Total: $($DefinedModules.Count - $gateRowTotal) items</span>
   </div>
 
 $verifyNetSectionHtml

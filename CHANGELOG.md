@@ -16,6 +16,15 @@
 ## [Unreleased]
 
 ### Added
+- apps/fabriq_operator: Execution Toolbar に実行結果パネル(Execution Summary + Details)を復活。in-process 化
+  (kernel 3.4.0)で旧・別プロセス Status Monitor から移植されず失われていた「Phase / 件数集計(Success/Error/
+  Skipped/Cancelled/Partial) + モジュール別 Details 一覧([OK]/[ER]/[SK]/[CA]/[PT]/[WN]、復元行 `^`、セッション
+  区切り線)」を、PC Info / Execution / Surkitinisme の3パネル縦積みで再追加。データ源は `Write-StatusFile` が
+  毎モジュール出力する `kernel/json/status.json` の `Execution` ノード(既存契約・read-only consumer)で、Toolbar
+  公開 API(Show/Hide/Update-ExecutionToolbar)のシグネチャ・パラメータは不変。新規 `Update-ExecutionDisplay`
+  関数が独自の LastWriteTime change-guard 付きで status.json を読み 1 秒タイマで描画(status.json 不在/読取失敗/
+  パース失敗は前フレーム保持で握り潰し)。`Set-ColorizedText` の markerMap に実行ステータス記号を加算、フォーム
+  高 700→940(working area でクランプ)。KERNEL_API/KERNEL_VERSION 影響なし。
 - modules/standard/ipaddress_config: 厳格な pre-apply skip(冪等性)を追加。各アダプタの適用前に新ヘルパ
   `Test-IpConfigMatch` で実状態と目標を照合し、**完全一致時のみ netsh を呼ばず skip**(単一 Manual IPv4==IP/prefix
   ∧ 単一既定GW==target ∧ DNS が個数+順序まで完全一致)。1つでも不一致/読取り例外は fail-closed で適用側に倒す
@@ -102,6 +111,14 @@
   VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
+- kernel/common.ps1 (Export-HtmlChecklist): `__GATE__` を含むプロファイルで HTML チェックリスト総合が
+  常に「Incomplete」になっていた不具合を修正。`__GATE__` は前進バリアで設計上 ExecutionResult を残さない
+  ([main.ps1] で `Add-ExecutionResult` を呼ばず continue)ため、`[GATE]` 行が `$DefinedModules` に残ったまま
+  result 無し=「Not Run」計上され `notRunTotal>0` で総合 Incomplete に確定していた([RESTART]/[REEXPLORER] は
+  Success を残すので非該当)。`_IsGate`(MenuName `[GATE]` フォールバック)行を完了集計(notRunTotal / Total /
+  Not-Run チップ)から除外し、トレーサビリティのため中立な非計上チェックポイント行(status `Gate`、新 CSS
+  `.gate`、marker-row 体裁)として描画。kernel 3.6.0 で `__GATE__` 追加時の集計更新漏れ。公開 API/出力契約は
+  不変(HTML 表示集計のみ)。
 - modules/extended/builtin_admin_config: 到達不能だった Disable 分岐を除去し、Guide の誤った
   「`Enabled=0` で Administrator を無効化／`-FilterEnabled` 不使用」という記述を実態へ修正。
   実際は初版から `-FilterEnabled`（[common.ps1] `Where-Object {$_.Enabled -eq "1"}`）で `Enabled=0`
