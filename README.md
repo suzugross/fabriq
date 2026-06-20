@@ -19,6 +19,22 @@ Fabriq には、本体（PowerShell フレームワーク）と連携する 2 �
 - **Fabriq Studio** — Fabriq ワークスペースの設定管理 GUI（ホスト・モジュール設定・プロファイル・暗号化・パスフレーズ設定）。<https://github.com/suzugross/fabriq_studio>（後述「[Fabriq Studio との関係](#fabriq-studio-との関係)」）
 - **Fabriq Evidence Manager** — キッティング実行で出力されたエビデンスを読み込み、顧客納品用フォーマットへ一括エクスポートする GUI。<https://github.com/suzugross/fabriq_evidence_manager>（後述「[Fabriq Evidence Manager との関係](#fabriq-evidence-manager-との関係)」）
 
+## デモ動画
+
+Fabriq で 2 台の PC を一括キッティングし、Fabriq Evidence Manager でエビデンスを確認するまでの一連の流れを収録しています。
+
+▶ **<https://youtu.be/eiZHYYbUUKY>**
+
+動画内で適用している主な設定:
+
+- ホスト名変更 / IP アドレス変更 / ドメイン参加（`fabriq.group`）
+- デフォルト BitLocker 解除 → 再起動 → BitLocker 設定（PIN）
+- 電源設定（高パフォーマンス）/ オートログオン設定
+- アプリインストール（Chrome / 7-Zip / Office）/ プリンタ（Canon）
+- 壁紙変更（FabriqWallPaper）/ レジストリ（Spotlight 無効・高速スタートアップ無効・タスクバー左寄せ）
+- スタートピン留め（エクスプローラ・設定・Word・Excel・PowerPoint）/ タスクバーピン留め（エクスプローラ・Chrome）
+- 履歴削除 / エビデンス収集
+
 ## 前提条件
 
 - **Windows 11**
