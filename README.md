@@ -19,6 +19,10 @@ Fabriq には、本体（PowerShell フレームワーク）と連携する 2 �
 - **Fabriq Studio** — Fabriq ワークスペースの設定管理 GUI（ホスト・モジュール設定・プロファイル・暗号化・パスフレーズ設定）。<https://github.com/suzugross/fabriq_studio>（後述「[Fabriq Studio との関係](#fabriq-studio-との関係)」）
 - **Fabriq Evidence Manager** — キッティング実行で出力されたエビデンスを読み込み、顧客納品用フォーマットへ一括エクスポートする GUI。<https://github.com/suzugross/fabriq_evidence_manager>（後述「[Fabriq Evidence Manager との関係](#fabriq-evidence-manager-との関係)」）
 
+また、本体・上記アプリを含む Fabriq シリーズ全体の技術ドキュメントは、ドキュメント専用リポジトリに一元管理されています。
+
+- **Fabriq Doc** — Fabriq シリーズの統合ドキュメント集（仕様・利用方法・カーネル/モジュール解説）。<https://github.com/suzugross/fabriq_doc>（後述「[Fabriq Doc との関係](#fabriq-doc-との関係)」）
+
 ## デモ動画
 
 Fabriq で 2 台の PC を一括キッティングし、Fabriq Evidence Manager でエビデンスを確認するまでの一連の流れを収録しています。
@@ -372,6 +376,16 @@ Fabriq Evidence Manager（別プロジェクト。WPF / .NET 8.0 / リポジト�
 | 納品エクスポート | `{timestamp}_fabriq_evi/` に Excel の PC 情報一覧表・個別詳細シートを生成し、収集アーティファクトを併せて出力 |
 
 本体 Fabriq は Evidence Manager に依存しません。両者の連携は `kernel/EVIDENCE_MANIFEST.md` の公開契約を介してのみ行われ、Evidence Manager はその外部 consumer です。Evidence Manager 側の具体的な機能セット・バージョンは Evidence Manager リポジトリを参照してください。
+
+## Fabriq Doc との関係
+
+Fabriq Doc（別プロジェクト。リポジトリ: <https://github.com/suzugross/fabriq_doc>）は、**Fabriq シリーズ全体の技術ドキュメントを一元管理する「ドキュメント専用リポジトリ」**です。実行されるコードは含まず、各プロジェクトのソースを read-only で参照しながら、仕様・利用方法・カーネル/モジュール解説を Markdown に整備します。
+
+- **対象**: 本体 Fabriq に加え、Fabriq Studio / Fabriq Evidence Manager / Tonebender / Tonebender Controller の計 5 プロジェクトを横断。
+- **構成**: 全 md をリポジトリ直下にフラット配置し、`<project>__<category>__<name>.md` というファイル名のプレフィックスでプロジェクトとカテゴリを判別。NotebookLM 等への一括投入を一次運用として想定。
+- **入口**: [`INDEX.md`](https://github.com/suzugross/fabriq_doc/blob/main/INDEX.md) が全プロジェクト統合インデックス。
+
+本体 Fabriq は Fabriq Doc に依存しません。Fabriq Doc は本体を含む各ソースの外部 consumer（ドキュメント整備側）であり、本体側のコードや動作には一切影響しません。
 
 ## テスト
 
