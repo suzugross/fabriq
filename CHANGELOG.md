@@ -111,6 +111,18 @@
   VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
+- apps/fabriq_operator (execution_toolbar.ps1): Execution Toolbar の Surkitinisme アートパネルが、UI
+  再読み込み(エクスプローラー再起動 / ディスプレイ・解像度変更)を挟むとクラッシュダイアログを出す不具合を
+  修正。真因は `Initialize-ArtBuffer` の dispose 順序: PictureBox(`$artCanvas`)が `.Image` で保持中の
+  back-buffer Bitmap を、切り離さずに `Dispose()` していた。表示変化由来の Resize が `Initialize-ArtBuffer`
+  を呼び古い Bitmap を破棄 → 次の描画 tick で差し替わる前に再起動由来の WM_PAINT が走り、`PictureBox.OnPaint`
+  内の `Image.get_Width()` が死んだ GDI+ ハンドルを読んで `ArgumentException`("使用されたパラメーターが有効では
+  ありません") を投げ、UI スレッド未処理例外としてダイアログ化していた。(A) Dispose 前に `$artCanvas.Image=$null`
+  で切り離し、新バッファ生成後に即再アタッチ(disposed-image 窓を消滅)、(B) `FormClosing` でも Dispose 前に
+  Image 切り離し、(C) フォーム生成前に `SetUnhandledExceptionMode(CatchException)`+空 `ThreadException` で
+  UI スレッド未処理例外がダイアログ化しない保険(WinForms 内部 paint 例外は PS try/catch 不可のため)、
+  (D) アート描画 tick を try/catch で包み描画失敗時はバッファ再生成で能動回復。`Show-/Hide-/Update-ExecutionToolbar`
+  シグネチャ・公開 API 不変、kernel/KERNEL_VERSION 影響なし。
 - kernel/common.ps1 (Export-HtmlChecklist): `__GATE__` を含むプロファイルで HTML チェックリスト総合が
   常に「Incomplete」になっていた不具合を修正。`__GATE__` は前進バリアで設計上 ExecutionResult を残さない
   ([main.ps1] で `Add-ExecutionResult` を呼ばず continue)ため、`[GATE]` 行が `$DefinedModules` に残ったまま

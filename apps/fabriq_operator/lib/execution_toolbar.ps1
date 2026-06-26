@@ -115,6 +115,19 @@ function Show-ExecutionToolbar {
             Add-Type -AssemblyName System.Windows.Forms
             [System.Windows.Forms.Application]::EnableVisualStyles()
 
+            # Last-resort net for the operator. Route any unhandled UI-thread
+            # exception (e.g. a paint failure raised deep inside WinForms
+            # during a display change / Explorer restart, which cannot be
+            # wrapped in PowerShell try/catch) to a silent handler instead of
+            # the .NET crash dialog. This honours the runspace-level
+            # "invisible to the operator; swallow" contract. Must be set
+            # before the first window on this thread is created.
+            try {
+                [System.Windows.Forms.Application]::SetUnhandledExceptionMode(
+                    [System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+            } catch { }
+            [System.Windows.Forms.Application]::add_ThreadException({ param($sender, $e) })
+
             . $FabriqToolbarCommonPath
 
             $fabriqRoot = $FabriqToolbarShared.FabriqRoot
@@ -793,11 +806,26 @@ function Show-ExecutionToolbar {
                 $h = $artCanvas.ClientSize.Height
                 if ($w -le 0 -or $h -le 0) { return }
 
+                # Detach the current back-buffer from the PictureBox BEFORE
+                # disposing it. The PictureBox holds $artBufferBitmap through
+                # its .Image property; disposing the bitmap while it is still
+                # assigned leaves the control pointing at a dead GDI+ image.
+                # The next WM_PAINT - which a display change / Explorer
+                # restart triggers via the resize that brought us here - then
+                # throws ArgumentException ("Parameter is not valid") inside
+                # PictureBox.OnPaint and escapes as an unhandled UI-thread
+                # exception (the crash dialog operators reported).
+                $artCanvas.Image = $null
+
                 if ($null -ne $script:artBufferGraphics) { $script:artBufferGraphics.Dispose() }
                 if ($null -ne $script:artBufferBitmap)   { $script:artBufferBitmap.Dispose() }
                 $script:artBufferBitmap   = New-Object System.Drawing.Bitmap($w, $h)
                 $script:artBufferGraphics = [System.Drawing.Graphics]::FromImage($script:artBufferBitmap)
                 $script:artBufferGraphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+                # Reattach the fresh (blank) buffer immediately so the
+                # PictureBox always has a live image to paint, even before
+                # the next render tick reassigns it.
+                $artCanvas.Image = $script:artBufferBitmap
             }
 
             function Select-NextArtSentence {
@@ -1299,7 +1327,15 @@ function Show-ExecutionToolbar {
 
             $artRenderTimer = New-Object System.Windows.Forms.Timer
             $artRenderTimer.Interval = $script:ART_RENDER_INTERVAL
-            $artRenderTimer.Add_Tick({ Update-ArtFrame })
+            $artRenderTimer.Add_Tick({
+                try { Update-ArtFrame }
+                catch {
+                    # A GDI+ failure during a display change can corrupt the
+                    # back-buffer. Rebuild it so the panel recovers on the
+                    # next tick instead of repainting a broken image forever.
+                    try { Initialize-ArtBuffer } catch { }
+                }
+            })
 
             $artPulseTimer = New-Object System.Windows.Forms.Timer
             $artPulseTimer.Interval = $script:ART_PULSE_INTERVAL
@@ -1316,6 +1352,10 @@ function Show-ExecutionToolbar {
                 try { $timer.Stop();          $timer.Dispose()          } catch { }
                 try { $artRenderTimer.Stop(); $artRenderTimer.Dispose() } catch { }
                 try { $artPulseTimer.Stop();  $artPulseTimer.Dispose()  } catch { }
+                # Detach the buffer from the PictureBox before disposing it
+                # so a final paint cannot land on a dead image (same hazard
+                # as Initialize-ArtBuffer).
+                try { $artCanvas.Image = $null } catch { }
                 try { if ($null -ne $script:artBufferGraphics)     { $script:artBufferGraphics.Dispose() } } catch { }
                 try { if ($null -ne $script:artBufferBitmap)       { $script:artBufferBitmap.Dispose() } } catch { }
                 foreach ($b in @($script:artBgBrush, $script:artCyanBrush, $script:artDimGreenBrush, $script:artDimGrayBrush, $script:artAlphaBrush, $script:artAlphaDimGreenBrush, $script:artAlphaDimGrayBrush)) {
