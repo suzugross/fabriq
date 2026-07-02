@@ -113,8 +113,11 @@ foreach ($item in $enabledItems) {
 
     switch ($settingName) {
         'enable_protection' {
-            # System protection is enabled when DisableSR = 0
-            if (Test-RestoreRegistryValue -Name "DisableSR" -ExpectedValue 0) {
+            # Same indicator as the apply loop (RPSessionInterval >= 1).
+            # The legacy DisableSR flag is absent on modern Windows, so the
+            # old DisableSR-based preview always showed [APPLY] even when
+            # the apply loop would skip.
+            if (Test-SystemRestoreEnabled) {
                 $marker = "[SKIP]"
                 $markerColor = "Gray"
             }

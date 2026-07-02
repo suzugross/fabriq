@@ -386,16 +386,20 @@ function Set-PowerMode {
         foreach ($source in @('AC', 'DC')) {
             $description = "Power mode ($source): $ModeName"
 
-            # Idempotency check via Getter API
+            # Idempotency check via Getter API. Trust the skip only when the
+            # read itself succeeded: a failed read leaves [Guid]::Empty,
+            # which equals the BALANCED overlay GUID (all zeros) and would
+            # false-skip a BALANCED target. On read failure fall through to
+            # apply (fail-closed toward the apply side).
             $currentGuid = [Guid]::Empty
-            if ($source -eq 'AC') {
-                [void][PowerModeApi]::GetACPowerMode([ref]$currentGuid)
+            $readHr = if ($source -eq 'AC') {
+                [PowerModeApi]::GetACPowerMode([ref]$currentGuid)
             }
             else {
-                [void][PowerModeApi]::GetDCPowerMode([ref]$currentGuid)
+                [PowerModeApi]::GetDCPowerMode([ref]$currentGuid)
             }
 
-            if ($currentGuid -eq $targetGuid) {
+            if ($readHr -eq 0 -and $currentGuid -eq $targetGuid) {
                 Show-Skip "$description (already set)"
                 $script:SkipCount++
                 continue
@@ -1007,10 +1011,22 @@ function Main {
 
             foreach ($src in @('AC', 'DC')) {
                 $currentModeGuid = [Guid]::Empty
-                if ($src -eq 'AC') {
-                    [void][PowerModeApi]::GetACPowerMode([ref]$currentModeGuid)
+                $hr = if ($src -eq 'AC') {
+                    [PowerModeApi]::GetACPowerMode([ref]$currentModeGuid)
                 } else {
-                    [void][PowerModeApi]::GetDCPowerMode([ref]$currentModeGuid)
+                    [PowerModeApi]::GetDCPowerMode([ref]$currentModeGuid)
+                }
+
+                # A failed read leaves the sentinel [Guid]::Empty, which
+                # collides with the BALANCED overlay GUID (all zeros): a
+                # discarded HRESULT turned an unreadable overlay into a
+                # false PASS for BALANCED targets (and a false FAIL for
+                # everything else). Overlays are hardware-dependent (the
+                # apply side warns without failing), so an unreadable
+                # overlay is "unverifiable", not pass or fail.
+                if ($hr -ne 0) {
+                    Write-Host "  [VERIFY SKIPPED] Power Mode ($src): overlay not readable on this hardware (hr=0x$('{0:X8}' -f $hr))" -ForegroundColor Yellow
+                    continue
                 }
 
                 if ($currentModeGuid -eq $expectedModeGuid) {

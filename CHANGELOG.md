@@ -146,6 +146,17 @@
   → 述語を「actual <= target+5%」に整合。あわせて partition サイズ読取不能(0)を fail-closed で
   [VERIFY FAILED] に(旧等値式では自然に FAIL だったが新述語では 0 が通過するため明示ガード)。
   VERSION 1.1.1→1.1.2(PATCH)。
+- modules/standard/power_config: Power Mode overlay の Getter API(PowerGetUserConfigured{AC,DC}PowerMode)
+  の HRESULT を [void] で破棄していた問題を修正(2026-07-02 監査 P-1)。読取失敗時に sentinel の
+  [Guid]::Empty が残り、これが BALANCED overlay GUID(全ゼロ)と衝突するため、overlay 非対応ハードや
+  バッテリ無しデスクトップの DC 読取で「BALANCED 目標なら false-PASS / それ以外なら false-FAIL」になっていた。
+  (1) Step 5.5 verify: hr!=0 は [VERIFY SKIPPED](検証不能・pass/fail どちらにも計上しない)、
+  (2) 冪等性 skip 判定: hr!=0 は skip せず適用側へ(false-skip 封鎖・fail-closed)。overlay 非対応ハードで
+  apply が Warning のみ(非 Fail)とする既存方針と整合。VERSION 1.1.0→1.1.1(PATCH)。
+- modules/standard/restore_point: enable_protection の Step 3 preview が、モジュール自身が「modern Windows
+  には存在しない」と文書化している DisableSR 指標を参照し常に [APPLY] 表示だった問題を修正 — apply ループと
+  同じ Test-SystemRestoreEnabled(RPSessionInterval>=1)に統一(表示のみ・apply/verify は従来から正)。
+  VERSION 1.2.0→1.2.1(PATCH)。
 - apps/fabriq_operator (execution_toolbar.ps1): Execution Toolbar の Surkitinisme アートパネルが、UI
   再読み込み(エクスプローラー再起動 / ディスプレイ・解像度変更)を挟むとクラッシュダイアログを出す不具合を
   修正。真因は `Initialize-ArtBuffer` の dispose 順序: PictureBox(`$artCanvas`)が `.Image` で保持中の
