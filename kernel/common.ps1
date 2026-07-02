@@ -1522,9 +1522,13 @@ function Invoke-SafeCommand {
             }
         }
 
-        # Fallback: pipeline capture failed, recover from the global
+        # Fallback: pipeline capture failed, recover from the global.
+        # Warn loudly: if the module kept running after constructing this
+        # result (e.g. a mid-module New-BatchResult), it may be a stale
+        # intermediate state, not the final outcome (2026-07-02 audit K-1).
         if (-not $moduleResult -and $null -ne $global:_LastModuleResult) {
             $moduleResult = $global:_LastModuleResult
+            Show-Warning -Message "Module returned no result via pipeline; recovered last constructed result (Status=$($moduleResult.Status)). Verify it reflects the module's final state."
         }
         $global:_LastModuleResult = $null
 
@@ -1817,7 +1821,10 @@ function Invoke-SafeCommandAsync {
                     }
                 }
                 if (-not $moduleResult -and $null -ne $wrapper.LastResult) {
+                    # Same stale-intermediate-result caveat as the sync path
+                    # (2026-07-02 audit K-1).
                     $moduleResult = $wrapper.LastResult
+                    Show-Warning -Message "Module returned no result via pipeline; recovered last constructed result (Status=$($moduleResult.Status)). Verify it reflects the module's final state."
                 }
             }
 
