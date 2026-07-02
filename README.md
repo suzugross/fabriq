@@ -90,7 +90,7 @@ fabriq/
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
 │   ├── standard/           # 標準モジュール群（61）
-│   └── extended/           # 拡張モジュール群（17）
+│   └── extended/           # 拡張モジュール群（16）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
 │   ├── fabriq_operator/    # メインダッシュボード GUI
@@ -262,7 +262,6 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Scripts** | `script_looper` |
 | **ManualWorks** | `manual_kitting_assistant`, `pianist` |
 | **Evidence** | `log_uploader` |
-| **Backup** | `userdata_backup` |
 
 ## モジュール構成
 

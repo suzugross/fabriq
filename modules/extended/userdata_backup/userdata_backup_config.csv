@@ -1,2 +1,0 @@
-Enabled,SourcePcName,BackupTimestamp,Description
-1,,,Restore config. Empty SourcePcName/BackupTimestamp = hostlist-driven (use SELECTED_OLD_PCNAME + latest backup).
