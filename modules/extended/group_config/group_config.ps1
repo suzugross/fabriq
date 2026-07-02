@@ -50,21 +50,62 @@ function Build-MemberName {
     }
 }
 
-function Get-LocalGroupMemberNames {
+function Resolve-PrincipalSid {
+    param(
+        [string]$MemberName,
+        [string]$MemberType,
+        [string]$Domain
+    )
+    # Resolves the expected principal to a SID string, or $null when the
+    # account cannot be resolved (off-domain bench, unreachable DC, typo).
+    # SID identity is name-form independent, which is the whole point:
+    # Get-LocalGroupMember reports the domain in NetBIOS form, the CSV
+    # carries the FQDN, and in migrated domains the NetBIOS name is NOT
+    # the first DNS label - name-based matching cannot bridge that.
+    try {
+        $authority = if ($MemberType -eq 'LocalUser' -or [string]::IsNullOrWhiteSpace($Domain)) {
+            $env:COMPUTERNAME
+        } else {
+            $Domain
+        }
+        $account = New-Object System.Security.Principal.NTAccount($authority, $MemberName)
+        return $account.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    }
+    catch {
+        return $null
+    }
+}
+
+function Get-LocalGroupMemberIdentities {
     param([string]$GroupName)
-    # Returns member names as 'AUTHORITY\leaf' (or bare 'leaf') strings.
+    # Returns members as objects: Name = 'AUTHORITY\leaf' (or bare 'leaf'),
+    # Sid = SID string or $null when unreadable.
     # Get-LocalGroupMember throws on groups containing orphaned SIDs
     # (PS 5.1 bug, common on kitting benches after user/profile removal);
     # fall back to ADSI enumeration, which tolerates them.
     try {
-        return @(Get-LocalGroupMember -Group $GroupName -ErrorAction Stop | ForEach-Object { [string]$_.Name })
+        return @(Get-LocalGroupMember -Group $GroupName -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                Name = [string]$_.Name
+                Sid  = if ($_.SID) { [string]$_.SID.Value } else { $null }
+            }
+        })
     }
     catch {
         $grp = [ADSI]("WinNT://./" + $GroupName + ",group")
         return @($grp.psbase.Invoke('Members') | ForEach-Object {
-            $adsPath = ([ADSI]$_).psbase.Path -replace '^WinNT://', ''
+            $entry = [ADSI]$_
+            $adsPath = $entry.psbase.Path -replace '^WinNT://', ''
             $parts = $adsPath -split '/'
-            if ($parts.Count -ge 2) { "$($parts[-2])\$($parts[-1])" } else { [string]$parts[-1] }
+            $name = if ($parts.Count -ge 2) { "$($parts[-2])\$($parts[-1])" } else { [string]$parts[-1] }
+            $sid = $null
+            try {
+                $sidBytes = $entry.psbase.InvokeGet('objectSid')
+                if ($sidBytes) {
+                    $sid = (New-Object System.Security.Principal.SecurityIdentifier($sidBytes, 0)).Value
+                }
+            } catch { }
+            [pscustomobject]@{ Name = $name; Sid = $sid }
         })
     }
 }
@@ -77,26 +118,34 @@ function Test-LocalGroupMemberExists {
         [string]$Domain
     )
     try {
-        $names = Get-LocalGroupMemberNames -GroupName $GroupName
-        if (-not $names) { return $false }
+        $members = Get-LocalGroupMemberIdentities -GroupName $GroupName
+        if (-not $members) { return $false }
 
-        # Authorities that satisfy this row. Local principals must belong
-        # to this computer; domain principals to the CSV Domain - accepted
-        # as the FQDN as-is or its first label (NetBIOS approximation,
-        # since Get-LocalGroupMember reports NetBIOS while the CSV carries
-        # FQDN). A same-name principal under any OTHER authority must NOT
-        # satisfy the check: the old leaf-only wildcard match did, and
-        # silently skipped the real add (cross-authority false-PASS).
+        # Layer 1: SID identity (authoritative when both sides resolve).
+        # Immune to NetBIOS-vs-FQDN name form differences, including
+        # domains whose NetBIOS name is not the first DNS label.
+        $expectedSid = Resolve-PrincipalSid -MemberName $MemberName -MemberType $MemberType -Domain $Domain
+
+        # Layer 2 (fallback): name matching for members whose SID could
+        # not be read or when the expected SID is unresolvable. Local
+        # principals must belong to this computer; domain principals to
+        # the CSV Domain (FQDN as-is or its first label = NetBIOS
+        # approximation). A same-name principal under any OTHER authority
+        # must NOT satisfy the check (cross-authority false-PASS) - a
+        # different authority also means a different SID, so Layer 1
+        # cannot reopen that hole.
         $accepted = if ($MemberType -eq 'LocalUser' -or [string]::IsNullOrWhiteSpace($Domain)) {
             @($env:COMPUTERNAME, '')
         } else {
             @($Domain, $Domain.Split('.')[0])
         }
 
-        foreach ($n in $names) {
-            $leaf = $n.Split('\')[-1]
+        foreach ($m in $members) {
+            if ($expectedSid -and $m.Sid -and ($m.Sid -eq $expectedSid)) { return $true }
+
+            $leaf = $m.Name.Split('\')[-1]
             if ($leaf -ine $MemberName) { continue }
-            $authority = if ($n.Contains('\')) { $n.Split('\')[0] } else { '' }
+            $authority = if ($m.Name.Contains('\')) { $m.Name.Split('\')[0] } else { '' }
             foreach ($a in $accepted) {
                 if ($authority -ieq $a) { return $true }
             }
