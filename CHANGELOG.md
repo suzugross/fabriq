@@ -33,6 +33,18 @@
   Type のメタ文字リテラル化。Type でメタ文字を効かせていたプロファイルは Key へ書き換えが必要)。
 
 ### Fixed
+- modules/standard/acl_config: acl_backup の再帰削除を CLAUDE.md §8 ガードで保護(再監査 M-1・
+  Wave 3C)。CSV 由来 `Id` が無検証のまま backup ディレクトリ名に入り `Remove-Item -Recurse` に
+  到達していた(`Id=..\..\x` で backup/ 外を削除し得る)。driver_export_config の実績パターンを
+  移植: `Test-FabriqSafePathComponent` による成分検証(不正=Fail 計上で fail-closed)+ 削除直前の
+  containment assert(GetFullPath で backup/ 配下確認)。隔離ハーネス 5/5 PASS(悪性 Id 拒否・
+  正常行非破壊)。VERSION 1.0.1→1.0.2(PATCH)、**REQUIRES_KERNEL 2.0.0→3.5.0**
+  (Test-FabriqSafePathComponent 依存追加・§G)。
+- modules/standard/printer_driver_config: printer_driver_install の展開失敗クリーンアップ
+  (自作展開先の再帰削除)に containment assert を追加(遵守率監査での新検出・Wave 3C)。削除対象は
+  CSV 非依存(実ファイル名由来)だが、Join-Path 崩壊クラス(過去の実事故類型)に対する §8 の
+  belt-and-suspenders。INF/ 配下と確認できない場合は削除しない。VERSION 1.1.2→1.1.3(PATCH)。
+
 - modules/extended/script_looper: legacy 子スクリプト(ModuleResult 非対応の .bat/.exe/.ps1)の
   exit code を検査するよう修正(再監査 M6・Wave 3B)。従来は「例外のみ」が失敗条件で、`exit 1` で
   失敗を通知する子が Success 扱いになり **OnError リトライ(本モジュールの存在意義)が一生発火

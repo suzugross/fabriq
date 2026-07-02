@@ -279,7 +279,12 @@ if ($archives.Count -gt 0) {
             }
             else {
                 Show-Warning "Failed to extract $($arc.Name) (exit code: $LASTEXITCODE)"
-                if (Test-Path $targetDir) {
+                # Containment assert (CLAUDE.md section 8): only clean up a
+                # directory that verifiably sits inside the module's INF dir
+                # (guards against Join-Path collapsing to an unintended root).
+                $infFull    = [System.IO.Path]::GetFullPath($INF_DIR).TrimEnd('\').ToLowerInvariant()
+                $targetFull = [System.IO.Path]::GetFullPath($targetDir).TrimEnd('\').ToLowerInvariant()
+                if ($targetFull.StartsWith($infFull + '\') -and (Test-Path $targetDir)) {
                     Remove-Item -Path $targetDir -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }

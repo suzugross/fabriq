@@ -180,6 +180,16 @@ foreach ($item in $enabledItems) {
         continue
     }
 
+    # Destructive path guard (CLAUDE.md section 8): Id comes from the CSV
+    # and becomes part of a directory that is recursively deleted below.
+    # Reject anything that is not a safe single path component (fail-closed).
+    if (-not (Test-FabriqSafePathComponent -Value ([string]$item.Id))) {
+        Show-Error "Invalid Id in CSV: '$($item.Id)' (not a safe path component)"
+        $failCount++
+        Write-Host ""
+        continue
+    }
+
     # ----------------------------------------
     # Main processing
     # ----------------------------------------
@@ -187,6 +197,14 @@ foreach ($item in $enabledItems) {
         # Phase A: Prepare backup directory
         $backupDir = Join-Path $backupBaseDir "$($item.Id)_$safeName"
         $individualDir = Join-Path $backupDir "individual"
+
+        # Containment assert: never delete anything outside the module's
+        # backup directory (belt-and-suspenders behind the guard above).
+        $baseFull = [System.IO.Path]::GetFullPath($backupBaseDir).TrimEnd('\').ToLowerInvariant()
+        $dirFull  = [System.IO.Path]::GetFullPath($backupDir).TrimEnd('\').ToLowerInvariant()
+        if (-not $dirFull.StartsWith($baseFull + '\')) {
+            throw "Backup directory escapes backup base: $backupDir"
+        }
 
         if (Test-Path $backupDir) {
             Remove-Item -Path $backupDir -Recurse -Force
