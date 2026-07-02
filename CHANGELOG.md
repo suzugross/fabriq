@@ -15,6 +15,15 @@
 
 ## [Unreleased]
 
+### Security
+- modules/extended/pianist: ENC: セルから復号した秘密値が平文のままログ面へ流れていた問題を修正
+  (2026-07-02 監査 D-1・Wave 2A)。step ログ(`P1.3 Type: <値>`)が Write-PianistLog → Show-* 経由で
+  session transcript(logs/*.log = log_uploader が納品先へコピー)と telemetry に平文で残り、ENC: の
+  存在意義を納品物側で無効化していた。復号 2 経路(Resolve-PianistEncryptedCell / legacy Encrypted=1)で
+  復号値を script スコープに登録し、唯一のログ出口 Write-PianistLog の冒頭で全登録値を `***` へ置換
+  (最長一致優先・UI logBox / コンソール / transcript / telemetry を同時被覆)。SendKeys / Paste へ渡す
+  実値は不変(マスクは表示層のみ)。VERSION 1.6.0→1.6.1(PATCH)。
+
 ### Added
 - apps/fabriq_operator: Execution Toolbar に実行結果パネル(Execution Summary + Details)を復活。in-process 化
   (kernel 3.4.0)で旧・別プロセス Status Monitor から移植されず失われていた「Phase / 件数集計(Success/Error/
@@ -110,7 +119,30 @@
   Deploy ヘルパ戻り値 bool の AND で検証(shared 成果物の pre-existence 偽PASS を bool で抑止)。
   VERSION 1.0.0→1.1.0(MINOR)。
 
+### Changed
+- kernel/KERNEL_API.md: `Verified` のセマンティクスを規約として明文化(Wave 2A)。scoped Verified
+  (今回実行で適用した範囲の読返し着地を証言・行レベル失敗は Status が運ぶ・Fail>0 と Verified=true は
+  共存し得る)を公式仕様とし、「検証ゼロ件で $true 返却は禁止(→$null)」「契約ターゲットの検証不能な欠落は
+  fail-closed で $false 側に計上を推奨」を必須ルール化。既存挙動の文書化のみで API 変更なし
+  (KERNEL_VERSION 据置)。
+- modules/standard/windows_update: 実装に読み手が存在しない設定 4 行を windows_update_list.csv から
+  削除(2026-07-02 監査・Wave 2A) — ScanTimeoutMinutes / DownloadTimeoutMinutes / InstallTimeoutMinutes
+  (30/60/120 分を約束するが .ps1 は一切参照せず、hang 時にも効かない誤解を招く設定)と
+  AutoLaunchFabriq(WU ループが Fabriq 内で完結し RunOnce が Fabriq を再起動する現行設計で廃止済みの概念)。
+  Guide.txt の該当記述も同期削除。kernel が読む MaxRebootLoops / RebootCountdownSeconds /
+  AutoLogonEnabled と module が読む 4 設定は不変。VERSION 1.1.1→1.1.2(PATCH)。
+
 ### Fixed
+- kernel/common.ps1: `$global:_LastModuleResult` フォールバック(pipeline 未捕捉時の救済)が無警告で
+  発動していた問題を修正(2026-07-02 監査 K-1・Wave 2A)。モジュール中間で構築された結果を最終結果として
+  拾うと stale な Success を報告し得るため、sync(Invoke-SafeCommand)/async(Invoke-SafeCommandAsync)の
+  両フォールバック発動点に Show-Warning を追加(挙動不変・可視化のみ。根本封鎖はフォールバック廃止に
+  なるが正当な救済経路も殺すため非採用)。公開 API 不変。
+- modules/standard/ipaddress_config: 「ターゲット設定あり・アダプタ不在」が検証対象から黙って消え、
+  Status=Partial なのに Verified=true になり得た問題を修正(2026-07-02 監査・Wave 2A)。不在ターゲットを
+  [VERIFY FAILED] として verifyFail 計上し、$null 判定は「チェックも不在ターゲットもゼロ」の場合のみに変更。
+  Status=Partial が既に __GATE__ を塞ぐため新規ブロックは発生しない(Verified の過大主張のみ是正)。
+  既存の lenient 検証(DHCP 由来 DNS 等の意図的許容)は不変。VERSION 1.1.0→1.1.1(PATCH)。
 - kernel/common.ps1: HTML チェックリスト(Export-HtmlChecklist)の総合 OK/NG 判定がモジュール行の
   Post-Apply Verification 失敗(Verified=FAIL)と Partial を見ておらず、Success+Verified=FAIL や Partial 混在
   でも総合バッジ OK のまま納品され得た問題を修正(2026-07-02 監査 D-2)。(1) Verified=FAIL 行を `$hasVerifyNG`
