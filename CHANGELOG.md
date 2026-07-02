@@ -173,6 +173,11 @@
   AutoLogonEnabled と module が読む 4 設定は不変。VERSION 1.1.1→1.1.2(PATCH)。
 
 ### Fixed
+- modules/standard/startup_command_config: 検証パス文字列に混入した form-feed 化け(python 編集起因の
+  `\f` 制御文字)で fabriq_user_setup.ps1 の Test-Path が常に False になり Verified=False を返す問題を
+  修正(2026-06-17、VM 実機テストで検出→修正後 Verified=True。他 8 モジュールに制御文字混入なしを監査
+  確認。VERSION 据置 1.1.0 = 未リリース同サイクル内の -Verified 追加分の修正)。
+  ※本項は 2026-07-02 の遵守率監査で記載漏れが判明し追記した errata(コードは 3.6.1 で出荷済み)。
 - modules/standard/bitlocker_config: TpmAndPin 昇格まわりの false-Fail / PIN バイパス残存リスクを修正
   (2026-07-02 監査 I-1/I-2・Wave 2C)。(1) 「適用済み」判定が ProtectionStatus=On のみで、自 module の
   verify が受理する延期形(FullyDecrypted + RecoveryPassword protector = 次回ブート予約)や
