@@ -32,6 +32,17 @@
   VERSION 1.6.1→2.0.0(**MAJOR**: 既存 procedure.csv の実行意味論が変わる — 失敗時中断 +
   Type のメタ文字リテラル化。Type でメタ文字を効かせていたプロファイルは Key へ書き換えが必要)。
 
+### Fixed
+- modules/extended/script_looper: legacy 子スクリプト(ModuleResult 非対応の .bat/.exe/.ps1)の
+  exit code を検査するよう修正(再監査 M6・Wave 3B)。従来は「例外のみ」が失敗条件で、`exit 1` で
+  失敗を通知する子が Success 扱いになり **OnError リトライ(本モジュールの存在意義)が一生発火
+  しなかった**。新判定: ModuleResult あり=従来どおり優先 / なし+exit≠0=Error / なし+exit 0=Success。
+  各試行前に `$global:LASTEXITCODE=0` をリセットし前コマンドの残骸誤検出を防止。.ps1 子の
+  native コマンド exit code 漏れは fail-closed として文書化(子は末尾 `exit 0` 推奨、Guide 追記)。
+  隔離ハーネス 8/8 PASS(exit 0/2 の .bat・exit 3 の .ps1・native 漏れ exit 5・ModuleResult 子・
+  OnError リトライ発火)。VERSION 1.0.0→2.0.0(**MAJOR**: ヘッダ明記の legacy 契約
+  「no exception = Success」の変更)。
+
 ### Removed
 - modules/extended/printer_backup: モジュール撤去(printer_backup.ps1 / printer_restore.ps1 ほか
   全 8 ファイル)。プリンタ設定の backup/restore 要件は satellite アプリ fabriq_backuper が承継して
