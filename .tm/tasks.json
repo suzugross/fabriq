@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-06-20T08:54:25+09:00",
+  "updatedAt": "2026-07-02T12:46:38+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -758,6 +758,15 @@
       "status": "未着手",
       "createdAt": "2026-06-20T08:27:59+09:00",
       "updatedAt": "2026-06-20T08:27:59+09:00"
+    },
+    {
+      "id": "t-0086",
+      "title": "2026-07-02 監査 Wave 1: 確実修正 9 件（Verified集計/HTML総合判定/false-FAIL解消）",
+      "content": "2026-07-02 実装監査（レポート: e:/tmp/fabriq_audit_report_2026-07-02.md）の上位項目のうち、確実に修正可能な 9 件を 3 コミットで修正する。\n\nコミットA(kernel): (1) HTML チェックリスト総合 OK/NG が module Verified=FAIL / Partial を無視 → __GATE__ semantics に整合。(2) Write-ExecutionHistory リトライ枯渇のサイレント失敗 → Show-Warning 追加。\n\nコミットB(Verified集計の壊れ+false-FAIL): (3) userdata_backup: $verified が $failCount を無視 = robocopy 全滅でも Verified=true(false-PASS 最悪クラス) + dir作成失敗の manifest 非計上 + fileCount>0 検査。(4) browser_addon_config: 全行 invalid で Verified=true → ゼロ検証対象は $null。(5) reg_hkcu_config: ハイブ load 失敗時 HIVE 側 verify 丸ごとスキップ = false-PASS → fail-closed 化。(6)(7) reg_hklm/hkcu: REG_EXPAND_SZ が展開後vs生値比較で恒常 false-FAIL → DoNotExpandEnvironmentNames 生値比較分岐追加。(8) partition_config: shrink verify が apply 契約(target以下=受理)と非対称の等値要求 → 述語整合。\n\nコミットC: (9) power_config: overlay 読返しの HRESULT 破棄 → 失敗時 [Guid]::Empty が BALANCED GUID と衝突し false-PASS → 検証不能扱いへ。(10) restore_point: preview が死んだ DisableSR 指標参照(常に[APPLY]表示) → RPSessionInterval に統一。\n\nWave 2 以降(別タスク予定): pianist ENC 平文ログ納品 / group_config Domain 無視マッチ / bitlocker TpmAndPin 残存プロテクタ / Verified 意味論の規約統一。",
+      "claudeNote": "監査は 5 系統並列(kernel engine / common.ps1 契約 / 冪等性 / -Verified 全数≈55 / 前回 must-fix 残存)。Wave 1 は全件「既存分岐内の判定式修正」で新規状態なし、失敗方向は fail-closed 化と false-FAIL 解消のみ。コミットA 実装済み(HistoryChecklistChain に釘打ち 3 ケース追加、26 tests green)。",
+      "status": "対応中",
+      "createdAt": "2026-07-02T12:46:38+09:00",
+      "updatedAt": "2026-07-02T12:46:38+09:00"
     }
   ]
 }

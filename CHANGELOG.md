@@ -111,6 +111,16 @@
   VERSION 1.0.0→1.1.0(MINOR)。
 
 ### Fixed
+- kernel/common.ps1: HTML チェックリスト(Export-HtmlChecklist)の総合 OK/NG 判定がモジュール行の
+  Post-Apply Verification 失敗(Verified=FAIL)と Partial を見ておらず、Success+Verified=FAIL や Partial 混在
+  でも総合バッジ OK のまま納品され得た問題を修正(2026-07-02 監査 D-2)。(1) Verified=FAIL 行を `$hasVerifyNG`
+  に合流させ総合 NG へ、(2) Partial を OK 集計から NG 集計(chip-ng)へ移動。行バッジ表示(Partial=amber /
+  FAIL=red)は不変で、集計だけを kernel semantics(__GATE__ は Error/Partial/Verified=FAIL をブロック)に整合。
+  tests/kernel/HistoryChecklistChain.tests.ps1 に総合判定の釘打ち 3 ケースを追加。公開 API 不変。
+- kernel/common.ps1: Write-ExecutionHistory のリトライ枯渇(3回)が完全サイレントだった問題を修正
+  (2026-07-02 監査 K-2)。履歴 CSV が掴まれたまま(Excel 等)だと行が無警告で消失し、HTML チェックリスト欠落
+  + __RESTART__ 跨ぎの __GATE__ 種付けが失敗知識を失うため、枯渇時に Show-Warning でモジュール名と原因の
+  典型(history.csv を開いているアプリ)を通知する。fail-open(実行継続)は従来通り。公開 API 不変。
 - apps/fabriq_operator (execution_toolbar.ps1): Execution Toolbar の Surkitinisme アートパネルが、UI
   再読み込み(エクスプローラー再起動 / ディスプレイ・解像度変更)を挟むとクラッシュダイアログを出す不具合を
   修正。真因は `Initialize-ArtBuffer` の dispose 順序: PictureBox(`$artCanvas`)が `.Image` で保持中の
