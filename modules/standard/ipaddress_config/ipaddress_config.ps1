@@ -358,6 +358,23 @@ if ($config.WiFiIP -and $config.WiFiIP.Trim() -ne '' -and $wifiAdapter) {
     }
 }
 
+# A configured target whose adapter was never found must count as a
+# verification failure, not silently vanish from the check list (which
+# yielded Verified=true alongside Status=Partial). Status already carries
+# the failure, so this adds no new __GATE__ blocking - it only stops the
+# Verified flag from over-claiming.
+$missingTargets = 0
+if ($config.EthIP -and $config.EthIP.Trim() -ne '' -and -not $ethAdapter) {
+    Write-Host "  [VERIFY FAILED] Ethernet: target IP configured but no adapter was found" -ForegroundColor Red
+    $verifyFail++
+    $missingTargets++
+}
+if ($config.WiFiIP -and $config.WiFiIP.Trim() -ne '' -and -not $wifiAdapter) {
+    Write-Host "  [VERIFY FAILED] Wi-Fi: target IP configured but no adapter was found" -ForegroundColor Red
+    $verifyFail++
+    $missingTargets++
+}
+
 foreach ($check in $adapterChecks) {
     $ifIndex = $check.Adapter.ifIndex
     $adapterLabel = $check.Name
@@ -417,7 +434,9 @@ foreach ($check in $adapterChecks) {
 }
 
 Write-Host ""
-$verified = if ($adapterChecks.Count -eq 0) { $null } else { $verifyFail -eq 0 }
+# $null only when there was nothing to verify at all (no reachable checks
+# AND no configured-but-missing targets); missing targets force $false.
+$verified = if ($adapterChecks.Count -eq 0 -and $missingTargets -eq 0) { $null } else { $verifyFail -eq 0 }
 
 # Return ModuleResult
 # Skipped adapters (already matching) count as configured, not failures.
