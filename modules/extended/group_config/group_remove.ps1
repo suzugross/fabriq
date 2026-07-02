@@ -53,27 +53,55 @@ function Build-MemberName {
     }
 }
 
+function Get-LocalGroupMemberNames {
+    param([string]$GroupName)
+    # Returns member names as 'AUTHORITY\leaf' (or bare 'leaf') strings.
+    # Get-LocalGroupMember throws on groups containing orphaned SIDs
+    # (PS 5.1 bug, common on kitting benches after user/profile removal);
+    # fall back to ADSI enumeration, which tolerates them.
+    try {
+        return @(Get-LocalGroupMember -Group $GroupName -ErrorAction Stop | ForEach-Object { [string]$_.Name })
+    }
+    catch {
+        $grp = [ADSI]("WinNT://./" + $GroupName + ",group")
+        return @($grp.psbase.Invoke('Members') | ForEach-Object {
+            $adsPath = ([ADSI]$_).psbase.Path -replace '^WinNT://', ''
+            $parts = $adsPath -split '/'
+            if ($parts.Count -ge 2) { "$($parts[-2])\$($parts[-1])" } else { [string]$parts[-1] }
+        })
+    }
+}
+
 function Test-LocalGroupMemberExists {
     param(
         [string]$GroupName,
         [string]$MemberName,
-        [string]$MemberType
+        [string]$MemberType,
+        [string]$Domain
     )
     try {
-        $members = Get-LocalGroupMember -Group $GroupName -ErrorAction Stop
-        if (-not $members) { return $false }
+        $names = Get-LocalGroupMemberNames -GroupName $GroupName
+        if (-not $names) { return $false }
 
-        foreach ($m in $members) {
-            $isLocalType = ($MemberType -eq 'LocalUser')
-            if ($isLocalType) {
-                if ($m.Name -eq "$env:COMPUTERNAME\$MemberName" -or $m.Name -eq $MemberName) {
-                    return $true
-                }
-            }
-            else {
-                if ($m.Name -like "*\$MemberName") {
-                    return $true
-                }
+        # Same authority-scoped matching as group_config.ps1: local
+        # principals must belong to this computer, domain principals to the
+        # CSV Domain (FQDN or its first label / NetBIOS approximation).
+        # A same-name principal under another authority must not match -
+        # for removal that both prevents targeting the wrong principal and
+        # stops the absence verification from false-FAILing on an unrelated
+        # same-name member that legitimately remains.
+        $accepted = if ($MemberType -eq 'LocalUser' -or [string]::IsNullOrWhiteSpace($Domain)) {
+            @($env:COMPUTERNAME, '')
+        } else {
+            @($Domain, $Domain.Split('.')[0])
+        }
+
+        foreach ($n in $names) {
+            $leaf = $n.Split('\')[-1]
+            if ($leaf -ine $MemberName) { continue }
+            $authority = if ($n.Contains('\')) { $n.Split('\')[0] } else { '' }
+            foreach ($a in $accepted) {
+                if ($authority -ieq $a) { return $true }
             }
         }
         return $false
@@ -139,9 +167,13 @@ foreach ($item in $items) {
         $markerColor = "Gray"
     }
     else {
-        # Check if currently a member (use resolved name for CurrentUser)
+        # Check if currently a member (use resolved name/authority for CurrentUser)
         $checkName = if ($item.MemberType -eq 'CurrentUser') { (Resolve-CurrentUser).Split('\')[-1] } else { $item.MemberName }
-        $exists = Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType
+        $checkDomain = if ($item.MemberType -eq 'CurrentUser') {
+            $full = Resolve-CurrentUser
+            if ($full.Contains('\')) { $full.Split('\')[0] } else { '' }
+        } else { [string]$item.Domain }
+        $exists = Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType -Domain $checkDomain
         if ($exists) {
             $marker = "[Remove]"
             $markerColor = "Yellow"
@@ -204,9 +236,13 @@ foreach ($item in $items) {
         continue
     }
 
-    # Idempotency check (use resolved name for CurrentUser)
+    # Idempotency check (use resolved name/authority for CurrentUser)
     $checkName = if ($item.MemberType -eq 'CurrentUser') { (Resolve-CurrentUser).Split('\')[-1] } else { $item.MemberName }
-    if (-not (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType)) {
+    $checkDomain = if ($item.MemberType -eq 'CurrentUser') {
+        $full = Resolve-CurrentUser
+        if ($full.Contains('\')) { $full.Split('\')[0] } else { '' }
+    } else { [string]$item.Domain }
+    if (-not (Test-LocalGroupMemberExists -GroupName $item.LocalGroup -MemberName $checkName -MemberType $item.MemberType -Domain $checkDomain)) {
         Show-Skip "Already not a member"
         $skipCount++
         Write-Host ""
@@ -230,8 +266,17 @@ foreach ($item in $items) {
         $successCount++
     }
     catch {
-        Show-Error "$($_.Exception.Message)"
-        $failCount++
+        if ($_.FullyQualifiedErrorId -match 'MemberNotFound|PrincipalNotFound') {
+            # The OS says the principal is not a member even though the
+            # matcher saw a candidate (authority edge). End state = absent,
+            # which is this row's goal: idempotent skip, not a failure.
+            Show-Skip "Already not a member (reported by OS on remove)"
+            $skipCount++
+        }
+        else {
+            Show-Error "$($_.Exception.Message)"
+            $failCount++
+        }
     }
 
     Write-Host ""
