@@ -15,6 +15,15 @@
 
 ## [Unreleased]
 
+### Added
+- tests: Reset-FabriqState 状態網羅性テストを新設(tests/kernel/ResetFabriqState.Coverage.tests.ps1、
+  5 テスト)。kernel(common.ps1 + main.ps1)が代入する全 $global: 変数と全 SELECTED_*/FABRIQ_*
+  環境変数を AST 静的解析で列挙し、「Reset-FabriqState がクリアする集合 ∪ 理由付き許可リスト」に
+  含まれることを機械検査する。過去 2 回発生した「セッション状態の追加時に Reset 更新漏れ →
+  次セッション/次顧客へ残存」(SELECTED_PIN t-0022 / マスターパスフレーズ t-0052)のバグ類型を
+  設計時に検出する。許可リスト自体も陳腐化検査付き(未使用エントリ・Reset 済エントリを FAIL)。
+  kernel コードの変更なし。
+
 ### Changed
 - kernel/KERNEL_API.md: モジュールから実使用されているにもかかわらず未宣言だった common.ps1
   関数 11 件を公開 API として追認宣言(§1.7〜§1.10 新設。逆方向 drift 解消)。対象:
