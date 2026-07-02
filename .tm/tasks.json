@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-02T20:30:00+09:00",
+  "updatedAt": "2026-07-03T00:10:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -776,6 +776,15 @@
       "status": "完了",
       "createdAt": "2026-07-02T20:30:00+09:00",
       "updatedAt": "2026-07-02T20:30:00+09:00"
+    },
+    {
+      "id": "t-0088",
+      "title": "Wave 3: 再監査指摘の修正 (pianist/script_looper/§8ガード/operator/docs) + printer_backup 撤去",
+      "content": "第2次再監査 (2026-07-02) の genuinely-actionable 群の修正。printer_backup/printer_restore はユーザー判断で修正せず撤去 (要件は fabriq_backuper が承継)。\n- 撤去: printer_backup モジュール + 参照片付け (30a5064)\n- 3A: pianist 打鍵系 fail-closed 化 — 失敗時中断/フォーカス読返し検証/Type リテラル化/未解決変数・ENC失敗の打鍵防止/実行中クローズ→Stop (d081567, VERSION 2.0.0 MAJOR)\n- 3B: script_looper legacy 子の exit code 検出 (8584aa4, VERSION 2.0.0 MAJOR)\n- 3C: §8 ガード — acl_backup CSV Id 検証+containment (REQUIRES_KERNEL→3.5.0) / printer_driver_install containment (4d6d11a)\n- 3D: operator F2 右クリック誤リセット + F1 ad-hoc 履歴の行汚染 (bc2b1c5)\n- 3E: docs 同期 — reg 使い方.txt 廃止/エンコーディング誤記/bitlocker Guide 虚偽 AutoUnlock/restore_point・ipaddress・browser_addon・userdata Guide (616ae31)",
+      "claudeNote": "検証: 回帰 368 全 green を各コミットで維持。ハーネス: pianist AST 17/17 / looper 隔離 8/8 / acl 隔離 5/5。未実施の検証: pianist の GUI 実機スモーク (フォーカス検証・実行中クローズは実ウィンドウでの確認推奨、次回実使用時) と operator dashboard の実機スモーク。MAJOR 2 件 (pianist/script_looper) は procedure.csv / 子スクリプトの意味論変更 — 実運用プロファイルで Type にメタ文字を効かせている行や exit code を返す legacy 子があれば影響 (Guide に契約明記済み)。既配備先の printer_backup は overlay で消えない (§9.6) ため手動削除が必要。全変更は [Unreleased] — 次リリースは 3.6.2 候補。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-07-03T00:10:00+09:00",
+      "updatedAt": "2026-07-03T00:10:00+09:00"
     }
   ]
 }
