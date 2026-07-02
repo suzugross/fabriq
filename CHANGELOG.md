@@ -133,6 +133,19 @@
   AutoLogonEnabled と module が読む 4 設定は不変。VERSION 1.1.1→1.1.2(PATCH)。
 
 ### Fixed
+- modules/extended/group_config: メンバー照合が CSV の Domain 列を無視した leaf 名ワイルドカード一致
+  (`-like "*\<MemberName>"`)だったため、**別 authority の同名 principal が「既にメンバー」skip を誘発し
+  意図したドメイン principal が永遠に追加されない** cross-authority false-PASS を修正
+  (2026-07-02 監査 V-4・Wave 2B)。新照合 = leaf 完全一致(`-ieq`・メタ文字問題も同時解消) + authority
+  受理集合(ローカル型={COMPUTERNAME, 裸名} / ドメイン型={CSV Domain の FQDN, その先頭ラベル=NetBIOS 近似
+  — Get-LocalGroupMember は NetBIOS 表記を返すため FQDN 完全一致だけでは恒常 false-FAIL になる} /
+  CurrentUser=Resolve-CurrentUser の authority 部)。あわせて (1) 列挙を Get-LocalGroupMemberNames に分離し、
+  孤立 SID で Get-LocalGroupMember が throw する PS5.1 バグに ADSI(WinNT://) 列挙でフォールバック
+  (ベンチ false-FAIL 解消)、(2) Add の MemberExists / Remove の MemberNotFound 例外を OS の権威シグナル
+  として Skip 計上(カスタム NetBIOS 名で matcher が見えない場合の安全網・再実行 false-Fail 解消)。
+  group_config.ps1 / group_remove.ps1 の両コピーに同一適用。VM 実機検証: cross-authority 封鎖(ローカル
+  同名ユーザで skip せず add 試行=Error) / LocalUser skip 回帰 / 孤立 SID / 強制 ADSI フォールバック
+  (cmdlet shadow)の 4 本 PASS。VERSION 1.2.0→1.2.1(PATCH)。
 - kernel/common.ps1: `$global:_LastModuleResult` フォールバック(pipeline 未捕捉時の救済)が無警告で
   発動していた問題を修正(2026-07-02 監査 K-1・Wave 2A)。モジュール中間で構築された結果を最終結果として
   拾うと stale な Success を報告し得るため、sync(Invoke-SafeCommand)/async(Invoke-SafeCommandAsync)の
