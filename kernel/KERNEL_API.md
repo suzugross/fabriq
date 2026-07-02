@@ -37,6 +37,12 @@
 | `New-BatchResult` | `-Success <int> -Skip <int> -Fail <int> [-Title <string>] [-MessageSuffix <string>] [-Verified <Nullable[bool]>]` | 集計表示 + Status 自動判定で `New-ModuleResult` を返却 |
 | `Confirm-ModuleExecution` | `[-Message <string>]` | 実行前 Y/N 確認。`N` で `Cancelled` の ModuleResult を返却。AutoPilot 中は自動 Y |
 
+**`Verified` セマンティクス（規約・2026-07-02 明文化）**: `Verified` は **scoped Verified** — 「そのモジュールが今回の実行で適用（または適用済み確認）した範囲について、読み返し検証が着地したか」を証言する。行レベルの失敗は `Status`（`Partial`/`Error`）が運ぶため、**`Fail>0` と `Verified=$true` は共存し得る**（= 実行できた分は着地した、の意）。consumer（チェックリスト・`__GATE__`・Evidence 突合）は `Status` と `Verified` を必ず併読すること（`__GATE__` は両方を見る）。個別ルール:
+
+- **検証を 1 件も実施していない実行で `$true` を返すことは禁止** — 検証対象ゼロ（全行 invalid・対象不在等）は `$null`（検証未実施）を返す。
+- モジュール契約上のターゲットが**検証不能な形で欠落**した場合（例: 設定対象アダプタ不在）は、黙って検証分母から落とさず `$false` 側に計上することを推奨（fail-closed）。
+- `$false` = 読み返し不一致が 1 件以上。`$null` = 検証未実施／技術的に検証不能（CLAUDE.md §6 の免除）。
+
 ### 1.4 ユーザー確認・待機
 | 関数 | シグネチャ | 用途 |
 |---|---|---|
