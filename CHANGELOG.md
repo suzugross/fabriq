@@ -15,6 +15,18 @@
 
 ## [Unreleased]
 
+### Changed
+- kernel/KERNEL_API.md: モジュールから実使用されているにもかかわらず未宣言だった common.ps1
+  関数 11 件を公開 API として追認宣言(§1.7〜§1.10 新設。逆方向 drift 解消)。対象:
+  Expand-UserEnvironmentVariables / Resolve-HkcuRoot(各 9 モジュール使用)、Get-HardwareUniqueId、
+  Wait-SystemReady、Register-FabriqActiveSetup、Deploy-FabriqUserSetupLauncher、
+  Deploy-FabriqStartupTrigger、Invoke-CountdownRestart、Invoke-CountdownSignout、
+  Remove-ZoneIdentifier、Capture-ScreenEvidence(後2者は §6 内部一覧から公開へ移動)。
+  §2 に $global:FabriqUniqueId を追加、§8 の 2.0.0 baseline 表へ全件追記
+  ($global:_LastModuleResult の baseline 表漏れも補完)。全件 2.0.0 baseline 以前から存在する
+  ためドキュメントのみの変更 — KERNEL_VERSION 据置・全モジュールの REQUIRES_KERNEL 影響なし。
+  以後これらの関数のシグネチャ変更は §7 の公開 API 変更ルール(MINOR/MAJOR)に服する。
+
 ### Fixed
 - modules/extended/group_config: メンバー照合を SID 一次・名前フォールバックの 2 層に変更(Wave 3)。
   3.6.1 の authority 照合(FQDN + 先頭ラベル=NetBIOS 近似)は、**NetBIOS 名が DNS 先頭ラベルと異なる

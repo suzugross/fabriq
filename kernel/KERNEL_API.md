@@ -64,6 +64,41 @@
 
 **契約**: CSV 由来のパスに対する `Remove-Item -Recurse` 等の再帰削除（CLAUDE.md §8）の前には、これらのガード（または同等の containment 検証）を確認ゲートの**外側**（AutoPilot 自動 Y でも有効な位置）に置くこと。ブロック行は Fail として計上する（fail-closed）。
 
+### 1.7 ユーザー環境・レジストリ実体解決
+
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `Expand-UserEnvironmentVariables` | `-Value <string>`（string 返却） | `%VAR%` 展開。昇格実行時も `%USERPROFILE%` / `%LOCALAPPDATA%` / `%APPDATA%` を**ログオン中ユーザー**の実パスへ解決してから残りを標準展開する |
+| `Resolve-HkcuRoot` | なし（`{PsDrivePath; RegExePath; Label; Redirected; SID}` 返却） | HKCU の実体解決。昇格実行時はログオン中ユーザーの `HKU:\<SID>` を指すパス組を返す（hive 未ロード時は警告の上 `HKCU:` へフォールバック、`Redirected=$false`） |
+
+### 1.8 システム状態・ハードウェア
+
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `Get-HardwareUniqueId` | なし（string 返却） | ハードウェア一意 ID（BIOS SN → 物理 NIC MAC → `"UNKNOWN"` の優先順）。ファイル名安全形にサニタイズ済み。通常は `$global:FabriqUniqueId`（§2）を先に読み、空の時のフォールバックとして呼ぶ |
+| `Wait-SystemReady` | `[-MaxWaitSec <int>=120] [-RequiredServices <string[]>] [-NetworkTarget <string>] [-CheckIntervalSec <int>=5]` | 必須サービス起動（+ 任意でネットワーク到達）待ち。**タイムアウトしても必ず戻る**（ハング防止、再起動直後の実行向け） |
+
+### 1.9 遅延ユーザーセットアップ配備（Active Setup / Startup トリガ）
+
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `Register-FabriqActiveSetup` | `-GUID <string> -Description <string> -ScriptName <string> -ScriptLines <string[]>`（bool 返却） | スクリプトを `C:\ProgramData\fabriq` へ配備し Active Setup キーを登録（**新規作成ユーザー**の初回ログオンごとに per-user 適用） |
+| `Deploy-FabriqUserSetupLauncher` | なし（bool 返却） | ランチャ `fabriq_user_setup.ps1`（`C:\ProgramData\fabriq\apply_*.ps1` を一括実行 → Explorer 再起動 → done flag）を配備。冪等（上書き） |
+| `Deploy-FabriqStartupTrigger` | なし（bool 返却） | Default プロファイルの Startup フォルダに起動トリガ `.cmd` を配備。冪等（上書き） |
+
+**契約**: Launcher + Trigger のペア配備に加え、モジュール側が自分の `apply_<name>.ps1` を `C:\ProgramData\fabriq` へ置く分業構造（実例: `reg_hkcu_config` / `spi_config` / `startup_command_config`）。
+
+### 1.10 セッション制御・その他
+
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `Invoke-CountdownRestart` | `[-Seconds <int>=5]`（**戻らない**） | カウントダウン表示後 `Restart-Computer -Force`。呼び出し後に制御が戻らない前提で使う（後続処理を書かない） |
+| `Invoke-CountdownSignout` | `[-Seconds <int>=7]`（**戻らない**） | カウントダウン表示後サインアウト（`ExitWindowsEx`）。transcript を閉じてから実行する |
+| `Remove-ZoneIdentifier` | `-Path <string>` | Mark of the Web（`Zone.Identifier` ADS）除去。ファイル単体／ディレクトリ木の両対応、best-effort（エラーは黙殺） |
+| `Capture-ScreenEvidence` | `-ModuleName <string> [-Status <string>]` | プライマリ画面の PNG を evidence の `auto_capture/` へ保存。kernel の自動撮影と同一関数で、モジュールから任意タイミングの追加撮影に使える。`SetProcessDPIAware` を呼ぶため**プロセスの DPI モードが不可逆に変わる**点に注意 |
+
+> **§1.7〜§1.10 の由来**: 2026-07-02 の API サーフェス監査で、モジュールから実使用されているにもかかわらず未宣言だった関数群を**追認宣言**したもの。全関数が 2.0.0 baseline（2026-04-23）以前から存在するため §8 上は 2.0.0 扱いであり、既存モジュールの `REQUIRES_KERNEL` に影響しない。
+
 ---
 
 ## 2. 公開グローバル変数（モジュールから読み取り可）
@@ -75,6 +110,7 @@
 | `$global:AutoPilotWaitSec` | `int` | AutoPilot モジュール間ウェイト秒 |
 | `$global:AutoConfirmMode` | `bool` | FlexProfile 単発実行中か（`Confirm-Execution` / `Wait-KeyPress` を短絡。AutoPilot のサブセット動作） |
 | `$global:FabriqEvidenceBasePath` | `string` | エビデンス保存先ベースパス（サブディレクトリを作る基点） |
+| `$global:FabriqUniqueId` | `string` | ハードウェア一意 ID（`Get-HardwareUniqueId` の結果を kernel 起動時に bake した値）。モジュールは `if ($global:FabriqUniqueId) { ... } else { Get-HardwareUniqueId }` のフォールバック読みを推奨（kernel 外での単体実行耐性） |
 
 **書き込み**: 公開 API として書き込み可能なグローバル変数は `$global:_LastModuleResult`（`New-ModuleResult` 内部で自動更新）のみ。それ以外は読み取り専用。
 
@@ -154,9 +190,9 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Invoke-SafeCommand` / `Invoke-SafeCommandAsync` / `Invoke-BatchExecution` / `Invoke-KittingScript`
 - `Resolve-ProfileModules` / `Initialize-ModuleSystem` / `Build-CategoryMenu` / `Load-Profiles`
 - `Save-ResumeState` / `Load-ResumeState` / `Remove-ResumeState` / `Restore-HostEnvironment`
-- `Register-FabriqRunOnce` / `Invoke-CountdownRestart`
+- `Register-FabriqRunOnce`（`Invoke-CountdownRestart` は 2026-07-02 に §1.10 で公開宣言へ移動）
 - `Write-ExecutionHistory` / `Initialize-ExecutionHistory` / `Restore-ExecutionHistory` / `Export-ExecutionHistory` / `Export-HtmlChecklist`
-- `Capture-ScreenEvidence` / `Initialize-EvidenceBasePath`
+- `Initialize-EvidenceBasePath`（`Capture-ScreenEvidence` は 2026-07-02 に §1.10 で公開宣言へ移動）
 - `Write-StatusFile` / `Remove-StatusFile`
 - `Show-ExecutionToolbar` / `Hide-ExecutionToolbar` / `Update-ExecutionToolbar` **(since 3.4.0)**: in-process 浮遊ツールバー (Skip / Gyotaq) のライフサイクル。実装は `apps/fabriq_operator/lib/execution_toolbar.ps1` の dedicated STA Runspace。kernel/main.ps1 が batch / 各モジュール開始 / 完了 / __RESTART__ / exit でこれらを呼ぶ。
 - `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
@@ -191,7 +227,9 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 formal SemVer の出発点。以下すべて利用可能:
 
 - **§1 公開関数**: `Show-Info`, `Show-Success`, `Show-Warning`, `Show-Error`, `Show-Skip`, `Show-Separator`, `Show-CategorySeparator`, `Import-ModuleCsv`, `New-ModuleResult`, `New-BatchResult`, `Confirm-ModuleExecution`, `Confirm-Execution`, `Wait-KeyPress`, `Wait-NetworkReady`, `Test-AdminPrivilege`, `Unprotect-FabriqValue`
+  - 追認宣言分（2026-07-02、§1.7〜§1.10 参照。いずれも 2.0.0 以前から存在・モジュール実使用あり）: `Expand-UserEnvironmentVariables`, `Resolve-HkcuRoot`, `Get-HardwareUniqueId`, `Wait-SystemReady`, `Register-FabriqActiveSetup`, `Deploy-FabriqUserSetupLauncher`, `Deploy-FabriqStartupTrigger`, `Invoke-CountdownRestart`, `Invoke-CountdownSignout`, `Remove-ZoneIdentifier`, `Capture-ScreenEvidence`
 - **§2 公開グローバル**: `$global:FabriqMasterPassphrase`, `$global:AutoPilotMode`, `$global:AutoPilotWaitSec`, `$global:FabriqEvidenceBasePath`
+  - 追認宣言分（2026-07-02）: `$global:FabriqUniqueId`（読取）, `$global:_LastModuleResult`（`New-ModuleResult` 経由の自動書込。§2 本文では宣言済みだった baseline 表への追記）
 - **§3 公開環境変数**: `SELECTED_*` 全般, `SELECTED_PRINTER_<N>_*`, `FABRIQ_SEGMENT`, `FABRIQ_AUTOLOGON_USER`, `FABRIQ_WORKER_NAME`, `FABRIQ_EVIDENCE_BASE`
 - **§4 Profile CSV スキーマ**: 列（`Order`, `ScriptPath`, `Enabled`, `Description`, `Segment`, `ErrorMode`）、特殊マーカー（`__AUTOPILOT__`, `__RESTART__`, `__REEXPLORER__`, `__AUTO_to_<User>__`）。
   ※ 2.0.0 baseline には `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` も含まれていたが、**3.0.0 で削除**（下記 3.0.0 参照）
