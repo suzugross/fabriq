@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-03T00:10:00+09:00",
+  "updatedAt": "2026-07-03T00:45:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -785,6 +785,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-07-03T00:10:00+09:00",
       "updatedAt": "2026-07-03T00:10:00+09:00"
+    },
+    {
+      "id": "t-0089",
+      "title": "userdata_backup モジュール撤去 (fabriq_backuper が実装承継)",
+      "content": "printer_backup に続く backup 系 2 件目の撤去。導入時 (5ff9200, 2026-05-14) から「v0.1.0, untested」の試作品で、同機能は fabriq_backuper の userdata セクション (backup/restore + 編集 UI + aggregate manifest) が本番実装済み。fabriq 本体の backup モジュールはゼロになり、backup 単一統合構想は backuper が実現形として close。",
+      "claudeNote": "コミット 4e87336。参照残ゼロ (README カテゴリ行削除 + 61/16 同期)。回帰 368 全 green。既配備先は §9.6 (site-custom 保持) により手動削除が必要 — printer_backup と同時に案内済み。consolidation-plan メモリを CLOSED 化。",
+      "status": "完了",
+      "createdAt": "2026-07-03T00:45:00+09:00",
+      "updatedAt": "2026-07-03T00:45:00+09:00"
     }
   ]
 }
