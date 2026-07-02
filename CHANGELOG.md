@@ -157,6 +157,10 @@
   には存在しない」と文書化している DisableSR 指標を参照し常に [APPLY] 表示だった問題を修正 — apply ループと
   同じ Test-SystemRestoreEnabled(RPSessionInterval>=1)に統一(表示のみ・apply/verify は従来から正)。
   VERSION 1.2.0→1.2.1(PATCH)。
+- modules/standard/restore_point (test.psd1・非出荷テスト記述子): idempotent.secondRun の期待値
+  'Skipped' が仕様と不一致だった問題を修正 — 本モジュールは自ら remove_24h_limit で 24h スロットルを外し
+  create_restore_point は毎回新規ポイントを作る設計のため、2回目 status は 'Success' が正
+  (-Idempotency の本モジュール初実走で露見、VM 実測で確認)。
 - apps/fabriq_operator (execution_toolbar.ps1): Execution Toolbar の Surkitinisme アートパネルが、UI
   再読み込み(エクスプローラー再起動 / ディスプレイ・解像度変更)を挟むとクラッシュダイアログを出す不具合を
   修正。真因は `Initialize-ArtBuffer` の dispose 順序: PictureBox(`$artCanvas`)が `.Image` で保持中の

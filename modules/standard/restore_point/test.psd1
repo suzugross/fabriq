@@ -11,7 +11,10 @@
             fixture = @()
             expect = @{ status = @('Success','Skipped','Partial'); verified = 'any' }
             oracle = @{ type = 'self-verified' }   # Checkpoint-Computer may be throttled (24h) => Skipped
-            idempotent = @{ secondRun = 'Skipped' }
+            # Second run is Success BY DESIGN: the module itself removes the
+            # 24h throttle (remove_24h_limit) and create_restore_point makes
+            # a new checkpoint every run; set_storage_size re-applies.
+            idempotent = @{ secondRun = 'Success' }
             cleanup = 'none'
             notes = 'Enables System Restore + creates a checkpoint. 24h throttle can yield Skipped.'
         }
