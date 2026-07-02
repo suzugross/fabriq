@@ -4,7 +4,7 @@
 # [PURPOSE]
 # Back up arbitrary files / directories on this PC into a portable
 # backup folder that a companion restore module can replay on the
-# same or different PC. Same backup-folder convention as printer_backup:
+# same or different PC. Backup-folder convention:
 #   backup/<OldPCname>/<yyyy_MM_dd_HHmmss>/
 #
 # [NOTES]
@@ -69,7 +69,7 @@ if ($null -eq $robocopyExe) {
 # ========================================
 Show-Info "Scanning entries..."
 
-# Resolve PC name (printer_backup uses the same convention)
+# Resolve PC name (backup-folder convention: SELECTED_OLD_PCNAME preferred)
 $pcName = if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_OLD_PCNAME)) {
     $env:SELECTED_OLD_PCNAME.Trim()
 } else {

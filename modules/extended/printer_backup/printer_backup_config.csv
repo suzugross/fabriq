@@ -1,2 +1,0 @@
-Enabled,IncludeDriverBinaries,IncludePrintSettings,SourcePcName,BackupTimestamp,StrictOsVersion,ReuseInboxDrivers,OnConflict,RestoreDefaultPrinter,SkipVirtualPrinters,RestoreHardwareConfig,Description
-1,1,1,,,0,1,skip,1,1,1,Shared backup/restore config. Backup: payload+settings+DEVMODE+HwConfig on. Restore: auto-pick latest, permissive osVersion, reuse inbox drivers, skip conflicts, skip virtual printers, restore installable options (trays/finisher).

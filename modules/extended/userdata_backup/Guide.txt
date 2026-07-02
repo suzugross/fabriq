@@ -1,11 +1,13 @@
 ■ 概要
 任意のファイル / ディレクトリの **portable backup + restore** を担う
-試作モジュールです。printer_backup と同じ backup フォルダ規約・
-manifest 中心設計・hostlist 駆動の解決ロジックを踏襲しています。
+試作モジュールです。backup フォルダ規約・manifest 中心設計・
+hostlist 駆動の解決ロジックは、旧 printer_backup モジュール
+（2026-07 撤去。要件は satellite アプリ fabriq_backuper が承継）
+と共通の設計系譜です。
 
-将来、複数の backup モジュール（printer_backup / userdata_backup /
-今後追加）を **単一統合 backup モジュール**にまとめる計画があるため、
-manifest 構造を printer_backup と parallel に保っています。
+将来、backup 系モジュール（userdata_backup / 今後追加）を
+**単一統合 backup モジュール**にまとめる計画があるため、
+manifest 構造を parallel に保つ方針です。
 
   [Backup Userdata]  (userdata_backup.ps1)
     userdata_backup_list.csv の各 enabled 行を 1 entry として、
@@ -117,8 +119,9 @@ __ASYNC__ 経路（kernel 3.3.0+ DefaultAsync=true）で Skip ボタン中断可
   ]},
   warnings: []
 
-printer_backup の manifest と意図的に parallel な構造。`manifestType` と
-`items` 内のキーのみがモジュール固有。将来統合時の refactor を容易化する設計。
+backup 系モジュール共通の manifest 構造（旧 printer_backup と parallel）。
+`manifestType` と `items` 内のキーのみがモジュール固有。将来統合時の
+refactor を容易化する設計。
 
 ■ 動作の流れ
 

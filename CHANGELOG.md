@@ -15,7 +15,15 @@
 
 ## [Unreleased]
 
-### Added
+### Removed
+- modules/extended/printer_backup: モジュール撤去(printer_backup.ps1 / printer_restore.ps1 ほか
+  全 8 ファイル)。プリンタ設定の backup/restore 要件は satellite アプリ fabriq_backuper が承継して
+  おり、fabriq 側での使用想定がなくなったため(ユーザー判断 2026-07-02)。第 2 次再監査の指摘
+  H4(スキャン失敗 warning-only で空バックアップが Success+Verified)/ M5(設定リプレイ失敗が
+  Verified に不可視)は修正ではなく撤去により解消。残参照の整理: userdata_backup のコメント/Guide
+  の設計系譜言及を書き換え(コードは無変更・VERSION 据置)、README のモジュール数(60/16 → 実数
+  61/17)とカテゴリ表を同期。既配備先では overlay 更新はモジュールを削除しない(§9.6 site-custom
+  保持)ため、撤去を反映するには手動削除が必要。
 - tests: Reset-FabriqState 状態網羅性テストを新設(tests/kernel/ResetFabriqState.Coverage.tests.ps1、
   5 テスト)。kernel(common.ps1 + main.ps1)が代入する全 $global: 変数と全 SELECTED_*/FABRIQ_*
   環境変数を AST 静的解析で列挙し、「Reset-FabriqState がクリアする集合 ∪ 理由付き許可リスト」に
