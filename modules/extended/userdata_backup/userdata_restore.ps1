@@ -65,7 +65,7 @@ if ($null -eq $robocopyExe) {
 # ========================================
 # Step 3a: Locate Source Backup
 # ========================================
-# Resolution priority (parallel to printer_restore):
+# Resolution priority:
 #   PcName    : 1. CSV SourcePcName  2. $env:SELECTED_OLD_PCNAME  3. error
 #   Timestamp : 1. CSV BackupTimestamp  2. latest manifest.collectedAt
 $backupRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "backup"))
