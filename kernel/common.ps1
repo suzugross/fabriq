@@ -22,6 +22,7 @@
 #   Pattern Layer Functions
 #   DPAPI Passphrase Protection (Resume)
 #   Encryption / Decryption (AES-256-CBC)
+#   Secret Registry (decrypted-value masking)
 #   Confirmation Functions
 #   Evidence Base Path
 #   CSV Operations
@@ -443,6 +444,14 @@ function New-TelemetryRedactMap {
         $map[$env:SELECTED_PIN] = "[REDACTED]"
     }
 
+    # Registered secrets (ENC:-decrypted values, master passphrase):
+    # hard-redacted like the PIN — never stored even as a hash.
+    foreach ($secret in $script:FabriqSecretValues.Keys) {
+        if (-not $map.ContainsKey($secret)) {
+            $map[$secret] = "[REDACTED]"
+        }
+    }
+
     return $map
 }
 
@@ -460,6 +469,21 @@ function Invoke-TelemetryRedact {
         $out = $out.Replace($k, [string]$Map[$k])
     }
     return $out
+}
+
+function _MaskTelemetryDataValue {
+    # Mask registered secrets in string payloads BEFORE JSON encoding
+    # (post-encoding replacement would miss values that JSON escaping
+    # rewrites). Covers secrets registered after the per-module RedactMap
+    # snapshot was taken (e.g. a mid-module Import-ModuleCsv decrypt).
+    param($Value)
+    if ($Value -is [string]) { return (Get-FabriqMaskedText -Text $Value) }
+    if ($Value -is [array]) {
+        return @($Value | ForEach-Object {
+            if ($_ -is [string]) { Get-FabriqMaskedText -Text $_ } else { $_ }
+        })
+    }
+    return $Value
 }
 
 function Write-TelemetryEvent {
@@ -480,7 +504,7 @@ function Write-TelemetryEvent {
             ts   = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
             type = $Type
         }
-        foreach ($k in $Data.Keys) { $line[$k] = $Data[$k] }
+        foreach ($k in $Data.Keys) { $line[$k] = _MaskTelemetryDataValue $Data[$k] }
 
         $json = ([PSCustomObject]$line | ConvertTo-Json -Depth 6 -Compress)
         # AppendAllText auto-creates the file on first call; subsequent
@@ -630,7 +654,7 @@ function Write-KernelTelemetryEvent {
             ts   = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
             type = $Type
         }
-        foreach ($k in $Data.Keys) { $line[$k] = $Data[$k] }
+        foreach ($k in $Data.Keys) { $line[$k] = _MaskTelemetryDataValue $Data[$k] }
         $json = ([PSCustomObject]$line | ConvertTo-Json -Depth 6 -Compress)
         [System.IO.File]::AppendAllText($kernelPath, $json + "`n", $global:_TelemetryUtf8NoBom)
     } catch { }
@@ -803,8 +827,12 @@ function Write-ArtPulse {
     catch { }
 }
 
+# All Show-* mask registered secrets BEFORE the message reaches any sink
+# (console -> delivered transcript, and the telemetry show event below).
+
 function Show-Info {
     param([string]$Message)
+    $Message = Get-FabriqMaskedText -Text $Message
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
     Write-ArtPulse
     _TrackShowEvent -Function 'info' -Message $Message
@@ -812,6 +840,7 @@ function Show-Info {
 
 function Show-Success {
     param([string]$Message)
+    $Message = Get-FabriqMaskedText -Text $Message
     Write-Host "[SUCCESS] $Message" -ForegroundColor Green
     Write-ArtPulse
     _TrackShowEvent -Function 'success' -Message $Message
@@ -819,6 +848,7 @@ function Show-Success {
 
 function Show-Warning {
     param([string]$Message)
+    $Message = Get-FabriqMaskedText -Text $Message
     Write-Host "[WARNING] $Message" -ForegroundColor Yellow
     Write-ArtPulse
     _TrackShowEvent -Function 'warning' -Message $Message
@@ -826,6 +856,7 @@ function Show-Warning {
 
 function Show-Error {
     param([string]$Message)
+    $Message = Get-FabriqMaskedText -Text $Message
     Write-Host "[ERROR] $Message" -ForegroundColor Red
     Write-ArtPulse
     _TrackShowEvent -Function 'error' -Message $Message
@@ -833,6 +864,7 @@ function Show-Error {
 
 function Show-Skip {
     param([string]$Message)
+    $Message = Get-FabriqMaskedText -Text $Message
     Write-Host "[SKIP] $Message" -ForegroundColor DarkGray
     Write-ArtPulse
     _TrackShowEvent -Function 'skip' -Message $Message
@@ -968,7 +1000,11 @@ function Unprotect-PassphraseFromResume {
         $encryptedBytes, $null,
         [System.Security.Cryptography.DataProtectionScope]::LocalMachine
     )
-    return [System.Text.Encoding]::UTF8.GetString($plainBytes)
+    $plain = [System.Text.Encoding]::UTF8.GetString($plainBytes)
+    # Resume-restored secrets (master passphrase / host PIN) must be
+    # masked in every sink, same as their fresh-session counterparts.
+    Register-FabriqSecret -Value $plain
+    return $plain
 }
 
 # ========================================
@@ -1052,11 +1088,67 @@ function Test-MasterPassphrase {
     }
     try {
         $decrypted = Unprotect-FabriqValue -EncryptedValue $token -Passphrase $Passphrase
-        return ($decrypted -eq $VERIFY_PLAINTEXT)
+        if ($decrypted -eq $VERIFY_PLAINTEXT) {
+            # The verified passphrase itself must never surface in any
+            # output sink; register it for masking.
+            Register-FabriqSecret -Value $Passphrase
+            return $true
+        }
+        return $false
     }
     catch {
         return $false
     }
+}
+
+# ========================================
+# Secret Registry (decrypted-value masking)
+# ========================================
+# In-memory set of secret plaintexts (values decrypted from ENC: cells,
+# the master passphrase, the host PIN). Every registered value is masked
+# in the three output sinks that can leave the bench:
+#   1. Show-* family        -> console / delivered transcript / telemetry
+#   2. Write-TelemetryEvent -> telemetry corpus (string Data values +
+#      hard [REDACTED] entries merged into the per-module RedactMap)
+#   3. Write-ExecutionHistory -> execution_history.csv / HTML checklist
+# NEVER persisted; cleared by Reset-FabriqState (next customer) and gone
+# with the process. Async note: a module running in a child runspace
+# registers into that runspace's own copy of this registry, so sinks that
+# execute inside the child (Show-*, telemetry) are covered there; the
+# parent-side history write additionally masks what the parent knows
+# (passphrase / PIN, registered in both).
+
+$script:FabriqSecretValues  = @{}   # set: plaintext -> $true
+$script:FabriqSecretsSorted = @()   # cached keys, longest-first
+
+function Register-FabriqSecret {
+    # Values shorter than 3 chars are rejected: masking "1" or "OK" would
+    # shred ordinary output (same threshold as New-TelemetryRedactMap).
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return }
+    if ($Value.Length -lt 3) { return }
+    if ($script:FabriqSecretValues.ContainsKey($Value)) { return }
+    $script:FabriqSecretValues[$Value] = $true
+    $script:FabriqSecretsSorted = @(
+        $script:FabriqSecretValues.Keys | Sort-Object -Property Length -Descending
+    )
+}
+
+function Clear-FabriqSecrets {
+    $script:FabriqSecretValues  = @{}
+    $script:FabriqSecretsSorted = @()
+}
+
+function Get-FabriqMaskedText {
+    # Longest-first replacement so a short secret that is a substring of a
+    # longer one never splits the longer match. Pure string ops, no throw.
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    if ($script:FabriqSecretsSorted.Count -eq 0) { return $Text }
+    foreach ($s in $script:FabriqSecretsSorted) {
+        if ($Text.Contains($s)) { $Text = $Text.Replace($s, '***') }
+    }
+    return $Text
 }
 
 function Import-ModuleCsv {
@@ -1079,6 +1171,9 @@ function Import-ModuleCsv {
                 if ($prop.Value -is [string] -and $prop.Value.StartsWith('ENC:')) {
                     try {
                         $prop.Value = Unprotect-FabriqValue -EncryptedValue $prop.Value -Passphrase $global:FabriqMasterPassphrase
+                        # ENC: marks a value the author considers secret -
+                        # register the plaintext so every output sink masks it.
+                        Register-FabriqSecret -Value $prop.Value
                     }
                     catch {
                         Show-Warning "Failed to decrypt field '$($prop.Name)' in $([System.IO.Path]::GetFileName($Path)): $_"
@@ -2182,6 +2277,9 @@ function Write-ExecutionHistory {
     if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_PIN)) {
         $safeMessage = $safeMessage.Replace($env:SELECTED_PIN, "[REDACTED]")
     }
+    # Registered secrets (ENC:-decrypted values, master passphrase): the
+    # history CSV feeds the delivered HTML checklist, so mask here too.
+    $safeMessage = Get-FabriqMaskedText -Text $safeMessage
 
     # CSV Escape (if containing comma or newlines)
     $escapedMessage = $safeMessage -replace '"', '""'
@@ -3393,6 +3491,11 @@ function Reset-FabriqState {
     $global:AutoPilotMode     = $false
     $global:AutoPilotWaitSec  = 3
     $global:_LastModuleResult = $null
+
+    # Secret registry: holds the PREVIOUS customer's decrypted values and
+    # passphrase; must not leak masking state (or the secrets themselves)
+    # into the next session.
+    Clear-FabriqSecrets
 
     # ----------------------------------------
     # 5. Evidence Base Path & Profile Info

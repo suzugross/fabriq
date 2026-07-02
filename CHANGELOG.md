@@ -15,6 +15,25 @@
 
 ## [Unreleased]
 
+### Security
+- kernel/common.ps1: 秘密値レジストリを新設(crypto 再レビュー A7)。`Import-ModuleCsv` が透過復号した
+  ENC: 平文が、その後 Show-*/エラーメッセージ経由で**納品 transcript・telemetry・実行履歴
+  (= 納品 HTML チェックリスト)へ素通りする系統的ギャップ**を封鎖(pianist の実流出と同クラス。
+  従来は pianist/license 系の module-local 対処のみで、新規モジュールが同じ轍を踏む構造だった)。
+  実装: 内部関数 `Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`(§6)。
+  登録チョークポイント 4 箇所 = Import-ModuleCsv 復号直後(全モジュールの CSV 秘密値)/
+  Test-MasterPassphrase 成功時(パスフレーズ)/ Unprotect-PassphraseFromResume(resume 復元の
+  パスフレーズ+PIN)/ Set-SelectedHostEnvironment の PIN 設定直後。マスク sink 3 系統 =
+  Show-* 5 関数の入口(console/transcript/telemetry show イベントを一括)/ telemetry 書込
+  2 チョークポイント(JSON エンコード前の平文段階で置換 + RedactMap へ PIN 同様の
+  hard-[REDACTED] 合流)/ Write-ExecutionHistory message。longest-first 置換・最短長 3 文字
+  ガード(誤マスク防止)・Reset-FabriqState でクリア(顧客跨ぎ遮断)。モジュール側の変更ゼロで
+  全モジュール+将来のモジュールに defense-in-depth。既知の分界: async 子 Runspace 内の
+  Show-*/telemetry は子側レジストリで正しくマスクされるが、親側の履歴書込はモジュール内で
+  復号された CSV 秘密値を知らない(パスフレーズ/PIN は親でも登録済みで常時マスク)。
+  Write-Host 直書きの preview 表示は対象外(§2 の Show-* 必須規律で担保)。
+  新規テスト 13 本(tests/kernel/SecretRegistry.tests.ps1、368→381 全 green)。
+
 ## [3.6.2] - 2026-07-02
 
 ### Security

@@ -182,6 +182,11 @@ function Set-SelectedHostEnvironment {
     $env:SELECTED_DNS4 = Resolve-HostValue $SelectedHost.'DNS4' -Live $live -SelfKind 'DNS4'
 
     $env:SELECTED_PIN = Resolve-HostValue $SelectedHost.'Pin'
+    # PIN is a secret: register it so Show-* / telemetry / history mask it
+    # (parallel to the hard-redact entries those sinks already carry).
+    if (-not [string]::IsNullOrWhiteSpace($env:SELECTED_PIN)) {
+        Register-FabriqSecret -Value $env:SELECTED_PIN
+    }
 
     for ($i = 1; $i -le 10; $i++) {
         # CSV headers like: Printer1Name, Printer1Driver, Printer1Port
