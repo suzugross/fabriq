@@ -15,6 +15,23 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/extended/group_config: メンバー照合を SID 一次・名前フォールバックの 2 層に変更(Wave 3)。
+  3.6.1 の authority 照合(FQDN + 先頭ラベル=NetBIOS 近似)は、**NetBIOS 名が DNS 先頭ラベルと異なる
+  ドメイン**(レガシー移行環境、例 contoso.local / CONTOSO-CORP)でメンバーを見落とし、
+  (a) group_remove の事前チェックが「Already not a member」で **Remove を呼ばず黙って空振り**
+  (fail-open・消すべきメンバーシップが納品機に残存)、(b) group_config の新規 add 後 verify が
+  偽 FAIL(fail-closed・__GATE__ 不当ブロック)を起こした。新実装: 期待 principal を
+  NTAccount.Translate で SID 化し(FQDN 可・解決不能=$null)、Get-LocalGroupMember の .SID /
+  ADSI objectSid と **SID 完全一致で照合**(名前形式に非依存)。SID 不一致・取得不能メンバーには
+  従来の authority 受理集合による名前照合を併用(cross-authority false-PASS 封鎖は SID 層でも
+  名前層でも維持、オフドメインは従来と同一挙動=悪化経路なし)。呼び出し側 4 箇所・実行系・
+  OS シグナル救済(MemberExists/MemberNotFound)・ADSI 列挙フォールバックは不変。
+  VM 実機検証 5 本 PASS(cross-authority 封鎖回帰 / LocalUser skip 回帰 / 強制 ADSI フォールバック
+  (objectSid 経路) / **custom-NetBIOS 模擬 add=SID 一致で正しく Skip** / **同 remove=実削除・
+  残存なし**、cmdlet shadow で「SID 一致・名前 authority 不一致」を忠実に再現)。
+  VERSION 1.2.1→1.2.2(PATCH)。
+
 ## [3.6.1] - 2026-07-02
 
 ### Security
