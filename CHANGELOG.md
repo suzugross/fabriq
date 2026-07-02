@@ -33,6 +33,15 @@
   Type のメタ文字リテラル化。Type でメタ文字を効かせていたプロファイルは Key へ書き換えが必要)。
 
 ### Fixed
+- apps/fabriq_operator: FlexProfile dashboard の行状態誤表示 2 件を修正(再監査 F1/F2・Wave 3D)。
+  (1) 右クリック「Mark as Pending」が**カーソル下の行ではなく既存選択行**をリセットしていた
+  (ゲート上流の Error 行を誤解除し得る)→ CellMouseDown でクリック行を選択してからメニューを
+  開き、データ行以外では Opening をキャンセル。(2) 履歴照合の MenuName フォールバックが
+  Order 無し候補を無条件受理し、**Modules タブの ad-hoc 実行が同名プロファイル行を塗る**
+  (未実行行の false green / false UI ゲート)→ Order 一致時のみ受理に変更。この分岐が守っていた
+  「Order 列なしレガシー履歴」は session-scoped な execution_history.csv + 現行 kernel の
+  全プロファイル実行 Order 書込により発生し得ないため互換影響なし。kernel 側の __GATE__ 判定は
+  元より Order+ModuleName 両照合で本件の影響を受けない(UI 表示のみの修正)。
 - modules/standard/acl_config: acl_backup の再帰削除を CLAUDE.md §8 ガードで保護(再監査 M-1・
   Wave 3C)。CSV 由来 `Id` が無検証のまま backup ディレクトリ名に入り `Remove-Item -Recurse` に
   到達していた(`Id=..\..\x` で backup/ 外を削除し得る)。driver_export_config の実績パターンを

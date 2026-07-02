@@ -90,24 +90,29 @@ function Show-FlexDashboard {
                 # (e.g., same module + same segment at Orders 80 and 110).
                 # Without this strictness, an executed sibling row's
                 # entry would leak into an unexecuted row's state.
-                # Accept the candidate only when:
-                #   (a) candidate has Order=0 (legacy CSV without Order
-                #       column, or non-Profile entries like [RESTART NOW]),
-                #       which cannot have a sibling-row identity, OR
-                #   (b) candidate's Order matches the row's Order
-                #       (defensive — should normally be caught by byOrder).
+                # Accept the candidate ONLY when its Order matches the
+                # row's Order (defensive — normally caught by byOrder).
+                #
+                # Order-less candidates are NOT accepted: ad-hoc runs from
+                # the Modules tab write history without -Order, and letting
+                # them through painted a never-run Profile row with the
+                # ad-hoc result (false green / false UI gate). The legacy
+                # no-Order-column histories this branch once served cannot
+                # occur anymore: execution_history.csv is session-scoped
+                # and the current kernel always writes Order for every
+                # profile-context run.
                 $candidate = $byMenu[$r.MenuName]
                 $candOrder = 0
                 $candHasOrder = $candidate.PSObject.Properties.Name -contains 'Order' -and -not [string]::IsNullOrWhiteSpace($candidate.Order)
                 if ($candHasOrder) {
                     try { $candOrder = [int]$candidate.Order } catch { $candOrder = 0 }
                 }
-                if ($candOrder -eq 0 -or $candOrder -eq $rOrder) {
+                if ($candHasOrder -and $candOrder -eq $rOrder) {
                     $found = $candidate
                 }
-                # Otherwise: candidate belongs to a sibling Profile row
-                # (different non-zero Order, same MenuName) — leave this
-                # row Pending so its state is genuinely "not yet run".
+                # Otherwise: candidate is an ad-hoc entry (no Order) or
+                # belongs to a sibling Profile row — leave this row Pending
+                # so its state is genuinely "not yet run".
             }
             if ($null -ne $found) {
                 $verified = if ($found.Verified -eq 'True') { $true }
@@ -522,6 +527,25 @@ function Show-FlexDashboard {
     $ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
     $ctxReset = $ctxMenu.Items.Add("Mark as Pending (reset state)")
     $grid.ContextMenuStrip = $ctxMenu
+
+    # A right-click does not move the selection by itself, so acting on
+    # SelectedRows[0] used to reset whatever row was selected EARLIER —
+    # not the row under the cursor (accidentally unblocking a gate).
+    # Select the clicked row first, and refuse to open the menu anywhere
+    # that is not a data row.
+    $grid.Add_CellMouseDown({
+        param($sender, $e)
+        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right -and $e.RowIndex -ge 0) {
+            $grid.ClearSelection()
+            $grid.Rows[$e.RowIndex].Selected = $true
+        }
+    })
+    $ctxMenu.Add_Opening({
+        param($sender, $e)
+        $pt  = $grid.PointToClient([System.Windows.Forms.Control]::MousePosition)
+        $hit = $grid.HitTest($pt.X, $pt.Y)
+        if ($hit.RowIndex -lt 0) { $e.Cancel = $true }
+    })
 
     $ctxReset.Add_Click({
         if ($grid.SelectedRows.Count -eq 0) { return }
