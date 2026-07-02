@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-07-02
+
 ### Security
 - modules/extended/pianist: 打鍵系の fail-open を fail-closed 化(再監査 H1/H2/H3/M1/M3・Wave 3A)。
   (1) **Step 失敗で Phase を即中断**(従来は失敗後も残 Step を実行し続け、想定と異なる画面へ
