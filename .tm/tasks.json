@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-02T12:46:38+09:00",
+  "updatedAt": "2026-07-02T20:30:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -767,6 +767,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-07-02T12:46:38+09:00",
       "updatedAt": "2026-07-02T14:30:00+09:00"
+    },
+    {
+      "id": "t-0087",
+      "title": "common.ps1 保守性改善パッケージ (分割代替 3 点)",
+      "content": "common.ps1 肥大化指摘への対応。2026-06-10 の分割不要判断 (トリガー3条件) を再確認した結果、トリガー未発火 (並列編集なし / ツール限界なし / 状態バグ2件は分割で防げない類型) のため物理分割は再び見送り。代替として保守性に直接効く 3 点を実施:\n1. KERNEL_API.md 逆方向 drift 解消 — 未宣言のまま実使用されていた 11 関数を §1.7-§1.10 で追認宣言 + $global:FabriqUniqueId を §2 に追加 + §8 baseline 追記 (全て 2.0.0 以前導入のため REQUIRES_KERNEL 影響なし)\n2. Reset-FabriqState 状態網羅性テスト新設 (AST 静的解析、t-0022/t-0052 のバグ類型を機械検出)\n3. common.ps1 冒頭に SECTION MAP (36 セクション、grep 到達性検証済み)",
+      "claudeNote": "コミット: fb3d1cc (API 追認宣言) / 7fc6463 (網羅性テスト、363→368 全 green) / 2a10ec7 (SECTION MAP)。kernel コード変更なし (テスト+コメント+ドキュメントのみ)、KERNEL_VERSION 据置 3.6.1。網羅性テスト実装時に PSDefaultParameterValues が検出され許可リスト登録 (verbose capture の finally 復元付き toggle で無害を確認)。現時点でリセット漏れの実リークはゼロ。分割再検討トリガーは project_common_split_rejected メモリ参照。",
+      "status": "完了",
+      "createdAt": "2026-07-02T20:30:00+09:00",
+      "updatedAt": "2026-07-02T20:30:00+09:00"
     }
   ]
 }
