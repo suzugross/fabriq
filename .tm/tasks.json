@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-03T00:45:00+09:00",
+  "updatedAt": "2026-07-03T02:00:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -794,6 +794,15 @@
       "status": "完了",
       "createdAt": "2026-07-03T00:45:00+09:00",
       "updatedAt": "2026-07-03T00:45:00+09:00"
+    },
+    {
+      "id": "t-0090",
+      "title": "A7: kernel 秘密値レジストリ (ENC 復号値の全 sink 自動マスク)",
+      "content": "crypto 再レビュー (2026-07-02) で特定した系統的ギャップの封鎖。Import-ModuleCsv が透過復号した ENC: 平文が Show-*/telemetry/実行履歴 (納品 transcript + HTML チェックリスト) へ素通りする構造を、kernel 内秘密値レジストリで一括マスク。登録 4 チョークポイント + sink 3 系統、モジュール側変更ゼロ。",
+      "claudeNote": "コミット 6830c72。新規テスト 13 本 (SecretRegistry.tests.ps1)、368→381 全 green。内部 API として KERNEL_API §6 宣言 (公開 API 影響なし = PATCH 相当、KERNEL_VERSION はリリース指示待ち)。既知の分界: async 子 Runspace の親側履歴書込 / Write-Host 直書き preview (CHANGELOG に明記)。残る crypto 提案: A4 (resume SavedAt+48h 失効)、A5' (passphrase 強度の運用要件化)、B 群 (format migration、B2G trigger 待ち)。",
+      "status": "完了",
+      "createdAt": "2026-07-03T02:00:00+09:00",
+      "updatedAt": "2026-07-03T02:00:00+09:00"
     }
   ]
 }
