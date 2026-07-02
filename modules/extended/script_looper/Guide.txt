@@ -77,6 +77,19 @@ NIC設定の反映待ち、ドライバDLの一時的失敗、外部サービス
       リトライします。Error 以外のステータス（Success, Skipped,
       Cancelled, Partial）が返された時点でループを終了します。
 
+      ※ ModuleResult を返さない legacy スクリプト（.bat / .exe /
+        素の .ps1）の失敗判定 (since v2.0.0):
+        - 例外 → Error
+        - exit code が 0 以外 → Error（`exit 1` 等の古典的な失敗通知
+          を検出。従来はこれが Success 扱いになりリトライが発火しない
+          穴があった）
+        - それ以外 → Success
+        注意: .ps1 の子スクリプトが内部で native コマンドを実行する
+        場合、最後の native コマンドの exit code が漏れて判定される
+        ことがあります。子 .ps1 は末尾に明示的な `exit 0` を置いて
+        ください（fail-closed 設計）。ModuleResult を返す子はこの
+        判定の対象外（ModuleResult が常に優先）。
+
       用途:
       - NIC設定がDHCP解放待ちで一時的に失敗するケース
       - プリンタドライバのダウンロードがタイムアウトするケース

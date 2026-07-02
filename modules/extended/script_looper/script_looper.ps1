@@ -7,7 +7,10 @@
 # [NOTES]
 # - Target scripts should return New-ModuleResult for proper status detection.
 # - Legacy scripts (no ModuleResult) are also supported:
-#   no exception = Success, exception = Error.
+#   exception = Error, exit code != 0 = Error, otherwise Success.
+#   A .ps1 child that runs native commands should end with an explicit
+#   `exit 0`, or a failing native command mid-script will be reported
+#   as the child's exit code (fail-closed by design).
 # - Uses the same dual-detection pattern as Invoke-KittingScript
 #   (pipeline output + $global:_LastModuleResult fallback).
 # ========================================
@@ -158,6 +161,9 @@ foreach ($item in $enabledItems) {
         $moduleResult = $null
         try {
             $global:_LastModuleResult = $null
+            # Reset so a code left by an EARLIER command is never mistaken
+            # for this child's verdict.
+            $global:LASTEXITCODE = 0
 
             $output = & $scriptPath
 
@@ -177,11 +183,20 @@ foreach ($item in $enabledItems) {
             $global:_LastModuleResult = $null
 
             if ($moduleResult) {
+                # Explicit contract wins - the exit code is not consulted.
                 $lastStatus  = $moduleResult.Status
                 $lastMessage = $moduleResult.Message
             }
+            elseif ($LASTEXITCODE -ne 0) {
+                # Legacy script signalling failure the classic way
+                # (exit 1 from a .bat / .exe / .ps1). Without this check
+                # a failing child counted as Success and the OnError
+                # retry - this module's whole purpose - never fired.
+                $lastStatus  = "Error"
+                $lastMessage = "(legacy - exit code $LASTEXITCODE)"
+            }
             else {
-                # Legacy script: no ModuleResult, no exception → Success
+                # Legacy script: no ModuleResult, no exception, exit 0 → Success
                 $lastStatus  = "Success"
                 $lastMessage = "(legacy - no ModuleResult)"
             }
