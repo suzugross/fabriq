@@ -65,6 +65,13 @@
   「no exception = Success」の変更)。
 
 ### Removed
+- modules/extended/userdata_backup: モジュール撤去(printer_backup に続く backup 系 2 件目、
+  ユーザー判断 2026-07-02)。導入時から「v0.1.0, untested」の試作品(VERSION 0.1.2 のまま)で、
+  同機能は satellite アプリ fabriq_backuper の userdata セクション(backup/restore + 編集 UI +
+  aggregate manifest)として実装承継・本番運用中。これにより fabriq 本体の backup 系モジュールは
+  ゼロになり、「backup モジュール群の単一統合」構想は fabriq_backuper が実現形として閉じる。
+  リポ内参照は README カテゴリ表のみ(コード依存ゼロ)。README モジュール数 61/17 → 61/16。
+  既配備先では overlay 更新はモジュールを削除しない(§9.6)ため手動削除が必要。
 - modules/extended/printer_backup: モジュール撤去(printer_backup.ps1 / printer_restore.ps1 ほか
   全 8 ファイル)。プリンタ設定の backup/restore 要件は satellite アプリ fabriq_backuper が承継して
   おり、fabriq 側での使用想定がなくなったため(ユーザー判断 2026-07-02)。第 2 次再監査の指摘
