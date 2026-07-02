@@ -246,7 +246,12 @@ foreach ($item in $resolvedItems) {
 }
 
 Write-Host ""
-$verified = ($verifyFail -eq 0)
+# Invalid rows are excluded from the verify loop, so with zero verifiable
+# rows $verifyFail stays 0 and a bare ($verifyFail -eq 0) would report
+# Verified=true for a run where every row failed validation. Zero
+# verified checks means "nothing was verified" -> $null (not implemented),
+# never $true.
+$verified = if (($verifyPass + $verifyFail) -eq 0) { $null } else { $verifyFail -eq 0 }
 
 # ========================================
 # Step 6: Aggregate and return result

@@ -357,12 +357,23 @@ foreach ($item in $enabledItems) {
     $verifiedSources[$srcKey] = $true
 
     $actualMB = Get-PartitionSizeMB -DriveLetter $srcLetter
+    if ($actualMB -le 0) {
+        # Unreadable partition (Get-PartitionSizeMB returns 0): fail-closed
+        # rather than letting 0 pass the "at or below target" predicate.
+        Write-Host "  [VERIFY FAILED] $($srcLetter): partition size unreadable" -ForegroundColor Red
+        $verifyFail++
+        continue
+    }
+    # Match the apply contract: the shrink step accepts "already at or
+    # below target" as applied (Skip), so verification must too. Only a
+    # partition still LARGER than target (+5% tolerance) is a failed
+    # shrink; a smaller one was declared acceptable at apply time.
     $tolerance = $targetMB * 0.05
-    if ([math]::Abs($actualMB - $targetMB) -le $tolerance) {
-        Write-Host "  [VERIFIED] $($srcLetter): size $($actualMB) MB (target: $($targetMB) MB)" -ForegroundColor Green
+    if ($actualMB -le ($targetMB + $tolerance)) {
+        Write-Host "  [VERIFIED] $($srcLetter): size $($actualMB) MB (target: <= $($targetMB) MB)" -ForegroundColor Green
         $verifyPass++
     } else {
-        Write-Host "  [VERIFY FAILED] $($srcLetter): size $($actualMB) MB (expected: ~$($targetMB) MB)" -ForegroundColor Red
+        Write-Host "  [VERIFY FAILED] $($srcLetter): size $($actualMB) MB (expected: <= ~$($targetMB) MB)" -ForegroundColor Red
         $verifyFail++
     }
 }

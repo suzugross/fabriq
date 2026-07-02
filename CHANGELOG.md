@@ -121,6 +121,31 @@
   (2026-07-02 監査 K-2)。履歴 CSV が掴まれたまま(Excel 等)だと行が無警告で消失し、HTML チェックリスト欠落
   + __RESTART__ 跨ぎの __GATE__ 種付けが失敗知識を失うため、枯渇時に Show-Warning でモジュール名と原因の
   典型(history.csv を開いているアプリ)を通知する。fail-open(実行継続)は従来通り。公開 API 不変。
+- modules/extended/userdata_backup: Verified の false-PASS を修正(2026-07-02 監査 V-1・最重要)。
+  (1) `$verified` 判定が `$failCount` を無視していたため robocopy 全滅(exit>=8)でも Verified=true を返せた
+  → `$failCount -eq 0` を含める(兄弟 userdata_restore と同式)。(2) verify がモジュール自身の事前作成
+  ディレクトリへの Test-Path のみで Failed エントリにも [VERIFIED] を出していた → status=Failed の非 skip
+  エントリを明示的に [VERIFY FAILED] 計上。(3) エントリ dir 作成失敗が manifest 非登録で検証・証跡の両方から
+  消えていた → Failed エントリとして manifest に記録。backup PASS を根拠に移行元を消す運用での
+  データ消失リスクを封鎖。VERSION 0.1.1→0.1.2(PATCH)。
+- modules/standard/browser_addon_config: 全行が検証不能(非対応ブラウザ/ID 解決不能)のとき Verified=true
+  を返す集計バグを修正(2026-07-02 監査 V-3)。invalid 行は verify ループから除外されるため検証ゼロ件でも
+  `$verifyFail -eq 0` が真になっていた → 検証実施ゼロ件は `$null`(検証未実施)を返す。
+  VERSION 1.0.0→1.0.1(PATCH)。
+- modules/standard/reg_hkcu_config: (1) Default プロファイルのハイブ load 失敗時、HIVE 側 verify が丸ごと
+  スキップされ「Default プロファイル半分が未適用のまま Success+Verified=true」になる false-PASS を修正
+  (2026-07-02 監査)— hive 未ロード時は各行の HIVE 半分を [VERIFY FAILED] 計上(unload 失敗処理と対称の
+  fail-closed)。(2) REG_EXPAND_SZ 行が「Get-ItemProperty の展開後値 vs CSV の生 %VAR%」比較で恒常
+  false-FAIL になる問題を修正 — `Test-RegistryValueMatch` に ExpandString 分岐を追加し
+  DoNotExpandEnvironmentNames で未展開生値を読んで比較。VERSION 1.1.1→1.1.2(PATCH)。
+- modules/standard/reg_hklm_config: REG_EXPAND_SZ の恒常 false-FAIL を修正(reg_hkcu_config と同一の
+  ExpandString 分岐を `Test-RegistryValueMatch` に追加)。VERSION 1.1.1→1.1.2(PATCH)。
+- modules/standard/partition_config: shrink の verify 述語が apply 契約と非対称だった問題を修正
+  (2026-07-02 監査 P-2)。apply は「target 以下なら適用済み=Skip」を受理するのに verify は ±5% の等値を
+  要求し、正当により小さい partition が Verified=false → __GATE__ を不当ブロックしていた
+  → 述語を「actual <= target+5%」に整合。あわせて partition サイズ読取不能(0)を fail-closed で
+  [VERIFY FAILED] に(旧等値式では自然に FAIL だったが新述語では 0 が通過するため明示ガード)。
+  VERSION 1.1.1→1.1.2(PATCH)。
 - apps/fabriq_operator (execution_toolbar.ps1): Execution Toolbar の Surkitinisme アートパネルが、UI
   再読み込み(エクスプローラー再起動 / ディスプレイ・解像度変更)を挟むとクラッシュダイアログを出す不具合を
   修正。真因は `Initialize-ArtBuffer` の dispose 順序: PictureBox(`$artCanvas`)が `.Image` で保持中の
