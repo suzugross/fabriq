@@ -175,10 +175,40 @@ function Get-ScaledWaitMs {
 }
 
 # ========================================
+# Secret masking
+# ========================================
+# Values decrypted from ENC: cells must never reach a log surface in
+# plaintext: Write-PianistLog mirrors to Show-* which lands in the session
+# transcript (delivered to the customer by log_uploader) and in telemetry.
+# Every decrypted value is registered here and replaced with *** in every
+# logged message. The real value still flows to the input actions
+# (Type/Paste) untouched - only the log surfaces are masked.
+$script:PianistSecretValues = New-Object System.Collections.Generic.List[string]
+
+function Register-PianistSecret {
+    param([string]$Value)
+    if ([string]::IsNullOrEmpty($Value)) { return }
+    if (-not $script:PianistSecretValues.Contains($Value)) {
+        $script:PianistSecretValues.Add($Value)
+    }
+}
+
+function Get-PianistMaskedText {
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text) -or $script:PianistSecretValues.Count -eq 0) { return $Text }
+    # Longest first, so a secret containing another secret is fully masked.
+    foreach ($secret in ($script:PianistSecretValues | Sort-Object -Property Length -Descending)) {
+        $Text = $Text.Replace($secret, '***')
+    }
+    return $Text
+}
+
+# ========================================
 # Logging helper - mirror to console (Show-Info) and the in-form log
 # ========================================
 function Write-PianistLog {
     param([string]$Message, [string]$Level = "INFO")
+    $Message = Get-PianistMaskedText -Text $Message
     if ($null -ne $script:logBox) {
         $stamp = Get-Date -Format "HH:mm:ss"
         $color = switch ($Level) {
@@ -256,7 +286,9 @@ function Resolve-PianistEncryptedCell {
     if ([string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase)) { return $Cell }
     if (-not (Get-Command Unprotect-FabriqValue -ErrorAction SilentlyContinue)) { return $Cell }
     try {
-        return (Unprotect-FabriqValue -EncryptedValue $Cell -Passphrase $global:FabriqMasterPassphrase)
+        $plain = Unprotect-FabriqValue -EncryptedValue $Cell -Passphrase $global:FabriqMasterPassphrase
+        Register-PianistSecret -Value $plain
+        return $plain
     } catch {
         Write-PianistLog "Decrypt failed for an encrypted cell (using ciphertext as-is): $_" "WARN"
         return $Cell
@@ -326,6 +358,7 @@ function Build-PianistValuesDict {
             if (-not [string]::IsNullOrWhiteSpace($global:FabriqMasterPassphrase) -and (Get-Command Unprotect-FabriqValue -ErrorAction SilentlyContinue)) {
                 try {
                     $val = Unprotect-FabriqValue -EncryptedValue $val -Passphrase $global:FabriqMasterPassphrase
+                    Register-PianistSecret -Value $val
                 } catch {
                     Write-PianistLog "Decrypt failed (legacy values.csv row Key=$($r.Key)): $_" "WARN"
                 }
