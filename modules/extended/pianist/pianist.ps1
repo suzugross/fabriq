@@ -84,6 +84,21 @@ public class PianistWin32 {
 "@
 }
 
+# Separate type on purpose: PianistWin32 above is guarded by PSTypeName and
+# cannot gain new members on re-run within the same process. Additions go
+# into their own guarded type so a cached PianistWin32 never lacks them.
+if (-not ([System.Management.Automation.PSTypeName]'PianistWin32Fg').Type) {
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public class PianistWin32Fg {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+}
+"@
+}
+
 # ========================================
 # Color Scheme (Fabriq Standard)
 # ========================================
@@ -130,6 +145,12 @@ $script:currentPhaseIndex   = -1
 $script:phaseStatus         = @{}
 $script:UserAction          = $null   # "done" | "cancel" | $null
 $script:profilesRoot        = Join-Path $PSScriptRoot "profiles"
+
+# Variables whose ENC: cell could not be decrypted (missing/wrong master
+# passphrase, kernel function absent). A step that references one of these
+# FAILS instead of typing the raw "ENC:<Base64>" string into the target UI.
+# Keyed by variable name; reset on every profile (re)load.
+$script:pianistFailedSecretVars = @{}
 
 # Run-time control flags (since v1.6.0). Defaults are no-ops so the
 # untouched execution path stays bit-for-bit identical to v1.5.0.
@@ -309,6 +330,7 @@ function Resolve-PianistEncryptedCell {
 function Build-PianistValuesDict {
     param([array]$Rows)
     $dict = @{}
+    $script:pianistFailedSecretVars = @{}
     if ($null -eq $Rows -or $Rows.Count -eq 0) { return $dict }
 
     $columns = @($Rows[0].PSObject.Properties.Name)
@@ -345,6 +367,11 @@ function Build-PianistValuesDict {
             }
             if ($null -ne $cell) {
                 $dict[$col] = Resolve-PianistEncryptedCell -Cell $cell
+                # Pass-through of the ENC: prefix means decryption did not
+                # happen (missing passphrase / kernel fn absent / bad key).
+                if ($cell.StartsWith('ENC:') -and ([string]$dict[$col]).StartsWith('ENC:')) {
+                    $script:pianistFailedSecretVars[$col] = $true
+                }
             }
         }
         return $dict
@@ -361,7 +388,13 @@ function Build-PianistValuesDict {
                     Register-PianistSecret -Value $val
                 } catch {
                     Write-PianistLog "Decrypt failed (legacy values.csv row Key=$($r.Key)): $_" "WARN"
+                    $script:pianistFailedSecretVars[$r.Key] = $true
                 }
+            }
+            else {
+                # Encrypted=1 but no passphrase / kernel fn: value stays
+                # ciphertext. Mark so steps using it fail instead of typing it.
+                $script:pianistFailedSecretVars[$r.Key] = $true
             }
         }
         $dict[$r.Key] = $val
@@ -417,20 +450,42 @@ function Load-PianistProfileData {
 # ========================================
 function Expand-Variables {
     param([string]$Text)
-    if ([string]::IsNullOrEmpty($Text)) { return $Text }
-    if ($null -eq $script:currentProfile) { return $Text }
+    return (Expand-PianistValueChecked -Text $Text).Text
+}
+
+# Checked expansion: same substitution as Expand-Variables, but also
+# reports which $Var references had no values.csv entry (Unresolved) and
+# which resolved to an undecrypted ENC: secret (FailedSecrets). Collection
+# happens DURING substitution, so a resolved value that itself contains a
+# "$Word"-looking substring is never re-scanned (no false positives).
+function Expand-PianistValueChecked {
+    param([string]$Text)
+    $unresolved = @{}
+    $failedSecrets = @{}
+    if ([string]::IsNullOrEmpty($Text) -or $null -eq $script:currentProfile) {
+        return [PSCustomObject]@{ Text = $Text; Unresolved = @(); FailedSecrets = @() }
+    }
 
     $dict = $script:currentProfile.ValuesDict
-    return [System.Text.RegularExpressions.Regex]::Replace(
+    $expanded = [System.Text.RegularExpressions.Regex]::Replace(
         $Text,
         '\$([A-Za-z_][A-Za-z0-9_]*)',
         {
             param($m)
             $key = $m.Groups[1].Value
-            if ($dict.ContainsKey($key)) { return [string]$dict[$key] }
+            if ($dict.ContainsKey($key)) {
+                if ($script:pianistFailedSecretVars.ContainsKey($key)) { $failedSecrets[$key] = $true }
+                return [string]$dict[$key]
+            }
+            $unresolved[$key] = $true
             return $m.Value
         }
     )
+    return [PSCustomObject]@{
+        Text          = $expanded
+        Unresolved    = @($unresolved.Keys)
+        FailedSecrets = @($failedSecrets.Keys)
+    }
 }
 
 # ========================================
@@ -504,6 +559,21 @@ function Invoke-PianistOpen {
     }
 }
 
+# Foreground with verification: SetForegroundWindow can be silently refused
+# (foreground lock, elevated target). Success is only claimed after
+# GetForegroundWindow reads back the requested handle. Retries a few times
+# because Windows briefly delays foreground transfers.
+function Set-PianistVerifiedFocus {
+    param([IntPtr]$Hwnd)
+    if ($Hwnd -eq [IntPtr]::Zero) { return $false }
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        [void][PianistWin32]::Focus($Hwnd)
+        Start-Sleep -Milliseconds 60
+        if ([PianistWin32Fg]::GetForegroundWindow() -eq $Hwnd) { return $true }
+    }
+    return $false
+}
+
 function Invoke-PianistWaitWin {
     param([string]$Title, [int]$TimeoutMs)
     if ($TimeoutMs -le 0) { $TimeoutMs = 10000 }
@@ -530,9 +600,13 @@ function Invoke-PianistWaitWin {
         }
         $hwnd = [PianistWin32]::FindByTitleContains($Title)
         if ($hwnd -ne [IntPtr]::Zero) {
-            [void][PianistWin32]::Focus($hwnd)
-            Start-Sleep -Milliseconds 300
-            return $true
+            # Window exists - claim success only once it verifiably holds
+            # the foreground; otherwise keep retrying until the timeout.
+            if (Set-PianistVerifiedFocus -Hwnd $hwnd) {
+                Start-Sleep -Milliseconds 300
+                return $true
+            }
+            Write-PianistLog "Window found but focus not acquired yet (retrying): '$Title'" "WARN"
         }
         Start-Sleep -Milliseconds 400
         $elapsed += 400
@@ -546,20 +620,46 @@ function Invoke-PianistAppFocus {
     if ([string]::IsNullOrWhiteSpace($Title)) { return $false }
     $hwnd = [PianistWin32]::FindByTitleContains($Title)
     if ($hwnd -ne [IntPtr]::Zero) {
-        [void][PianistWin32]::Focus($hwnd)
-        Start-Sleep -Milliseconds 200
-        return $true
+        if (Set-PianistVerifiedFocus -Hwnd $hwnd) {
+            Start-Sleep -Milliseconds 200
+            return $true
+        }
+        Write-PianistLog "Focus refused for window '$Title' (foreground lock?)" "ERROR"
+        return $false
     }
     try {
         $r = $script:wsShell.AppActivate($Title)
         Start-Sleep -Milliseconds 200
-        return [bool]$r
+        if (-not [bool]$r) { return $false }
+        # Best-effort verification of the AppActivate fallback: if the
+        # window is enumerable now, require it to hold the foreground.
+        # If still not enumerable (AppActivate's own matching rules),
+        # accept its verdict - same trust level as before this change.
+        $hwnd = [PianistWin32]::FindByTitleContains($Title)
+        if ($hwnd -ne [IntPtr]::Zero) {
+            return ([PianistWin32Fg]::GetForegroundWindow() -eq $hwnd)
+        }
+        return $true
     } catch { return $false }
+}
+
+# Type sends LITERAL text: SendKeys metacharacters (+ ^ % ~ ( ) { } [ ])
+# are escaped so passwords like "P+ss%25" arrive verbatim instead of being
+# interpreted as Alt/Ctrl/Shift chords. Use the Key action for key syntax.
+function ConvertTo-PianistLiteralKeys {
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $Text.ToCharArray()) {
+        if ('+^%~(){}[]'.IndexOf($ch) -ge 0) { [void]$sb.Append('{').Append($ch).Append('}') }
+        else                                 { [void]$sb.Append($ch) }
+    }
+    return $sb.ToString()
 }
 
 function Invoke-PianistType {
     param([string]$Text)
-    try { [System.Windows.Forms.SendKeys]::SendWait($Text); return $true }
+    try { [System.Windows.Forms.SendKeys]::SendWait((ConvertTo-PianistLiteralKeys -Text $Text)); return $true }
     catch { Write-PianistLog "Type failed: $_" "ERROR"; return $false }
 }
 
@@ -617,13 +717,26 @@ function Invoke-PianistStep {
     if (-not $Step) { return $false }
 
     $action = $Step.Action
-    $value  = Expand-Variables $Step.Value
+    $checked = Expand-PianistValueChecked -Text $Step.Value
+    $value  = $checked.Text
     $waitMs = 0
     [int]::TryParse($Step.Wait, [ref]$waitMs) | Out-Null
 
     $label = if ($Step.PhaseID) { "$($Step.PhaseID).$($Step.StepNo)" } else { "Step$($Step.StepNo)" }
     $note  = if ($Step.Note) { " - $($Step.Note)" } else { "" }
     Write-PianistLog "$label $action`: $value$note"
+
+    # Fail-closed value validation (before any UI interaction):
+    # - $Var with no values.csv entry would be typed literally
+    # - ENC: variable that never decrypted would leak ciphertext keystrokes
+    if ($checked.Unresolved.Count -gt 0) {
+        Write-PianistLog "  -> FAILED: unresolved variable(s): $($checked.Unresolved -join ', ') (no values.csv entry)" "ERROR"
+        return $false
+    }
+    if ($checked.FailedSecrets.Count -gt 0) {
+        Write-PianistLog "  -> FAILED: undecrypted ENC: variable(s): $($checked.FailedSecrets -join ', ') (missing/wrong master passphrase)" "ERROR"
+        return $false
+    }
 
     $ok = $false
     switch ($action) {
@@ -692,7 +805,18 @@ function Invoke-PianistPhase {
             Write-PianistLog "===== Stopped by operator before Step $stoppedAt/$($steps.Count) =====" "WARN"
             break
         }
-        if (Invoke-PianistStep -Step $steps[$i]) { $ok++ } else { $fail++ }
+        if (Invoke-PianistStep -Step $steps[$i]) {
+            $ok++
+        }
+        else {
+            # Fail-closed: a failed step means the target UI is no longer in
+            # the state the remaining steps assume. Continuing would type
+            # into an unknown window/control, so the phase aborts here.
+            $fail++
+            $remaining = $steps.Count - ($i + 1)
+            Write-PianistLog "===== Aborted at Step $($i + 1)/$($steps.Count) - $remaining remaining step(s) skipped (fail-closed) =====" "ERROR"
+            break
+        }
     }
 
     $autoStatus = if ($script:stopRequested) { "Error" }
@@ -727,6 +851,23 @@ function Build-PhasesOrdered {
         if ($seen.ContainsKey($s.PhaseID)) { continue }
         $seen[$s.PhaseID] = $true
         $stepsOfPhase = @($script:currentProfile.Procedure | Where-Object { $_.PhaseID -eq $s.PhaseID })
+        # Execution follows CSV row order; StepNo is a display label. Warn
+        # when they disagree so a mis-sorted procedure.csv is caught at load
+        # instead of surprising the operator mid-run. No reordering is done.
+        $nums = @()
+        $allInt = $true
+        foreach ($sp in $stepsOfPhase) {
+            $n = 0
+            if ([int]::TryParse([string]$sp.StepNo, [ref]$n)) { $nums += $n } else { $allInt = $false; break }
+        }
+        if ($allInt) {
+            for ($k = 1; $k -lt $nums.Count; $k++) {
+                if ($nums[$k] -lt $nums[$k - 1]) {
+                    Write-PianistLog "Phase '$($s.PhaseID)': StepNo order differs from row order (rows execute in file order)" "WARN"
+                    break
+                }
+            }
+        }
         $script:phasesOrdered += [PSCustomObject]@{
             ID    = $s.PhaseID
             Label = $s.PhaseLabel
@@ -2127,6 +2268,16 @@ $btnSpeed.Add_Click({
 
 $form.Add_FormClosing({
     param($sender, $e)
+    # Closing while a phase runs: request a stop and keep the form alive.
+    # Letting the close proceed would leave the automation loop typing into
+    # whatever holds focus while its own UI is disposed. The operator closes
+    # again once the run has stopped (isRunning returns to $false).
+    if ($script:isRunning) {
+        $script:stopRequested = $true
+        $e.Cancel = $true
+        Write-PianistLog "Close requested mid-run - stopping automation first; close again once stopped" "WARN"
+        return
+    }
     if ($script:UserAction -ne "done" -and $script:UserAction -ne "cancel") {
         $ans = [System.Windows.Forms.MessageBox]::Show(
             "Cancel Pianist? Phase progress will be recorded as Cancelled.",
@@ -2159,7 +2310,12 @@ if ($defaultPhase) {
 }
 Set-CurrentPhase $initialIdx
 Update-RunControlButtons
-Write-PianistLog "Pianist v1.6.0 ready. Profile [$($script:currentProfile.Name)] - $($script:phasesOrdered.Count) phases."
+$script:pianistVersion = "unknown"
+try {
+    $verLine = Get-Content -Path (Join-Path $PSScriptRoot "VERSION") -ErrorAction Stop | Select-Object -First 1
+    if (-not [string]::IsNullOrWhiteSpace($verLine)) { $script:pianistVersion = $verLine.Trim() }
+} catch { }
+Write-PianistLog "Pianist v$($script:pianistVersion) ready. Profile [$($script:currentProfile.Name)] - $($script:phasesOrdered.Count) phases."
 
 # Main wait loop - DoEvents polling until UserAction set
 $script:UserAction = $null
