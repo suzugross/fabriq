@@ -133,6 +133,20 @@
   AutoLogonEnabled と module が読む 4 設定は不変。VERSION 1.1.1→1.1.2(PATCH)。
 
 ### Fixed
+- modules/standard/bitlocker_config: TpmAndPin 昇格まわりの false-Fail / PIN バイパス残存リスクを修正
+  (2026-07-02 監査 I-1/I-2・Wave 2C)。(1) 「適用済み」判定が ProtectionStatus=On のみで、自 module の
+  verify が受理する延期形(FullyDecrypted + RecoveryPassword protector = 次回ブート予約)や
+  EncryptionInProgress を認めず、延期ウィンドウ中の再実行が Enable-BitLocker に再突入して false-Fail に
+  なっていた → skip 判定を verify の受理形に整合。(2) TPM-only→TpmAndPin 昇格で「Add 成功後の
+  Remove-old-Tpm が stale KeyProtectorId で 0x80070490(要素なし)を投げる」— 一部 Windows は
+  TpmAndPin 追加時に bare Tpm を自動除去するため — を修正: Remove 前に volume を読み直し、
+  「既に消えている」を成功扱い(false-Error 解消)。(3) TpmPin と bare Tpm が併存する残存状態
+  (Add 成功・Remove 失敗の履歴で PIN が恒久バイパスされる危険形)を skip せず bare Tpm を除去する
+  self-heal 分岐を追加。(4) PIN 行の Step 5.5 verify に「TpmPin あり かつ bare Tpm なし」の protector
+  形状読返しを追加(適用パス・昇格パス両方)。VM 実機検証(OS ドライブ・延期 enable・reboot なし・
+  finally で全 protector 除去): 延期ウィンドウ昇格 / 冪等 re-run skip / 残存 self-heal の 3 本 PASS、
+  teardown で FullyDecrypted・protector 0 復元。VERSION 1.1.0→1.2.0(MINOR・verify 強化 = 後方互換な
+  機能追加)。
 - modules/extended/group_config: メンバー照合が CSV の Domain 列を無視した leaf 名ワイルドカード一致
   (`-like "*\<MemberName>"`)だったため、**別 authority の同名 principal が「既にメンバー」skip を誘発し
   意図したドメイン principal が永遠に追加されない** cross-authority false-PASS を修正
