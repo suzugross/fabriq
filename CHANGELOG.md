@@ -15,6 +15,8 @@
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-07-02
+
 ### Security
 - modules/extended/pianist: ENC: セルから復号した秘密値が平文のままログ面へ流れていた問題を修正
   (2026-07-02 監査 D-1・Wave 2A)。step ログ(`P1.3 Type: <値>`)が Write-PianistLog → Show-* 経由で
