@@ -82,10 +82,11 @@ Restore Point Configuration - Guide
   AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
 
 ■ Post-Apply Verification
-  本モジュールの Post-Apply Verification は限定的です。
-  enable_protection / remove_24h_limit についてはレジストリ読み返しに
-  よる冪等性チェックが実装されており事実上の Verification になりますが、
-  set_storage_size / create_restore_point は読み返し検証を行いません。
-  New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列
-  は空欄になります。実効性は vssadmin list shadowstorage や
-  Get-ComputerRestorePoint で手動確認してください。
+  `-Verified` を返却します（v1.2.0〜）。読み返し検証の対象:
+  ・enable_protection : SR 有効を RPSessionInterval で直接読み返し照合
+  ・remove_24h_limit  : SystemRestorePointCreationFrequency=0 の読み返し
+  ・create_restore_point : 作成後に SequenceNumber が厳密に増えたことを確認
+  検証対象が 1 件もなかった実行は Verified=null、全件一致で true、
+  1 件でも不一致/適用失敗があれば false。
+  set_storage_size（vssadmin）は読み返し検証の対象外です — 実効性は
+  vssadmin list shadowstorage で手動確認してください。
