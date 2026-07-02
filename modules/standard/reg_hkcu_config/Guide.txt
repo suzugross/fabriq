@@ -121,8 +121,9 @@ Active Setup でもタイミング問題（Explorer 初期化時の上書き）�
 ■ 前提条件
 ・管理者権限が必要です（Default ハイブ load/unload、HKLM 書き込み、
   Active Setup / Startup Batch の配置）
-・CSV は Shift-JIS（ANSI）で保存してください
-・BOM 付き UTF-8 はヘッダー読み込みで不具合が出る場合があるため非推奨
+・CSV は UTF-8（BOM 付き）+ CRLF での保存を推奨します（Shift-JIS/CP932 も
+  読み込み可能。同梱の reg_hkcu_list.csv は UTF-8 BOM 付きで、BOM による
+  ヘッダー読み込み不具合は現行版にはありません）
 
 ■ 動作の流れ
 

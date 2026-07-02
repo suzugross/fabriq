@@ -75,10 +75,17 @@ PIN Protector は OS ドライブ（VolumeType=OperatingSystem）にのみ適用
      ・統合パスモード: $global:FabriqEvidenceBasePath\bitlocker\
      ・フォールバック: evidence\bitlocker\<日付>_<UID>_<PC名>\
   8. ドライブごとに BitLocker 処理
-     ・既に ProtectionStatus=On かつ PIN 要求あり + TpmPin 未保有
+     ・「適用済み」判定（v1.2.0〜）は次の 3 形態:
+       ProtectionStatus=On / EncryptionInProgress /
+       FullyDecrypted + RecoveryPassword protector（= 次回ブート予約の延期形）
+     ・適用済み + PIN 要求あり + TpmPin 未保有
        → TpmAndPin 追加 + 古い Tpm-only Protector 削除
-     ・既に ProtectionStatus=On（PIN 要件満たす or PIN 不要）→ Skip
-     ・未暗号化 → Enable-BitLocker で有効化
+         （削除前に volume を読み直し「既に消えている」は成功扱い —
+          一部 Windows は TpmAndPin 追加時に bare Tpm を自動除去するため）
+     ・適用済み + TpmPin あり + bare Tpm が併存（過去の Remove 失敗残骸 =
+       PIN 恒久バイパスの危険形）→ self-heal で bare Tpm を除去（v1.2.0〜）
+     ・適用済み（PIN 要件充足 or PIN 不要）→ Skip
+     ・未適用 → Enable-BitLocker で有効化
        - PIN あり: TpmAndPinProtector + RecoveryPasswordProtector を別途追加
        - PIN なし: TPM-only + RecoveryPasswordProtector
   9. 回復キー（RecoveryPassword）取得
@@ -120,19 +127,29 @@ PIN Protector は OS ドライブ（VolumeType=OperatingSystem）にのみ適用
   → 後続モジュール
 
 ■ Post-Apply Verification
-現在、Enable/Disable/Await のいずれも `-Verified` フラグは返却していません。
-
-・Enable : 回復キー取得 + エビデンスファイル出力をもって成功扱い。
-           暗号化は非同期でバックグラウンド進行するため、ここでの
-           Verified=true は「完了」を意味しないこと。完了確認は
-           bitlocker_await.ps1 に委譲しています。
-・Disable: Disable-BitLocker 実行の受理をもって成功扱い。復号完了は Await で確認。
+・Enable : `-Verified` を返却します（v1.1.0〜、受理レベル検証）。
+           適用後に「暗号化受理」署名を読み返し照合:
+             (a) 即時形 — VolumeStatus ∈ {EncryptionInProgress, FullyEncrypted}
+                 + 実暗号化方式が設定済み
+             (b) 延期形 — FullyDecrypted + RecoveryPassword protector
+                 （OS ドライブ + SkipHardwareTest=FALSE で次回ブートに予約）
+           PIN 行はさらに protector 形状（TpmPin あり かつ bare Tpm なし）
+           も照合します（v1.2.0〜）。ProtectionStatus は完了/再起動まで
+           Off のままのため判定に使いません（偽 FAIL 防止）。
+           **Verified=PASS は「受理」であって「暗号化完了」ではない**こと。
+           完了確認は bitlocker_await.ps1 に委譲しています。
+・Disable: `-Verified` 未返却。Disable-BitLocker 実行の受理をもって成功扱い。
+           復号完了は Await で確認。
 ・Await  : FullyEncrypted / FullyDecrypted 判定で Success 集計しますが、
            BatchResult の -Verified フラグは未設定です。
 
 ■ 冪等性
-・Enable  : ProtectionStatus=On のドライブは Skip（PIN 追加が必要な場合のみ
-            Tpm→TpmAndPin へアップグレード）。回復キーは改めて保存。
+・Enable  : 「適用済み」3 形態（On / EncryptionInProgress / FullyDecrypted+
+            RecoveryPassword = 延期形）のドライブは Skip（PIN 追加が必要な
+            場合のみ Tpm→TpmAndPin へアップグレード、TpmPin+bare Tpm 併存は
+            self-heal で bare Tpm 除去）。回復キーは改めて保存。
+            延期ウィンドウ中の再実行が Enable-BitLocker に再突入して
+            false-Fail になる問題は v1.2.0 で解消済み。
 ・Disable : FullyDecrypted / DecryptionInProgress のドライブは Skip。
 ・Await   : 進行中でないドライブは最終集計側で Skip 扱い。
 
@@ -150,5 +167,7 @@ PIN Protector は OS ドライブ（VolumeType=OperatingSystem）にのみ適用
   事前確認してください。
 ・AutoUnlock はシステムドライブが FullyEncrypted になってから有効化される
   仕様のため、Enable 直後の AutoUnlock 設定は失敗することがあります
-  （Warning のみで処理は継続）。bitlocker_await の後に再実行すると
-  Skip パスから AutoUnlock が適用可能です。
+  （Warning のみで処理は継続）。**再実行しても Skip パスは AutoUnlock を
+  再適用しません** — 失敗した場合は暗号化完了（bitlocker_await）後に
+  手動で `Enable-BitLockerAutoUnlock -MountPoint <drive>` を実行して
+  ください。

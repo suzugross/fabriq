@@ -54,5 +54,10 @@ Disabled 状態のアダプタは除外されますが、Disconnected（未接�
   ・DNS サーバ: Get-DnsClientServerAddress の ServerAddresses を順序込みで照合
 
 全項目一致なら -Verified=true、1 件でも不一致があれば false を返します。
-設定対象アダプタが 0 件の場合（hostlist で Ethernet/Wi-Fi 両方空欄）は
-Verified=null となります。
+hostlist に設定値があるのに該当アダプタが見つからない場合（例: Wi-Fi
+設定ありで無線 NIC 不在）は、検証分母から黙って落とさず **false 側に
+計上**します（v1.1.1〜、fail-closed）。Verified=null になるのは
+「設定対象もアダプタ欠落も 0 件」（hostlist で Ethernet/Wi-Fi 両方空欄）
+の場合のみです。
+また、適用前に現在値が hostlist と完全一致するアダプタは適用を
+スキップします（厳格 pre-apply 冪等性チェック。スキップ時も検証は実施）。

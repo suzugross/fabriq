@@ -137,6 +137,10 @@ refactor を容易化する設計。
      ・ExcludePattern: /XF（file） + /XD（dir）
   6. manifest.json + _restore_notes.txt 書き出し
   7. Post-Apply Verification
+     ・Failed になった entry は検証分母に入り FAIL 計上されます
+       （v0.1.2〜。失敗行が検証から漏れて Verified=PASS になる
+        false-PASS を解消）。バックアップ先ディレクトリの作成失敗も
+       manifest に Failed entry として記録されます
   8. New-BatchResult 返却
 
   [Restore]

@@ -30,7 +30,8 @@
 
 ■ 前提条件
 ・管理者権限が必要です
-・CSVのエンコーディングは Shift-JIS（ANSI）で保存してください
+・CSV は UTF-8（BOM 付き）+ CRLF での保存を推奨します（Shift-JIS/CP932 も
+  読み込み可能。同梱の reg_hklm_list.csv は UTF-8 BOM 付き）
 
 ■ $FORCE_OVERWRITE フラグ（reg_hklm_config.ps1 の先頭で定義）
 既定値は $true。全エントリを現在値に関係なく常に上書き適用します。
