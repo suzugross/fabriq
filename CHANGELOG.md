@@ -15,6 +15,23 @@
 
 ## [Unreleased]
 
+### Security
+- modules/extended/pianist: 打鍵系の fail-open を fail-closed 化(再監査 H1/H2/H3/M1/M3・Wave 3A)。
+  (1) **Step 失敗で Phase を即中断**(従来は失敗後も残 Step を実行し続け、想定と異なる画面へ
+  復号済み秘密を打鍵し得た)。(2) **AppFocus/WaitWin はフォーカス確立を GetForegroundWindow
+  読み返しで検証**(SetForegroundWindow の silent 拒否を検出。WaitWin はタイムアウトまで再試行)。
+  (3) **Type はリテラル送信化** — SendKeys メタ文字 `+^%~(){}[]` を自動エスケープ(記号入り
+  パスワードの Alt/Ctrl 誤発火を根絶。キー構文は Key アクション専用に役割分離)。(4) **未解決
+  $VarName / 復号失敗 ENC: 変数を参照する Step は失敗**(リテラル `$Var` や暗号文の打鍵を防止。
+  置換時収集方式のため解決済み値に含まれる `$文字列` の誤検出なし)。(5) **実行中のフォーム閉鎖は
+  Stop 要求へ変換**(閉鎖はキャンセルし停止後に再クローズ。自動化の野放し継続と破棄済み UI への
+  アクセスを防止)。付随: 起動バナーを VERSION ファイル動的読取に(v1.6.0 陳腐化解消)、StepNo が
+  行順と食い違う procedure.csv へのロード時 WARN(実行順は従来どおり行順・不変更)。
+  GetForegroundWindow は別型 PianistWin32Fg として追加(PSTypeName ガード済み既存型は同一
+  プロセス再実行で再定義されないため)。AST 抽出ハーネス 17/17 PASS。
+  VERSION 1.6.1→2.0.0(**MAJOR**: 既存 procedure.csv の実行意味論が変わる — 失敗時中断 +
+  Type のメタ文字リテラル化。Type でメタ文字を効かせていたプロファイルは Key へ書き換えが必要)。
+
 ### Removed
 - modules/extended/printer_backup: モジュール撤去(printer_backup.ps1 / printer_restore.ps1 ほか
   全 8 ファイル)。プリンタ設定の backup/restore 要件は satellite アプリ fabriq_backuper が承継して

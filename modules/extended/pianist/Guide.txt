@@ -135,8 +135,12 @@ hostlist.csv と同じ「1 行 = 1 ホスト、列 = 変数」の縦横配置。
                      Open  "C:\Program Files\Foo\bar.exe" /flag1 /flag2
   WaitWin      : ウィンドウタイトル <Value> を含むものが現れるまで待機
   AppFocus     : ウィンドウタイトル <Value> にフォーカス (必須パターン)
-  Type         : SendKeys でテキスト送信 ($VarName 展開)
-  Key          : SendKeys で特殊キー送信 ({ENTER}, {TAB}, ^v, %{F4})
+  Type         : テキストを**リテラル送信** ($VarName 展開)。SendKeys の
+                 メタ文字 + ^ % ~ ( ) { } [ ] は自動エスケープされるため、
+                 記号入りパスワードもそのまま入力される (since v2.0.0。
+                 メタ文字を「効かせたい」場合は Key を使うこと)
+  Key          : SendKeys で特殊キー送信 ({ENTER}, {TAB}, ^v, %{F4})。
+                 こちらはエスケープされない (キー構文をそのまま解釈)
   Wait         : 指定 ms 待機
   Copy         : 値をクリップボードへ
   Paste        : 値をクリップボードへ -> Ctrl+V
@@ -153,6 +157,22 @@ AppFocus を置いてください。
   例外:
     - 新規ウィンドウを Open で起こす Phase は AppFocus 不要
     - WaitWin は内部で SetForegroundWindow を呼ぶので兼ねる
+
+■ 実行の安全規則 (since v2.0.0)
+  - **Step が失敗すると Phase は即中断**し、残り Step は実行されません
+    (fail-closed)。失敗後の画面状態は Step 列の前提と食い違っており、
+    続行すると誤ったウィンドウへ打鍵するためです。ログに
+    "Aborted at Step N" が残り、Auto は Partial / Error になります
+  - **AppFocus / WaitWin はフォーカス確立を読み返し検証**します
+    (GetForegroundWindow 照合)。フォーカスを取れない場合は失敗
+    → 上記の中断に繋がります
+  - **未解決の $VarName / 復号できなかった ENC: 変数を使う Step は失敗**
+    します (未解決文字列や暗号文をそのまま打鍵しない)
+  - **実行中にウィンドウを閉じようとすると Stop 要求に変換**され、
+    自動化が停止してから改めて閉じられます
+  - 残存リスク: AppFocus 成功から Type までの間に第三者ウィンドウが
+    フォーカスを奪う競合は SendKeys の構造上防げません。pianist は
+    operator 立ち会いが前提のモジュールです (実行中は PC を操作しない)
 
 ■ 実行モデル (operator 視点)
   1. ダッシュボード or Profile CSV から起動
