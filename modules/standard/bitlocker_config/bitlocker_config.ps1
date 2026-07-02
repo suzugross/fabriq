@@ -330,20 +330,61 @@ foreach ($drive in $validDrives) {
     Write-Host "[$driveLetter] $($drive.Description)" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
-    # --- Check if already encrypted ---
+    # --- Check if already applied ---
+    # Match the module's own verification shapes (see Step 5.5 below):
+    #   On                    - protection active
+    #   EncryptionInProgress  - conversion underway (shape a)
+    #   FullyDecrypted + RecoveryPassword protector
+    #                         - deferred enable pending hardware test/reboot (shape b)
+    # FullyEncrypted + Off (suspended protection) is deliberately NOT treated
+    # as applied: that state needs operator attention and keeps surfacing as
+    # an Error through the enable path, as before. Previously only "On" was
+    # accepted, so a re-run inside the deferred window re-entered
+    # Enable-BitLocker and produced a false Fail.
     $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
-    if ($blVolume -and $blVolume.ProtectionStatus -eq "On") {
+    $rpProtector = if ($blVolume) { $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "RecoveryPassword" } } else { $null }
+    $alreadyApplied = $blVolume -and (
+        $blVolume.ProtectionStatus -eq "On" -or
+        $blVolume.VolumeStatus -eq "EncryptionInProgress" -or
+        ($blVolume.VolumeStatus -eq "FullyDecrypted" -and $rpProtector)
+    )
+    if ($alreadyApplied) {
 
         $hasPin = -not [string]::IsNullOrWhiteSpace($drive.Pin)
+        $rowMutated = $false   # set when this branch changes protector state
 
         if ($hasPin) {
             # Check if TpmPin protector already exists
             $existingTpmPin = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "TpmPin" }
             if ($existingTpmPin) {
-                Show-Skip "$driveLetter already has TpmPin protector"
+                # Self-heal: a bare Tpm protector left alongside TpmPin (e.g.
+                # a previous upgrade whose Remove step failed) permanently
+                # bypasses the PIN at boot. Detect and remove it instead of
+                # skipping past it forever.
+                $bareTpm = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" }
+                if ($bareTpm) {
+                    Show-Warning "$driveLetter has a bare Tpm protector alongside TpmPin (PIN bypass); removing..."
+                    try {
+                        foreach ($tp in $bareTpm) {
+                            $null = Remove-BitLockerKeyProtector -MountPoint $driveLetter -KeyProtectorId $tp.KeyProtectorId -ErrorAction Stop
+                            Show-Success "Removed leftover Tpm-only protector: $($tp.KeyProtectorId)"
+                        }
+                        $rowMutated = $true
+                    }
+                    catch {
+                        Show-Error "Failed to remove leftover Tpm protector on ${driveLetter}: $_ (PIN remains bypassable until fixed)"
+                        $failCount++
+                        $verifyFail++
+                        Write-Host ""
+                        continue
+                    }
+                }
+                else {
+                    Show-Skip "$driveLetter already has TpmPin protector"
+                }
             }
             else {
-                # Already encrypted with TPM-only -> Upgrade to TpmAndPin
+                # Already applied with TPM-only -> Upgrade to TpmAndPin
                 if ($blVolume.VolumeType -ne "OperatingSystem") {
                     Show-Warning "$driveLetter is not an OS drive. PIN protector only applies to OS drives. Skipping PIN."
                 }
@@ -355,18 +396,42 @@ foreach ($drive in $validDrives) {
                         $null = Add-BitLockerKeyProtector -MountPoint $driveLetter -Pin $securePin -TpmAndPinProtector -ErrorAction Stop
                         Show-Success "Added TpmAndPin protector to $driveLetter"
 
-                        # Remove old Tpm-only protector
-                        $oldTpm = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" }
-                        if ($oldTpm) {
-                            foreach ($tp in $oldTpm) {
+                        # Remove old Tpm-only protector. Re-read the volume
+                        # first: some Windows builds auto-drop the bare Tpm
+                        # protector when TpmAndPin is added, which invalidated
+                        # the stale KeyProtectorId and made the explicit
+                        # Remove throw 0x80070490 (element not found) -> a
+                        # false Error even though the goal state was reached.
+                        # A missing protector is success (goal = no bare Tpm).
+                        $reread = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
+                        $oldTpm = if ($reread) { $reread.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" } } else { $null }
+                        foreach ($tp in $oldTpm) {
+                            try {
                                 $null = Remove-BitLockerKeyProtector -MountPoint $driveLetter -KeyProtectorId $tp.KeyProtectorId -ErrorAction Stop
                                 Show-Success "Removed old Tpm-only protector: $($tp.KeyProtectorId)"
                             }
+                            catch {
+                                # Re-check: tolerate "already gone", fail only
+                                # if a bare Tpm genuinely persists (real PIN
+                                # bypass) - the Step 5.5 read-back below is the
+                                # authoritative gate on the final shape.
+                                $still = (Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue).KeyProtector |
+                                    Where-Object { $_.KeyProtectorType -eq "Tpm" -and $_.KeyProtectorId -eq $tp.KeyProtectorId }
+                                if ($still) {
+                                    Show-Error "Failed to remove old Tpm-only protector on ${driveLetter}: $_ (PIN remains bypassable)"
+                                }
+                                else {
+                                    Show-Info "Old Tpm-only protector already gone on $driveLetter (auto-removed with TpmAndPin add)"
+                                }
+                            }
                         }
+                        $rowMutated = $true
                     }
                     catch {
+                        # Add itself failed: no protector shape change.
                         Show-Error "Failed to upgrade $driveLetter to TpmAndPin: $_"
                         $failCount++
+                        $verifyFail++
                         Write-Host ""
                         continue
                     }
@@ -374,10 +439,15 @@ foreach ($drive in $validDrives) {
             }
         }
         else {
-            Show-Skip "$driveLetter is already encrypted (ProtectionStatus: On)"
+            if ($blVolume.ProtectionStatus -eq "On") {
+                Show-Skip "$driveLetter is already encrypted (ProtectionStatus: On)"
+            }
+            else {
+                Show-Skip "$driveLetter encryption already accepted (VolumeStatus: $($blVolume.VolumeStatus))"
+            }
         }
 
-        # Save recovery key for already-encrypted drives
+        # Save recovery key for already-applied drives
         $blVolume = Get-BitLockerVolume -MountPoint $driveLetter -ErrorAction SilentlyContinue
         $existingKey = $blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "RecoveryPassword" } | Select-Object -First 1
         if ($null -ne $existingKey) {
@@ -387,7 +457,23 @@ foreach ($drive in $validDrives) {
             Show-Info "Recovery key saved: $evidencePath"
         }
 
-        $skipCount++
+        if ($rowMutated) {
+            # Read back the protector shape this row was supposed to reach:
+            # TpmPin present AND no bare Tpm protector (PIN not bypassable).
+            $tpmPinOk    = [bool]($blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "TpmPin" })
+            $bareTpmGone = -not ($blVolume.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" })
+            if ($tpmPinOk -and $bareTpmGone) {
+                Show-Success "Verified: $driveLetter protector shape is TpmPin without bare Tpm"
+            }
+            else {
+                Show-Warning "Verification: $driveLetter protector shape unexpected (TpmPin=$tpmPinOk, bareTpmAbsent=$bareTpmGone)"
+                $verifyFail++
+            }
+            $successCount++
+        }
+        else {
+            $skipCount++
+        }
         Write-Host ""
         continue
     }
@@ -543,6 +629,17 @@ foreach ($drive in $validDrives) {
     else {
         Show-Warning "Verification: $driveLetter encryption not confirmed (VolumeStatus=$($vbl.VolumeStatus), recoveryProtector=$rpPresent)"
         $verifyFail++
+    }
+
+    # PIN rows: the protector shape must be TpmPin WITHOUT a bare Tpm
+    # protector (a bare Tpm next to TpmPin makes the PIN bypassable at boot).
+    if ($hasPin -and $null -ne $vbl) {
+        $tpmPinOk    = [bool]($vbl.KeyProtector | Where-Object { $_.KeyProtectorType -eq "TpmPin" })
+        $bareTpmGone = -not ($vbl.KeyProtector | Where-Object { $_.KeyProtectorType -eq "Tpm" })
+        if (-not ($tpmPinOk -and $bareTpmGone)) {
+            Show-Warning "Verification: $driveLetter protector shape unexpected (TpmPin=$tpmPinOk, bareTpmAbsent=$bareTpmGone)"
+            $verifyFail++
+        }
     }
 
     $successCount++
