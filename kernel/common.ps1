@@ -2161,7 +2161,12 @@ function Write-ExecutionHistory {
         }
     }
 
-    # Warning only if write fails (continue process)
+    # All retries exhausted: warn loudly but continue (fail-open for the
+    # run itself). A silently lost row would be missing from the HTML
+    # checklist / evidence AND from post-__RESTART__ gate seeding, so the
+    # operator must know the history CSV is not accepting writes (typical
+    # cause: the file is open in Excel).
+    Show-Warning -Message "Execution history write FAILED after $maxRetry retries ($ModuleName). Checklist/evidence will be missing this row - close any app holding history.csv open."
     return $false
 }
 
@@ -2571,6 +2576,11 @@ function Export-HtmlChecklist {
     $errorTotal     = 0
     $notRunTotal    = 0
     $gateRowTotal   = 0
+    # Module-level Post-Apply Verification failure (Verified=False on any
+    # row). Feeds the overall OK/NG verdict so a Success+Verified=FAIL run
+    # cannot ship with an "OK" headline (aligned with __GATE__ semantics,
+    # which blocks on Error/Partial AND Verified=False).
+    $moduleVerifyNG = $false
 
     $rowsHtml = ""
     foreach ($module in $DefinedModules) {
@@ -2630,7 +2640,11 @@ function Export-HtmlChecklist {
         if ($null -ne $result) {
             switch ($result.Status) {
                 "Success"   { $statusLabel = "OK";      $statusClass = "ok";      $successTotal++ }
-                "Partial"   { $statusLabel = "Partial"; $statusClass = "partial"; $successTotal++ }
+                # Partial counts toward NG: the kernel treats Partial as a
+                # failure (__GATE__ blocks, error notification beeps), so the
+                # deliverable's totals must agree. Row badge keeps the amber
+                # "Partial" label for detail.
+                "Partial"   { $statusLabel = "Partial"; $statusClass = "partial"; $errorTotal++ }
                 "Skipped"   { $statusLabel = "Skip";    $statusClass = "skip";    $skipTotal++ }
                 "Skip"      { $statusLabel = "Skip";    $statusClass = "skip";    $skipTotal++ }
                 "Cancelled" { $statusLabel = "Cancel";  $statusClass = "skip";    $skipTotal++ }
@@ -2654,6 +2668,7 @@ function Export-HtmlChecklist {
                 } else {
                     $verifiedLabel = "FAIL"
                     $verifiedClass = "ng"
+                    $moduleVerifyNG = $true
                 }
             }
         }
@@ -2689,7 +2704,7 @@ function Export-HtmlChecklist {
         $_.Source -eq "Expected" -and -not $_.Installed
     }).Count -gt 0
     $printerHasExtra = ($printerVerifyRows | Where-Object { $_.Source -eq "Extra" }).Count -gt 0
-    $hasVerifyNG = $verifyHasFailure -or $printerHasNotFound
+    $hasVerifyNG = $verifyHasFailure -or $printerHasNotFound -or $moduleVerifyNG
 
     $overallClass = if ($errorTotal -gt 0 -or $hasVerifyNG) { "overall-ng" } elseif ($notRunTotal -gt 0) { "overall-partial" } elseif ($printerHasExtra) { "overall-ca" } else { "overall-ok" }
     $overallLabel = if ($errorTotal -gt 0 -or $hasVerifyNG) { "NG" } elseif ($notRunTotal -gt 0) { "Incomplete" } elseif ($printerHasExtra) { "CA" } else { "OK" }

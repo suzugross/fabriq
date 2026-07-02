@@ -324,6 +324,61 @@ Describe 'Export-HtmlChecklist (row matching / counts / encoding)' {
         $html | Should -Match 'Total: 5 items'
     }
 
+    It 'Partial counts toward the NG chip and flips the overall verdict to NG' {
+        $defined = @(
+            (New-DefinedModule -MenuName 'A' -Order 10),
+            (New-DefinedModule -MenuName 'B' -Order 20)
+        )
+        $results = @(
+            (New-HistoryResult -Operation 'A' -Status 'Success' -Order 10),
+            (New-HistoryResult -Operation 'B' -Status 'Partial' -Order 20)
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        # Row badge keeps the amber Partial label; totals treat it as NG
+        # (kernel semantics: __GATE__ blocks on Partial).
+        $html | Should -Match '>Partial<'
+        $html | Should -Match 'chip-ok">OK 1<'
+        $html | Should -Match 'chip-ng">NG 1<'
+        $html | Should -Match 'overall-ng">NG<'
+    }
+
+    It 'Success + Verified=FAIL flips the overall verdict to NG (module verify feeds the headline)' {
+        $defined = @(
+            (New-DefinedModule -MenuName 'A' -Order 10),
+            (New-DefinedModule -MenuName 'B' -Order 20)
+        )
+        $results = @(
+            (New-HistoryResult -Operation 'A' -Status 'Success' -Order 10 -Verified $true),
+            (New-HistoryResult -Operation 'B' -Status 'Success' -Order 20 -Verified $false)
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Match '>FAIL<'
+        $html | Should -Match 'chip-ok">OK 2<'
+        $html | Should -Match 'overall-ng">NG<'
+    }
+
+    It 'all-Success run with Verified PASS/null keeps the overall verdict OK' {
+        $defined = @(
+            (New-DefinedModule -MenuName 'A' -Order 10),
+            (New-DefinedModule -MenuName 'B' -Order 20)
+        )
+        $results = @(
+            (New-HistoryResult -Operation 'A' -Status 'Success' -Order 10 -Verified $true),
+            (New-HistoryResult -Operation 'B' -Status 'Success' -Order 20)
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Match 'overall-ok">OK<'
+    }
+
     It 'HTML-encodes hostile result messages (no markup injection into the deliverable)' {
         $defined = @((New-DefinedModule -MenuName 'X' -Order 10))
         $results = @((New-HistoryResult -Operation 'X' -Message '<script>alert(1)</script> & "q"' -Order 10))
