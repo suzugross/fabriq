@@ -2,6 +2,51 @@
 # Easy Kitting Batch - Common Function Library v3.6.1
 # ========================================
 
+# ----------------------------------------
+# SECTION MAP (file order)
+# ----------------------------------------
+# Grep the exact title below to jump to its banner. Line numbers are
+# deliberately omitted so this map does not rot with every edit.
+# When adding / renaming / removing a section banner, update this map.
+#
+#   Global Variables
+#   Sleep Suppression (SetThreadExecutionState)
+#   Console Focus (GetConsoleWindow + SetForegroundWindow)
+#   Console Window Visibility Control
+#   QuickEdit Mode Disabler (SetConsoleMode)
+#   Error Notification (Beep + Foreground)
+#   AutoPilot Error Dialog (Retry / Skip)
+#   Telemetry Layer (internal — see dev/TELEMETRY_INTERNAL.md)
+#   Display Functions
+#   Module Result Functions
+#   Pattern Layer Functions
+#   DPAPI Passphrase Protection (Resume)
+#   Encryption / Decryption (AES-256-CBC)
+#   Confirmation Functions
+#   Evidence Base Path
+#   CSV Operations
+#   Error Handling Functions
+#   Telemetry: Verbose Stream Capture (standard deployment, default ON)
+#   Async Execution (Parallel Path, opt-in via __ASYNC__ marker)
+#   Batch Execution Functions
+#   Execution History Functions
+#   Profile Completion Pipeline (Linear auto-finalize / [cl] regen / Flex Complete)
+#   Resume State Functions (Profile Restart)
+#   Session Management Functions
+#   Profile Functions
+#   User Environment Variable Expansion
+#   Zone.Identifier Removal
+#   Destructive Path Guards (CLAUDE.md section 8)
+#   HKCU Root Resolution for Elevated Sessions
+#   Status Monitor Functions
+#   Function: Exit Fabriq (Centralized Cleanup)
+#   Function: Build Menu by Category
+#   Module System Initialization
+#   RunOnce Registration & Countdown
+#   Function: Capture Screen Evidence
+#   Function: Save Screenshot (Manual)
+# ----------------------------------------
+
 # ========================================
 # Global Variables
 # ========================================
