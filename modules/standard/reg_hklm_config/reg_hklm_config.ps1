@@ -105,6 +105,14 @@ function Test-RegistryValueMatch {
                 $currentJoined = ($currentValue -join "`n")
                 return ($currentJoined -eq $ExpectedValue)
             }
+            'ExpandString' {
+                # Get-ItemProperty auto-expands REG_EXPAND_SZ, so comparing
+                # it against the raw CSV value (%VAR% kept) always fails.
+                # Read the unexpanded data instead.
+                $rawValue = (Get-Item -LiteralPath $Path).GetValue($Name, $null,
+                    [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                return ([string]$rawValue -eq [string]$ExpectedValue)
+            }
             default {
                 return ([string]$currentValue -eq [string]$ExpectedValue)
             }

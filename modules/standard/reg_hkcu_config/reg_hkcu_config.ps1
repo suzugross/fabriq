@@ -115,6 +115,14 @@ function Test-RegistryValueMatch {
                 $currentJoined = ($currentValue -join "`n")
                 return ($currentJoined -eq $ExpectedValue)
             }
+            'ExpandString' {
+                # Get-ItemProperty auto-expands REG_EXPAND_SZ, so comparing
+                # it against the raw CSV value (%VAR% kept) always fails.
+                # Read the unexpanded data instead.
+                $rawValue = (Get-Item -LiteralPath $Path).GetValue($Name, $null,
+                    [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                return ([string]$rawValue -eq [string]$ExpectedValue)
+            }
             default {
                 return ([string]$currentValue -eq [string]$ExpectedValue)
             }
@@ -442,7 +450,7 @@ foreach ($item in $regItems) {
         $verifyFail++
     }
 
-    # Verify HIVE (Default Profile) — only if hive is loaded
+    # Verify HIVE (Default Profile)
     if ($hiveLoaded) {
         $hivePath = $item.'KeyPath' -replace '^HKEY_CURRENT_USER', 'HKU:\Hive'
         $hiveMatch = if ($isKeyOnly) { Test-Path $hivePath } else { Test-RegistryValueMatch -Path $hivePath -Name $item.'KeyName' -ExpectedValue $item.'Value' -Type $checkType }
@@ -454,6 +462,14 @@ foreach ($item in $regItems) {
             Write-Host "  [VERIFY FAILED] $displayName [HIVE]" -ForegroundColor Red
             $verifyFail++
         }
+    } else {
+        # The hive never loaded, so the Default-profile half of this row
+        # was NOT applied. Count it as a verification failure (fail-closed,
+        # symmetric with the unload-failure handling below) instead of
+        # silently skipping it, which reported Verified=true with half the
+        # module contract unwritten.
+        Write-Host "  [VERIFY FAILED] $displayName [HIVE] (hive not loaded)" -ForegroundColor Red
+        $verifyFail++
     }
 }
 

@@ -246,6 +246,26 @@ foreach ($p in $planned) {
         $entryStatus = "Failed"
         $entryReason = "Could not create entry data directory"
         $failCount++
+        # Record the failure in the manifest so it stays visible to the
+        # verification step and the evidence trail (a bare continue made
+        # this failure vanish from both).
+        $manifestEntries += [PSCustomObject]@{
+            id              = $p.Id
+            sourcePath      = $p.SourcePath
+            resolvedPath    = $p.ResolvedPath
+            isDirectory     = [bool]$p.ExistsAsDir
+            recurse         = $p.Recurse
+            excludePattern  = $p.ExcludePattern
+            onConflict      = $p.OnConflict
+            includeAcl      = $p.IncludeAcl
+            fileCount       = 0
+            dirCount        = 0
+            byteCount       = 0
+            backupSubpath   = $null
+            robocopyExitCode = $null
+            status          = $entryStatus
+            reason          = $entryReason
+        }
         Write-Host ""
         continue
     }
@@ -484,9 +504,17 @@ catch {
     $verifyFail++
 }
 
-# Per-entry data folder presence (for non-skipped entries)
+# Per-entry data folder presence (for non-skipped entries). A Failed
+# entry must never print [VERIFIED]: its data dir was pre-created by
+# this module, so bare Test-Path would pass even when robocopy copied
+# nothing (exit >= 8).
 foreach ($me in $manifestEntries) {
     if ($me.status -eq 'Skipped') { continue }
+    if ($me.status -eq 'Failed') {
+        Write-Host "  [VERIFY FAILED] entry $($me.id) backup failed ($($me.reason))" -ForegroundColor Red
+        $verifyFail++
+        continue
+    }
     if ([string]::IsNullOrWhiteSpace($me.backupSubpath)) { continue }
     $dataPath = Join-Path $backupDir $me.backupSubpath
     if (-not (Test-Path $dataPath)) {
@@ -509,7 +537,10 @@ if ($backedUpEntries.Count -eq 0) {
 }
 
 Write-Host ""
-$verified = ($verifyFail -eq 0)
+# Any hard failure (robocopy exit >= 8, entry dir creation failure) must
+# force Verified=false: an operator reading PASS may wipe the source PC.
+# Sibling userdata_restore uses the same formula.
+$verified = ($verifyFail -eq 0 -and $failCount -eq 0)
 
 
 # ========================================
