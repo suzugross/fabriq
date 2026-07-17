@@ -67,7 +67,14 @@ function Get-InstalledPartialKeys {
         }
     }
     catch { }
-    return ,@($partials)
+    # Plain return on purpose: every caller wraps the call in @(...).
+    # The previous `return ,@($partials)` combined with that caller-side
+    # @() produced a NESTED array, so `-contains <string>` compared the
+    # string against an Object[] element and was ALWAYS false - the
+    # verify could never pass (root cause of the 2026-07-17 field false
+    # FAIL). The `,@()` idiom is only for direct-assignment callers
+    # (Import-ModuleCsv contract); it is wrong here.
+    return $partials
 }
 
 # Check Administrator Privileges
@@ -261,23 +268,41 @@ foreach ($item in $enabledItems) {
             # registration. Read the state back via /dstatus and require
             # the key's last 5 characters to be present (same
             # distrust-the-exit-code stance as office_license_auth.ps1).
+            #
+            # /inpkey returns immediately, but sppsvc propagates the new
+            # license to /dstatus asynchronously - observed 10-30s on a
+            # cold first-boot machine (field case 2026-07-17, where a
+            # fixed 2s retry produced a false FAIL while activation later
+            # proved the key was registered). Poll with a deadline; a
+            # genuinely failed registration never appears in /dstatus, so
+            # the timeout preserves the fail-closed verdict.
+            $VERIFY_TIMEOUT_SEC  = 90
+            $VERIFY_INTERVAL_SEC = 5
+
             $keyLast5 = $item.ProductKey.Substring($item.ProductKey.Length - 5).ToUpperInvariant()
             Show-Info "Verifying key registration via /dstatus..."
-            $installedKeys = @(Get-InstalledPartialKeys -OsppPath $osppPath)
-            if ($installedKeys -notcontains $keyLast5) {
-                # License state can lag a moment behind /inpkey; one retry.
-                Start-Sleep -Seconds 2
+            $deadline = (Get-Date).AddSeconds($VERIFY_TIMEOUT_SEC)
+            $keyVisible = $false
+            $announced = $false
+            while ($true) {
                 $installedKeys = @(Get-InstalledPartialKeys -OsppPath $osppPath)
+                if ($installedKeys -contains $keyLast5) { $keyVisible = $true; break }
+                if ((Get-Date) -ge $deadline) { break }
+                if (-not $announced) {
+                    Show-Info "Key not visible in /dstatus yet - polling up to ${VERIFY_TIMEOUT_SEC}s (sppsvc propagation lag)..."
+                    $announced = $true
+                }
+                Start-Sleep -Seconds $VERIFY_INTERVAL_SEC
             }
 
-            if ($installedKeys -contains $keyLast5) {
+            if ($keyVisible) {
                 Write-Host "  [VERIFIED] Key ...$keyLast5 present in /dstatus" -ForegroundColor Green
                 Show-Success "Product key registered: $displayName"
                 $successCount++
                 $verifyPass++
             }
             else {
-                Show-Error "Key ...$keyLast5 not present in /dstatus after /inpkey (registration did not take effect): $displayName"
+                Show-Error "Key ...$keyLast5 not present in /dstatus after /inpkey (registration did not take effect within ${VERIFY_TIMEOUT_SEC}s): $displayName"
                 $failCount++
                 $verifyFail++
             }

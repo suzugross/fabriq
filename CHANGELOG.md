@@ -15,6 +15,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/standard/office_license_config: office_license_install の /dstatus 検証が**構造的に
+  一度も PASS できなかった**バグを修正(2026-07-17 現地報告: 登録成功・アクティベーション成功
+  なのに verify が偽 FAIL)。原因は `Get-InstalledPartialKeys` の `return ,@($partials)`(カンマ
+  付き配列返し)と呼出側の `@(...)` 包みの組み合わせで結果が**入れ子配列**になり、
+  `-contains <末尾5文字>` が要素(Object[])と文字列の比較で常に False になっていたこと。
+  `,@()` 慣用句は直接代入の呼出契約(Import-ModuleCsv 型)専用であり、ここでは誤用 → 素の
+  return に修正。リポ全体を走査し、本番コードで同じ「カンマ返し + @() 包み」の組は他に
+  ゼロを確認(kernel の Import-ModuleCsv / fabriq_ios は直接代入契約で正しい)。
+  あわせて検証を「即時 + 2 秒後 1 回」から **5 秒間隔・最大 90 秒の期限付きポーリング**に変更
+  (/inpkey は即時成功を返すが /dstatus への反映は sppsvc 非同期でコールド機では数十秒かかる —
+  同現地ログで /inpkey 26 秒後の activate 時点に反映を確認。一致で即 PASS、タイムアウト=FAIL
+  で fail-closed 維持)。隔離ハーネス 11/11 PASS(即時一致/3 回目一致/タイムアウト/inpkey 非 0、
+  cscript 関数シャドウ + LASTEXITCODE 制御)。VERSION 1.1.0→1.1.1(PATCH)。
+
 ### Security
 - kernel/common.ps1: 秘密値レジストリを新設(crypto 再レビュー A7)。`Import-ModuleCsv` が透過復号した
   ENC: 平文が、その後 Show-*/エラーメッセージ経由で**納品 transcript・telemetry・実行履歴

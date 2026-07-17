@@ -99,6 +99,11 @@ install / auth の両方とも Confirm-ModuleExecution を経由します。
   （エラーでも 0 を返す）ため、適用後に /dstatus を読み返し、登録キー末尾 5 文字が
   存在するかを照合します。New-BatchResult に -Verified（$true=適用キー全件確認 /
   $false=1 件以上欠落 / $null=読み返し対象なし）を渡します。
+  /inpkey は即時に成功を返しますが /dstatus への反映は sppsvc の非同期処理後で、
+  コールド状態の機体では数十秒かかることがあります（2026-07-17 実測 10〜30 秒）。
+  このため検証は 5 秒間隔・最大 90 秒の期限付きポーリング（一致した時点で即 PASS、
+  タイムアウト = FAIL の fail-closed）です（v1.1.1〜）。本物の登録失敗
+  （0xC004F050 等）は /dstatus に現れないため、タイムアウトで従来どおり検出されます。
 
 [office_license_auth.ps1]
   適用後に cscript OSPP.vbs /dstatus を再実行し、全製品の
