@@ -16,6 +16,14 @@
 ## [Unreleased]
 
 ### Fixed
+- kernel/common.ps1: DPI レイアウト崩れ対策の基盤として `New-UiFont` を新設(§6 内部 API・DPI 調査
+  2026-07-21 案 B / Phase 1)。本プロセスは起動時 DPI 非対応で、モジュール初回実行時の
+  Capture-ScreenEvidence(SetProcessDPIAware)で**不可逆に DPI-aware 化**するため、以後生成される
+  pt フォントの WinForms UI は 125%/150% 環境で膨張しレイアウトが崩れる。New-UiFont は pt を
+  96dpi 等価 px(pt×4/3)に換算し GraphicsUnit.Pixel で固定 — 非対応フェーズではピクセル一致・
+  aware 化後も不変(fabriq_checksheet で実証済みの方式)。等価ハーネス 16/16 PASS
+  (DrawToBitmap+SHA256、スコープ内全フォント形状)。execution_toolbar は独自 dpiScale 追随のため
+  対象外。後続 Phase 2/3 で operator/kernel 面 + モジュール UI 4 件の pt フォント 52 箇所を置換。
 - modules/standard/office_license_config: office_license_install の /dstatus 検証が**構造的に
   一度も PASS できなかった**バグを修正(2026-07-17 現地報告: 登録成功・アクティベーション成功
   なのに verify が偽 FAIL)。原因は `Get-InstalledPartialKeys` の `return ,@($partials)`(カンマ

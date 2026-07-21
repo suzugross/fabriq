@@ -198,6 +198,7 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`（秘密値レジストリ。`Import-ModuleCsv` の ENC: 復号値・マスターパスフレーズ・PIN を自動登録し、`Show-*` / telemetry / 実行履歴の 3 sink で `***` マスク。モジュールからの直接呼び出しは不要 — 透過動作）
+- `New-UiFont`（DPI モード中立な WinForms フォント生成: pt→96dpi 等価 px 換算 + `GraphicsUnit.Pixel` 固定。プロセスがモジュール初回実行時の `Capture-ScreenEvidence` で不可逆に DPI-aware 化する構造への対策。execution_toolbar は独自 dpiScale 追随のため対象外）
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`
 - 状態ファイル: `kernel/json/resume_state.json`, `status.json`, `session.json`, `art_pulse.txt`, `async_config.json`, `skip_request.flag`
 - オーケストレータ経由で設定される仕組み（`__ASYNC__` の Runspace 実装等）
