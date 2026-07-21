@@ -825,7 +825,7 @@ function New-UiFont {
     # that flip. Converting pt to its 96dpi-equivalent pixel size
     # (pt * 4/3) and pinning GraphicsUnit.Pixel renders IDENTICALLY in both
     # phases: pixel-for-pixel equal to the pt font while unaware, and
-    # unchanged after the aware flip. Proven in fabriq_checksheet (案B,
+    # unchanged after the aware flip. Proven in fabriq_checksheet (Plan B,
     # DrawToBitmap+SHA256 equivalence at 96dpi).
     # NOT for execution_toolbar.ps1: the toolbar multiplies its layout by
     # its own dpiScale, where DPI-proportional pt fonts are the consistent

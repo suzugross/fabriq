@@ -99,6 +99,12 @@
 
 > **§1.7〜§1.10 の由来**: 2026-07-02 の API サーフェス監査で、モジュールから実使用されているにもかかわらず未宣言だった関数群を**追認宣言**したもの。全関数が 2.0.0 baseline（2026-04-23）以前から存在するため §8 上は 2.0.0 扱いであり、既存モジュールの `REQUIRES_KERNEL` に影響しない。
 
+### 1.11 UI ユーティリティ（since 3.7.0）
+
+| 関数 | シグネチャ | 用途 |
+|---|---|---|
+| `New-UiFont` | `-Family <string> -Pt <double> [-Style <string>="Regular"]`（`System.Drawing.Font` 返却） | **DPI モード中立**な WinForms フォント生成。pt を 96dpi 等価 px（pt×4/3）へ換算し `GraphicsUnit.Pixel` で固定する。本プロセスはモジュール初回実行時の `Capture-ScreenEvidence`（`SetProcessDPIAware`）で**不可逆に DPI-aware 化**するため、以後 pt フォントで生成した UI は 125%/150% 環境で膨張して崩れる — GUI を持つモジュールはフォント生成に本関数を使うこと（非対応フェーズではピクセル一致・aware 化後も不変）。`Style` は `Regular`/`Bold`/`Italic` 等の `FontStyle` 名。例外: 自前の DPI スケーリングを持つ UI（execution_toolbar）は対象外 |
+
 ---
 
 ## 2. 公開グローバル変数（モジュールから読み取り可）
@@ -198,7 +204,6 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`（秘密値レジストリ。`Import-ModuleCsv` の ENC: 復号値・マスターパスフレーズ・PIN を自動登録し、`Show-*` / telemetry / 実行履歴の 3 sink で `***` マスク。モジュールからの直接呼び出しは不要 — 透過動作）
-- `New-UiFont`（DPI モード中立な WinForms フォント生成: pt→96dpi 等価 px 換算 + `GraphicsUnit.Pixel` 固定。プロセスがモジュール初回実行時の `Capture-ScreenEvidence` で不可逆に DPI-aware 化する構造への対策。execution_toolbar は独自 dpiScale 追随のため対象外）
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`
 - 状態ファイル: `kernel/json/resume_state.json`, `status.json`, `session.json`, `art_pulse.txt`, `async_config.json`, `skip_request.flag`
 - オーケストレータ経由で設定される仕組み（`__ASYNC__` の Runspace 実装等）
@@ -367,6 +372,15 @@ formal SemVer の出発点。以下すべて利用可能:
   - 利用モジュール（history_destroyer / file_delete / profile_delete / driver_config）はこの版を要求（`REQUIRES_KERNEL` 3.5.0）。既存モジュールの挙動・他の公開 API への影響なし
 - **§6 deprecated 撤去（内部 / API 影響なし）**: 3.4.0 で deprecated 宣言済みの旧 Status Monitor（`Show-MonitorFailureDialog` / `Start-StatusMonitor` / `Stop-StatusMonitor`、`kernel/ps1/status_monitor.ps1`、`kernel/ps1/art_display.ps1`）を予定どおり削除。後継は in-process Execution Toolbar（3.4.0〜）で機能損失なし
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.4.1` 据置・本節は `[Unreleased]`）
+
+### 3.7.0
+
+- **§1.11 UI ユーティリティ `New-UiFont` 追加（後方互換 / MINOR）**: DPI モード中立な WinForms
+  フォント生成（pt→96dpi 等価 px + `GraphicsUnit.Pixel` 固定）。プロセスがモジュール初回実行時の
+  `Capture-ScreenEvidence` で不可逆に DPI-aware 化する構造下で、125%/150% 環境の UI 崩れを防ぐ
+  （fabriq_checksheet 実証方式の移植）。GUI を持つモジュール（pianist / manual_kitting_assistant /
+  temp_ipaddress_config / printer_delete）が本版を要求（`REQUIRES_KERNEL` 3.7.0）
+  - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
 
 ### 3.6.0
 
