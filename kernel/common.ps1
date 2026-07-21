@@ -816,6 +816,30 @@ function Show-CategorySeparator {
     Write-Host "=== $Name ===" -ForegroundColor Cyan
 }
 
+function New-UiFont {
+    # DPI-mode-neutral WinForms font factory. This process starts DPI-UNAWARE
+    # and irreversibly becomes DPI-aware the first time Capture-ScreenEvidence
+    # runs (SetProcessDPIAware) - i.e. after the first module execution.
+    # Point-sized fonts inflate with the DPI ratio once aware (9pt: 12px at
+    # 100% -> 18px at 150%), which breaks fixed-pixel layouts created after
+    # that flip. Converting pt to its 96dpi-equivalent pixel size
+    # (pt * 4/3) and pinning GraphicsUnit.Pixel renders IDENTICALLY in both
+    # phases: pixel-for-pixel equal to the pt font while unaware, and
+    # unchanged after the aware flip. Proven in fabriq_checksheet (案B,
+    # DrawToBitmap+SHA256 equivalence at 96dpi).
+    # NOT for execution_toolbar.ps1: the toolbar multiplies its layout by
+    # its own dpiScale, where DPI-proportional pt fonts are the consistent
+    # choice.
+    param(
+        [Parameter(Mandatory)][string]$Family,
+        [Parameter(Mandatory)][double]$Pt,
+        [string]$Style = "Regular"
+    )
+    $px = [single]($Pt * 4.0 / 3.0)
+    $fs = [System.Drawing.FontStyle]$Style
+    return New-Object System.Drawing.Font($Family, $px, $fs, [System.Drawing.GraphicsUnit]::Pixel)
+}
+
 function Write-ArtPulse {
     $global:ArtPulseCounter++
     try {
