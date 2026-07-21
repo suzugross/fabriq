@@ -42,12 +42,12 @@ $script:stripeRed    = [System.Drawing.Color]::FromArgb(235, 87, 87)    # #EB575
 # ========================================
 # Fonts
 # ========================================
-$script:fontNormal   = New-Object System.Drawing.Font("Segoe UI", 9)
-$script:fontBold     = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$script:fontSemiBold = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
-$script:fontLarge    = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
-$script:fontTitle    = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
-$script:fontMono     = New-Object System.Drawing.Font("Consolas", 8.5)
+$script:fontNormal   = New-UiFont "Segoe UI" 9
+$script:fontBold     = New-UiFont "Segoe UI" 9 Bold
+$script:fontSemiBold = New-UiFont "Segoe UI Semibold" 9
+$script:fontLarge    = New-UiFont "Segoe UI" 11 Bold
+$script:fontTitle    = New-UiFont "Segoe UI" 14 Bold
+$script:fontMono     = New-UiFont "Consolas" 8.5
 
 # ========================================
 # Helper: Create a styled button
@@ -213,7 +213,14 @@ function New-StyledComboBox {
 function Set-FormStyle {
     param($Form, [string]$Title = "fabriq operator", [int]$Width = 700, [int]$Height = 520)
     $Form.Text = $Title
-    $Form.Size = New-Object System.Drawing.Size($Width, $Height)
+    # ClientSize, not Size: after the process turns DPI-aware (first
+    # Capture-ScreenEvidence), window chrome gets taller/wider in pixels;
+    # a fixed outer Size would let the grown chrome eat the client area
+    # and clip the bottom row of controls. Pinning the CLIENT area keeps
+    # every absolutely-positioned control visible in both DPI phases.
+    # 16/39 = measured Win11 chrome at 96dpi (FixedSingle/FixedDialog/
+    # Sizable alike), so unaware-phase geometry is unchanged.
+    $Form.ClientSize = New-Object System.Drawing.Size(($Width - 16), ($Height - 39))
     $Form.StartPosition = "CenterScreen"
     $Form.BackColor = $script:bgForm
     $Form.ForeColor = $script:fgText

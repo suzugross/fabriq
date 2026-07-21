@@ -23,7 +23,13 @@
   96dpi 等価 px(pt×4/3)に換算し GraphicsUnit.Pixel で固定 — 非対応フェーズではピクセル一致・
   aware 化後も不変(fabriq_checksheet で実証済みの方式)。等価ハーネス 16/16 PASS
   (DrawToBitmap+SHA256、スコープ内全フォント形状)。execution_toolbar は独自 dpiScale 追随のため
-  対象外。後続 Phase 2/3 で operator/kernel 面 + モジュール UI 4 件の pt フォント 52 箇所を置換。
+  対象外(自前のローカルフォント定義で theme 非依存であることを確認済み)。
+- apps/fabriq_operator + kernel/ps1: DPI 案 B Phase 2 — theme.ps1 のフォント 6 箇所 +
+  manifesto.ps1 の 5 箇所を New-UiFont 化。operator の全 6 フォームは Set-FormStyle 経由 +
+  Form.Font 設定済みのため、**Set-FormStyle 1 箇所の Size→ClientSize 化**(クローム実測 W16/H39
+  控除)で aware 化後の下端欠けを一括防止(非対応フェーズでは外寸・クライアント寸とも従来と同一 =
+  見た目無変化をハーネスで確認)。manifesto は BorderStyle=None でクローム無しのため寸法変換不要。
+  Phase 2 検証 11/11 PASS(parse / theme 全フォント px 固定 / Set-FormStyle 実挙動)。
 - modules/standard/office_license_config: office_license_install の /dstatus 検証が**構造的に
   一度も PASS できなかった**バグを修正(2026-07-17 現地報告: 登録成功・アクティベーション成功
   なのに verify が偽 FAIL)。原因は `Get-InstalledPartialKeys` の `return ,@($partials)`(カンマ

@@ -114,9 +114,9 @@ function Show-Manifesto {
     })
 
     # Font setup
-    $fontTitle = New-Object System.Drawing.Font("Meiryo UI", 18, [System.Drawing.FontStyle]::Bold)
-    $fontSub   = New-Object System.Drawing.Font("Meiryo UI", 12, [System.Drawing.FontStyle]::Italic)
-    $fontBody  = New-Object System.Drawing.Font("Meiryo UI", 11, [System.Drawing.FontStyle]::Regular)
+    $fontTitle = New-UiFont "Meiryo UI" 18 Bold
+    $fontSub   = New-UiFont "Meiryo UI" 12 Italic
+    $fontBody  = New-UiFont "Meiryo UI" 11 Regular
 
     # Window drag logic (WM_NCLBUTTONDOWN)
     $dragAction = {
@@ -179,7 +179,7 @@ function Show-Manifesto {
     # --- Footer area ---
     $btnClose = New-Object System.Windows.Forms.Button
     $btnClose.Text = "Close"
-    $btnClose.Font = New-Object System.Drawing.Font("Meiryo UI", 10)
+    $btnClose.Font = New-UiFont "Meiryo UI" 10
     $btnClose.FlatStyle = "Flat"
     $btnClose.FlatAppearance.BorderSize = 1
     $btnClose.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(180, 180, 180)
@@ -196,7 +196,7 @@ function Show-Manifesto {
     $lblId = New-Object System.Windows.Forms.Label
     $lblId.Text = "#$($selected.Id)"
     $lblId.ForeColor = [System.Drawing.Color]::FromArgb(200, 200, 200)
-    $lblId.Font = New-Object System.Drawing.Font("Meiryo UI", 8)
+    $lblId.Font = New-UiFont "Meiryo UI" 8
     $lblId.AutoSize = $true
     $lblId.Location = New-Object System.Drawing.Point(840, 655)
     $form.Controls.Add($lblId)
