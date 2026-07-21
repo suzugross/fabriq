@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-03T02:00:00+09:00",
+  "updatedAt": "2026-07-21T15:30:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -803,6 +803,15 @@
       "status": "完了",
       "createdAt": "2026-07-03T02:00:00+09:00",
       "updatedAt": "2026-07-03T02:00:00+09:00"
+    },
+    {
+      "id": "t-0091",
+      "title": "DPI 案 B: フォント px 固定化 (New-UiFont) — 125/150% レイアウト崩れの予防修理",
+      "content": "checksheet で現地実害が出た DPI 崩れの fabriq 側予防適用。プロセスがモジュール初回実行 (Capture-ScreenEvidence の SetProcessDPIAware) で不可逆 aware 化する構造下で、pt フォント 52 箇所を New-UiFont (pt→96dpi 等価 px + GraphicsUnit.Pixel) 化 + Form.Font/ClientSize 補修。execution_toolbar (案 A 実装済み) と別プロセス起動アプリ 32 箇所は対象外。",
+      "claudeNote": "コミット: de1ecdf (Phase1 基盤+等価ハーネス16/16) / 5414d4b (Phase2 theme+manifesto+Set-FormStyle ClientSize 化、11/11) / e4c63e8 (Phase3 モジュール4件+公開API化、AST 54箇所検査)。New-UiFont は §1.11 公開 API — 次リリースで kernel MINOR 3.7.0、pianist 2.0.1/mka 1.0.1/temp_ip 1.0.2/printer_delete 1.0.1 は REQUIRES_KERNEL 3.7.0。回帰 381 全 green、pianist 3A ハーネス 17/17 維持。残: 実機 125/150% 目視スモーク (モジュール実行後の UI で確認)。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-07-21T15:30:00+09:00",
+      "updatedAt": "2026-07-21T15:30:00+09:00"
     }
   ]
 }
