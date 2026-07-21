@@ -934,13 +934,13 @@ function Update-NavButtons {
         $script:btnNext.Text = "Done"
         $script:btnNext.BackColor = $bgRun
         $script:btnNext.ForeColor = [System.Drawing.Color]::White
-        $script:btnNext.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+        $script:btnNext.Font = New-UiFont "Segoe UI" 12 Bold
         $script:btnNext.Enabled = $manualSet
     } else {
         $script:btnNext.Text = ">"
         $script:btnNext.BackColor = $bgButton
         $script:btnNext.ForeColor = $fgText
-        $script:btnNext.Font = New-Object System.Drawing.Font("Segoe UI", 28, [System.Drawing.FontStyle]::Bold)
+        $script:btnNext.Font = New-UiFont "Segoe UI" 28 Bold
         $script:btnNext.Enabled = $manualSet
     }
 
@@ -1123,13 +1123,13 @@ function Show-PhaseStatusDialog {
     $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false
     $dlg.MinimizeBox = $false
-    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $dlg.Font = New-UiFont "Segoe UI" 9
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = "$PhaseID    $PhaseLabel"
     $lbl.Location = New-Object System.Drawing.Point(16, 12)
     $lbl.Size = New-Object System.Drawing.Size(400, 24)
-    $lbl.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $lbl.Font = New-UiFont "Segoe UI" 11 Bold
     $lbl.ForeColor = $fgHeader
     $dlg.Controls.Add($lbl)
 
@@ -1177,7 +1177,7 @@ function Show-PhaseStatusDialog {
     $dlg.Controls.Add($txtNote)
 
     $btnSave = New-PianistButton -Text "Save" -X 218 -Y 276 -Width 96 -Height 32 -BgColor $bgRun -FgColor ([System.Drawing.Color]::White)
-    $btnSave.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btnSave.Font = New-UiFont "Segoe UI" 10 Bold
     $dlg.Controls.Add($btnSave)
 
     $btnCancel = New-PianistButton -Text "Cancel" -X 320 -Y 276 -Width 96 -Height 32
@@ -1415,7 +1415,7 @@ function New-PianistVariableRow {
     $nameLbl.AutoSize = $false
     $nameLbl.Size = New-Object System.Drawing.Size(140, 28)
     $nameLbl.Location = New-Object System.Drawing.Point(4, 4)
-    $nameLbl.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+    $nameLbl.Font = New-UiFont "Consolas" 10 Bold
     $nameLbl.ForeColor = $fgHeader
     $nameLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $nameLbl.Text = '$' + $Var.Name
@@ -1425,7 +1425,7 @@ function New-PianistVariableRow {
     $valLbl.AutoSize = $false
     $valLbl.Size = New-Object System.Drawing.Size(320, 28)
     $valLbl.Location = New-Object System.Drawing.Point(148, 4)
-    $valLbl.Font = New-Object System.Drawing.Font("Consolas", 9)
+    $valLbl.Font = New-UiFont "Consolas" 9
     $valLbl.AutoEllipsis = $true
     $valLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     if ($Var.Resolved) {
@@ -1531,6 +1531,10 @@ function Show-PianistImageViewer {
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = $bgDark
     $dlg.ForeColor = $fgText
+    # Explicit DPI-neutral default font: without it the form inherits the
+    # OS default (DPI-proportional after the aware flip) for any control
+    # that lacks its own Font.
+    $dlg.Font = New-UiFont "Segoe UI" 9
     $dlg.FormBorderStyle = "Sizable"
     $dlg.MaximizeBox = $true
     # Owner relationship keeps the viewer floating above the main Pianist
@@ -1607,7 +1611,7 @@ function New-PianistScreenshotThumbnail {
     $cap.AutoSize = $false
     $cap.Size = New-Object System.Drawing.Size(296, 46)
     $cap.Location = New-Object System.Drawing.Point(0, 172)
-    $cap.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $cap.Font = New-UiFont "Segoe UI" 9
     $cap.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
     $cap.BackColor = $bgGrid
     if ($imageExists) {
@@ -1679,7 +1683,7 @@ function Show-PianistProfileSelector {
     $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false
     $dlg.MinimizeBox = $false
-    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $dlg.Font = New-UiFont "Segoe UI" 9
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = "Select the Pianist profile to execute:"
@@ -1711,7 +1715,7 @@ function Show-PianistProfileSelector {
     $dlg.Controls.Add($lblHint)
 
     $btnOk = New-PianistButton -Text "Open Profile" -X 308 -Y 168 -Width 130 -Height 32 -BgColor $bgRun -FgColor ([System.Drawing.Color]::White)
-    $btnOk.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btnOk.Font = New-UiFont "Segoe UI" 10 Bold
     $dlg.Controls.Add($btnOk)
 
     $btnCxl = New-PianistButton -Text "Cancel" -X 444 -Y 168 -Width 80 -Height 32
@@ -1846,7 +1850,7 @@ $form.MinimumSize = New-Object System.Drawing.Size(900, 600)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = $bgDark
 $form.ForeColor = $fgText
-$form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$form.Font = New-UiFont "Segoe UI" 9
 # Tracked at script scope so Show-PianistImageViewer can set the
 # modeless viewer's Owner = main form (auto-close on Pianist exit,
 # floats above without blocking).
@@ -1864,7 +1868,7 @@ $lblTitle = New-Object System.Windows.Forms.Label
 $lblTitle.Text = "Pianist"
 $lblTitle.Location = New-Object System.Drawing.Point(16, 6)
 $lblTitle.Size = New-Object System.Drawing.Size(110, 28)
-$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+$lblTitle.Font = New-UiFont "Segoe UI" 14 Bold
 $lblTitle.ForeColor = $fgHeader
 $null = $topBar.Controls.Add($lblTitle)
 
@@ -1880,7 +1884,7 @@ $lblPhaseIndex.Text = "- / -"
 $lblPhaseIndex.Location = New-Object System.Drawing.Point(940, 8)
 $lblPhaseIndex.Size = New-Object System.Drawing.Size(120, 28)
 $lblPhaseIndex.Anchor = "Top,Right"
-$lblPhaseIndex.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+$lblPhaseIndex.Font = New-UiFont "Segoe UI" 14 Bold
 $lblPhaseIndex.ForeColor = $fgHeader
 $lblPhaseIndex.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $null = $topBar.Controls.Add($lblPhaseIndex)
@@ -1905,7 +1909,7 @@ $btnPrev.FlatAppearance.BorderColor = $gridLine
 $btnPrev.FlatAppearance.MouseOverBackColor = $bgButtonHov
 $btnPrev.BackColor = $bgButton
 $btnPrev.ForeColor = $fgText
-$btnPrev.Font = New-Object System.Drawing.Font("Segoe UI", 28, [System.Drawing.FontStyle]::Bold)
+$btnPrev.Font = New-UiFont "Segoe UI" 28 Bold
 $btnPrev.Cursor = [System.Windows.Forms.Cursors]::Hand
 $null = $form.Controls.Add($btnPrev)
 $script:btnPrev = $btnPrev
@@ -1921,7 +1925,7 @@ $btnNext.FlatAppearance.BorderColor = $gridLine
 $btnNext.FlatAppearance.MouseOverBackColor = $bgButtonHov
 $btnNext.BackColor = $bgButton
 $btnNext.ForeColor = $fgText
-$btnNext.Font = New-Object System.Drawing.Font("Segoe UI", 28, [System.Drawing.FontStyle]::Bold)
+$btnNext.Font = New-UiFont "Segoe UI" 28 Bold
 $btnNext.Cursor = [System.Windows.Forms.Cursors]::Hand
 $null = $form.Controls.Add($btnNext)
 $script:btnNext = $btnNext
@@ -1940,7 +1944,7 @@ $lblPhaseHeader.Location = New-Object System.Drawing.Point(0, 0)
 $lblPhaseHeader.Size = New-Object System.Drawing.Size(960, 56)
 $lblPhaseHeader.Anchor = "Top,Left,Right,Bottom"
 $lblPhaseHeader.Text = "  (loading...)"
-$lblPhaseHeader.Font = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
+$lblPhaseHeader.Font = New-UiFont "Segoe UI" 16 Bold
 $lblPhaseHeader.ForeColor = [System.Drawing.Color]::White
 $lblPhaseHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $null = $phaseHeaderPanel.Controls.Add($lblPhaseHeader)
@@ -1953,7 +1957,7 @@ $tabPhase = New-Object System.Windows.Forms.TabControl
 $tabPhase.Location = New-Object System.Drawing.Point(60, 124)
 $tabPhase.Size = New-Object System.Drawing.Size(960, 354)
 $tabPhase.Anchor = "Top,Left,Right,Bottom"
-$tabPhase.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$tabPhase.Font = New-UiFont "Segoe UI" 9
 $null = $form.Controls.Add($tabPhase)
 $script:tabPhase = $tabPhase
 
@@ -1971,7 +1975,7 @@ $lblRpaHdr.Text = "  - RPA (auto-executed by Run Phase)"
 $lblRpaHdr.Location = New-Object System.Drawing.Point(0, 0)
 $lblRpaHdr.Size = New-Object System.Drawing.Size(940, 22)
 $lblRpaHdr.Anchor = "Top,Left,Right"
-$lblRpaHdr.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$lblRpaHdr.Font = New-UiFont "Segoe UI" 10 Bold
 $lblRpaHdr.ForeColor = $fgHeader
 $lblRpaHdr.BackColor = $bgPanel
 $null = $tabProc.Controls.Add($lblRpaHdr)
@@ -1986,7 +1990,7 @@ $txtRpa.ScrollBars = "Vertical"
 $txtRpa.WordWrap = $true
 $txtRpa.BackColor = $bgGrid
 $txtRpa.ForeColor = $fgText
-$txtRpa.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+$txtRpa.Font = New-UiFont "Segoe UI" 11
 $txtRpa.BorderStyle = "FixedSingle"
 $null = $tabProc.Controls.Add($txtRpa)
 $script:txtRpa = $txtRpa
@@ -1997,7 +2001,7 @@ $lblManualHdr.Text = "  - Manual (performed by operator)"
 $lblManualHdr.Location = New-Object System.Drawing.Point(0, 162)
 $lblManualHdr.Size = New-Object System.Drawing.Size(940, 22)
 $lblManualHdr.Anchor = "Top,Left,Right"
-$lblManualHdr.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$lblManualHdr.Font = New-UiFont "Segoe UI" 10 Bold
 $lblManualHdr.ForeColor = $fgHeader
 $lblManualHdr.BackColor = $bgPanel
 $null = $tabProc.Controls.Add($lblManualHdr)
@@ -2012,7 +2016,7 @@ $txtManual.ScrollBars = "Vertical"
 $txtManual.WordWrap = $true
 $txtManual.BackColor = $bgGrid
 $txtManual.ForeColor = $fgText
-$txtManual.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+$txtManual.Font = New-UiFont "Segoe UI" 11
 $txtManual.BorderStyle = "FixedSingle"
 $null = $tabProc.Controls.Add($txtManual)
 $script:txtManual = $txtManual
@@ -2085,19 +2089,19 @@ $script:_pvd_panel = $varsFlow
 
 # ---- Action buttons row ----
 $btnRunPhase = New-PianistButton -Text "Run Phase" -X 72 -Y 492 -Width 180 -Height 36 -BgColor $bgRun -FgColor ([System.Drawing.Color]::White) `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold))
+    -Font (New-UiFont "Segoe UI" 11 Bold)
 $btnRunPhase.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnRunPhase)
 $script:btnRunPhase = $btnRunPhase
 
 $btnScreenshot = New-PianistButton -Text "Screenshot" -X 264 -Y 492 -Width 160 -Height 36 `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
+    -Font (New-UiFont "Segoe UI" 10)
 $btnScreenshot.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnScreenshot)
 $script:btnScreenshot = $btnScreenshot
 
 $btnPhaseStatus = New-PianistButton -Text "Phase Status..." -X 436 -Y 492 -Width 160 -Height 36 -BgColor $bgAccent -FgColor ([System.Drawing.Color]::White) `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
+    -Font (New-UiFont "Segoe UI" 10)
 $btnPhaseStatus.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnPhaseStatus)
 $script:btnPhaseStatus = $btnPhaseStatus
@@ -2111,21 +2115,21 @@ $script:btnPhaseStatus = $btnPhaseStatus
 # enabled (toggling between phases is a valid use case). All three are
 # mouse-only — no keyboard accelerators (Pianist UI policy).
 $btnPause = New-PianistButton -Text "Pause" -X 620 -Y 492 -Width 110 -Height 36 -BgColor $bgWarn -FgColor ([System.Drawing.Color]::White) `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold))
+    -Font (New-UiFont "Segoe UI" 10 Bold)
 $btnPause.Anchor = "Bottom,Left"
 $btnPause.Enabled = $false
 $null = $form.Controls.Add($btnPause)
 $script:btnPause = $btnPause
 
 $btnStop = New-PianistButton -Text "Stop" -X 740 -Y 492 -Width 110 -Height 36 -BgColor $bgError -FgColor ([System.Drawing.Color]::White) `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold))
+    -Font (New-UiFont "Segoe UI" 10 Bold)
 $btnStop.Anchor = "Bottom,Left"
 $btnStop.Enabled = $false
 $null = $form.Controls.Add($btnStop)
 $script:btnStop = $btnStop
 
 $btnSpeed = New-PianistButton -Text "Speed: 1.0x" -X 860 -Y 492 -Width 140 -Height 36 `
-    -Font (New-Object System.Drawing.Font("Segoe UI", 10))
+    -Font (New-UiFont "Segoe UI" 10)
 $btnSpeed.Anchor = "Bottom,Left"
 $null = $form.Controls.Add($btnSpeed)
 $script:btnSpeed = $btnSpeed
@@ -2138,7 +2142,7 @@ $lblAutoStatus.Size = New-Object System.Drawing.Size(280, 26)
 $lblAutoStatus.Anchor = "Bottom,Left"
 $lblAutoStatus.BackColor = $bgPanel
 $lblAutoStatus.ForeColor = [System.Drawing.Color]::White
-$lblAutoStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblAutoStatus.Font = New-UiFont "Segoe UI" 9 Bold
 $lblAutoStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $null = $form.Controls.Add($lblAutoStatus)
 $script:lblAutoStatus = $lblAutoStatus
@@ -2150,7 +2154,7 @@ $lblManualStatus.Size = New-Object System.Drawing.Size(280, 26)
 $lblManualStatus.Anchor = "Bottom,Left"
 $lblManualStatus.BackColor = $bgPanel
 $lblManualStatus.ForeColor = [System.Drawing.Color]::White
-$lblManualStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblManualStatus.Font = New-UiFont "Segoe UI" 9 Bold
 $lblManualStatus.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $null = $form.Controls.Add($lblManualStatus)
 $script:lblManualStatus = $lblManualStatus
@@ -2163,7 +2167,7 @@ $lblManualHint.Location = New-Object System.Drawing.Point(656, 542)
 $lblManualHint.Size = New-Object System.Drawing.Size(360, 22)
 $lblManualHint.Anchor = "Bottom,Left,Right"
 $lblManualHint.ForeColor = $bgWarn
-$lblManualHint.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Italic)
+$lblManualHint.Font = New-UiFont "Segoe UI" 9 Italic
 $lblManualHint.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $lblManualHint.Visible = $false
 $null = $form.Controls.Add($lblManualHint)
@@ -2176,7 +2180,7 @@ $logBox.Size = New-Object System.Drawing.Size(1080, 140)
 $logBox.Anchor = "Bottom,Left,Right"
 $logBox.BackColor = $bgGrid
 $logBox.ForeColor = $fgText
-$logBox.Font = New-Object System.Drawing.Font("Consolas", 9)
+$logBox.Font = New-UiFont "Consolas" 9
 $logBox.ReadOnly = $true
 $logBox.BorderStyle = "FixedSingle"
 $null = $form.Controls.Add($logBox)

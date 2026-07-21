@@ -253,7 +253,11 @@ function Show-IPSelectionDialog {
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text             = "Temp IP Address Selection"
-    $form.Size             = New-Object System.Drawing.Size(720, 540)
+    # ClientSize (outer 720x540 minus 96dpi chrome W16/H39) + explicit
+    # DPI-neutral default font: keeps geometry and inherited control fonts
+    # stable after the process turns DPI-aware (first module execution).
+    $form.ClientSize       = New-Object System.Drawing.Size(704, 501)
+    $form.Font             = New-UiFont "Segoe UI" 9
     $form.StartPosition    = 'CenterScreen'
     $form.FormBorderStyle  = 'FixedDialog'
     $form.MaximizeBox      = $false
@@ -269,7 +273,7 @@ function Show-IPSelectionDialog {
     $headerLabel.Location = New-Object System.Drawing.Point(15, 15)
     $headerLabel.Size     = New-Object System.Drawing.Size(680, 65)
     $headerLabel.Text     = $headerText
-    $headerLabel.Font     = New-Object System.Drawing.Font("Consolas", 9)
+    $headerLabel.Font     = New-UiFont "Consolas" 9
     $form.Controls.Add($headerLabel)
 
     # Instructions
@@ -277,7 +281,7 @@ function Show-IPSelectionDialog {
     $instrLabel.Location  = New-Object System.Drawing.Point(15, 90)
     $instrLabel.Size      = New-Object System.Drawing.Size(680, 20)
     $instrLabel.Text      = "Pool (no probing performed - coordinate with team to avoid clash):"
-    $instrLabel.Font      = New-Object System.Drawing.Font("Microsoft Sans Serif", 9, [System.Drawing.FontStyle]::Bold)
+    $instrLabel.Font      = New-UiFont "Microsoft Sans Serif" 9 Bold
     $form.Controls.Add($instrLabel)
 
     # ListView

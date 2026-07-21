@@ -406,11 +406,14 @@ else {
     # ----- Main Form -----
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Fabriq Printer Delete"
-    $form.Size = New-Object System.Drawing.Size(900, 600)
+    # ClientSize (outer 900x600 minus 96dpi chrome W16/H39): a fixed outer
+    # Size lets the chrome, which grows in pixels once the process turns
+    # DPI-aware, eat the client area and clip the bottom controls.
+    $form.ClientSize = New-Object System.Drawing.Size(884, 561)
     $form.StartPosition = "CenterScreen"
     $form.BackColor = $bgDark
     $form.ForeColor = $fgText
-    $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $form.Font = New-UiFont "Segoe UI" 9
 
     # ----- Top Toolbar Panel -----
     $toolPanel = New-Object System.Windows.Forms.Panel
@@ -484,7 +487,7 @@ else {
     $script:dgv.EnableHeadersVisualStyles = $false
     $script:dgv.ColumnHeadersDefaultCellStyle.BackColor = $bgHeader
     $script:dgv.ColumnHeadersDefaultCellStyle.ForeColor = $fgHeader
-    $script:dgv.ColumnHeadersDefaultCellStyle.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $script:dgv.ColumnHeadersDefaultCellStyle.Font = New-UiFont "Segoe UI" 9 Bold
 
     $dgvType = $script:dgv.GetType()
     $pi = $dgvType.GetProperty("DoubleBuffered", [System.Reflection.BindingFlags]"Instance,NonPublic")

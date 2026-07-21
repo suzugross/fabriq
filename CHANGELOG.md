@@ -16,8 +16,9 @@
 ## [Unreleased]
 
 ### Fixed
-- kernel/common.ps1: DPI レイアウト崩れ対策の基盤として `New-UiFont` を新設(§6 内部 API・DPI 調査
-  2026-07-21 案 B / Phase 1)。本プロセスは起動時 DPI 非対応で、モジュール初回実行時の
+- kernel/common.ps1: DPI レイアウト崩れ対策の基盤として `New-UiFont` を新設(**§1.11 公開 API**・
+  次リリースで KERNEL_VERSION **MINOR**(3.7.0)昇格予定。当初 §6 内部としたが、モジュールが呼ぶ
+  以上「モジュールの内部 API 依存禁止」に抵触するため公開へ変更。DPI 調査 2026-07-21 案 B / Phase 1)。本プロセスは起動時 DPI 非対応で、モジュール初回実行時の
   Capture-ScreenEvidence(SetProcessDPIAware)で**不可逆に DPI-aware 化**するため、以後生成される
   pt フォントの WinForms UI は 125%/150% 環境で膨張しレイアウトが崩れる。New-UiFont は pt を
   96dpi 等価 px(pt×4/3)に換算し GraphicsUnit.Pixel で固定 — 非対応フェーズではピクセル一致・
@@ -30,6 +31,16 @@
   控除)で aware 化後の下端欠けを一括防止(非対応フェーズでは外寸・クライアント寸とも従来と同一 =
   見た目無変化をハーネスで確認)。manifesto は BorderStyle=None でクローム無しのため寸法変換不要。
   Phase 2 検証 11/11 PASS(parse / theme 全フォント px 固定 / Set-FormStyle 実挙動)。
+- modules(pianist / manual_kitting_assistant / temp_ipaddress_config / printer_delete): DPI 案 B
+  Phase 3 — モジュール UI のフォント 41 箇所を New-UiFont 化 + フォーム補修 3 件(pianist samples
+  ダイアログと temp_ipaddress の Form.Font 未設定 = OS 既定フォント継承の隠れ経路を封鎖 /
+  temp_ipaddress・printer_delete の Form.Size を ClientSize 化)。pianist は元から全フォーム
+  ClientSize 済み。検証: 置換残ゼロ + toolbar 非接触(6 箇所 pt 維持)を機械確認、全ファイル
+  parse 0 エラー、New-UiFont 呼出 54 箇所の引数形状 AST 検査、pianist 3A ハーネス 17/17 維持、
+  回帰 381 全 green。実機 125%/150% での目視スモーク(モジュール実行後の UI)は次回実使用時。
+  VERSION: pianist 2.0.0→2.0.1 / manual_kitting_assistant 1.0.0→1.0.1 /
+  temp_ipaddress_config 1.0.1→1.0.2 / printer_delete 1.0.0→1.0.1(いずれも PATCH)。
+  **REQUIRES_KERNEL: 4 件とも 3.7.0 に bump**(公開 API New-UiFont への依存追加・§G)。
 - modules/standard/office_license_config: office_license_install の /dstatus 検証が**構造的に
   一度も PASS できなかった**バグを修正(2026-07-17 現地報告: 登録成功・アクティベーション成功
   なのに verify が偽 FAIL)。原因は `Get-InstalledPartialKeys` の `return ,@($partials)`(カンマ
