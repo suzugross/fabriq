@@ -15,6 +15,14 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/sysprep_config: sysprep_list.csv に任意列 `DeploySetupComplete`(true / false、
+  列欠損・空値 = true で後方互換)を追加。false 指定で SetupComplete.cmd の生成・配置、
+  source/ ステージング、`C:\Windows\Setup\Scripts` ディレクトリ作成をすべてスキップし、
+  unattend.xml の配置と sysprep 実行のみ行う。true / false 以外の値は Error(fail-closed)。
+  false 時はプレビューに無効化表示 + 有効アクション行の IGNORED 警告 + 既存
+  SetupComplete.cmd 残存警告を表示(v1.2.0 / MINOR)。
+
 ### Fixed
 - kernel/common.ps1: DPI レイアウト崩れ対策の基盤として `New-UiFont` を新設(**§1.11 公開 API**・
   次リリースで KERNEL_VERSION **MINOR**(3.7.0)昇格予定。当初 §6 内部としたが、モジュールが呼ぶ

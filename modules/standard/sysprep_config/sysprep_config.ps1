@@ -111,6 +111,26 @@ if ($sysprepItems.Count -eq 0) {
 
 $sysprepConfig = $sysprepItems[0]
 
+# --- 1-1b: DeploySetupComplete toggle (optional column) ---
+# Column absent or empty value -> true (v1.1.x behavior, backward compatible).
+# Only "true" / "false" (case-insensitive) are accepted; any other value is
+# an Error (fail closed - never guess the operator's intent).
+$deploySetupComplete = $true
+$rawToggle = ""
+if ($null -ne $sysprepConfig.PSObject.Properties['DeploySetupComplete']) {
+    $rawToggle = [string]$sysprepConfig.DeploySetupComplete
+}
+switch ($rawToggle.Trim().ToLowerInvariant()) {
+    ""      { $deploySetupComplete = $true }
+    "true"  { $deploySetupComplete = $true }
+    "false" { $deploySetupComplete = $false }
+    default {
+        Show-Error "Invalid DeploySetupComplete value: '$rawToggle' (expected true / false)"
+        Write-Host ""
+        return (New-ModuleResult -Status "Error" -Message "Invalid DeploySetupComplete value: $rawToggle")
+    }
+}
+
 # --- 1-2: unattend_list.csv (answer-file settings as key/value rows) ---
 $unattendCsvPath = Join-Path $PSScriptRoot "unattend_list.csv"
 
@@ -159,8 +179,9 @@ if (-not (Test-Path $sysprepConfig.SysprepExe)) {
     return (New-ModuleResult -Status "Error" -Message "sysprep.exe not found")
 }
 
-# --- Confirm source/ directory exists (only when CopyFile actions are present) ---
-if ($copyFileActions.Count -gt 0) {
+# --- Confirm source/ directory exists (only when CopyFile actions are present
+#     and SetupComplete deployment is enabled - ignored rows must not block) ---
+if ($deploySetupComplete -and $copyFileActions.Count -gt 0) {
     if (-not (Test-Path $sourceDir)) {
         Show-Error "source/ directory not found: $sourceDir"
         Write-Host ""
@@ -168,8 +189,10 @@ if ($copyFileActions.Count -gt 0) {
     }
 }
 
-# --- Create deploy-target directories ---
-foreach ($dir in @($setupCompleteDeployDir, $sourceStagingDir)) {
+# --- Create deploy-target directories (SetupComplete deployment only;
+#     skipped entirely when disabled so no trace is left on the system) ---
+$deployDirs = if ($deploySetupComplete) { @($setupCompleteDeployDir, $sourceStagingDir) } else { @() }
+foreach ($dir in $deployDirs) {
     if (-not (Test-Path $dir)) {
         try {
             $null = New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop
@@ -226,7 +249,13 @@ Write-Host "SetupComplete.cmd Actions" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
-if ($setupItems.Count -eq 0) {
+if (-not $deploySetupComplete) {
+    Write-Host "  (deployment disabled: DeploySetupComplete=false)" -ForegroundColor DarkGray
+    if ($setupItems.Count -gt 0) {
+        Show-Warning "$($setupItems.Count) action(s) are defined but will be IGNORED (DeploySetupComplete=false)"
+    }
+}
+elseif ($setupItems.Count -eq 0) {
     Write-Host "  (no actions)" -ForegroundColor DarkGray
 }
 else {
@@ -281,7 +310,15 @@ else {
     Write-Host "  unattend.xml      -> $unattendDeployPath  [NEW]" -ForegroundColor White
 }
 
-if (Test-Path $setupCompleteDeployPath) {
+if (-not $deploySetupComplete) {
+    if (Test-Path $setupCompleteDeployPath) {
+        Write-Host "  SetupComplete.cmd -> $setupCompleteDeployPath  [SKIPPED - EXISTING FILE REMAINS, will run at first boot]" -ForegroundColor Red
+    }
+    else {
+        Write-Host "  SetupComplete.cmd -> $setupCompleteDeployPath  [SKIPPED]" -ForegroundColor DarkGray
+    }
+}
+elseif (Test-Path $setupCompleteDeployPath) {
     Write-Host "  SetupComplete.cmd -> $setupCompleteDeployPath  [OVERWRITE]" -ForegroundColor Yellow
 }
 else {
@@ -303,8 +340,8 @@ Write-Host ""
 # Step 5: File generation and deploy
 # ========================================
 
-# --- 5-1: Copy source/ -> staging directory ---
-if (Test-Path $sourceDir) {
+# --- 5-1: Copy source/ -> staging directory (skipped when disabled) ---
+if ($deploySetupComplete -and (Test-Path $sourceDir)) {
     $sourceContents = @(Get-ChildItem -Path $sourceDir -ErrorAction SilentlyContinue)
     if ($sourceContents.Count -gt 0) {
         try {
@@ -435,59 +472,64 @@ catch {
     return (New-ModuleResult -Status "Error" -Message "Failed to write unattend.xml: $_")
 }
 
-# --- 5-3: Generate SetupComplete.cmd dynamically -> deploy ---
-Show-Info "Generating SetupComplete.cmd..."
+# --- 5-3: Generate SetupComplete.cmd dynamically -> deploy (skipped when disabled) ---
+if (-not $deploySetupComplete) {
+    Show-Info "SetupComplete.cmd deployment skipped (DeploySetupComplete=false)"
+}
+else {
+    Show-Info "Generating SetupComplete.cmd..."
 
-$cmdBody = $cmdHeader + "`r`n"
+    $cmdBody = $cmdHeader + "`r`n"
 
-foreach ($action in $setupItems) {
+    foreach ($action in $setupItems) {
+        $cmdBody += "`r`n"
+        $cmdBody += "REM --- [$($action.ActionType)] $($action.Target) ---`r`n"
+
+        switch ($action.ActionType) {
+            "DeleteUser" {
+                $cmdBody += "net user `"$($action.Target)`" /delete`r`n"
+            }
+            "CopyFile" {
+                $cmdBody += "xcopy /Y /E /C /I `"$sourceStagingDir\$($action.Target)`" `"$($action.Destination)`"`r`n"
+            }
+            "Command" {
+                $cmdBody += "$($action.Target)`r`n"
+            }
+        }
+    }
+
     $cmdBody += "`r`n"
-    $cmdBody += "REM --- [$($action.ActionType)] $($action.Target) ---`r`n"
+    $cmdBody += $cmdFooter
 
-    switch ($action.ActionType) {
-        "DeleteUser" {
-            $cmdBody += "net user `"$($action.Target)`" /delete`r`n"
+    # Write SetupComplete.cmd
+    try {
+        # ANSI, not UTF8: cmd.exe does not skip a UTF-8 BOM - the first line
+        # (@echo off) always misparses (field-verified 2026-06-12). ANSI also
+        # keeps Japanese action paths readable (system codepage = CP932 on
+        # Japanese Windows).
+        $cmdBody | Out-File -FilePath $setupCompleteDeployPath -Encoding Default -Force -ErrorAction Stop
+
+        if (-not (Test-Path $setupCompleteDeployPath)) {
+            Show-Error "SetupComplete.cmd was not created: $setupCompleteDeployPath"
+            Write-Host ""
+            return (New-ModuleResult -Status "Error" -Message "SetupComplete.cmd not found after write")
         }
-        "CopyFile" {
-            $cmdBody += "xcopy /Y /E /C /I `"$sourceStagingDir\$($action.Target)`" `"$($action.Destination)`"`r`n"
+
+        $fileSize = (Get-Item $setupCompleteDeployPath).Length
+        if ($fileSize -eq 0) {
+            Show-Error "SetupComplete.cmd is empty"
+            Write-Host ""
+            return (New-ModuleResult -Status "Error" -Message "SetupComplete.cmd is empty after write")
         }
-        "Command" {
-            $cmdBody += "$($action.Target)`r`n"
-        }
+
+        Show-Success "SetupComplete.cmd deployed ($fileSize bytes)"
+        Write-Host "  Path: $setupCompleteDeployPath" -ForegroundColor DarkGray
     }
-}
-
-$cmdBody += "`r`n"
-$cmdBody += $cmdFooter
-
-# Write SetupComplete.cmd
-try {
-    # ANSI, not UTF8: cmd.exe does not skip a UTF-8 BOM - the first line
-    # (@echo off) always misparses (field-verified 2026-06-12). ANSI also
-    # keeps Japanese action paths readable (system codepage = CP932 on
-    # Japanese Windows).
-    $cmdBody | Out-File -FilePath $setupCompleteDeployPath -Encoding Default -Force -ErrorAction Stop
-
-    if (-not (Test-Path $setupCompleteDeployPath)) {
-        Show-Error "SetupComplete.cmd was not created: $setupCompleteDeployPath"
+    catch {
+        Show-Error "Failed to write SetupComplete.cmd: $_"
         Write-Host ""
-        return (New-ModuleResult -Status "Error" -Message "SetupComplete.cmd not found after write")
+        return (New-ModuleResult -Status "Error" -Message "Failed to write SetupComplete.cmd: $_")
     }
-
-    $fileSize = (Get-Item $setupCompleteDeployPath).Length
-    if ($fileSize -eq 0) {
-        Show-Error "SetupComplete.cmd is empty"
-        Write-Host ""
-        return (New-ModuleResult -Status "Error" -Message "SetupComplete.cmd is empty after write")
-    }
-
-    Show-Success "SetupComplete.cmd deployed ($fileSize bytes)"
-    Write-Host "  Path: $setupCompleteDeployPath" -ForegroundColor DarkGray
-}
-catch {
-    Show-Error "Failed to write SetupComplete.cmd: $_"
-    Write-Host ""
-    return (New-ModuleResult -Status "Error" -Message "Failed to write SetupComplete.cmd: $_")
 }
 
 Write-Host ""
