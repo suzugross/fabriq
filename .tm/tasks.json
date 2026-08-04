@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-07-21T15:30:00+09:00",
+  "updatedAt": "2026-08-04T13:37:19+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -812,6 +812,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-07-21T15:30:00+09:00",
       "updatedAt": "2026-07-21T15:30:00+09:00"
+    },
+    {
+      "id": "t-0092",
+      "title": "sysprep_config: DeploySetupComplete トグル追加 (SetupComplete.cmd 配置スキップ)",
+      "content": "SetupComplete.cmd を注入しない運用ができるよう、sysprep_list.csv に任意列 DeploySetupComplete (true/false) を追加する。false で SetupComplete 関連の配置 (cmd 生成・source/ ステージング・Scripts ディレクトリ作成) を全スキップし、unattend.xml 配置 + sysprep 実行のみ行う。",
+      "claudeNote": "設計 (2026-08-04): フル版設計ゲート提示・承認済 (stateDiagram + 敵対検証 8 項 + 変更スコープ宣言)。列欠損・空値 = true で後方互換、true/false 以外は Error (fail-closed)。false 時プレビュー: 無効化表示 + 有効アクション行の IGNORED 警告 + 既存 SetupComplete.cmd 残存警告 (削除はしない = 管理外宣言、OEM 製温存ケースと機械判別不能のため)。\n実装 (2026-08-04): sysprep_config.ps1 に toggle parse + 4 ゲート (source/ 存在チェック / デプロイ先ディレクトリ作成 / 5-1 ステージング / 5-3 生成・配置) + プレビュー 2 箇所。sysprep_list.csv 列追加、Guide.txt 3 箇所 + 新注記、CHANGELOG [Unreleased] Added。VERSION 1.1.1→1.2.0 (MINOR / 後方互換な任意列追加)、REQUIRES_KERNEL 据置、kernel 不変。\n検証: PS5.1 パーサ 0 エラー / toggle 解釈ハーネス 8/8 PASS (列欠損・空・true・TRUE・false・空白付き False・不正値・数値 0) / check_ps1_encoding exit 0 / sysprep_list.csv BOM 保存確認。残: 実機 or VM での false 実行スモーク (第 2 確認 N で unattend.xml のみ配置・Scripts 未作成を確認) は未実施。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-08-04T13:37:19+09:00",
+      "updatedAt": "2026-08-04T13:37:19+09:00"
     }
   ]
 }
