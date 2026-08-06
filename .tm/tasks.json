@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-08-04T13:37:19+09:00",
+  "updatedAt": "2026-08-06T09:02:09+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -821,6 +821,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-08-04T13:37:19+09:00",
       "updatedAt": "2026-08-04T13:37:19+09:00"
+    },
+    {
+      "id": "t-0093",
+      "title": "taskbar_config: AppId 列追加 (DesktopApplicationID ピン留め対応)",
+      "content": "taskbar_list.csv に任意列 AppId を追加し、DesktopApplicationID 形式 (Microsoft.Windows.Explorer / MSEdge 等) のピン留めを LinkPath 形式と混在サポートする。Win11 25H2 の公式ドキュメント (2026-07 更新の pinned-apps ページ) で本形式の現行サポートを確認済み。",
+      "claudeNote": "設計 (2026-08-06): フル版設計ゲート提示・承認済 (stateDiagram + 敵対検証 10 項 + 変更スコープ宣言)。行解釈 = LinkPath/AppId どちらか一方必須、両方・両方空は Error (fail-closed、行番号列挙)。AppId 列欠損の旧 CSV は全行 LinkPath 扱いで後方互換。taskbar:UWA (パッケージアプリ AUMID) は今回スコープ外。\n実装 (2026-08-06): taskbar_config.ps1 — ValidateRows (PinType/PinValue を Add-Member で解決)、プレビュー AppId 行 = [PIN:APPID] 存在チェック無し表示、XML 生成で属性値を SecurityElement.Escape (& 含みパスの不正 XML 潜在バグ同時修正)、Step 5.5 検証を <taskbar:DesktopApp カウント + エスケープ済み値 Contains に更新。taskbar_list.csv 例示 3 行化 (Explorer AppId / Edge AppId / Chrome LinkPath)、Guide.txt (AppId 説明 + Post-Apply Verification 記述の実装乖離も修正)、test.psd1 notes 3 ピン化、CHANGELOG Added。VERSION 1.1.0→1.2.0 (MINOR)、REQUIRES_KERNEL 据置、kernel 不変。\n検証: PS5.1 パーサ 0 エラー / ハーネス 15/15 PASS (行解釈 5 + XML 構造・エスケープ 7 + 検証ロジック 3、ユーザー提示サンプルと XPath 構造一致確認) / check_ps1_encoding exit 0 / CSV BOM 無しは元から (ASCII のみ)・CRLF 維持。残: VM リグ (10.1.10.8) での test.psd1 headless 実行 (3 ピン実配置 + Verified=True + teardown) は未実施 — 実施提案中。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-08-06T09:02:09+09:00",
+      "updatedAt": "2026-08-06T09:02:09+09:00"
     }
   ]
 }
