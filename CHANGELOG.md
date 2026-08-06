@@ -16,6 +16,12 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/taskbar_config: taskbar_list.csv に任意列 `AppId` を追加し、
+  `DesktopApplicationID` 形式のピン留め(例: Microsoft.Windows.Explorer / MSEdge)を
+  LinkPath 形式と混在サポート。有効行は LinkPath / AppId のどちらか一方のみ必須
+  (両方・両方空は Error / fail-closed)、列欠損の旧 CSV は全行 LinkPath 扱いで後方互換。
+  あわせて XML 属性値のエスケープを追加(& 含みパスで不正 XML になる潜在バグ修正)し、
+  Post-Apply Verification を混在形式対応に更新(v1.2.0 / MINOR)。
 - modules/standard/sysprep_config: sysprep_list.csv に任意列 `DeploySetupComplete`(true / false、
   列欠損・空値 = true で後方互換)を追加。false 指定で SetupComplete.cmd の生成・配置、
   source/ ステージング、`C:\Windows\Setup\Scripts` ディレクトリ作成をすべてスキップし、

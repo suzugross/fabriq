@@ -8,13 +8,19 @@ Default User プロファイルへ配置します。配置後に作成された�
   Enabled     : 有効フラグ（1=ピン留め対象, 0=スキップ）
   Order       : タスクバー上の表示順序（昇順）
   LinkPath    : アプリのパス（.lnk または .exe）（%APPDATA% 等の環境変数使用可）
+  AppId       : アプリケーション ID（省略可の列。DesktopApplicationID として出力）
   Description : 説明（表示用）
   Segment     : Segment フィルタ（省略可）
 
+  ※ 有効行は LinkPath / AppId の「どちらか一方だけ」を記入します。
+    両方記入・両方空の行があると Error で停止します（行番号を表示）。
+    AppId 列自体が無い旧形式の CSV は、全行 LinkPath 扱いでそのまま動きます。
+
 [記載例]
-  1,10,%APPDATA%\Microsoft\Windows\Start Menu\Programs\File Explorer.lnk,File Explorer
-  1,20,C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk,Google Chrome
-  1,30,C:\Program Files\Google\Chrome\Application\chrome.exe,Google Chrome（exe指定）
+  Enabled,Order,LinkPath,AppId,Description,Segment
+  1,10,,Microsoft.Windows.Explorer,File Explorer,
+  1,20,,MSEdge,Microsoft Edge,
+  1,30,C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk,,Google Chrome,
 
 ■ LinkPath について
 以下のいずれかの形式で指定できます。
@@ -24,6 +30,20 @@ Default User プロファイルへ配置します。配置後に作成された�
 ショートカットの格納場所：
 ・全ユーザー共通：C:\ProgramData\Microsoft\Windows\Start Menu\Programs\
 ・現在のユーザー：%APPDATA%\Microsoft\Windows\Start Menu\Programs\
+
+■ AppId について
+インストールパスに依存しない ID 指定でピン留めできます
+（XML の DesktopApplicationID 属性として出力）。
+代表的な ID:
+・Microsoft.Windows.Explorer : エクスプローラー
+・MSEdge                     : Microsoft Edge
+
+注意:
+・AppId は実在チェックができません（プレビューでは [PIN:APPID] 表示のみ）。
+  指定したアプリが初回ログオン時点で未インストールの場合、Windows は
+  エラーを出さずにそのピンだけをスキップします。
+・パッケージアプリ（Win11 のメモ帳・電卓等）の AUMID ピン留め
+  （taskbar:UWA 要素）には未対応です。必要になったら拡張を検討してください。
 
 ■ 存在しないパスについて
 LinkPath に指定したファイルが実行時点で存在しない場合、
@@ -42,20 +62,24 @@ LinkPath に指定したファイルが実行時点で存在しない場合、
 AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
 
 ■ Post-Apply Verification
-本モジュールは Post-Apply Verification を実装していません。
-XML 書き出し直後にファイルの存在とサイズ（0バイトでないこと）は確認しますが、
-XML の内容が期待通りかをパース検証するステップはありません。
-実際にピン留めが反映されるのは「配置後に新規作成される Default User プロファイル」
-であり、このホストでの読み返し検証は仕組み上困難です。
-New-ModuleResult に -Verified は渡していないため、
-実行履歴の Verified 列は空欄になります。
+配置した XML を読み返し、以下の 2 点を検証して -Verified で返します。
+・ピンエントリ数が CSV の有効行数と一致すること
+・各行の値（LinkPath / AppId、XML エスケープ後の形）が XML 内に存在すること
+検証できるのは「XML が意図通り書かれたか」までです。実際にピン留めが
+反映されるのは配置後に新規作成されるユーザープロファイルであり、
+タスクバー実体の検証は仕組み上できません（AppId 未インストール時の
+サイレントスキップも検出対象外）。
 
 ■ 動作の流れ
 1. taskbar_list.csv を読み込み、Order 昇順でソート
-2. 各ショートカットの存在確認を行い、対象一覧を表示
+   （各行を LinkPath / AppId のどちらか一方に解決。両方・両方空は Error）
+2. LinkPath 行はショートカットの存在確認を行い、対象一覧を表示
+   （AppId 行は [PIN:APPID] として存在チェックなしで表示）
 3. 実行確認（Y/N）
 4. LayoutModification.xml を生成し、Default User プロファイルへ配置
-5. 同じ XML を sysprep_config/source/ へ自動コピー（Sysprep ワークフロー用素材）
+   （属性値は XML エスケープして出力）
+5. 配置した XML の内容検証（Post-Apply Verification）
+6. 同じ XML を sysprep_config/source/ へ自動コピー（Sysprep ワークフロー用素材）
 
 ■ sysprep_config との連携
 本モジュールは、生成した LayoutModification.xml を Default User へ配置すると同時に、
