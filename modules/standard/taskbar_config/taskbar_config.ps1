@@ -32,6 +32,36 @@ if ($null -eq $allItems) {
 # Filter Enabled + sort by Order ascending (zero rows means "unpin everything")
 $items = @($allItems | Where-Object { $_.Enabled -eq "1" } | Sort-Object { [int]$_.Order })
 
+# Resolve each row to exactly one pin type: LinkPath (DesktopApplicationLinkPath)
+# or AppId (DesktopApplicationID). The AppId column is optional; when the column
+# is absent every row is a LinkPath row (pre-1.2.0 CSVs keep working unchanged).
+# A row with both or neither is ambiguous -> fail closed.
+$invalidRows = @()
+foreach ($item in $items) {
+    $linkValue = ([string]$item.LinkPath).Trim()
+    $appIdValue = ""
+    if ($null -ne $item.PSObject.Properties['AppId']) {
+        $appIdValue = ([string]$item.AppId).Trim()
+    }
+
+    if ($linkValue -ne "" -and $appIdValue -eq "") {
+        Add-Member -InputObject $item -NotePropertyName PinType -NotePropertyValue "Link"
+        Add-Member -InputObject $item -NotePropertyName PinValue -NotePropertyValue $linkValue
+    }
+    elseif ($linkValue -eq "" -and $appIdValue -ne "") {
+        Add-Member -InputObject $item -NotePropertyName PinType -NotePropertyValue "AppId"
+        Add-Member -InputObject $item -NotePropertyName PinValue -NotePropertyValue $appIdValue
+    }
+    else {
+        $invalidRows += "Order=$($item.Order) ($($item.Description))"
+    }
+}
+if ($invalidRows.Count -gt 0) {
+    Show-Error "Each enabled row must have exactly one of LinkPath / AppId. Invalid rows: $($invalidRows -join ', ')"
+    Write-Host ""
+    return (New-ModuleResult -Status "Error" -Message "Invalid taskbar_list.csv rows: $($invalidRows -join ', ')")
+}
+
 # ========================================
 # Step 2: Prerequisite check (deploy-target directory)
 # ========================================
@@ -67,7 +97,17 @@ Write-Host ""
 $index = 0
 foreach ($item in $items) {
     $index++
-    $expandedPath = Expand-UserEnvironmentVariables $item.LinkPath
+
+    if ($item.PinType -eq "AppId") {
+        # An application ID cannot be existence-checked; Windows silently
+        # skips pins whose app is not installed at first logon.
+        Write-Host "  [$index] $($item.Description)  [PIN:APPID]" -ForegroundColor White
+        Write-Host "      AppId: $($item.PinValue) (no existence check)" -ForegroundColor DarkGray
+        Write-Host ""
+        continue
+    }
+
+    $expandedPath = Expand-UserEnvironmentVariables $item.PinValue
 
     if (Test-Path $expandedPath) {
         $marker = "[PIN]"
@@ -79,7 +119,7 @@ foreach ($item in $items) {
     }
 
     Write-Host "  [$index] $($item.Description)  $marker" -ForegroundColor $markerColor
-    Write-Host "      LinkPath: $($item.LinkPath)" -ForegroundColor DarkGray
+    Write-Host "      LinkPath: $($item.PinValue)" -ForegroundColor DarkGray
     if ($marker -eq "[NOT FOUND]") {
         Show-Warning "Shortcut not found at: $expandedPath"
     }
@@ -115,9 +155,17 @@ Write-Host ""
 # ========================================
 
 # 5-1: Build the DesktopApp entries
+# Attribute values are XML-escaped (same pattern as sysprep_config): a path
+# containing & would otherwise produce invalid XML that Windows silently ignores.
 $pinEntries = ""
 foreach ($item in $items) {
-    $pinEntries += "      <taskbar:DesktopApp DesktopApplicationLinkPath=`"$($item.LinkPath)`"/>`r`n"
+    $escapedValue = [System.Security.SecurityElement]::Escape($item.PinValue)
+    if ($item.PinType -eq "AppId") {
+        $pinEntries += "      <taskbar:DesktopApp DesktopApplicationID=`"$escapedValue`"/>`r`n"
+    }
+    else {
+        $pinEntries += "      <taskbar:DesktopApp DesktopApplicationLinkPath=`"$escapedValue`"/>`r`n"
+    }
 }
 
 # 5-2: Build the full XML
@@ -163,20 +211,21 @@ try {
 
     # Step 5.5: Post-apply verification (content-level)
     # Read the file back and confirm BOTH: (1) the entry count matches (no truncation / no extras),
-    # and (2) every requested LinkPath value is actually present. Substring/.Contains is robust to
-    # BOM / trailing newline that an exact-string compare would trip on, and ordinal .Contains avoids
-    # wildcard/regex interpretation of path characters.
+    # and (2) every requested pin value (LinkPath or AppId, XML-escaped form) is actually present.
+    # Substring/.Contains is robust to BOM / trailing newline that an exact-string compare would
+    # trip on, and ordinal .Contains avoids wildcard/regex interpretation of path characters.
     $deployedRaw = Get-Content -Path $deployPath -Raw -ErrorAction Stop
-    $pinCount = ([regex]::Matches($deployedRaw, 'DesktopApplicationLinkPath')).Count
-    $allPathsPresent = $true
+    $pinCount = ([regex]::Matches($deployedRaw, '<taskbar:DesktopApp ')).Count
+    $allValuesPresent = $true
     foreach ($it in $items) {
-        if (-not $deployedRaw.Contains([string]$it.LinkPath)) { $allPathsPresent = $false; break }
+        $escapedCheck = [System.Security.SecurityElement]::Escape([string]$it.PinValue)
+        if (-not $deployedRaw.Contains($escapedCheck)) { $allValuesPresent = $false; break }
     }
-    if (($pinCount -eq $items.Count) -and $allPathsPresent) {
+    if (($pinCount -eq $items.Count) -and $allValuesPresent) {
         $deployVerified = $true
     }
     else {
-        Show-Warning "Verification mismatch: deployed XML pins=$pinCount/$($items.Count), all paths present=$allPathsPresent"
+        Show-Warning "Verification mismatch: deployed XML pins=$pinCount/$($items.Count), all values present=$allValuesPresent"
         $deployVerified = $false
     }
 }
