@@ -187,4 +187,53 @@ Describe 'Import-ModuleCsv' {
             } finally { Remove-TestProfileCsv $csv }
         }
     }
+
+    Context 'Single-row return shape (caller-boundary array contract)' {
+
+        # A 1-element result must survive the function boundary as an ARRAY.
+        # A bare return unrolls it to a scalar PSCustomObject, whose .Count
+        # is $null on PS 5.1 - callers gating on ".Count -gt 0" then silently
+        # treated single-row CSVs as empty (windows_license_install fell back
+        # to manual key input with no message; field-hit 2026-08). These pins
+        # intentionally use bare $r.Count (no @() re-wrap) because that is
+        # exactly the caller pattern the contract must support.
+
+        It 'returns an array (bare .Count usable) for a single-row CSV without a Segment column' {
+            $csv = New-TestProfileCsv -Columns @('Enabled','TargetName') -Rows @(
+                @{ Enabled = '1'; TargetName = 'only' }
+            )
+            try {
+                $r = Import-ModuleCsv -Path $csv
+                ($r -is [array]) | Should -BeTrue
+                $r.Count | Should -Be 1
+                ($null -ne $r -and $r.Count -gt 0) | Should -BeTrue
+                $r[0].TargetName | Should -Be 'only'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'returns an array for a single surviving row when the Segment column is present' {
+            $csv = New-TestProfileCsv -Columns @('Enabled','TargetName','Segment') -Rows @(
+                @{ Enabled = '1'; TargetName = 'only'; Segment = '' }
+            )
+            try {
+                $r = Import-ModuleCsv -Path $csv -Segment ''
+                ($r -is [array]) | Should -BeTrue
+                $r.Count | Should -Be 1
+                $r[0].TargetName | Should -Be 'only'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'returns an array when -FilterEnabled leaves exactly one row' {
+            $csv = New-TestProfileCsv -Columns @('Enabled','TargetName') -Rows @(
+                @{ Enabled = '0'; TargetName = 'off' }
+                @{ Enabled = '1'; TargetName = 'on' }
+            )
+            try {
+                $r = Import-ModuleCsv -Path $csv -FilterEnabled
+                ($r -is [array]) | Should -BeTrue
+                $r.Count | Should -Be 1
+                $r[0].TargetName | Should -Be 'on'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+    }
 }

@@ -64,22 +64,33 @@ $keySource = ""
 $csvPath = Join-Path $PSScriptRoot "license_key.csv"
 if (Test-Path $csvPath) {
     $allKeys = Import-ModuleCsv -Path $csvPath
-    if ($null -ne $allKeys -and $allKeys.Count -gt 0) {
+    # @() re-wrap: on kernels predating the ,@() return contract, a
+    # single-row CSV unrolls to a scalar PSCustomObject whose .Count is
+    # $null on PS 5.1 - the bare gate then silently skipped the CSV path.
+    if ($null -ne $allKeys -and @($allKeys).Count -gt 0) {
         $enabledKeys = @($allKeys | Where-Object { $_.Enabled -eq "1" })
 
         if ($enabledKeys.Count -gt 0) {
-            $productKey = $enabledKeys[0].ProductKey.Trim()
-            $keySource = "CSV"
-            $keyDesc = $enabledKeys[0].Description
-
             if ($enabledKeys.Count -gt 1) {
                 Show-Warning "Multiple enabled keys found. Using first entry."
             }
 
-            Show-Info "Product key loaded from CSV"
-            Write-Host "  Key:         $(Get-MaskedKey $productKey)" -ForegroundColor White
-            if ($keyDesc) {
-                Write-Host "  Description: $keyDesc" -ForegroundColor Gray
+            # [string] cast: a missing ProductKey column yields $null, which
+            # must fall through to the empty-key warning, not crash on .Trim()
+            $productKey = ([string]$enabledKeys[0].ProductKey).Trim()
+
+            if ([string]::IsNullOrWhiteSpace($productKey)) {
+                Show-Warning "Enabled row found but its ProductKey is empty - falling back to manual input"
+            }
+            else {
+                $keySource = "CSV"
+                $keyDesc = $enabledKeys[0].Description
+
+                Show-Info "Product key loaded from CSV"
+                Write-Host "  Key:         $(Get-MaskedKey $productKey)" -ForegroundColor White
+                if ($keyDesc) {
+                    Write-Host "  Description: $keyDesc" -ForegroundColor Gray
+                }
             }
         }
         else {
@@ -152,18 +163,11 @@ Write-Host ""
 try {
     $service = Get-CimInstance -ClassName SoftwareLicensingService
 
-    # Uninstall existing key if present (optional, InstallProductKey overwrites anyway)
-    if ($currentProduct) {
-        Show-Info "Uninstalling existing key..."
-        try {
-            $null = Invoke-CimMethod -InputObject $service -MethodName UninstallProductKey `
-                -Arguments @{ProductKeyID = $currentProduct.ID} -ErrorAction Stop
-            Show-Success "Existing key uninstalled"
-        }
-        catch {
-            Show-Warning "Could not uninstall existing key (will overwrite): $($_.Exception.Message)"
-        }
-    }
+    # No uninstall pre-step: InstallProductKey overwrites any existing key,
+    # and Step 6 verifies the read-back. (A former pre-step called
+    # UninstallProductKey on SoftwareLicensingService, where the method does
+    # not exist - it is a SoftwareLicensingProduct method - so it had failed
+    # with a noisy warning on every keyed machine since the first release.)
 
     # Install new key
     Show-Info "Installing new product key..."

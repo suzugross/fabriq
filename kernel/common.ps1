@@ -1272,7 +1272,12 @@ function Import-ModuleCsv {
         }
     } catch { }
 
-    return $allItems
+    # ,@() so a single-row result stays an array at the caller's assignment
+    # site. A bare return unrolls a 1-element array to a scalar PSCustomObject,
+    # whose .Count is $null on PS 5.1 - callers gating on ".Count -gt 0"
+    # silently treated 1-row CSVs as empty. Same mechanism as the ,@()
+    # filtered-empty returns above; pinned in Import-ModuleCsv.tests.ps1.
+    return ,@($allItems)
 }
 
 function Show-BatchProgress {
