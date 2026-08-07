@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-08-06T09:02:09+09:00",
+  "updatedAt": "2026-08-07T18:21:01+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -830,6 +830,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-08-06T09:02:09+09:00",
       "updatedAt": "2026-08-06T09:02:09+09:00"
+    },
+    {
+      "id": "t-0094",
+      "title": "windows_license: 単一行 CSV 無言マニュアルフォールバック + 死にコード UninstallProductKey の修正",
+      "content": "現場報告 2 件の根本修正。(1) license_key.csv にデータ行が 1 行しかないと、鍵を書いてあっても無言でマニュアル入力に落ちる (2026-02-17 以降全世代、現行含む)。(2) 既存キー保有機で『UninstallProductKey メソッドが見つかりません』系の偽 WARNING が毎回出る (初版からの死にコード)。",
+      "claudeNote": "根因 (2026-08-07 実機再現で確定): [単一行] kernel Import-ModuleCsv の `return $allItems` が 1 要素配列を関数境界でスカラーに unroll + PS5.1 では PSCustomObject の .Count が $null → モジュール門番 `.Count -gt 0` が偽陰性 → else 無しで無言スキップ → 手入力へ。2 行以上なら正常 (現場ワークアラウンド = ダミー行で 2 行化)。[UninstallProductKey] SoftwareLicensingService に存在しないメソッド (実在は SoftwareLicensingProduct 側・引数なし) を架空引数 ProductKeyID 付きで呼ぶ二重誤り。catch で警告化され InstallProductKey が上書きするため成果物への実害はゼロ、ノイズのみ。\n実装 (2026-08-07、フル版設計ゲート提示後): kernel common.ps1 `return ,@($allItems)` 化 (1 行でも常に配列、空配列の ,@() と同流儀・全モジュール一括保護) / windows_license_install 門番 `@($allKeys).Count` 化 (旧カーネル併用でも治る二重防御) + ProductKey 空/列欠損時の警告表示 ([string] キャストで .Trim() クラッシュも解消、無言経路根絶) + Uninstall 事前工程削除 (InstallProductKey 上書き + Step6 read-back 検証で機能損失なし)。KERNEL_API.md §1.2 戻り値契約に配列保証を明文化、Import-ModuleCsv.tests.ps1 に単一行ピン留め 3 ケース追加。KERNEL_VERSION 据置 (§I、PATCH 相当は次リリースで昇格)、windows_license_config 1.1.0→1.1.1、REQUIRES_KERNEL 据置。\n検証: run_tests 384/384 PASS (既存 381 + 新規 3、kernel touched のため必須実行) / パーサ 3 ファイル 0 エラー / 門番ハーネス 6/6 (配列・スカラー・null・空配列・列欠損・空白キー) / check_ps1_encoding exit 0。修正前の実機再現ログ: rows=1 → manual mode, rows=2 → OK。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-08-07T18:21:01+09:00",
+      "updatedAt": "2026-08-07T18:21:01+09:00"
     }
   ]
 }
