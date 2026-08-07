@@ -28,7 +28,7 @@
 
 **契約**: `Segment` 列を持つ CSV は `$env:FABRIQ_SEGMENT` で厳密一致フィルタされる（空 vs 空もマッチ）。
 
-**戻り値契約**: 真のロード失敗（ファイル不在・空ファイル・`-RequiredColumns` 欠落）は **`$null`** を返す。正常ロードだがフィルタ（`-FilterEnabled` で有効行ゼロ／Segment 不一致）で対象ゼロの場合は **空配列（`Count` 0、`$null` ではない）** を返す（`return ,@()` で呼出側のスカラ代入時に `$null` へ unroll されないよう保持）。よって呼出側は `if ($null -eq $items) { Error } elseif ($items.Count -eq 0) { Skipped }` で「ロード失敗」と「対象ゼロ＝Skip」を区別できる。
+**戻り値契約**: 真のロード失敗（ファイル不在・空ファイル・`-RequiredColumns` 欠落）は **`$null`** を返す。正常ロードだがフィルタ（`-FilterEnabled` で有効行ゼロ／Segment 不一致）で対象ゼロの場合は **空配列（`Count` 0、`$null` ではない）** を返す（`return ,@()` で呼出側のスカラ代入時に `$null` へ unroll されないよう保持）。よって呼出側は `if ($null -eq $items) { Error } elseif ($items.Count -eq 0) { Skipped }` で「ロード失敗」と「対象ゼロ＝Skip」を区別できる。**行が 1 件以上の場合も常に配列で返す**（`return ,@($allItems)`。単一行 CSV がスカラーに unroll されると PS 5.1 では `.Count` が `$null` になり、`.Count -gt 0` 型の門番が偽陰性を起こすため。修正前のカーネルではこの unroll が起きる — 呼出側で防御する場合は `@($items).Count` を使う）。
 
 ### 1.3 結果返却
 | 関数 | シグネチャ | 用途 |

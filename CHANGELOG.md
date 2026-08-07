@@ -15,6 +15,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- kernel/common.ps1: `Import-ModuleCsv` が**単一行 CSV をスカラーに unroll して返すバグ**を修正
+  (`return ,@($allItems)` 化)。PS 5.1 では PSCustomObject 単体の `.Count` が `$null` のため、
+  `.Count -gt 0` 型の門番を持つ呼出側がデータ 1 行の CSV を「空」と誤判定していた
+  (windows_license_install が無言でマニュアル入力へ落ちる現場事象の根本原因、
+  2026-02-17 以降全世代で発症)。KERNEL_API.md §1.2 の戻り値契約に配列保証を明文化、
+  tests/kernel/Import-ModuleCsv.tests.ps1 に単一行ピン留め 3 ケース追加。
+- modules/standard/windows_license_config: windows_license_install の 3 点修正 (v1.1.1)。
+  (1) CSV 門番を `@($allKeys).Count` 化 — 旧カーネルと組み合わせても単一行 CSV で
+  マニュアルモードに落ちない呼出側防御。(2) 有効行の ProductKey が空の場合に警告を表示
+  (従来は無言で手入力へ。ProductKey 列欠損時の `.Trim()` クラッシュも `[string]` キャストで解消)。
+  (3) 既存キーの事前 UninstallProductKey 工程を削除 — SoftwareLicensingService に存在しない
+  メソッドを呼ぶ死にコードで初版から一度も成功しておらず、キー保有機で毎回偽 WARNING を
+  出していた (InstallProductKey が上書きするため機能損失なし、Step 6 の read-back 検証は維持)。
+
 ### Added
 - modules/standard/taskbar_config: taskbar_list.csv に任意列 `AppId` を追加し、
   `DesktopApplicationID` 形式のピン留め(例: Microsoft.Windows.Explorer / MSEdge)を
