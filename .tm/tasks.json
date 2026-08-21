@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-08-07T18:21:01+09:00",
+  "updatedAt": "2026-08-21T16:40:25+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -839,6 +839,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-08-07T18:21:01+09:00",
       "updatedAt": "2026-08-07T18:21:01+09:00"
+    },
+    {
+      "id": "t-0095",
+      "title": "【最重要】[超大型] プロファイル別データオーバーレイ (モジュール CSV/資材の一元管理)",
+      "content": "プロファイル毎にモジュール CSV・資材フォルダ・ホストリストをプロファイル側フォルダへ集約し、1 カーネルで複数設定セットを使い分ける。優先順位: Profile 用 CSV > モジュール本体 CSV (ファイル単位フォールバック)。まず工数/影響度/バグリスク/推奨アクションの事前調査を実施。",
+      "claudeNote": "事前調査 (2026-08-09): 定量インベントリ = Import-ModuleCsv 経由 88 ファイル/100 呼出 (カーネル 1 点フックで大半吸収可) / Test-Path 前置き 8 箇所 (個別対応要・無言フォールバック同型リスク) / 資材フォルダ読み ~12-15 モジュール (driver, xml, ppkg, certs, file, wallpaper, INF, prompt, source, assets 等) / 多 CSV 列挙 reg_hklm+hkcu 4 スクリプト (合成意味論の設計要) / モジュール dir への書き込み系 8 スクリプト (acl/reg_template/firewall_rule/desktop_icon の backup 対) / クロスモジュール参照 2 件 (taskbar→sysprep source 書き, printer_delete→printer_driver 読み) / hostlist 消費者 = kernel main + csv_editor + fabriq_ios + 衛星 2 repo (checksheet/backuper 自動発見)。実行中プロファイルを示す runtime context は現状無し (FabriqLastProfileName は finalize 時のみ)、ResumeState には profileName 既存 → __RESTART__ 復元の土台あり。profiles/ は単一 CSV 群のため「CSV 併設フォルダ方式 (profiles/<name>.csv + profiles/<name>/)」を推奨 (Frex Order 原則・operator UI 非接触)。\n推奨 4 フェーズ: P0 契約設計 1-2 日 / P1 CSV 読み overlay (kernel MINOR: 新公開 API + FABRIQ_PROFILE_DIR + Import-ModuleCsv フック + Test-Path 8 箇所 + resume 契約) 3-5 日 / P2 資材 dir resolver 移行 1-1.5 週 / P3 書き込み系+列挙+hostlist+衛星 1 週+。合計実働 3-4 週相当、P1 だけで価値の 7-8 割。最重大リスク = 『overlay が効いている/いないの取り違えで誤設定が無言適用』→ 解決元の実行時表示 + evidence 記録 + __RESTART__ 復元テストを必須要件とする。framework patch は profiles/ 保全ルールのため本構想と強シナジー。詳細は 2026-08-09 のセッション報告参照。\n方針追加 (2026-08-09 ユーザー裁定): Profile-First 原則 — 本体 CSV へのフォールバックは非推奨の救済措置であり積極利用しない。フォールバックは常に可視化 (Show-Warning)、最終形はプロファイル単位 strict mode (フォールバック=Error) で締める。\n計画書作成 (2026-08-09): dev/PROFILE_DATA_OVERLAY_PLAN.md に正式契約 (§4: 解決アルゴリズム/可視化/列挙・資材 all-or-nothing/書き込み/直交性)、公開 API 案、Phase 0-4 計画、file:line 付き改修インベントリ (§7)、リスク台帳 (§8)、未決事項 Q1-Q5 (§9) を起こした。実装は未着手 — 次アクション = §9 の裁定 → Phase 0 契約凍結 → 設計ゲート提出。\nStudio 調査反映 + 裁定 (2026-08-21 記録): 計画書に FabriqStudio 交差点を反映 (Q6 ワークスペースモデルとの関係を新設、PDF ルート名前空間のツーリング予約、Studio 実装は非スコープ化)。Q3 はユーザー裁定で per-case (PDF 対象) に確定。残裁定 = Q1/Q2/Q4/Q5/Q6。\n【状態】ユーザー指示により実装は当面着手しない (まだまだ先)。ただし**最重要タスク**として保持。再開時の入口: dev/PROFILE_DATA_OVERLAY_PLAN.md を読み、残裁定 5 点を確定 → Phase 0 契約凍結 → Phase 1 設計ゲート (フル版) 提出。計画書が契約の正、本 claudeNote は要約に過ぎない。",
+      "status": "保留",
+      "createdAt": "2026-08-09T06:16:37+09:00",
+      "updatedAt": "2026-08-21T16:40:25+09:00"
     }
   ]
 }
