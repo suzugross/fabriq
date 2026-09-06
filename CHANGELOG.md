@@ -15,6 +15,19 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/gpo_config: **ローカルグループポリシー設定モジュール**を新設 (v0.1.0)。
+  `gpo_list*.csv`（Scope / KeyPath / ValueName / Action=Set|Delete|DeleteAllValues|CreateKey|Unmanage /
+  Type / Value / PolicyRef）を `%SystemRoot%\System32\GroupPolicy\{Machine,User}\Registry.pol` へ
+  **マージ**（既存エントリは保持、`Unmanage` で未構成化）し、gpt.ini の版数（下位 16bit=Machine /
+  上位 16bit=User）を更新して `gpupdate /force` を実行する。LGPO.exe は再配布不可のため不採用、
+  MS-GPREG "PReg" 形式の codec を `lib/PolFile.ps1` に純 PowerShell で実装（原子的置換・
+  書き込み前バックアップ・行検証 fail-closed・32bit プロセス拒否）。Post-Apply Verification は
+  Machine 行 = Registry.pol 再読込 + HKLM 読み返し、User 行 = Registry.pol 再読込（受理検証）。
+  併せて `gpo_backup.ps1`（実機の Registry.pol → gpo_list 形式 CSV 書き出し）と
+  `tests/modules/gpo_config/PolFile.tests.ps1`（codec 29 ケース、gpedit 実出力の fixture で
+  バイト一致往復）を追加。同梱 `gpo_list.csv` は「自動更新を構成する=無効」等の実例。
+
 ### Fixed
 - kernel/common.ps1: `Import-ModuleCsv` が**単一行 CSV をスカラーに unroll して返すバグ**を修正
   (`return ,@($allItems)` 化)。PS 5.1 では PSCustomObject 単体の `.Count` が `$null` のため、
