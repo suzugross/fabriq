@@ -54,7 +54,7 @@ Fabriq で 2 台の PC を一括キッティングし、Fabriq Evidence Manager 
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 61 種・Extended 18 種・計 79 種（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等。うち `windows_update` は GUI ボタン専用） |
+| **モジュールシステム** | Standard 62 種・Extended 18 種・計 80 種（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等。うち `windows_update` は GUI ボタン専用） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -89,7 +89,7 @@ fabriq/
 │   ├── ps1/                # カーネルサブスクリプト（manifesto, view_report）
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
-│   ├── standard/           # 標準モジュール群（61）
+│   ├── standard/           # 標準モジュール群（62）
 │   └── extended/           # 拡張モジュール群（16）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
@@ -228,7 +228,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 ## モジュール一覧
 
-### Standard モジュール（61）
+### Standard モジュール（62）
 
 | カテゴリ | モジュール |
 |---|---|
@@ -242,7 +242,7 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 | **Power** | `power_config` |
 | **Maintenance** | `acl_config`, `copyfile_config`, `file_delete`, `office_update`, `partition_config`, `robocopy_config`, `system_finalize` |
 | **System** | `autologon_config`, `default_app_config`, `driver_config`, `generic_process_runner`, `ppkg_config`, `process_killer`, `restart_config`, `restore_point`, `scheduled_task_config`, `signout_config`, `spi_config`, `sysprep_config`, `time_sync_config`, `volume_config`, `windows_feature_config` |
-| **Registry** | `reg_hklm_config`, `reg_hkcu_config` |
+| **Registry** | `reg_hklm_config`, `reg_hkcu_config`, `gpo_config` |
 | **Scripts** | `generic_batch_runner`, `startup_command_config` |
 | **Evidence** | `evidence_config` |
 | **Test** | `test_error_module`, `test_harness_config` |

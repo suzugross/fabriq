@@ -1,0 +1,96 @@
+﻿■ 概要
+このモジュールには2つのスクリプトがあります。
+
+[Local Group Policy Config]
+  ローカルグループポリシー（管理用テンプレート = レジストリベースのポリシー）を
+  CSV の内容で設定します。
+  %SystemRoot%\System32\GroupPolicy\{Machine,User}\Registry.pol を直接編集し、
+  gpt.ini の版数を更新して gpupdate を実行します。LGPO.exe は使用しません。
+
+[Local Group Policy Backup]
+  実機のローカルグループポリシー（Registry.pol）を読み取り、
+  本モジュールの CSV 形式（gpo_list 形式）に書き出します。
+  参照機で gpedit.msc により設定した内容を回収して再利用する入口です。
+
+■ 設定ファイル
+[gpo_list*.csv]（パターンに一致する全CSVが自動読み込み）
+  Enabled      : 有効フラグ（1=実行, 0=スキップ）
+  AdminID      : 管理番号（表示用）
+  SettingTitle : 設定タイトル（表示用）
+  Scope        : Machine（コンピューターの構成）/ User（ユーザーの構成）
+  KeyPath      : ポリシーのキーパス（ハイブ無し。例: Software\Policies\Microsoft\Windows\WindowsUpdate\AU）
+                 ※ HKEY_LOCAL_MACHINE\ 等が付いていた場合は警告のうえ自動で除去します
+  ValueName    : 値の名前（Set / Delete で必須。DeleteAllValues / CreateKey では空欄。
+                 Unmanage は通常必須だが、空欄にすると CreateKey で作ったキーのみエントリを外す）
+  Action       : Set             = 値を設定する
+                 Delete          = 値を削除する（ポリシーとして「削除」を管理し続ける）
+                 DeleteAllValues = キー配下の全値を削除する
+                 CreateKey       = キーのみ作成する
+                 Unmanage        = ポリシーから外す（gpedit の「未構成」相当。
+                                   Registry.pol から該当エントリを除去し、次回の
+                                   ポリシー更新でレジストリ値も自動的に消えます）
+  Type         : 型（Set のみ。REG_DWORD / REG_SZ / REG_EXPAND_SZ / REG_MULTI_SZ / REG_BINARY / REG_QWORD）
+  Value        : 設定する値（Set のみ）
+                 REG_DWORD / REG_QWORD は 10 進数または 0x 付き 16 進数
+                 REG_MULTI_SZ は | 区切り、REG_BINARY は 16 進文字列
+  PolicyRef    : 由来ポリシーのメモ（任意。例: WindowsUpdate:AutoUpdateCfg=Disabled）
+  Segment      : Segment フィルタ（省略可）
+
+[記載例]
+  1,1,自動更新を構成する = 無効,Machine,Software\Policies\Microsoft\Windows\WindowsUpdate\AU,NoAutoUpdate,Set,REG_DWORD,1,WindowsUpdate:AutoUpdateCfg=Disabled,
+  1,2,自動更新を構成する = 無効 (要素クリア),Machine,Software\Policies\Microsoft\Windows\WindowsUpdate\AU,AUOptions,Delete,,,WindowsUpdate:AutoUpdateCfg=Disabled,
+
+  gpedit で 1 つのポリシーを「無効」にすると、無効値の書き込みに加えて
+  サブ項目の値が「削除」エントリとして複数行になります。同梱の gpo_list.csv は
+  「自動更新を構成する = 無効」「ログオン中ユーザーがいる場合は自動再起動しない = 有効」
+  「クラシック表示のコントロール パネルを強制 = 有効」の実例です。
+
+■ 値の取得方法
+  1. 参照機の gpedit.msc で目的のポリシーを設定する
+  2. 参照機で [Local Group Policy Backup] を実行する
+     （または C:\Windows\System32\GroupPolicy フォルダを回収して開発機で実行）
+  3. backup\<日時>\gpo_list_backup.csv の行を gpo_list.csv に取り込み、
+     SettingTitle / PolicyRef を整える
+
+■ 動作の流れ（Config）
+  1. gpo_list*.csv を全て読み込み、有効行を集約
+  2. 行を検証（Scope / Action / Type / 値の形式 / 重複）。1 件でも不正があれば
+     何も書き込まずに Error で終了します
+  3. 既存の Registry.pol を読み込み、行ごとに [Current]（既に同じ内容）/
+     [Change]（変更あり）を表示
+  4. 実行確認（Y/N）後、Scope ごとに Registry.pol へマージして書き込み
+     （既存ファイルと gpt.ini は backup\<日時>\ に退避）、gpt.ini の版数を +1
+  5. gpupdate /target:computer（Machine 行あり）/ gpupdate /target:user（User 行あり）
+  6. Step 5.5 で検証（下記）
+
+■ マージの考え方
+  CSV に無いエントリは Registry.pol に残ります（既存のローカルポリシーを壊しません）。
+  同じキー・同じ値名に対する Set と Delete は互いに置き換わります。
+  「未構成」に戻したい場合は Action=Unmanage の行を書きます。
+
+■ 冪等性
+  行の内容が既に Registry.pol に含まれていれば [Skip] となり、Scope 内に変更が
+  無ければファイルも版数も更新しません。gpupdate は有効行がある限り毎回実行します
+  （レジストリ側が手で変更されていても正しい状態に戻すため）。
+
+■ Post-Apply Verification
+  Machine 行 : Registry.pol の再読込一致 + HKLM の読み返し一致
+  User 行    : Registry.pol の再読込一致（ユーザーポリシーは各ユーザーのログオン時に
+               適用されるため、受理されたことを検証します）。現在ユーザーの HKCU の
+               状態は参考として表示します
+  Unmanage 行: Registry.pol から消えていること
+  全件一致時のみ -Verified=$true。1 件でも不一致があれば -Verified=$false。
+
+■ 前提条件・注意
+・管理者権限が必要です
+・64bit の PowerShell で実行してください（32bit プロセスでは
+  System32\GroupPolicy が SysWOW64 にリダイレクトされるため Error で停止します）
+・ドメイン参加機ではドメインの GPO が優先されます（警告を表示します）
+・同じ Software\Policies 配下のキーを reg_hklm_config / reg_hkcu_config と
+  二重管理しないでください（GPO 側が 90 分ごとの更新で再適用され、意図が衝突します）
+・ユーザー別ローカルポリシー（MLGPO）、グループポリシー基本設定（GPP）、
+  スクリプト、comment.cmtx は対象外です
+・CSV は UTF-8（BOM 付き）+ CRLF での保存を推奨します
+
+■ AutoPilot
+AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
