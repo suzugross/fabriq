@@ -1,6 +1,6 @@
 # プロファイル別データオーバーレイ 実装計画書
 
-Status: **Phase 1 + Phase 2 実装済み・VM E2E 済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098)
+Status: **Phase 1〜3 実装済み・VM E2E 済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098 / P3 = t-0100)
 裁定: **Q1〜Q6 全件裁定済み(残裁定なし)** — Q1 = (a) メニュー単発は無効 / Q2 = 見送りで確定 /
 Q3 = per-case / Q4 = Show-Warning / Q5 = strict mode 不採用 / Q6 = 役割分担 + Studio 起票(§9・§14)
 作成: 2026-08-09 / 最終更新: 2026-09-09
@@ -196,12 +196,12 @@ PDF 側にフォルダが存在すれば(空でも)PDF 側を使う。空フォ�
   — csv_editor は対象外(撤去候補)、fabriq_ios は追加実装なしで「従来どおり動く」ことを回帰検証。
   実施記録は §12.1 / §12.4 末尾 / §12.5。
 
-### Phase 3: 書き込み系・クロスモジュール(1 週)
+### Phase 3: 書き込み系・クロスモジュール(1 週)— **実施済み(2026-09-09)**
 
-- §7.4 の backup/restore 4 対に §4.6 を実装(restore は「PDF に無ければ本体 backup を
-  Warning 付きで参照」のフォールバック対称)。
-- taskbar_config → sysprep_config/source の書き込み(§7.5)を PDF 経由に。
-- driver_export / firewall_rule_export / startlayout_backup / default_app export 等の出力先。
+- §7.4 の backup/restore 4 対 + driver_export / default_app export の計 6 対に §4.6 を実装
+  (restore は「PDF に無ければ本体 backup を Warning 付きで参照」のフォールバック対称)。
+- taskbar_config → sysprep_config/source の書き込み(§7.5)は **W3 で先行実施済み**。
+- 公開 API `Resolve-ModuleDataPath -ForWrite` を追加(kernel MINOR)。実施記録は §13.4。
 
 ### Phase 4: 締め・運用移行(逐次)
 
@@ -538,6 +538,69 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
 | 3 | 親ディレクトリ作成の失敗 | 作成失敗は例外 → 呼出側の既存 try/catch で Error |
 | 4 | 削除系(restore の cleanup 等)が PDF 側を再帰削除 | CLAUDE.md §8 ガード(`Test-FabriqSafe*`)を PDF パスにも適用する。既存ガードは containment 検証なので PDF ルートを許容ベースに追加 |
 
+### 13.4 Phase 3 実施記録(2026-09-09・完了)
+
+**§13.1 からの変更 2 点**(設計ゲートで提示・承認済み):
+
+| 変更 | 理由 |
+|---|---|
+| **`-ForWrite` はディレクトリを作成しない** | 当初案は「親ディレクトリを作成する」だったが、実コードを読むと**書き側 6 本は全て自前で生成している**(`acl_backup.ps1:212` が `-Force` で連鎖生成 / `reg_backup.ps1:26` / `firewall_rule_export.ps1:252` / `desktop_icon_backup.ps1:50` / `driver_export_config.ps1:41` / `export_app_associations.ps1:38`)。解決しただけで `<PDF>\...\backup\` が生えると、**プレビューやキャンセルで終わった実行が空フォルダを残し、後続の読み解決が「PDF にフォルダあり」に化ける**遠隔作用が入る。リゾルバは純関数のままにした |
+| **§13.3 #4(§8 ガードに PDF ルートを許容追加)は不要だった** | 6 モジュールの再帰削除は 2 箇所(`acl_backup.ps1:210` / `driver_export_config.ps1:179`)だけで、いずれも**解決後のベースに対する inline containment 判定**のため解決先に自動追随する。`Test-FabriqProtectedPath` はこの 6 本のどこからも呼ばれていない。**カーネルのガード変更はゼロ** |
+
+**restore を fail-closed にしなかった判断**: 「コンテキスト有効だが PDF に backup を作ったことがない
+→ 本体側の別案件の捕捉物を復元しうる」経路は残る。これは Show-Warning で可視化するに留めた。
+理由は Q5(strict mode 不採用)と同じ論理で、可視化 3 点で足り、ハード停止は移行途中の全停止を招くため。
+**オーバーレイ以前と同じ挙動 + 警告**であり退行ではない。構造的な解消は Phase 4 §14.2
+(メニュー単発のデータセット選択)で可能。
+
+**列挙を `Get-ModuleDataFiles` にしなかった判断**: restore 側の列挙(`DesktopIcons_*.reg` /
+`*_<name>.reg`)は**フォルダ解決 + 既存 `Get-ChildItem`** のままにした。PDF の backup フォルダが
+「有るが空」は「このデータセットにバックアップ無し」の明示(= Error)であるべきで、
+他データセットのファイルへ落ちてはいけないため。
+
+**編集点(実測)**
+
+| モジュール | 書き側(`-ForWrite`) | 読み側(通常解決) | VERSION |
+|---|---|---|---|
+| acl_config | acl_backup.ps1 `$backupBaseDir`:80 | acl_restore.ps1 `$backupBaseDir`:76 | 1.0.2 → 1.1.0 |
+| reg_template | reg_backup.ps1 `$backupDir`:23 | reg_import.ps1 `$backupDir`:25 | 1.1.0 → 1.2.0 |
+| firewall_rule_config | firewall_rule_export.ps1 `$defaultBackupRoot`:186 | firewall_rule_import.ps1 の backup アンカー:80 | 1.1.0 → 1.2.0 |
+| desktop_icon_config | desktop_icon_backup.ps1 `$backupDir`:47 | desktop_icon_restore.ps1 `$backupDir`:19 | 1.0.1 → 1.1.0 |
+| driver_config | driver_export_config.ps1 `$driverDir`:38 | (import は W1 済み) | 1.2.0 → 1.3.0 |
+| default_app_config | export_app_associations.ps1 `$xmlDir`:38 | (適用側は W1 済み) | 1.1.0 → 1.2.0 |
+
+全件 MINOR / `REQUIRES_KERNEL` 3.7.0。firewall は `Add-ImportEntry` が **`BackupRoot` 相対**で
+`SourcePath` を書き、import 側が同じ解決後ルートを相対の起点にするため、export の書き先と
+import のアンカーが一致する(実測確認済み)。
+
+**検証**
+
+- run_tests **464/464 PASS**(P2 の 455 + Phase 3 ブロック 9)。
+- dev 機ロジックチェック **37 件全 PASS**: 6 対 × (コンテキスト無しで書き読みとも恒等 / 空 PDF で
+  write→PDF・read→本体・**何も生成されない** / モジュールが実際に書いた後は対が PDF 内で閉じる)
+  + firewall の export root == import anchor。
+- VM リグ(clean-base): `reg_template` と `firewall_rule_config` に overlay シナリオを追加し
+  **4/4 PASS / exit 0**。
+
+  | Module | Scenario | Verdict | Oracle |
+  |---|---|---|---|
+  | reg_template | backup(コンテキスト無し) | PASS(SELF) | 後方互換 |
+  | reg_template | overlay-backup | **PASS** | `True/True` = .reg が PDF にあり本体 backup は空 |
+  | firewall_rule_config | export(コンテキスト無し) | PASS | 後方互換 |
+  | firewall_rule_config | overlay-export | **PASS** | `True/False` = policy.wfw が PDF にあり本体側に無い |
+
+- 実 VM の表示目視:
+
+  ```
+  [INFO]    [DATA] reg_template/backup/ -> profile (_p3_display) [write]
+  [WARNING] [DATA] reg_template/backup/ <- module dir (FALLBACK: not in profile data folder)
+  created by resolving? : False          ← 解決では何も生成されない
+  read source (after write) : ...\profiles\_p3_display\modules\reg_template\backup
+  pair closed in the PDF : True
+  no context -> write / read とも本体側(恒等)
+  ```
+
+  書きと読みが**同一バッチ内で両方表示**される(dedup キーが独立)ことを実機で確認。
 ---
 
 ## 14. Phase 4 設計(締め・運用移行)— 2026-09-09 の裁定で縮小
