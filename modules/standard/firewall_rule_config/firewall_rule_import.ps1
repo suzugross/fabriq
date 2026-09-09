@@ -77,7 +77,7 @@ function Resolve-ImportSource {
         $resolved = $Path
     }
     else {
-        $resolved = Join-Path (Join-Path $PSScriptRoot "backup") $Path
+        $resolved = Join-Path (Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup")) $Path
     }
 
     if (Test-Path $resolved -PathType Container) {

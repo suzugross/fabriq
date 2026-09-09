@@ -21,6 +21,11 @@
 #   - a bare module root maps only as a directory, never as a file
 #   - enumeration takes the PDF matches only, or the module dir with a warning
 #   - telemetry origin is classified from the FINAL path, not "did it change"
+#
+# Phase 3 pins (-ForWrite):
+#   - a write always targets the profile copy (no fallback) and creates nothing
+#   - the write display has its own arrow and dedup key (read line still shows)
+#   - paths outside <repo>\modules and paths already in the PDF stay untouched
 # ========================================
 
 BeforeAll {
@@ -400,6 +405,112 @@ Describe 'Profile Data Overlay (Phase 2)' {
             Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
             $inside = Join-Path $script:pdf 'modules\reg_hklm_config\reg_hklm_list_a.csv'
             Get-FabriqDataOrigin -Path $inside | Should -Be 'profile'
+        }
+    }
+}
+
+Describe 'Profile Data Overlay (Phase 3 - writes)' {
+
+    BeforeEach {
+        Mock Show-Info    { }
+        Mock Show-Warning { }
+        Mock Show-Error   { }
+        Mock Write-TelemetryEvent       { }
+        Mock Write-KernelTelemetryEvent { }
+
+        $script:pdf = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP ("fabriq-pdf-{0}" -f ([guid]::NewGuid().ToString('N')))))
+        $null = New-Item -ItemType Directory -Path $script:pdf -Force
+        Clear-FabriqProfileDataContext
+    }
+
+    AfterEach {
+        Clear-FabriqProfileDataContext
+        Remove-OverlayTemp $script:pdf
+    }
+
+    Context 'Resolve-ModuleDataPath -ForWrite' {
+
+        It 'returns the input unchanged and stays silent when no context is active' {
+            $backup = Join-Path $script:RepoRoot 'modules\standard\acl_config\backup'
+            Resolve-ModuleDataPath -Path $backup -ForWrite | Should -Be $backup
+            Should -Invoke Show-Info    -Exactly -Times 0
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+
+        It 'returns the profile path even though nothing exists there yet (no fallback for writes)' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $backup = Join-Path $script:RepoRoot 'modules\standard\acl_config\backup'
+
+            $r = Resolve-ModuleDataPath -Path $backup -ForWrite
+            $r | Should -Be (Join-Path $script:pdf 'modules\acl_config\backup')
+            Test-Path $r | Should -BeFalse      # resolving must not create it
+            Should -Invoke Show-Info    -Exactly -Times 1
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+
+        It 'never creates the destination directory (a stray folder would flip a later read)' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $assets = Join-Path $script:RepoRoot 'modules\standard\driver_config\driver'
+
+            $w = Resolve-ModuleDataPath -Path $assets -ForWrite
+            Test-Path $w | Should -BeFalse
+            # the read side must still fall back, because the write resolution
+            # left nothing behind in the profile data folder
+            Resolve-ModuleDataPath -Path $assets | Should -Be $assets
+        }
+
+        It 'shows the write with an arrow of its own, and does not suppress the read line' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $assets = Join-Path $script:RepoRoot 'modules\standard\driver_config\driver'
+
+            $null = Resolve-ModuleDataPath -Path $assets -ForWrite   # Show-Info  (write)
+            $null = Resolve-ModuleDataPath -Path $assets             # Show-Warning (read fallback)
+            Should -Invoke Show-Info    -Exactly -Times 1
+            Should -Invoke Show-Warning -Exactly -Times 1
+        }
+
+        It 'displays a write once per batch per label' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $backup = Join-Path $script:RepoRoot 'modules\standard\acl_config\backup'
+            $null = Resolve-ModuleDataPath -Path $backup -ForWrite
+            $null = Resolve-ModuleDataPath -Path $backup -ForWrite
+            Should -Invoke Show-Info -Exactly -Times 1
+        }
+
+        It 'leaves an explicit path outside <repo>\modules untouched (operator-named destination)' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $explicit = 'D:\snapshots\firewall'
+            Resolve-ModuleDataPath -Path $explicit -ForWrite | Should -Be $explicit
+            Should -Invoke Show-Info -Exactly -Times 0
+        }
+
+        It 'is idempotent for a path already inside the data folder' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $inside = Join-Path $script:pdf 'modules\acl_config\backup'
+            Resolve-ModuleDataPath -Path $inside -ForWrite | Should -Be $inside
+            Should -Invoke Show-Info -Exactly -Times 0
+        }
+
+        It 'closes a backup -> restore pair inside the profile data folder' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $moduleBackup = Join-Path $script:RepoRoot 'modules\standard\acl_config\backup'
+
+            # backup writes to the profile copy...
+            $writeDir = Resolve-ModuleDataPath -Path $moduleBackup -ForWrite
+            $null = New-Item -ItemType Directory -Path $writeDir -Force
+            New-OverlayFile -Path (Join-Path $writeDir '_manifest.csv') -Lines @('Path,Owner', 'C:\x,BUILTIN\Administrators')
+
+            # ...and restore reads it back through the plain read resolution
+            Resolve-ModuleDataPath -Path $moduleBackup | Should -Be $writeDir
+        }
+
+        It 'keeps the containment guard consistent: the write target sits under the resolved base' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $base   = Resolve-ModuleDataPath -Path (Join-Path $script:RepoRoot 'modules\standard\acl_config\backup') -ForWrite
+            $child  = Join-Path $base '1_C__data'
+            $baseFull  = [System.IO.Path]::GetFullPath($base).TrimEnd('\').ToLowerInvariant()
+            $childFull = [System.IO.Path]::GetFullPath($child).TrimEnd('\').ToLowerInvariant()
+            $childFull.StartsWith($baseFull + '\') | Should -BeTrue
         }
     }
 }

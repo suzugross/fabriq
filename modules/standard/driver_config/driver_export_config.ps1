@@ -35,7 +35,7 @@ if ($enabledItems.Count -eq 0) {
 # ========================================
 # Step 2: Prerequisite check (early return)
 # ========================================
-$driverDir = Join-Path $PSScriptRoot "driver"
+$driverDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "driver") -ForWrite
 if (-not (Test-Path $driverDir)) {
     try {
         New-Item -Path $driverDir -ItemType Directory -Force | Out-Null

@@ -20,7 +20,7 @@ if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Faile
 if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # --- Backup directory ---
-$backupDir = Join-Path $PSScriptRoot "backup"
+$backupDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup") -ForWrite
 if (-not (Test-Path $backupDir)) {
     try {
         $null = New-Item -ItemType Directory -Path $backupDir -Force

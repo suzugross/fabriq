@@ -54,6 +54,19 @@
   展開先 `INF\<BaseName>` と §8 封じ込めガードも解決後ルートに追随。`tools\7z.exe` はフレームワーク
   資産のため本体側のまま)。**プロファイル側にフォルダを作れば入出力ともそこに閉じる**運用。
   各 MINOR、`REQUIRES_KERNEL` 3.7.0。
+- kernel/common.ps1 + modules (6 対): **データオーバーレイ Phase 3(書き込み系)**
+  (計画書 §13)。公開 API に `Resolve-ModuleDataPath -ForWrite` を追加し、backup / export の
+  **書き込み先をプロファイルデータフォルダ側**に寄せた。backup → restore の対が PDF 内で閉じ、
+  **ある案件の捕捉物が別案件に混ざらない**。`-ForWrite` は存在判定なしで PDF 側パスを返す
+  (書く先は一意でフォールバックの概念が無い)が、**ディレクトリは作成しない** — 解決の副作用で
+  空フォルダが生えると後続の読み解決が「PDF にフォルダあり」に化けるため(6 本の書き側は全て
+  自前でディレクトリを生成済み)。表示は `-> profile (X) [write]` と向きで読みと区別し、dedup キーも
+  独立させて同一バッチ内の読み行を潰さない。restore / import 側は通常の読み解決(PDF 優先・
+  欠落時は本体側へ Warning 付きフォールバック)。
+  acl_config 1.1.0 / reg_template 1.2.0 / firewall_rule_config 1.2.0 / desktop_icon_config 1.1.0 /
+  driver_config 1.3.0 / default_app_config 1.2.0(各 MINOR、`REQUIRES_KERNEL` 3.7.0)。
+  既存の再帰削除ガード 2 箇所(acl_backup / driver_export)は解決後ベースへの containment 判定の
+  ため自動追随し、カーネルのガード変更は不要だった。新規テスト 9 ケース、run_tests 464/464 PASS。
 
 ### Fixed
 - kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに

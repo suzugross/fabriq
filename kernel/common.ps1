@@ -1293,17 +1293,23 @@ function Write-FabriqDataResolution {
     # Internal. Shows where a data path was resolved from, once per batch per
     # label (Set-FabriqProfileDataContext resets the dedup table). A fallback
     # is a Warning on purpose: profile-first means it must never be silent.
+    # Write resolutions use their own dedup key and an arrow pointing the other
+    # way, so a folder that is both written and read in one batch shows both.
     param(
         [Parameter(Mandatory = $true)][string]$Label,
         [Parameter(Mandatory = $true)][bool]$FromProfile,
-        [Parameter(Mandatory = $true)][string]$DataDir
+        [Parameter(Mandatory = $true)][string]$DataDir,
+        [switch]$ForWrite
     )
     if ($null -eq $script:FabriqDataResolutionSeen) { $script:FabriqDataResolutionSeen = @{} }
-    $seenKey = $Label.ToLowerInvariant()
+    $seenKey = ("$Label" + $(if ($ForWrite) { ' [write]' } else { '' })).ToLowerInvariant()
     if ($script:FabriqDataResolutionSeen.ContainsKey($seenKey)) { return }
     $script:FabriqDataResolutionSeen[$seenKey] = $true
 
-    if ($FromProfile) {
+    if ($ForWrite) {
+        Show-Info "[DATA] $Label -> profile ($(Split-Path $DataDir -Leaf)) [write]"
+    }
+    elseif ($FromProfile) {
         Show-Info "[DATA] $Label <- profile ($(Split-Path $DataDir -Leaf))"
     }
     else {
@@ -1342,10 +1348,30 @@ function Resolve-ModuleDataPath {
     # A bare module root (<rel> empty) is only ever matched as a directory.
     # Every resolution under a context is displayed once per batch per label
     # so a fallback is never silent (profile-first principle).
-    param([Parameter(Mandatory = $true)][string]$Path)
+    #
+    # -ForWrite resolves a WRITE destination (backup / export). There is no
+    # fallback for a write - the destination is always the active data set's
+    # own copy, so a backup -> restore pair closes inside the profile and one
+    # customer's capture can never land in another's. Existence is not tested
+    # and NO directory is created: every caller creates what it writes, and a
+    # folder conjured up by merely resolving would silently change a later READ
+    # resolution (an empty profile folder wins over the module directory).
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$ForWrite
+    )
 
     $map = Get-FabriqOverlayCandidate -Path $Path
     if ($null -eq $map) { return $Path }
+
+    if ($ForWrite) {
+        $isDir = $map.IsRoot -or
+                 (Test-Path -LiteralPath $Path -PathType Container) -or
+                 (Test-Path -LiteralPath $map.Candidate -PathType Container)
+        $suffix = if ($isDir) { "/" } else { "" }
+        Write-FabriqDataResolution -Label "$($map.Label)$suffix" -FromProfile $true -DataDir $map.DataDir -ForWrite
+        return $map.Candidate
+    }
 
     if (-not $map.IsRoot -and (Test-Path -LiteralPath $map.Candidate -PathType Leaf)) {
         Write-FabriqDataResolution -Label $map.Label -FromProfile $true -DataDir $map.DataDir

@@ -77,7 +77,7 @@ if (-not $icaclsCmd) {
 # ========================================
 # Step 3: Pre-execution display (dry-run)
 # ========================================
-$backupBaseDir = Join-Path $PSScriptRoot "backup"
+$backupBaseDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup") -ForWrite
 
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "ACL Backup Targets" -ForegroundColor Yellow

@@ -16,7 +16,7 @@ Show-Separator
 Write-Host ""
 
 # --- Find backup files ---
-$backupDir = Join-Path $PSScriptRoot "backup"
+$backupDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup")
 
 if (-not (Test-Path $backupDir)) {
     Show-Error "backup/ directory not found: $backupDir"

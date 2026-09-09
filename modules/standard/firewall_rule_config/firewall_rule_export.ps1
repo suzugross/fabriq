@@ -183,7 +183,7 @@ if ($exportItems.Count -eq 0) {
 # Step 2: Resolve Destinations
 # ========================================
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$defaultBackupRoot = Join-Path $PSScriptRoot "backup"
+$defaultBackupRoot = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup") -ForWrite
 
 $plans = @()
 foreach ($item in $exportItems) {

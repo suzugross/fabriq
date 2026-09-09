@@ -22,7 +22,7 @@ if ($null -eq $items) { return (New-ModuleResult -Status "Error" -Message "Faile
 if ($items.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Message "No enabled entries") }
 
 # --- Backup directory check ---
-$backupDir = Join-Path $PSScriptRoot "backup"
+$backupDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup")
 if (-not (Test-Path $backupDir)) {
     Show-Error "backup/ directory not found: $backupDir"
     Show-Info "Run 'Registry Backup' first to create backup files."

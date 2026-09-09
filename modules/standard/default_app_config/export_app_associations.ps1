@@ -35,7 +35,7 @@ if ($enabledItems.Count -eq 0) {
 # ========================================
 # Step 2: Prerequisite check (early return)
 # ========================================
-$xmlDir = Join-Path $PSScriptRoot "xml"
+$xmlDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "xml") -ForWrite
 if (-not (Test-Path $xmlDir)) {
     try {
         New-Item -Path $xmlDir -ItemType Directory -Force | Out-Null

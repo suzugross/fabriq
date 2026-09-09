@@ -44,7 +44,7 @@ if ($null -ne $cancelResult) { return $cancelResult }
 Write-Host ""
 
 # --- Backup directory ---
-$backupDir = Join-Path $PSScriptRoot "backup"
+$backupDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup") -ForWrite
 if (-not (Test-Path $backupDir)) {
     try {
         $null = New-Item -ItemType Directory -Path $backupDir -Force

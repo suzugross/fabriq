@@ -73,7 +73,7 @@ if (-not $icaclsCmd) {
     return (New-ModuleResult -Status "Error" -Message "icacls.exe not found")
 }
 
-$backupBaseDir = Join-Path $PSScriptRoot "backup"
+$backupBaseDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "backup")
 if (-not (Test-Path $backupBaseDir)) {
     Show-Error "Backup directory not found: $backupBaseDir"
     Show-Info "Run 'ACL Backup' first to create a backup."
