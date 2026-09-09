@@ -1,6 +1,6 @@
 # プロファイル別データオーバーレイ 実装計画書
 
-Status: **契約凍結(P1 スコープ)・Phase 1 実装済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097)
+Status: **Phase 1 + Phase 2 実装済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098)
 裁定済み: Q1 = (a) メニュー単発は無効 / Q3 = per-case / Q4 = Show-Warning(2026-09-09)。
 残裁定: Q2 / Q5 / Q6(P3 / P4 着手前に裁定。P1 コードは非依存)
 作成: 2026-08-09 / 最終更新: 2026-09-09
@@ -192,6 +192,9 @@ PDF 側にフォルダが存在すれば(空でも)PDF 側を使う。空フォ�
   (startlayout ×3 / sysprep source + taskbar クロス書き / printer_driver INF)→ W4 ツーリング
   (csv_editor / fabriq_ios)。
 - 各 wave: 軽量版ゲート(W0 のみフル版)+ モジュール VERSION MINOR + REQUIRES_KERNEL 3.7.0 + 個別検証。
+- **実施済み(2026-09-09)**: W0〜W3 を実装(kernel 1 + モジュール 16 件)。W4 はユーザー裁定で縮小
+  — csv_editor は対象外(撤去候補)、fabriq_ios は追加実装なしで「従来どおり動く」ことを回帰検証。
+  実施記録は §12.1 / §12.4 末尾 / §12.5。
 
 ### Phase 3: 書き込み系・クロスモジュール(1 週)
 
@@ -433,15 +436,38 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
 
 - 解決先フォルダが PDF に無い場合は本体側(フォールバック警告)。**PDF 側にフォルダだけ作れば**
   以後の入出力は PDF に閉じる、という運用を Guide に明記する。
+  → W3 実施時に README「プロファイル別データオーバーレイ」節(オペレータ向け)へ記載。
 
-### 12.5 W4: ツーリング追随(apps・軽量版ゲート)
+**W1〜W3 実施記録(2026-09-09・完了)**
 
-- **csv_editor**: `$script:CsvRegistry` の相対パスを、エディタ内の「データセット選択」(なし / profiles/<name>)
-  で写像。選択時は `Resolve-ModuleDataPath` と同じ規則でパスを組み(存在しない場合は「PDF に作成」を提案)、
-  保存先を PDF 側にする。既存の Profile CSV 自動発見はそのまま。
-- **fabriq_ios**: `lib/commands/module.ps1` の `*_list.csv` 発見(:135-145)を PDF 認知(セッションに
-  データセット選択を追加し、発見ルートを PDF 側 → 本体側の順に)。既存動作(選択なし)は不変。
-- どちらも kernel 契約への依存は `Resolve-ModuleDataPath` の写像規則のみ(§3 完全ミラー)。
+| wave | 対象 | 検証 |
+|---|---|---|
+| W1 | 資材フォルダ 10 モジュール 13 箇所。計画書比 +3 箇所(odt の行別相対 `AssetsFolder` :83/:216/:271)、taskbar の行番号は :41 → :71 に移動していた | 実モジュール dir に対する 4 状態 × 10 = 40 チェック PASS(PDF 無し → 本体 / PDF 空 → PDF / PDF 実体 → PDF / コンテキスト無し → 恒等) |
+| W2 | reg 列挙 4 スクリプト(1 行置換) | 4 状態 × 2 モジュール: 件数・ソート順・`resolvedFrom` 分類・`Import-ModuleCsv` 恒等・行読み出し PASS |
+| W3 | startlayout(json/xml/ppkg)/ sysprep source + taskbar クロス書き / printer INF | クロスモジュール両側が同一 PDF パスに解決すること、展開先と §8 封じ込めガードが解決後ルートで整合すること、コンテキスト無しの恒等を実測 PASS |
+
+各 wave で run_tests 455/455・パーサ・`check_ps1_encoding` exit 0。モジュールは全件 MINOR /
+`REQUIRES_KERNEL` 3.7.0。
+
+### 12.5 W4: ツーリング追随(apps)— 2026-09-09 裁定で縮小
+
+当初案は csv_editor に「データセット選択」UI を、fabriq_ios にセッション単位のデータセット選択を
+追加するものだった。着手前調査と**ユーザー裁定(2026-09-09)**により次のとおり縮小:
+
+- **csv_editor: 対象外(恒久)**。ユーザー裁定「CSV エディターは正直もういらない」。実運用の CSV 編集は
+  FabriqStudio が担っている。着手前調査でも `$script:CsvRegistry` の静的 20 エントリのうち **6 件が
+  実在しないパス**(`modules\standard\reg_config\*` 4 件 = 現行は reg_hklm_config / reg_hkcu_config、
+  `gyotaku_template\task_list.csv`、`autokey_template\recipe.csv`)を指しており、オーバーレイ以前に
+  レジストリ自体が陳腐化していた。**撤去候補として TM に起票**(オーバーレイ対応はしない)。
+- **fabriq_ios: 追加実装なし。「今まで通り使える」ことを回帰検証で担保**(ユーザー要件)。
+  fabriq_ios は `kernel/common.ps1` を**丸ごと** dot-source するため新公開 API は自動的に可視であり、
+  データコンテキスト(`FABRIQ_PROFILE_DATA_DIR`)を一切設定しないので全解決が恒等写像になる
+  = P2 以前と完全に同一挙動。検証: 新 2 関数の可視性 / コンテキスト未設定 / 資材パス恒等 /
+  `Get-ModuleDataFiles` の返却が旧 `Get-ChildItem ... | Sort-Object Name` と完全一致、を実測。
+  加えて IOS 自身のテスト(`module_schema` / `do` / `_phase*_smoke` ≒ 339 アサーション)が
+  run_tests 455 の中で全緑。
+  - PDF 認知(データセット選択)が必要になった場合の設計は上記当初案のまま保留。IOS は編集系のため
+    実行時の誤設定リスクが無く、優先度は低い。
 
 ### 12.6 P2 敵対検証(事前)
 
