@@ -39,6 +39,12 @@
   相対 `AssetsFolder` 3 箇所) / default_app_config 1.1.0 (xml/) / app_config 1.1.0 (file/) /
   copyfile_config 1.1.0 (source/) / wallpaper_config 1.3.0 (wallpaper/) / ppkg_config 1.2.0 (file/) /
   manual_kitting_assistant 1.1.0 (prompt/) / pianist 2.1.0 (profiles/)。各 MINOR、`REQUIRES_KERNEL` 3.7.0。
+- modules/standard/reg_hklm_config + reg_hkcu_config (各 1.2.0): **データオーバーレイ Phase 2 / W2(列挙系)**。
+  `reg_*_list*.csv` の列挙 4 箇所(config / delete × HKLM / HKCU)を `Get-ModuleDataFiles` 経由にし、
+  プロファイル側に `reg_*_list*.csv` を 1 つでも置けば**そちらのみ**が使われるようにした
+  (モジュール単位 all-or-nothing = 本体側との合成をしない。どの行がどこから来たか操作者が追えるため)。
+  一致ゼロ／フォルダ無しは従来どおり本体側を列挙(フォールバック警告)、0 件時の Error 判定も不変。
+  `REQUIRES_KERNEL` 3.7.0。
 
 ### Fixed
 - kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに

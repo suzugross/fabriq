@@ -11,7 +11,7 @@ Show-Separator
 Write-Host ""
 
 # Find CSV files (matches reg_hklm_list*.csv)
-$csvFiles = @(Get-ChildItem -Path $PSScriptRoot -Filter "reg_hklm_list*.csv" -File | Sort-Object Name)
+$csvFiles = @(Get-ModuleDataFiles -Directory $PSScriptRoot -Filter "reg_hklm_list*.csv")
 
 if ($csvFiles.Count -eq 0) {
     Show-Error "No files matching reg_hklm_list*.csv found"
