@@ -1,6 +1,6 @@
 # プロファイル別データオーバーレイ 実装計画書
 
-Status: **Phase 1 + Phase 2 実装済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098)
+Status: **Phase 1 + Phase 2 実装済み・VM E2E 済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098)
 裁定済み: Q1 = (a) メニュー単発は無効 / Q3 = per-case / Q4 = Show-Warning(2026-09-09)。
 残裁定: Q2 / Q5 / Q6(P3 / P4 着手前に裁定。P1 コードは非依存)
 作成: 2026-08-09 / 最終更新: 2026-09-09
@@ -661,3 +661,74 @@ Fabriq.exe、DefaultAsync ON = モジュールは監視 Runspace で実行):
   `[RESTART]` の Error 結果 + 実行履歴行を記録するようにし(RunOnce 失敗時と同じ記録パターン)、
   完了バナーは `Completed with Errors` 側、チェックリスト/履歴にも abort が残るようにした。
   検証は parse + run_tests(main.ps1 トップレベルのため単体テスト外)。
+
+---
+
+## 16. Phase 2 VM E2E(2026-09-09 実施・全 PASS)
+
+VM を clean-base に revert した状態から実施(10.1.10.8 / DESKTOP-M8FC97M / PS 5.1.26100)。
+P1 と異なり **実 Fabriq の手動操作は不要**と判断した。P2 が足したのは「解決の種類」(ファイル →
+フォルダ／列挙)だけで、コンテキストのライフサイクル・`__RESTART__` 跨ぎ・resume fail-closed といった
+**プロセス側の面は P1 の S1〜S5 で検証済み**かつ P2 で未変更のため。P2 の新面はリグ headless で
+モジュール実挙動まで到達できる。
+
+### 16.1 リグ記述子(新規 3 シナリオ)
+
+Phase 2 の 3 つの新面それぞれに、**PDF が勝ったことを本体側の痕跡の不在で証明する** oracle を置いた
+(「PDF 側が使われた」だけでなく「本体側が使われていない」ことを同時に見る)。
+
+| wave | モジュール / シナリオ | 仕掛け | oracle |
+|---|---|---|---|
+| W1 | `copyfile_config` / `overlay-source` | PDF 側 `source\test.txt` に**本体と同名・別内容**(`PDF-SOURCE-W1`)を置く | コピー先の**内容**が `PDF-SOURCE-W1` = 本体の同名ファイルは使われていない(フォルダ単位 all-or-nothing) |
+| W2 | `reg_hklm_config` / `overlay-enumeration` | PDF 側に 1 本だけ `reg_hklm_list_overlay.csv`(固有マーカー) | マーカー適用済 **かつ** 本体 CSV 固有の `DisableCAD` が**不在** = 合成されていない |
+| W3 | `taskbar_config` / `overlay-sysprep-source` | PDF 側に空の `modules\sysprep_config\source\` だけ作る | `LayoutModification.xml` が **PDF 側に存在し本体側に不在** = クロスモジュール書き込みが PDF に閉じた |
+
+### 16.2 実行結果(`run_module_tests.ps1 -SyncRepo -Idempotency`)
+
+| Module | Scenario | Verdict | Status | Idem | Oracle |
+|---|---|---|---|---|---|
+| copyfile_config | apply | PASS | Success | OK | present 3/3(**後方互換**: コンテキスト無しで従来どおり) |
+| copyfile_config | overlay-source | **PASS** | Success | OK | `PDF-SOURCE-W1`(W1) |
+| reg_hklm_config | apply | PASS | Success | OK | registry 6/6(**後方互換**) |
+| reg_hklm_config | overlay-enumeration | **PASS** | Success | OK | `True/True`(W2 = マーカー有 / 本体行 無) |
+| taskbar_config | apply | PASS | Success | OK | present 1/1(**後方互換**) |
+| taskbar_config | overlay-sysprep-source | **PASS** | Success | OK | `True/False`(W3 = PDF 有 / 本体 無) |
+| test_harness_config | simulate | PASS(SELF) | Success | – | P1 回帰 |
+| test_harness_config | overlay-profile | PASS | Skipped | OK | P1 回帰 |
+| test_harness_config | overlay-fallback | PASS | Success | OK | P1 回帰 |
+
+`Summary: 9 scenario(s) | FAIL/ERROR: 0 | manual-revert: 0`、exit 0。teardown は全件 undone
+(PDF テストフォルダ・レジストリマーカー・生成物とも自動撤去)。
+
+### 16.3 表示契約の実 VM 目視(アドホック中継)
+
+```
+=== case 1: copyfile_config (PDF に copy_list.csv と source/ の両方) ===
+[INFO] [DATA] copyfile_config/copy_list.csv <- profile (_p2_display)
+[INFO] [DATA] copyfile_config/source/ <- profile (_p2_display)      ← フォルダは末尾 / 付き
+=== case 2: reg_hklm_config (PDF に reg_hklm_list*.csv が 1 本) ===
+[INFO] [DATA] reg_hklm_config/reg_hklm_list*.csv <- profile (_p2_display)   ← 1 行のみ
+=== case 3: 空の PDF -> フォールバック ===
+[WARNING] [DATA] reg_hklm_config/reg_hklm_list*.csv <- module dir (FALLBACK: ...)
+[WARNING] [DATA] reg_hklm_config/reg_hklm_list.csv <- module dir (FALLBACK: ...)
+[WARNING] [DATA] copyfile_config/copy_list.csv <- module dir (FALLBACK: ...)
+=== case 4: コンテキスト無し ===
+[DATA] line count: 0 / context cleared after run: True
+```
+
+- フォルダのラベルが末尾 `/`、列挙のラベルが `<module>/<Filter>` であることを実機で確認。
+- **PDF 採用時の列挙は 1 行のみ**(後続の `Import-ModuleCsv` は PDF 側パス = 恒等写像で無音)、
+  **フォールバック時は glob 1 行 + ファイル N 行**。§12.1 に記した非対称が実機でもそのとおり出る。
+- case 3 で `copyfile_config/source/` のフォールバック行が出ないのは早期 return のため
+  (本体 CSV の行は Segment 付きで、`FABRIQ_SEGMENT` 空では 0 行 → `$sourceDir` に到達する前に Skipped)。
+  フォルダのフォールバック経路自体は dev 機の 40 チェックと Pester で被覆済み。
+- コンテキスト無しでは `[DATA]` 行ゼロ、実行後に env がクリアされていることも確認(コンテキスト漏れなし)。
+
+### 16.4 未被覆(記録)
+
+- W1 の残り 9 モジュール(driver / cert / odt / default_app / app / wallpaper / ppkg /
+  manual_kitting_assistant / pianist)は**資材の実体**(ドライバ INF・証明書・インストーラ・PPKG 等)を
+  要するため VM 常設リグには載せない。解決ロジックは全件同一イディオムで、dev 機の実モジュール dir に
+  対する 40 チェック(4 状態 × 10)と Pester で被覆している。
+- W3 の startlayout(ADK / `Export-StartLayout` が Win11 26200 で破綻 = TM t-0083)と
+  printer_driver INF(実ドライバ要)は同様に未被覆。sysprep source への書き込みは taskbar 経由で被覆済み。
