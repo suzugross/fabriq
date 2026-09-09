@@ -1,8 +1,8 @@
 # プロファイル別データオーバーレイ 実装計画書
 
 Status: **Phase 1 + Phase 2 実装済み・VM E2E 済み(レビュー待ち)**(TM: t-0095【最重要】/ P1 = t-0097 / P2 = t-0098)
-裁定済み: Q1 = (a) メニュー単発は無効 / Q3 = per-case / Q4 = Show-Warning(2026-09-09)。
-残裁定: Q2 / Q5 / Q6(P3 / P4 着手前に裁定。P1 コードは非依存)
+裁定: **Q1〜Q6 全件裁定済み(残裁定なし)** — Q1 = (a) メニュー単発は無効 / Q2 = 見送りで確定 /
+Q3 = per-case / Q4 = Show-Warning / Q5 = strict mode 不採用 / Q6 = 役割分担 + Studio 起票(§9・§14)
 作成: 2026-08-09 / 最終更新: 2026-09-09
 
 ---
@@ -19,7 +19,8 @@ Status: **Phase 1 + Phase 2 実装済み・VM E2E 済み(レビュー待ち)**(T
   「プロファイルに書かなければ本体のデフォルトが効く」という積極利用は**想定しない**。
   フォールバックは移行期・例外ケースの救済措置と位置づける。
 - したがってフォールバックは**必ず可視化**する(無言フォールバック禁止)。
-  最終形ではプロファイル単位で strict mode(フォールバック = Error)に締められること。
+  可視化の手段は Show-Warning + テレメトリ `resolvedFrom` + HTML チェックリストの `Data Set` の 3 点で、
+  **これを最終形とする**(strict mode = フォールバックの Error 化は 2026-09-09 に不採用裁定。Q5)。
 - オーバーレイ不在(従来運用・メニュー単発実行)では**現状と完全同一の動作**を保証する。
 
 ### 背景となる実測インベントリ(2026-08-09 時点)
@@ -71,9 +72,8 @@ profiles/
 - `module.csv` / `preset.csv` / `VERSION` / `REQUIRES_KERNEL` / `Guide.txt` / `test.psd1` は
   **フレームワーク資産でありオーバーレイ対象外**(PDF に置かれても無視)。
 - **PDF ルート直下(`modules/` 以外)の名前空間はツーリング用に予約**する。
-  カーネルは `modules/` 配下しか見ない。FabriqStudio 等が案件メタデータ
-  (顧客名・作成日・strict ポリシーマーカー等)を PDF ルートに置けるようにするための
-  前方互換予約(§9 Q5 のマーカーファイルもここに置く)。
+  カーネルは `modules/` 配下しか見ない。FabriqStudio 等が案件メタデータ(顧客名・作成日等)を
+  PDF ルートに置けるようにするための前方互換予約(予約は維持。ポリシーマーカーは Q5 不採用により不使用)。
 
 ---
 
@@ -205,11 +205,15 @@ PDF 側にフォルダが存在すれば(空でも)PDF 側を使う。空フォ�
 
 ### Phase 4: 締め・運用移行(逐次)
 
-- strict mode: PDF 直下のマーカー(例: `overlay_policy.txt` = `strict`)で
-  フォールバックを Error 化(移行完了プロファイルから順次)。
-- メニュー単発実行への「データコンテキスト選択」追加の要否判断(§9)。
-- hostlist の per-profile 化の要否判断(衛星 2 リポジトリへの波及があるため独立判断。§9)。
-- 本体側 CSV をサンプル最小化(dev/template 同等の位置づけへ)。
+**2026-09-09 の裁定で Phase 4 は大幅に縮小した**(§14 参照)。残るのは次の 2 点のみ:
+
+- メニュー単発実行への「データコンテキスト選択」追加の要否判断(Q1 の再判断。§14.2)。
+- 本体側 CSV をサンプル最小化(dev/template 同等の位置づけへ。§14.4)。
+
+削除された項目:
+
+- ~~strict mode~~ → **不採用**(Q5 裁定)。可視化 3 点で十分と判断。
+- ~~hostlist の per-profile 化~~ → **見送りで確定**(Q2 裁定)。
 
 ---
 
@@ -289,27 +293,29 @@ PDF 側にフォルダが存在すれば(空でも)PDF 側を使う。空フォ�
 
 ---
 
-## 9. 未決事項(Phase 0 で裁定)
+## 9. 未決事項 → **全件裁定済み(2026-09-09)**
 
-| # | 論点 | 選択肢 | 暫定推奨 |
+| # | 論点 | 選択肢 | 裁定 |
 |---|---|---|---|
 | Q1 | メニュー単発実行でのデータコンテキスト | (a) 常に無効(本体側のみ) / (b) 選択 UI を追加 | **裁定済み(2026-09-09): (a)**。Phase 4 で再判断 |
-| Q2 | hostlist の per-profile 化 | (a) 見送り(全案件共通のまま) / (b) Phase 4 で PDF へ | (a)。衛星 2 リポジトリ波及が対価に見合うか要実運用データ |
+| Q2 | hostlist の per-profile 化 | (a) 見送り(全案件共通のまま) / (b) Phase 4 で PDF へ | **裁定済み(2026-09-09): (a) 見送りで確定**(保留ではなく結論)。根拠: ①衛星 2 本(checksheet `common.ps1:1062` / backuper `common.ps1:753`)は `kernel\csv\hostlist.csv` の**存在によって fabriq ルートを発見**しており、さらに backuper は extended_hostlist と本家 hostlist の (OldPCname, NewPCname) **集合完全一致ゲート**を持つ。衛星は単独起動(別 PC のこともある)のため「実行中プロファイル」を原理的に知り得ない。②lifecycle が違う — hostlist は**案件ごとに作り直すジョブ入力**、PDF は**顧客ごとに安定するレシピ**。ジョブ入力をレシピフォルダに入れると、案件のたびに PDF を書き換えることになる |
 | Q3 | pianist の profiles/(UI 操作プロファイル) | per-case 資材か framework 資産か | **裁定済み(2026-08-09): per-case 資材 = PDF 対象**(Studio の Pianist Profile Editor が案件コンテンツとして編集している実態とも整合) |
 | Q4 | フォールバック Warning の表示強度 | Show-Warning / Show-Info | **裁定済み(2026-09-09): Show-Warning**(profile-first 原則の担保) |
-| Q5 | strict mode の指定方法 | マーカーファイル / プロファイル CSV 列 | PDF 直下マーカーファイル(プロファイル CSV スキーマ非接触) |
-| Q6 | **FabriqStudio のワークスペースモデルとの関係** | (a) ワークスペース = 物理分離が必要な時のみ(別現場・別持出し PC)、PDF = 同一配備内の設定セット切替、と役割分担 / (b) 将来的にワークスペース切替を PDF 切替に統合 | (a) で開始。Studio 側の PDF 対応(編集先の切替 UI・レジストリ辞書等のエクスポート先)は fabriq P1 完了後に Studio 側タスクとして起票 |
+| Q5 | strict mode(フォールバックの Error 化) | マーカーファイル / プロファイル CSV 列 / 不採用 | **裁定済み(2026-09-09): 不採用**。指定方法を選ぶ以前に機能自体を入れない。フォールバックの可視化は Show-Warning + テレメトリ `resolvedFrom` + HTML チェックリスト `Data Set` の 3 点で**最終形**とする(§1 の原則も更新済み) |
+| Q6 | **FabriqStudio のワークスペースモデルとの関係** | (a) 役割分担(ワークスペース = 物理分離、PDF = 同一配備内の設定セット切替) / (b) ワークスペース切替を PDF 切替に統合 | **裁定済み(2026-09-09): (a) + Studio 側タスクを起票**。csv_editor 撤去(§12.5)により **PDF 側 CSV を編集するツールが現状ゼロ**のため優先度が上がった。Studio 側の起票内容は §14.3 参照 |
 
 ### FabriqStudio との関係(2026-08-09 調査)
 
 Studio(E:\fabriq_studio, WPF/.NET8)には本構想と交差する機能が既にある:
 
 - **ワークスペース切替** = 現行の複数顧客対応(fabriq 丸ごとコピー切替)。本構想は同じ問題への
-  別解であり、関係の裁定(Q6)が Phase 0 の凍結条件。
+  別解。**Q6 裁定(2026-09-09)= 役割分担**: ワークスペース = 物理分離が要るとき、PDF = 同一配備内の
+  設定セット切替。統合はしない(§14.3)。
 - **モジュール CSV への直接書き込み**: 端末管理 / レジストリ辞書エクスポート / INF→hostlist 転記。
-  データが PDF に移ると Studio の書き込み先が変わる → Studio 側改修は本計画の**非スコープ**だが、
-  §3 の完全ミラー構造 + PDF ルート名前空間予約により、Studio は「ルートを 1 つ挿し替えるだけ」で
-  追随できる形を契約側で担保する。
+  データが PDF に移ると Studio の書き込み先が変わる → Studio 側改修は本計画の**非スコープ**(Studio の
+  TM に別途起票)。Studio は `IWorkspaceService.RootPath` + ルート相対パスで CSV を読み書きするため
+  差し込み口はほぼ 1 箇所だが、PDF は `<tier>` を落とすので**「ルート挿し替え」では足りず §4.2 の
+  写像関数のミラーが要る**(§14.3 に実装形を記載)。
 - **Pianist Profile Editor**: `modules/extended/pianist/profiles/` を案件コンテンツとして編集
   → Q3 は per-case 側(PDF 対象)に倒す根拠。
 - **fabriq オーバーレイ更新**(SemVer 比較付きコード上書き): データが PDF に分離されるほど
@@ -324,9 +330,9 @@ Studio(E:\fabriq_studio, WPF/.NET8)には本構想と交差する機能が既に
 - module.csv / preset.csv / Guide.txt 等フレームワーク資産のオーバーレイ
 - NextGProfile 的な実行制御の変更(線形 Profile 維持の既決事項に非接触)
 - 衛星リポジトリ(fabriq_checksheet / fabriq_backuper / evidence_manager)の改修
-  (Q2 を (b) にした場合のみ発生)
-- FabriqStudio の PDF 対応実装(fabriq P1 完了後に Studio 側リポジトリで別途起票。
-  本計画は Studio が追随可能な契約構造 — 完全ミラー + ルート名前空間予約 — の担保まで)
+  (Q2 = 見送り確定により**恒久的に発生しない**)
+- FabriqStudio の PDF 対応実装(Q6 裁定により Studio 側 TM へ起票済み。
+  本計画は Studio が追随可能な契約構造 — ミラー構造 + 写像規則の明文化 — の担保まで)
 - evidence/ ツリーの per-profile 化(実行履歴・エビデンスは従来通り全体共有)
 
 ---
@@ -410,7 +416,7 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
 | wallpaper_config / wallpaper_config.ps1 | `$wallpaperDir`(:237) | 相対 FileName 行のみ対象、絶対パス行は無影響 |
 | ppkg_config / ppkg_install_config.ps1 | `$fileDir`(:44) | uninstall は CSV のみ(P1 で解決済み) |
 | manual_kitting_assistant / manual_kitting_assistant.ps1 | `$promptDir`(:99) | |
-| pianist / pianist.ps1 | `$script:profilesRoot`(:147) | Q3 裁定 per-case。Studio の Pianist Editor は本体側を編集するため PDF 運用時は Studio 側の追随(Q6)まで手コピー |
+| pianist / pianist.ps1 | `$script:profilesRoot`(:147) | Q3 裁定 per-case。Studio の Pianist Editor は本体側を編集するため、PDF 運用時は Studio 側の追随(Q6 起票済み)まで手コピー |
 
 各モジュール VERSION MINOR / REQUIRES_KERNEL 3.7.0 / CHANGELOG 1 行。検証 = パーサ + 「PDF にフォルダあり
 /なし/空」の 3 状態を dev 機でロジック確認(資材の実適用は VM)。
@@ -477,7 +483,7 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
 | 2 | PDF フォルダに一部ファイルだけ → 残りが本体から補われると誤解 | フォルダ単位 all-or-nothing。ファイル単位の補完はしない(§4.5)。Guide に明記 |
 | 3 | 列挙系で PDF に 1 ファイル、本体に 3 ファイル → 合成されて 4 ファイル分適用 | `Get-ModuleDataFiles` は PDF 側一致が 1 件以上なら PDF のみ(§4.4)。Pester でピン留め |
 | 4 | printer INF の展開・startlayout の生成物が PDF を「汚す」 | 意図した閉じ込め(§12.4)。PDF は案件データの一部 |
-| 5 | Studio(Pianist Editor / レジストリ辞書)が本体側を編集し続け PDF と乖離 | Q6 の Studio 追随まで既知の運用制約。W4 で csv_editor / fabriq_ios を先に追随させ、Studio は別リポジトリで起票 |
+| 5 | Studio(Pianist Editor / レジストリ辞書)が本体側を編集し続け PDF と乖離 | Q6 裁定(2026-09-09)で Studio 側にデータセット選択タスクを起票。それまでは既知の運用制約(PDF の CSV は本体と同じ構造なので Excel 等で直接編集可)。csv_editor は撤去方針のため追随させない(§12.5) |
 | 6 | ディレクトリ対応で P1 の挙動が変わる | 変わるのは「PDF にフォルダが存在する」時だけ。コンテキスト無し・フォルダ無しは恒等写像のまま。Pester の P1 ケースを不変のまま維持 |
 | 7 | 大文字小文字違いのフォルダ名 | Windows FS は大文字小文字不問。`Test-Path` で判定するため問題なし |
 
@@ -534,30 +540,56 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
 
 ---
 
-## 14. Phase 4 設計(締め・運用移行)と残裁定
+## 14. Phase 4 設計(締め・運用移行)— 2026-09-09 の裁定で縮小
 
-### 14.1 strict mode(Q5 の暫定案を仕様化)
+Q2 / Q5 / Q6 が裁定され、**未決事項はゼロになった**(§9)。Phase 4 に残るのは §14.2 と §14.4 の 2 点のみ。
 
-- マーカー `profiles/<name>/overlay_policy.txt`(1 行: `warn` | `strict`。欠損 = `warn`)。
-- `strict` のプロファイルでは `Resolve-ModuleDataPath` のフォールバック時に Show-Error を出し、
-  **PDF 側の(存在しない)候補パスを返す** → 呼出側の既存 not-found 処理が Error に落ちる。
-  カーネルは例外を投げない(モジュールの既存エラー経路を使う = 契約不変)。
-- `Get-ModuleDataFiles` も同様に strict では本体側へ落ちず 0 件を返す。
-- Studio 向け予約名前空間(§3)にマーカーを置くため Studio の UI から切替可能。
+### 14.1 strict mode — **不採用**(Q5 裁定 2026-09-09)
 
-### 14.2 メニュー単発実行のデータコンテキスト選択(Q1 再判断)
+当初案は PDF 直下のマーカー `overlay_policy.txt`(`warn` | `strict`)でフォールバックを Error 化し、
+移行完了プロファイルから順に締めていくものだった。**機能自体を入れないと裁定した。**
+
+- 判断理由: フォールバックは既に 3 経路で可視化されている — 実行画面の `Show-Warning`(1 バッチ
+  1 ラベル 1 回)/ csv.load テレメトリの `resolvedFrom` / HTML チェックリストの `Data Set`。
+  R1(誤った設定セットの無言適用)に対する対策としてはこれで足り、ハード停止を足すのは
+  「移行途中のプロファイルが 1 ファイルの置き忘れで全停止する」副作用のほうが大きい。
+- 帰結: §1 の原則「最終形では strict に締められること」は撤回し、**可視化 3 点を最終形**とした。
+  `Resolve-ModuleDataPath` / `Get-ModuleDataFiles` に strict 分岐は入れない(現行実装が最終形)。
+- PDF ルート直下の予約名前空間(§3)は維持する(案件メタデータ用)。ポリシーマーカーは置かない。
+
+### 14.2 メニュー単発実行のデータコンテキスト選択(Q1 再判断・唯一の未実施項目)
 
 - メインメニューに「データセット: なし / <profile 名>」の切替を追加し、選択時は
   `Set-FabriqProfileDataContext` を単発実行の前後で set/clear(Invoke-BatchExecution と同じ寿命)。
 - 既定は「なし」= 現行動作。表示は常時ヘッダに出す(取り違え防止 R1)。
+- 着手判断: 実運用で「メニュー単発を PDF 付きで流したい」場面が出てから。現状は Q1 (a) のまま。
 
-### 14.3 hostlist(Q2)と Studio(Q6)
+### 14.3 hostlist(Q2)と Studio(Q6)の裁定内容
 
-- Q2: per-profile hostlist は衛星(fabriq_checksheet / fabriq_backuper)の自動発見に波及するため、
-  実施する場合は「本体 `kernel/csv/hostlist.csv` を正としたまま、PDF 側 hostlist を**マージ元**にする」
-  片方向同期案を第一候補にする(衛星は本体だけを見続ければよい)。
-- Q6: Studio のワークスペース = 物理分離、PDF = 同一配備内の切替(推奨 (a))。Studio 側タスクは
-  W4 完了後に別リポジトリで起票(編集先の PDF 切替 UI・レジストリ辞書エクスポート先・Pianist Editor)。
+**Q2 = (a) 見送りで確定**(保留ではなく結論)。本体 `kernel/csv/hostlist.csv` を正のまま維持する。
+
+- 衛星 2 本は `kernel\csv\hostlist.csv` の**存在によって fabriq ルートを発見**する構造
+  (`fabriq_checksheet/checksheet/common.ps1:1062` / `fabriq_backuper/backuper/common.ps1:753`)。
+  さらに backuper は `extended_hostlist` と本家 hostlist の (OldPCname, NewPCname) **集合完全一致
+  ゲート**を持つ。衛星は単独起動(別 PC のこともある)で「実行中プロファイル」を知り得ない。
+- lifecycle が違う: hostlist は**案件ごとに作り直すジョブ入力**、PDF は**顧客ごとに安定するレシピ**。
+- 将来 real pain が出た場合の逃げ道としてのみ、片方向同期案(本体を正としたまま PDF 側 hostlist を
+  マージ元にする)を記録として残す。**現時点では実装しない。**
+
+**Q6 = (a) 役割分担 + Studio 側タスクを起票**。
+
+- 役割: ワークスペース = **物理分離**が要るとき(別現場・別持出し PC)、PDF = **同一配備内**の
+  設定セット切替。統合はしない。
+- 起票理由: csv_editor を撤去対象にした(§12.5)結果、**PDF 側 CSV を編集するツールが現状ゼロ**。
+  Studio は本体側を編集し続けるため、PDF 運用を始めると Studio の編集先と fabriq の読み先が乖離する
+  (§12.6 敵対検証 #5 が現実になる)。
+- Studio 側の実装形(調査済み): Studio は `IWorkspaceService.RootPath` + **ルートからの相対パス**で
+  CSV を読み書きする(`ICsvService` / `Services/Master/MasterTargetResolver.cs:26`)ため、差し込み口は
+  ほぼ 1 箇所。ただし計画書が当初書いていた「ルートを 1 つ挿し替えるだけ」は**不正確**で、
+  PDF レイアウトは `<tier>` を落とす(`modules/<module>/<rel>`)ため、**§4.2 の写像関数を Studio 側に
+  ミラーする**必要がある(15 行程度)。tier を落とす設計自体は維持する — 操作者が standard/extended を
+  意識せずに PDF を作れること、モジュールの tier 移動が PDF を壊さないこと、が理由。
+- 起票先: `E:\fabriq_studio/.tm/tasks.json`(Studio 独自 TM)。
 
 ### 14.4 本体 CSV のサンプル縮退
 
