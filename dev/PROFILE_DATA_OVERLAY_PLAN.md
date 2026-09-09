@@ -669,6 +669,10 @@ Q1〜Q6 の全裁定を経て、Phase 4 に**実装すべき項目は残って�
   ミラーする**必要がある(15 行程度)。tier を落とす設計自体は維持する — 操作者が standard/extended を
   意識せずに PDF を作れること、モジュールの tier 移動が PDF を壊さないこと、が理由。
 - 起票先: `E:\fabriq_studio/.tm/tasks.json`(Studio 独自 TM)。
+- **ツール実装者向けの要約は `dev/PROFILE_DATA_OVERLAY_FOR_TOOLING.md`** に切り出した
+  (写像規則の擬似コード・粒度契約・PDF 対象/フレームワーク資産の判断表・やらないこと一覧)。
+  Studio 側 CLAUDE.md が「必ず `E:\fabriq` を読んで準拠する」と定めているため、契約の置き場は
+  fabriq 側に集約する。
 
 ### 14.4 本体 CSV のサンプル縮退 — **不実施**(裁定 2026-09-09)
 
