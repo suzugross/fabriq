@@ -369,6 +369,27 @@ Get-ModuleDataFiles -Directory <string> -Filter <string>   (FileInfo[] 返却、
   PDF 優先・合成禁止・フォールバック警告・コンテキスト無し・0 件、PDF 側パスの冪等。
 - run_tests 全緑 + 既存 P1 ケース不変。
 
+**W0 実施記録(2026-09-09・完了)**
+
+設計時に計画外の項目 2 件を追加した(いずれも設計ゲートで提示・承認済み):
+
+| 追加 | 理由 |
+|---|---|
+| **モジュールルート写像**(`<rel>` 空) | `Get-ModuleDataFiles -Directory $PSScriptRoot` が渡すパスは `<repo>\modules\<tier>\<module>` で `<rel>` が無く、P1 の `Split('\',3)` ガード(3 要素未満は恒等)に弾かれて列挙が一切 PDF に写らなかった。`<rel>` 空を許可し、ただし**ディレクトリとしてのみ照合**する(`modules\<tier>\<file>` が `<PDF>\modules\<file>` を誤って掴むのを防ぐ)。末尾 `\` 付きも同経路に正規化 |
+| **`resolvedFrom` テレメトリの是正**(バグ修正) | P1 の判定が「`Resolve-ModuleDataPath` でパスが変化したか」だったため、`Get-ModuleDataFiles` が返した**PDF 側パスをそのまま `Import-ModuleCsv` に渡すと `module` と誤記録**される。§4.3 の採用元エビデンスが列挙経路で嘘をつくため、判定を「最終パスが PDF 配下か」(内部 `Get-FabriqDataOrigin`)に変更。P1 の全経路では結果は同値 |
+
+併せて §4.3 の未了分だった **HTML チェックリストへの採用元記録**を実装(Meta に `Data Set` = PDF 名 /
+`(module defaults)`。env が無い `[cl]` 再生成でも `ProfilePath` から導出)。内部ヘルパ
+`Get-FabriqOverlayCandidate`(純写像)/ `Write-FabriqDataResolution`(dedup 表示)/ `Get-FabriqDataOrigin` を
+抽出し、`Resolve-ModuleDataPath` と `Get-ModuleDataFiles` が同一規則を共有する形にした(KERNEL_API.md §6 に追認)。
+
+検証: run_tests **455/455 PASS**(P1 の 437 + Phase 2 ブロック 18。既存 P1 ケースは無改変)/ パーサ OK /
+`check_ps1_encoding` exit 0 / `check_version` exit 0。`KERNEL_VERSION` は 3.6.2 据置(§I)。
+
+**表示の非対称について(仕様)**: 列挙が PDF を採用した場合は 1 行(後続 `Import-ModuleCsv` は PDF 側パス
+= 恒等写像で無音)、フォールバック時は「glob 1 行 + ファイル N 行」になる。Profile-First の原則
+(冗長 > 無言)に照らして許容する。
+
 ### 12.2 W1: 純読み取り資材フォルダ(10 モジュール・軽量版ゲート)
 
 編集パターンは全件同一: `$dir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "<folder>")`。

@@ -25,11 +25,12 @@
 | 関数 | シグネチャ | 用途 |
 |---|---|---|
 | `Import-ModuleCsv` | `-Path <string> [-FilterEnabled] [-RequiredColumns <string[]>] [-Segment <string>]` | モジュール用 CSV を透過復号・列検証・Segment フィルタ付きで読み込む。**読込前に `Resolve-ModuleDataPath` を適用**（since 3.7.0） |
-| `Resolve-ModuleDataPath` | `-Path <string>`（string 返却、since 3.7.0） | **プロファイル別データオーバーレイ**の解決。`$env:FABRIQ_PROFILE_DATA_DIR`（プロファイルデータフォルダ = PDF）が有効なら `<repo>\modules\<tier>\<module>\<rel>` を `<PDF>\modules\<module>\<rel>` に写像し、そのファイルが存在すればそれを返す。無ければ入力パスを返す（フォールバック）。コンテキスト無し・モジュール外パス・PDF 配下のパスは恒等写像。`Import-ModuleCsv` 以外で CSV パスを組み立てて `Test-Path` する箇所・資材パスを解決する箇所はモジュール側で本関数を通すこと |
+| `Resolve-ModuleDataPath` | `-Path <string>`（string 返却、since 3.7.0） | **プロファイル別データオーバーレイ**の解決。`$env:FABRIQ_PROFILE_DATA_DIR`（プロファイルデータフォルダ = PDF）が有効なら `<repo>\modules\<tier>\<module>\<rel>` を `<PDF>\modules\<module>\<rel>` に写像し、そこに**ファイルまたはディレクトリ**が存在すればそれを返す（ディレクトリ対応は since 3.7.0 の同版内追加）。無ければ入力パスを返す（フォールバック）。コンテキスト無し・モジュール外パス・PDF 配下のパスは恒等写像。`<rel>` が空（モジュールルート自体）の場合はディレクトリとしてのみ写像する。`Import-ModuleCsv` 以外で CSV パスを組み立てて `Test-Path` する箇所・資材フォルダを解決する箇所はモジュール側で本関数を通すこと |
+| `Get-ModuleDataFiles` | `-Directory <string> -Filter <string>`（`FileInfo[]` を Name 昇順で返却、since 3.7.0） | 複数 CSV の**列挙**をオーバーレイ対応で行う。PDF 側の当該モジュールフォルダに `Filter` 一致が 1 件以上あれば**そちらのみ**を返す（本体側との合成はしない = モジュール単位 all-or-nothing）。一致ゼロ／フォルダ無しは本体側を列挙してフォールバック（`Show-Warning`）。コンテキスト無しは本体側を無表示で列挙。呼出側は PS 5.1 の単一要素 unroll を避けるため `@(...)` で受けること。0 件時の扱い（多くは Error）は呼出側の既存ロジックのまま |
 
 **契約**: `Segment` 列を持つ CSV は `$env:FABRIQ_SEGMENT` で厳密一致フィルタされる（空 vs 空もマッチ）。
 
-**オーバーレイ契約（since 3.7.0、dev/PROFILE_DATA_OVERLAY_PLAN.md §4 が正）**: プロファイル `profiles/<name>.csv` に併設フォルダ `profiles/<name>/` があるとき、プロファイル実行中（`Invoke-BatchExecution` の間、Linear / Flex / resume 二段目とも）は `FABRIQ_PROFILE_DATA_DIR` がそのフォルダを指し、モジュール CSV は PDF 側が優先される。**Profile-First 原則**: 本体側 CSV へのフォールバックは非推奨の救済措置であり、コンテキスト有効時のフォールバックは毎回（1 バッチ 1 ファイル 1 回）`Show-Warning` で可視化される。コンテキスト無し（メニュー単発実行・PDF の無いプロファイル）は従来と完全同一の動作。Phase 1 の解決対象はファイル（CSV）のみ、資材フォルダ・書き込み系は後続フェーズ。`__RESTART__` 跨ぎは resume_state の `ProfileDataDir` で再起動後にフォルダの存在を fail-closed 検証する（欠落時は残モジュールを実行しない）。
+**オーバーレイ契約（since 3.7.0、dev/PROFILE_DATA_OVERLAY_PLAN.md §4 が正）**: プロファイル `profiles/<name>.csv` に併設フォルダ `profiles/<name>/` があるとき、プロファイル実行中（`Invoke-BatchExecution` の間、Linear / Flex / resume 二段目とも）は `FABRIQ_PROFILE_DATA_DIR` がそのフォルダを指し、モジュール CSV は PDF 側が優先される。**Profile-First 原則**: 本体側 CSV へのフォールバックは非推奨の救済措置であり、コンテキスト有効時のフォールバックは毎回（1 バッチ 1 ファイル 1 回）`Show-Warning` で可視化される。コンテキスト無し（メニュー単発実行・PDF の無いプロファイル）は従来と完全同一の動作。解決対象は CSV（ファイル単位）と資材フォルダ・列挙（**フォルダ／モジュール単位 all-or-nothing** — PDF 側にフォルダがあれば空でも採用し、本体側のファイルで補完はしない）。**書き込み系（backup / export）は当面つねに本体側**（Phase 3 で PDF 側へ移行予定）。ただし読み書きが同一フォルダで閉じる族（startlayout / sysprep source + taskbar / printer INF 展開）は解決後フォルダを読み書き共用する承認済み例外。`__RESTART__` 跨ぎは resume_state の `ProfileDataDir` で再起動後にフォルダの存在を fail-closed 検証する（欠落時は残モジュールを実行しない）。採用元は csv.load テレメトリの `resolvedFrom`（`profile` / `module` / `none`）と HTML チェックリストの `Data Set` に記録される。
 
 **戻り値契約**: 真のロード失敗（ファイル不在・空ファイル・`-RequiredColumns` 欠落）は **`$null`** を返す。正常ロードだがフィルタ（`-FilterEnabled` で有効行ゼロ／Segment 不一致）で対象ゼロの場合は **空配列（`Count` 0、`$null` ではない）** を返す（`return ,@()` で呼出側のスカラ代入時に `$null` へ unroll されないよう保持）。よって呼出側は `if ($null -eq $items) { Error } elseif ($items.Count -eq 0) { Skipped }` で「ロード失敗」と「対象ゼロ＝Skip」を区別できる。**行が 1 件以上の場合も常に配列で返す**（`return ,@($allItems)`。単一行 CSV がスカラーに unroll されると PS 5.1 では `.Count` が `$null` になり、`.Count -gt 0` 型の門番が偽陰性を起こすため。修正前のカーネルではこの unroll が起きる — 呼出側で防御する場合は `@($items).Count` を使う）。
 
@@ -209,6 +210,7 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`（秘密値レジストリ。`Import-ModuleCsv` の ENC: 復号値・マスターパスフレーズ・PIN を自動登録し、`Show-*` / telemetry / 実行履歴の 3 sink で `***` マスク。モジュールからの直接呼び出しは不要 — 透過動作）
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`
+- `Get-FabriqModulesRoot` / `Get-FabriqProfileDataDir` / `Set-FabriqProfileDataContext` / `Clear-FabriqProfileDataContext` / `Test-FabriqResumeDataDir` / `Get-FabriqOverlayCandidate` / `Write-FabriqDataResolution` / `Get-FabriqDataOrigin`（プロファイル別データオーバーレイの内部機構 — コンテキスト導出・写像・採用元表示・テレメトリ分類。モジュールが依存してよい公開面は §1.2 の `Resolve-ModuleDataPath` / `Get-ModuleDataFiles` と §3.2 の `FABRIQ_PROFILE_DATA_DIR` のみ）
 - 状態ファイル: `kernel/json/resume_state.json`, `status.json`, `session.json`, `art_pulse.txt`, `async_config.json`, `skip_request.flag`
 - オーケストレータ経由で設定される仕組み（`__ASYNC__` の Runspace 実装等）
 - Execution Toolbar の UI 構成・ボタン配置
@@ -394,6 +396,16 @@ formal SemVer の出発点。以下すべて利用可能:
   `Test-Path` 前置きを持つ 8 モジュール（firewall_config / firewall_rule_config /
   local_user_config / office_license_config / printer_delete / printer_driver_config /
   windows_license_config / history_destroyer）が本関数を呼ぶため `REQUIRES_KERNEL` 3.7.0
+  - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
+
+- **§1.2 `Get-ModuleDataFiles` 追加 + `Resolve-ModuleDataPath` のディレクトリ対応（後方互換 / MINOR）**:
+  プロファイル別データオーバーレイ Phase 2（同計画書 §12）。資材フォルダ（driver/ certs/ xml/ file/
+  source/ INF/ prompt/ 等）を**フォルダ単位 all-or-nothing** で解決し、`reg_hklm` / `reg_hkcu` 系の
+  複数 CSV 列挙を**モジュール単位 all-or-nothing** で解決する。ディレクトリ対応は「PDF 側にフォルダが
+  存在する」ときだけ効くため、コンテキスト無し・PDF にフォルダ無しは Phase 1 と同一の恒等写像。
+  併せて csv.load テレメトリの `resolvedFrom` 判定を「パスが変化したか」から「最終パスが PDF 配下か」に
+  是正し（`Get-ModuleDataFiles` 経由で得た PDF 側パスが `module` と誤記録されるのを防止）、
+  HTML チェックリストの Meta に `Data Set`（PDF 名 / `(module defaults)`）を追加（§4.3 の採用元記録）
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
 
 ### 3.6.0

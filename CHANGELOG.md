@@ -16,6 +16,28 @@
 ## [Unreleased]
 
 ### Added
+- kernel/common.ps1: **プロファイル別データオーバーレイ Phase 2 / W0(カーネル拡張)**
+  (dev/PROFILE_DATA_OVERLAY_PLAN.md §12.1 / TM t-0095)。`Resolve-ModuleDataPath` を**ディレクトリ解決**に
+  拡張し(資材フォルダ driver/ certs/ xml/ file/ source/ INF/ prompt/ 等を**フォルダ単位 all-or-nothing** で
+  解決 — PDF 側にフォルダがあれば空でも採用し、本体側ファイルでの補完はしない)、モジュールルート自体
+  (`<rel>` 空)の写像を追加(ディレクトリとしてのみ照合するため `modules\<tier>\<file>` は従来どおり不変)。
+  新公開 API `Get-ModuleDataFiles -Directory -Filter`(§1.2)で複数 CSV の列挙を**モジュール単位
+  all-or-nothing** に対応(PDF 側に一致が 1 件以上あればそちらのみ、合成しない)。ディレクトリ対応が効くのは
+  「PDF 側にフォルダが存在する」場合だけで、コンテキスト無し・フォルダ無しは Phase 1 と同一の恒等写像。
+  内部ヘルパ `Get-FabriqOverlayCandidate` / `Write-FabriqDataResolution` / `Get-FabriqDataOrigin` を新設し
+  (§6 に追認記載)、公開 2 関数が同一の写像・表示規則を共有する。
+  新規テスト 18 ケース(tests/kernel/ProfileDataOverlay.tests.ps1 の Phase 2 ブロック)、run_tests 455/455 PASS。
+- kernel/common.ps1: HTML チェックリストの Meta に **`Data Set`** を追加(オーバーレイ計画書 §4.3 の
+  「エビデンスへの採用元記録」)。実行中の PDF 名、無ければ `(module defaults)` を表示。`[cl]` 再生成でも
+  出るよう、env が無い場合は `ProfilePath` から導出する。
+
+### Fixed
+- kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに
+  PDF 側のパス**を渡された場合に `module` と誤記録されていた(判定が「`Resolve-ModuleDataPath` でパスが
+  変化したか」だったため)。判定を「最終パスが PDF 配下か」に是正。Phase 1 の全経路では結果は同値で、
+  Phase 2 の列挙経路(`Get-ModuleDataFiles` が返す PDF 側パス)で採用元エビデンスが嘘をつくのを防ぐ。
+
+### Added
 - kernel/common.ps1 + kernel/main.ps1: **プロファイル別データオーバーレイ Phase 1**
   (dev/PROFILE_DATA_OVERLAY_PLAN.md / TM t-0095)。プロファイル `profiles/<name>.csv` に併設した
   `profiles/<name>/modules/<module>/<csv>` を、プロファイル実行中はモジュール本体 CSV より優先して

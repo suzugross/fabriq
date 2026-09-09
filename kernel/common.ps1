@@ -1184,7 +1184,8 @@ function Get-FabriqMaskedText {
 # resolve there first; the module directory is only a (visible) fallback.
 # No context (menu-mode single runs, profiles without a data folder) means
 # identity mapping - byte-identical behavior to pre-overlay kernels.
-# Phase 1 resolves FILES only (CSV); asset folders follow in Phase 2.
+# Phase 1 resolved FILES (CSV); Phase 2 adds asset FOLDERS (all-or-nothing per
+# folder) and enumeration (Get-ModuleDataFiles, all-or-nothing per module).
 
 function Get-FabriqModulesRoot {
     # <repo>\modules\ with a trailing separator, derived from this file's
@@ -1241,46 +1242,159 @@ function Test-FabriqResumeDataDir {
     return $false
 }
 
-function Resolve-ModuleDataPath {
-    # Public API (KERNEL_API.md 1.2). Resolves a module data path against
-    # the active profile data folder:
-    #   1. no context / not under <repo>\modules\ / not a file -> $Path unchanged
-    #   2. <pdf>\modules\<module>\<rel> exists (file) -> that path  [profile]
-    #   3. otherwise -> $Path unchanged                             [FALLBACK]
-    # Every resolution under a context is displayed once per batch per file
-    # so a fallback is never silent (profile-first principle).
+function Get-FabriqOverlayCandidate {
+    # Internal. Pure mapping (no existence test, no display) of a module data
+    # path onto the active profile data folder:
+    #   <repo>\modules\<tier>\<module>\<rel>  ->  <PDF>\modules\<module>\<rel>
+    # Returns $null when there is no context or the path is not mappable
+    # (outside <repo>\modules\, unparsable, tier root). <rel> may be empty -
+    # that is the module root itself, which callers must treat as a DIRECTORY
+    # only (a bare "modules\<tier>\<file>" must never map to "<PDF>\modules\<file>").
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $dataDir = $env:FABRIQ_PROFILE_DATA_DIR
-    if ([string]::IsNullOrWhiteSpace($dataDir)) { return $Path }
+    if ([string]::IsNullOrWhiteSpace($dataDir)) { return $null }
 
     $full = $null
-    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $Path }
+    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $null }
 
     $modulesRoot = Get-FabriqModulesRoot
-    if (-not $full.StartsWith($modulesRoot, [System.StringComparison]::OrdinalIgnoreCase)) { return $Path }
+    if (-not $full.StartsWith($modulesRoot, [System.StringComparison]::OrdinalIgnoreCase)) { return $null }
 
-    # "<tier>\<module>\<rel...>" - the tier (standard / extended) is dropped
+    # "<tier>\<module>[\<rel...>]" - the tier (standard / extended) is dropped
     # from the overlay layout because module names are unique across tiers.
     $parts = $full.Substring($modulesRoot.Length).Split('\', 3)
-    if ($parts.Count -lt 3 -or [string]::IsNullOrEmpty($parts[2])) { return $Path }
-    $moduleName  = $parts[1]
-    $relInModule = $parts[2]
+    if ($parts.Count -lt 2 -or [string]::IsNullOrEmpty($parts[1])) { return $null }
+    $moduleName = $parts[1]
+    # A trailing separator ("...\<module>\") splits into an empty third part;
+    # normalize it to the module-root case instead of a second code path.
+    $relInModule = if ($parts.Count -ge 3) { $parts[2] } else { "" }
 
-    $candidate = Join-Path (Join-Path (Join-Path $dataDir 'modules') $moduleName) $relInModule
-    $label     = "$moduleName/$($relInModule.Replace('\', '/'))"
-    $seenKey   = $label.ToLowerInvariant()
+    $moduleDir = Join-Path (Join-Path $dataDir 'modules') $moduleName
+    if ([string]::IsNullOrEmpty($relInModule)) {
+        return [PSCustomObject]@{
+            Candidate  = $moduleDir
+            ModuleName = $moduleName
+            Label      = $moduleName
+            IsRoot     = $true
+            DataDir    = $dataDir
+        }
+    }
+    return [PSCustomObject]@{
+        Candidate  = Join-Path $moduleDir $relInModule
+        ModuleName = $moduleName
+        Label      = "$moduleName/$($relInModule.Replace('\', '/'))"
+        IsRoot     = $false
+        DataDir    = $dataDir
+    }
+}
+
+function Write-FabriqDataResolution {
+    # Internal. Shows where a data path was resolved from, once per batch per
+    # label (Set-FabriqProfileDataContext resets the dedup table). A fallback
+    # is a Warning on purpose: profile-first means it must never be silent.
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][bool]$FromProfile,
+        [Parameter(Mandatory = $true)][string]$DataDir
+    )
     if ($null -eq $script:FabriqDataResolutionSeen) { $script:FabriqDataResolutionSeen = @{} }
-    $firstTime = -not $script:FabriqDataResolutionSeen.ContainsKey($seenKey)
+    $seenKey = $Label.ToLowerInvariant()
+    if ($script:FabriqDataResolutionSeen.ContainsKey($seenKey)) { return }
     $script:FabriqDataResolutionSeen[$seenKey] = $true
 
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        if ($firstTime) { Show-Info "[DATA] $label <- profile ($(Split-Path $dataDir -Leaf))" }
-        return $candidate
+    if ($FromProfile) {
+        Show-Info "[DATA] $Label <- profile ($(Split-Path $DataDir -Leaf))"
+    }
+    else {
+        Show-Warning "[DATA] $Label <- module dir (FALLBACK: not in profile data folder)"
+    }
+}
+
+function Get-FabriqDataOrigin {
+    # Internal. Classifies an ALREADY RESOLVED data path for telemetry /
+    # evidence: 'none' (no overlay context), 'profile' (inside the profile
+    # data folder) or 'module'. Testing the final path - rather than "did
+    # Resolve-ModuleDataPath change it" - keeps the label honest when a caller
+    # hands in a profile-side path it got from Get-ModuleDataFiles.
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $dataDir = $env:FABRIQ_PROFILE_DATA_DIR
+    if ([string]::IsNullOrWhiteSpace($dataDir)) { return 'none' }
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+        $root = ([System.IO.Path]::GetFullPath($dataDir)).TrimEnd('\') + '\'
+        if ($full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { return 'profile' }
+    }
+    catch { }
+    return 'module'
+}
+
+function Resolve-ModuleDataPath {
+    # Public API (KERNEL_API.md 1.2). Resolves a module data path against
+    # the active profile data folder:
+    #   1. no context / not under <repo>\modules\ -> $Path unchanged (identity)
+    #   2. <pdf>\modules\<module>\<rel> exists as a FILE      -> that path [profile]
+    #   3. <pdf>\modules\<module>\<rel> exists as a DIRECTORY -> that path [profile]
+    #      (folder-level all-or-nothing: an empty folder means "no assets",
+    #       files are never merged in from the module directory)
+    #   4. otherwise -> $Path unchanged                                   [FALLBACK]
+    # A bare module root (<rel> empty) is only ever matched as a directory.
+    # Every resolution under a context is displayed once per batch per label
+    # so a fallback is never silent (profile-first principle).
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $map = Get-FabriqOverlayCandidate -Path $Path
+    if ($null -eq $map) { return $Path }
+
+    if (-not $map.IsRoot -and (Test-Path -LiteralPath $map.Candidate -PathType Leaf)) {
+        Write-FabriqDataResolution -Label $map.Label -FromProfile $true -DataDir $map.DataDir
+        return $map.Candidate
+    }
+    if (Test-Path -LiteralPath $map.Candidate -PathType Container) {
+        Write-FabriqDataResolution -Label "$($map.Label)/" -FromProfile $true -DataDir $map.DataDir
+        return $map.Candidate
     }
 
-    if ($firstTime) { Show-Warning "[DATA] $label <- module dir (FALLBACK: not in profile data folder)" }
+    # Label a fallback as a folder when the module-side path is one, so both
+    # directions of the same lookup read the same way on screen.
+    $suffix = if (Test-Path -LiteralPath $Path -PathType Container) { "/" } else { "" }
+    Write-FabriqDataResolution -Label "$($map.Label)$suffix" -FromProfile $false -DataDir $map.DataDir
     return $Path
+}
+
+function Get-ModuleDataFiles {
+    # Public API (KERNEL_API.md 1.2). Enumerates module data files with the
+    # profile data folder winning as a whole (module-level all-or-nothing,
+    # dev/PROFILE_DATA_OVERLAY_PLAN.md section 4.4):
+    #   - profile folder holds >= 1 match -> ONLY those (never merged with the
+    #     module directory, so an operator can always tell where a row came from)
+    #   - no match / no such folder       -> the module directory  [FALLBACK]
+    #   - no context / unmappable path    -> the module directory  (silent)
+    # Returns FileInfo objects sorted by Name. Callers wrap the result in @()
+    # because PowerShell 5.1 unrolls a single element on output. An empty
+    # result keeps the caller's existing "0 files -> Error" handling.
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$Filter
+    )
+
+    $moduleFiles = @(Get-ChildItem -LiteralPath $Directory -Filter $Filter -File -ErrorAction SilentlyContinue |
+                     Sort-Object Name)
+
+    $map = Get-FabriqOverlayCandidate -Path $Directory
+    if ($null -eq $map) { return $moduleFiles }
+
+    $label        = "$($map.Label)/$Filter"
+    $profileFiles = @(Get-ChildItem -LiteralPath $map.Candidate -Filter $Filter -File -ErrorAction SilentlyContinue |
+                      Sort-Object Name)
+    if ($profileFiles.Count -gt 0) {
+        Write-FabriqDataResolution -Label $label -FromProfile $true -DataDir $map.DataDir
+        return $profileFiles
+    }
+
+    Write-FabriqDataResolution -Label $label -FromProfile $false -DataDir $map.DataDir
+    return $moduleFiles
 }
 
 function Import-ModuleCsv {
@@ -1294,11 +1408,10 @@ function Import-ModuleCsv {
 
     # Profile data overlay: resolve before anything touches the file. With
     # no active context this is an identity mapping (see Resolve-ModuleDataPath).
-    $requestedPath = $Path
+    # The origin is classified from the FINAL path, so a profile-side path the
+    # caller already had (Get-ModuleDataFiles) is still recorded as 'profile'.
     $Path = Resolve-ModuleDataPath -Path $Path
-    $resolvedFrom = if ($Path -ne $requestedPath) { 'profile' }
-                    elseif ([string]::IsNullOrWhiteSpace($env:FABRIQ_PROFILE_DATA_DIR)) { 'none' }
-                    else { 'module' }
+    $resolvedFrom = Get-FabriqDataOrigin -Path $Path
 
     $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
     if ($null -eq $allItems) { return $null }
@@ -2735,6 +2848,20 @@ function Export-HtmlChecklist {
     $generatedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $elapsedStr  = "{0:D2}:{1:D2}:{2:D2}" -f [int][math]::Floor($ElapsedTime.TotalHours), $ElapsedTime.Minutes, $ElapsedTime.Seconds
 
+    # Profile data overlay (dev/PROFILE_DATA_OVERLAY_PLAN.md section 4.3): record
+    # which data set produced this run, so shipping the wrong configuration set
+    # is detectable after the fact. Prefer the live context; fall back to
+    # deriving it from the profile path so [cl] regeneration still shows it.
+    $dataSetDir = if (-not [string]::IsNullOrWhiteSpace($env:FABRIQ_PROFILE_DATA_DIR)) {
+        "$env:FABRIQ_PROFILE_DATA_DIR"
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($ProfilePath)) {
+        Get-FabriqProfileDataDir -ProfilePath $ProfilePath
+    }
+    else { "" }
+    $dataSetLabel = if ([string]::IsNullOrWhiteSpace($dataSetDir)) { "(module defaults)" }
+                    else { Split-Path $dataSetDir -Leaf }
+
     # ----------------------------------------
     # System info: Printers (from env vars)
     # ----------------------------------------
@@ -3173,6 +3300,7 @@ $vPrtRows      </tbody>
     <div class="meta-card"><div class="label">Worker</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($workerName))</div></div>
     <div class="meta-card"><div class="label">Media Serial</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($mediaSerial))</div></div>
     <div class="meta-card"><div class="label">Hardware ID</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($uid))</div></div>
+    <div class="meta-card"><div class="label">Data Set</div><div class="value">$([System.Web.HttpUtility]::HtmlEncode($dataSetLabel))</div></div>
     <div class="meta-card"><div class="label">Generated At</div><div class="value">$generatedAt</div></div>
     <div class="meta-card"><div class="label">Elapsed Time</div><div class="value">$elapsedStr</div></div>
   </div>

@@ -15,6 +15,12 @@
 #   - ..\ cross-module references normalize before the prefix check
 #   - Import-ModuleCsv reads the profile copy and still applies Segment
 #   - resume guard: missing data folder recorded in the state -> refuse
+#
+# Phase 2 pins (Get-ModuleDataFiles / folder resolution):
+#   - a folder in the PDF wins whole (empty folder = "no assets", never merged)
+#   - a bare module root maps only as a directory, never as a file
+#   - enumeration takes the PDF matches only, or the module dir with a warning
+#   - telemetry origin is classified from the FINAL path, not "did it change"
 # ========================================
 
 BeforeAll {
@@ -24,6 +30,9 @@ BeforeAll {
 
     # A real module CSV under <repo>\modules\ (read-only use).
     $script:ModuleCsv = Join-Path $script:RepoRoot 'modules\standard\taskbar_config\taskbar_list.csv'
+    # Phase 2: a real asset folder and a real enumeration source (read-only use).
+    $script:ModuleAssetDir = Join-Path $script:RepoRoot 'modules\standard\driver_config\driver'
+    $script:RegModuleDir   = Join-Path $script:RepoRoot 'modules\standard\reg_hklm_config'
 
     function New-OverlayFile {
         param([string]$Path, [string[]]$Lines)
@@ -218,6 +227,179 @@ Describe 'Profile Data Overlay (Phase 1)' {
             $state = [pscustomobject]@{ ProfileDataDir = $gone }
             Test-FabriqResumeDataDir -ResumeState $state | Should -BeFalse
             Should -Invoke Show-Error -Times 1
+        }
+    }
+}
+
+Describe 'Profile Data Overlay (Phase 2)' {
+
+    BeforeEach {
+        Mock Show-Info    { }
+        Mock Show-Warning { }
+        Mock Show-Error   { }
+        Mock Write-TelemetryEvent       { }
+        Mock Write-KernelTelemetryEvent { }
+
+        $script:pdf = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP ("fabriq-pdf-{0}" -f ([guid]::NewGuid().ToString('N')))))
+        $null = New-Item -ItemType Directory -Path $script:pdf -Force
+        Clear-FabriqProfileDataContext
+    }
+
+    AfterEach {
+        Clear-FabriqProfileDataContext
+        Remove-OverlayTemp $script:pdf
+    }
+
+    Context 'Resolve-ModuleDataPath - asset folders' {
+
+        It 'has a real module asset folder to test against' {
+            Test-Path $script:ModuleAssetDir -PathType Container | Should -BeTrue
+        }
+
+        It 'returns the folder in the data folder (and says so once)' {
+            $copy = Join-Path $script:pdf 'modules\driver_config\driver'
+            New-OverlayFile -Path (Join-Path $copy 'oki.inf') -Lines @('[Version]')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            Resolve-ModuleDataPath -Path $script:ModuleAssetDir | Should -Be $copy
+            Should -Invoke Show-Info    -Exactly -Times 1
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+
+        It 'uses an EMPTY profile folder instead of merging the module assets in' {
+            $copy = Join-Path $script:pdf 'modules\driver_config\driver'
+            $null = New-Item -ItemType Directory -Path $copy -Force
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $r = Resolve-ModuleDataPath -Path $script:ModuleAssetDir
+            $r | Should -Be $copy
+            @(Get-ChildItem -LiteralPath $r -Force).Count | Should -Be 0
+        }
+
+        It 'falls back to the module folder with ONE warning when it is absent from the data folder' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            Resolve-ModuleDataPath -Path $script:ModuleAssetDir | Should -Be $script:ModuleAssetDir
+            Resolve-ModuleDataPath -Path $script:ModuleAssetDir | Should -Be $script:ModuleAssetDir
+            Should -Invoke Show-Warning -Exactly -Times 1
+            Should -Invoke Show-Info    -Exactly -Times 0
+        }
+
+        It 'maps a bare module root onto the data folder when it exists there' {
+            $copy = Join-Path $script:pdf 'modules\reg_hklm_config'
+            $null = New-Item -ItemType Directory -Path $copy -Force
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            Resolve-ModuleDataPath -Path $script:RegModuleDir | Should -Be $copy
+        }
+
+        It 'treats a trailing separator on the module root the same way' {
+            $copy = Join-Path $script:pdf 'modules\reg_hklm_config'
+            $null = New-Item -ItemType Directory -Path $copy -Force
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            Resolve-ModuleDataPath -Path ($script:RegModuleDir + '\') | Should -Be $copy
+        }
+
+        It 'never maps a file that sits directly under a tier folder (root candidates are folders only)' {
+            # "<PDF>\modules\decoy.ps1" must NOT capture "<repo>\modules\standard\decoy.ps1".
+            New-OverlayFile -Path (Join-Path $script:pdf 'modules\decoy.ps1') -Lines @('# decoy')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $tierFile = Join-Path $script:RepoRoot 'modules\standard\decoy.ps1'
+            Resolve-ModuleDataPath -Path $tierFile | Should -Be $tierFile
+        }
+
+        It 'leaves a folder untouched and silent when no context is active' {
+            Resolve-ModuleDataPath -Path $script:ModuleAssetDir | Should -Be $script:ModuleAssetDir
+            Should -Invoke Show-Info    -Exactly -Times 0
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+    }
+
+    Context 'Get-ModuleDataFiles' {
+
+        It 'has a real module CSV to enumerate' {
+            @(Get-ChildItem -LiteralPath $script:RegModuleDir -Filter 'reg_hklm_list*.csv' -File).Count |
+                Should -BeGreaterThan 0
+        }
+
+        It 'returns ONLY the profile matches and never merges the module directory in' {
+            $copyDir = Join-Path $script:pdf 'modules\reg_hklm_config'
+            New-OverlayFile -Path (Join-Path $copyDir 'reg_hklm_list_a.csv') -Lines @('Enabled,Path', '1,a')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $files = @(Get-ModuleDataFiles -Directory $script:RegModuleDir -Filter 'reg_hklm_list*.csv')
+            $files.Count   | Should -Be 1
+            $files[0].Name | Should -Be 'reg_hklm_list_a.csv'
+            Should -Invoke Show-Info    -Exactly -Times 1
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+
+        It 'sorts the profile matches by name' {
+            $copyDir = Join-Path $script:pdf 'modules\reg_hklm_config'
+            New-OverlayFile -Path (Join-Path $copyDir 'reg_hklm_list_z.csv') -Lines @('Enabled,Path', '1,z')
+            New-OverlayFile -Path (Join-Path $copyDir 'reg_hklm_list_a.csv') -Lines @('Enabled,Path', '1,a')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $files = @(Get-ModuleDataFiles -Directory $script:RegModuleDir -Filter 'reg_hklm_list*.csv')
+            ($files | ForEach-Object Name) | Should -Be @('reg_hklm_list_a.csv', 'reg_hklm_list_z.csv')
+        }
+
+        It 'falls back to the module directory with ONE warning when the data folder has no match' {
+            $copyDir = Join-Path $script:pdf 'modules\reg_hklm_config'
+            New-OverlayFile -Path (Join-Path $copyDir 'unrelated.csv') -Lines @('Enabled')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $files = @(Get-ModuleDataFiles -Directory $script:RegModuleDir -Filter 'reg_hklm_list*.csv')
+            $files.Count | Should -BeGreaterThan 0
+            $files[0].FullName | Should -BeLike "$script:RegModuleDir*"
+            Should -Invoke Show-Warning -Exactly -Times 1
+        }
+
+        It 'enumerates the module directory silently when no context is active' {
+            $files = @(Get-ModuleDataFiles -Directory $script:RegModuleDir -Filter 'reg_hklm_list*.csv')
+            $files.Count | Should -BeGreaterThan 0
+            Should -Invoke Show-Info    -Exactly -Times 0
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+
+        It 'returns an empty result (no throw) for a directory that does not exist' {
+            $missing = Join-Path $script:RepoRoot 'modules\standard\no_such_module'
+            { Get-ModuleDataFiles -Directory $missing -Filter '*.csv' } | Should -Not -Throw
+            @(Get-ModuleDataFiles -Directory $missing -Filter '*.csv').Count | Should -Be 0
+        }
+
+        It 'returns paths that Import-ModuleCsv consumes without resolving again' {
+            $copyDir = Join-Path $script:pdf 'modules\reg_hklm_config'
+            New-OverlayFile -Path (Join-Path $copyDir 'reg_hklm_list_a.csv') -Lines @('Enabled,Path', '1,from-profile')
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+
+            $files = @(Get-ModuleDataFiles -Directory $script:RegModuleDir -Filter 'reg_hklm_list*.csv')
+            $rows  = @(Import-ModuleCsv -Path $files[0].FullName)
+            $rows.Count   | Should -Be 1
+            $rows[0].Path | Should -Be 'from-profile'
+            # One display for the enumeration; the file path is already resolved.
+            Should -Invoke Show-Info    -Exactly -Times 1
+            Should -Invoke Show-Warning -Exactly -Times 0
+        }
+    }
+
+    Context 'Get-FabriqDataOrigin (telemetry / evidence classification)' {
+
+        It 'reports none when no context is active' {
+            Get-FabriqDataOrigin -Path $script:ModuleCsv | Should -Be 'none'
+        }
+
+        It 'reports module for a module-side path under a context' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            Get-FabriqDataOrigin -Path $script:ModuleCsv | Should -Be 'module'
+        }
+
+        It 'reports profile for a path already inside the data folder' {
+            Set-FabriqProfileDataContext -ProfileDataDir $script:pdf
+            $inside = Join-Path $script:pdf 'modules\reg_hklm_config\reg_hklm_list_a.csv'
+            Get-FabriqDataOrigin -Path $inside | Should -Be 'profile'
         }
     }
 }
