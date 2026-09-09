@@ -234,7 +234,7 @@ if ($enabledItems.Count -eq 0) { return (New-ModuleResult -Status "Skipped" -Mes
 # Validate wallpaper/ directory
 # Only required when relative-path entries exist
 # ========================================
-$wallpaperDir = Join-Path $PSScriptRoot "wallpaper"
+$wallpaperDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "wallpaper")
 
 $hasRelativePaths = @($enabledItems | Where-Object {
     -not [System.IO.Path]::IsPathRooted($_.FileName)

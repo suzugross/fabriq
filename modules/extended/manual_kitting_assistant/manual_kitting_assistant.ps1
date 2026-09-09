@@ -96,7 +96,7 @@ if ($steps.Count -eq 0) {
 # ========================================
 # Step 2: Validate prompt/ directory and prompt files
 # ========================================
-$promptDir    = Join-Path $PSScriptRoot "prompt"
+$promptDir    = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "prompt")
 $hasAnyPrompt = $steps | Where-Object { -not [string]::IsNullOrWhiteSpace($_.PromptFile) }
 
 if ($hasAnyPrompt -and (-not (Test-Path $promptDir))) {

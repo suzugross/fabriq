@@ -144,7 +144,7 @@ $script:phasesOrdered       = @()
 $script:currentPhaseIndex   = -1
 $script:phaseStatus         = @{}
 $script:UserAction          = $null   # "done" | "cancel" | $null
-$script:profilesRoot        = Join-Path $PSScriptRoot "profiles"
+$script:profilesRoot        = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "profiles")
 
 # Variables whose ENC: cell could not be decrypted (missing/wrong master
 # passphrase, kernel function absent). A step that references one of these

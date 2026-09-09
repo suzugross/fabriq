@@ -35,7 +35,7 @@ if ($enabledItems.Count -eq 0) {
 # ========================================
 # Step 2: Prerequisite check (early return)
 # ========================================
-$driverDir = Join-Path $PSScriptRoot "driver"
+$driverDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "driver")
 if (-not (Test-Path $driverDir)) {
     Show-Error "Driver directory not found: $driverDir"
     Show-Error "Run Driver Export first to create driver backups."

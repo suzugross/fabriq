@@ -51,7 +51,7 @@ if ($enabledEntries.Count -eq 0) {
 # ========================================
 # 2. Asset Path Setup
 # ========================================
-$AssetsDir   = Join-Path $PSScriptRoot "assets"
+$AssetsDir   = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "assets")
 $SetupExePath = Join-Path $AssetsDir "setup.exe"
 
 # Resolve install mode from entry (Offline default, optional Mode column)
@@ -84,7 +84,7 @@ foreach ($entry in $enabledEntries) {
         if ([System.IO.Path]::IsPathRooted($entry.AssetsFolder)) {
             $entry.AssetsFolder
         } else {
-            Join-Path $PSScriptRoot $entry.AssetsFolder
+            Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot $entry.AssetsFolder)
         }
     } else {
         $AssetsDir
@@ -214,7 +214,7 @@ if (-not [string]::IsNullOrWhiteSpace($productIds)) {
     $targetIds = @()
     foreach ($e in $enabledEntries) {
         $eAssetsDir = if (-not [string]::IsNullOrWhiteSpace($e.AssetsFolder)) {
-            if ([System.IO.Path]::IsPathRooted($e.AssetsFolder)) { $e.AssetsFolder } else { Join-Path $PSScriptRoot $e.AssetsFolder }
+            if ([System.IO.Path]::IsPathRooted($e.AssetsFolder)) { $e.AssetsFolder } else { Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot $e.AssetsFolder) }
         } else { $AssetsDir }
         $eXmlPath = Join-Path $eAssetsDir $e.XmlFileName
         if (Test-Path $eXmlPath) {
@@ -272,7 +272,7 @@ foreach ($entry in $enabledEntries) {
         if ([System.IO.Path]::IsPathRooted($entry.AssetsFolder)) {
             $entry.AssetsFolder
         } else {
-            Join-Path $PSScriptRoot $entry.AssetsFolder
+            Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot $entry.AssetsFolder)
         }
     } else {
         $AssetsDir

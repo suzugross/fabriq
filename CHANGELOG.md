@@ -30,6 +30,15 @@
 - kernel/common.ps1: HTML チェックリストの Meta に **`Data Set`** を追加(オーバーレイ計画書 §4.3 の
   「エビデンスへの採用元記録」)。実行中の PDF 名、無ければ `(module defaults)` を表示。`[cl]` 再生成でも
   出るよう、env が無い場合は `ProfilePath` から導出する。
+- modules (10 件・13 箇所): **データオーバーレイ Phase 2 / W1(資材フォルダ)**。資材フォルダの
+  `Join-Path $PSScriptRoot "<folder>"` を `Resolve-ModuleDataPath` 経由にし、プロファイル側
+  `profiles/<name>/modules/<module>/<folder>/` に資材一式を置けるようにした(**フォルダ単位
+  all-or-nothing** — PDF 側にフォルダがあれば空でも採用。「フォルダ不在 → Error」「ファイル不在 →
+  NOT FOUND」の既存表示はそのまま PDF 側に対して働くため、部分欠落は従来どおり顕在化する)。
+  driver_config 1.2.0 (driver/) / cert_config 1.1.0 (certs/) / odt_config 1.2.0 (assets/ + 行ごとの
+  相対 `AssetsFolder` 3 箇所) / default_app_config 1.1.0 (xml/) / app_config 1.1.0 (file/) /
+  copyfile_config 1.1.0 (source/) / wallpaper_config 1.3.0 (wallpaper/) / ppkg_config 1.2.0 (file/) /
+  manual_kitting_assistant 1.1.0 (prompt/) / pianist 2.1.0 (profiles/)。各 MINOR、`REQUIRES_KERNEL` 3.7.0。
 
 ### Fixed
 - kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに

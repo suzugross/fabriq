@@ -105,7 +105,7 @@ if ($enabledItems.Count -eq 0) {
 # ========================================
 # Step 2: Validate certs directory
 # ========================================
-$certsDir = Join-Path $PSScriptRoot "certs"
+$certsDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "certs")
 if (-not (Test-Path $certsDir)) {
     Show-Error "certs/ directory not found: $certsDir"
     Write-Host ""

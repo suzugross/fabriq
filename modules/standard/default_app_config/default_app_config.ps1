@@ -35,7 +35,7 @@ if ($enabledItems.Count -eq 0) {
 # ========================================
 # Step 2: Prerequisite check (early return)
 # ========================================
-$xmlDir = Join-Path $PSScriptRoot "xml"
+$xmlDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "xml")
 if (-not (Test-Path $xmlDir)) {
     Show-Error "XML directory not found: $xmlDir"
     Show-Error "Run Export App Associations first to create XML files."

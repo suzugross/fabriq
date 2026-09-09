@@ -32,7 +32,7 @@ foreach ($item in $items) {
 # ========================================
 # Step 2: Validate source directory
 # ========================================
-$sourceDir = Join-Path $PSScriptRoot "source"
+$sourceDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "source")
 if (-not (Test-Path $sourceDir)) {
     Show-Error "source/ directory not found: $sourceDir"
     Write-Host ""

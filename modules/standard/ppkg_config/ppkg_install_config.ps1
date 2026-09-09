@@ -41,7 +41,7 @@ if (-not (Get-Command "Install-ProvisioningPackage" -ErrorAction SilentlyContinu
     return (New-ModuleResult -Status "Error" -Message "Install-ProvisioningPackage cmdlet not found")
 }
 
-$fileDir = Join-Path $PSScriptRoot "file"
+$fileDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "file")
 if (-not (Test-Path $fileDir)) {
     Show-Error "'file' directory not found: $fileDir"
     Write-Host ""
