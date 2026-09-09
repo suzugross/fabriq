@@ -80,7 +80,7 @@ foreach ($name in $storeFileCandidates) {
 }
 
 # --- Input JSON existence check ---
-$jsonDir = Join-Path $PSScriptRoot "json"
+$jsonDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "json")
 
 foreach ($item in $enabledItems) {
     $jsonPath = Join-Path $jsonDir "$($item.FileName).json"
@@ -95,8 +95,8 @@ foreach ($item in $enabledItems) {
 # ========================================
 # Step 3: Pre-execution display
 # ========================================
-$xmlDir  = Join-Path $PSScriptRoot "xml"
-$ppkgDir = Join-Path $PSScriptRoot "ppkg"
+$xmlDir  = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "xml")
+$ppkgDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "ppkg")
 
 Show-Info "ICD.exe: $icdExe"
 if ($storeFile) {

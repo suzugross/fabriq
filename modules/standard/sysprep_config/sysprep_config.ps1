@@ -23,7 +23,7 @@ $unattendDeployPath      = "C:\Windows\System32\Sysprep\unattend.xml"
 $setupCompleteDeployDir  = "C:\Windows\Setup\Scripts"
 $setupCompleteDeployPath = Join-Path $setupCompleteDeployDir "SetupComplete.cmd"
 $sourceStagingDir        = Join-Path $setupCompleteDeployDir "source"
-$sourceDir               = Join-Path $PSScriptRoot "source"
+$sourceDir               = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "source")
 
 # ========================================
 # Unattend.xml template (fixed sections + placeholders)

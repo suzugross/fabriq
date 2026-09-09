@@ -7,7 +7,7 @@
 #   Interactive mode:  Falls back to manual folder/INF selection when no host is selected.
 # ========================================
 
-$INF_DIR = Join-Path $PSScriptRoot "INF"
+$INF_DIR = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "INF")
 
 # ========================================
 # Helper Functions

@@ -41,7 +41,7 @@ if (-not (Get-Command "Install-ProvisioningPackage" -ErrorAction SilentlyContinu
     return (New-ModuleResult -Status "Error" -Message "Install-ProvisioningPackage cmdlet not found")
 }
 
-$ppkgDir = Join-Path $PSScriptRoot "ppkg"
+$ppkgDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "ppkg")
 
 foreach ($item in $enabledItems) {
     $ppkgPath = Join-Path $ppkgDir "$($item.FileName).ppkg"

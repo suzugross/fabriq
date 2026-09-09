@@ -68,7 +68,7 @@ if ($invalidRows.Count -gt 0) {
 $deployDir = "C:\Users\Default\AppData\Local\Microsoft\Windows\Shell"
 $deployPath = Join-Path $deployDir "LayoutModification.xml"
 
-$sysprepSourceDir  = Join-Path $PSScriptRoot "..\sysprep_config\source"
+$sysprepSourceDir  = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "..\sysprep_config\source")
 $sysprepSourcePath = Join-Path $sysprepSourceDir "LayoutModification.xml"
 
 if (-not (Test-Path $deployDir)) {

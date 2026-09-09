@@ -322,6 +322,31 @@ AdminID,OldPCName,NewPCName,EthernetIP,EthernetSubnet,EthernetGateway,...,Printe
 
 機密性のあるフィールドは Fabriq Studio で `ENC:<Base64>` 形式に暗号化できます。実行時は `Import-ModuleCsv` がマスターパスフレーズで透過的に復号します。
 
+### プロファイル別データオーバーレイ
+
+1 つのカーネルで複数の設定セット（顧客・案件）を使い分ける仕組みです。プロファイル CSV に**同名のフォルダを併設**すると、そのプロファイルの実行中だけ、モジュールの CSV・資材フォルダがそちらから読まれます。
+
+```
+profiles/
+  Master_Config01.csv              ← プロファイル本体
+  Master_Config01/                 ← 併設データフォルダ（あれば自動で有効）
+    modules/
+      reg_hklm_config/
+        reg_hklm_list.csv          ← 本体の modules/standard/... より優先される
+      app_config/
+        app_list.csv
+        file/                      ← 資材フォルダごと差し替え
+          setup.exe
+```
+
+- **優先順位**: プロファイル側 > モジュール本体（フォールバック）。フォールバックは非推奨の救済措置なので、実行時に必ず `[DATA] ... <- module dir (FALLBACK)` と警告表示されます。
+- **単位**: CSV は**ファイル単位**、資材フォルダと複数 CSV の列挙（`reg_*_list*.csv` 等）は**フォルダ／モジュール単位の all-or-nothing**。プロファイル側にフォルダがあれば空でも採用され、本体側のファイルで部分補完はされません（どこから来た設定か追えなくなるため）。
+- **フォルダが無い場合**は従来どおりモジュール本体の CSV を使います（既存プロファイルは無改修でそのまま動作）。
+- **採用元の記録**: 実行画面の `[DATA]` 行、テレメトリ（`csv.load` の `resolvedFrom`）、HTML チェックリストの `Data Set` に残ります。
+- **`__RESTART__` 跨ぎ**: 再起動後にデータフォルダが消えていると、残りのモジュールを実行せず停止します（別の設定セットが無言で適用されるのを防ぐため。フォルダを戻して再開できます）。
+- **メニューからの単発実行**はプロファイル実行ではないため、オーバーレイは無効（本体の CSV を使います）。
+- **backup / export 系の出力先**は当面モジュール本体側です。ただし読み書きが同じフォルダで閉じる族（`startlayout_config` の json/xml/ppkg、`sysprep_config` の source と `taskbar_config` の書き込み、`printer_driver_config` の INF 展開）は、**プロファイル側にフォルダを作っておけば入出力ともそこに閉じます**。
+
 ### 新規モジュール作成
 
 1. `dev/template/` フォルダを `modules/standard/` または `modules/extended/` にコピー

@@ -44,7 +44,7 @@ if (-not (Get-Command "Export-StartLayout" -ErrorAction SilentlyContinue)) {
 # ========================================
 # Step 3: Pre-execution display
 # ========================================
-$jsonDir = Join-Path $PSScriptRoot "json"
+$jsonDir = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "json")
 
 Show-Info "Export targets: $($enabledItems.Count) item(s)"
 Write-Host ""

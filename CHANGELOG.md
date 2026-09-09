@@ -45,6 +45,15 @@
   (モジュール単位 all-or-nothing = 本体側との合成をしない。どの行がどこから来たか操作者が追えるため)。
   一致ゼロ／フォルダ無しは従来どおり本体側を列挙(フォールバック警告)、0 件時の Error 判定も不変。
   `REQUIRES_KERNEL` 3.7.0。
+- modules (4 件・8 箇所): **データオーバーレイ Phase 2 / W3(パイプライン族)**。読み書きが同一フォルダで
+  閉じる族について、解決後のフォルダを読み書き共用にした(§4.6「書き込みは当面本体側」に対する
+  承認済み例外 — 入力だけ PDF・出力だけ本体に分かれると同一族の前後工程が食い違うため)。
+  startlayout_config 1.1.0 (json/ xml/ ppkg/ — backup → build → import が PDF 内で閉じる) /
+  sysprep_config 1.3.0 (source/) + taskbar_config 1.3.0 (`..\sysprep_config\source` へのクロス書き。
+  両者が同一の PDF パスに解決されることを確認済み) / printer_driver_config 1.3.0 (INF/ — アーカイブ
+  展開先 `INF\<BaseName>` と §8 封じ込めガードも解決後ルートに追随。`tools\7z.exe` はフレームワーク
+  資産のため本体側のまま)。**プロファイル側にフォルダを作れば入出力ともそこに閉じる**運用。
+  各 MINOR、`REQUIRES_KERNEL` 3.7.0。
 
 ### Fixed
 - kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに
