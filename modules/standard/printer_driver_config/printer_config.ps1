@@ -43,7 +43,7 @@ for ($i = 1; $i -le 10; $i++) {
 # ========================================
 # TargetHost column: empty = all hosts, value = exact match with SELECTED_NEW_PCNAME.
 # Comparison is case-insensitive.
-$csvPath = Join-Path $PSScriptRoot "printer_list.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "printer_list.csv")
 $currentHost = [Environment]::GetEnvironmentVariable("SELECTED_NEW_PCNAME")
 
 if (Test-Path $csvPath) {

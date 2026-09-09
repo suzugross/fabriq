@@ -54,7 +54,7 @@ for ($i = 1; $i -le 10; $i++) {
 }
 
 # (b) Cross-module reference to printer_driver_config/printer_list.csv
-$printerListCsv = Join-Path $PSScriptRoot "..\printer_driver_config\printer_list.csv"
+$printerListCsv = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "..\printer_driver_config\printer_list.csv")
 if (Test-Path $printerListCsv) {
     $csvItems = Import-ModuleCsv -Path $printerListCsv -FilterEnabled `
         -RequiredColumns @("Enabled", "TargetHost", "PrinterName")
@@ -91,7 +91,7 @@ Show-Info "Keep list: $($keepNames.Count) printer name(s)"
 # Sources: printer_delete.csv (module-local), TargetHost matched rows.
 # Backward compatible with old schema that lacks the TargetHost column.
 $explicitDeletes = @()
-$csvPath = Join-Path $PSScriptRoot "printer_delete.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "printer_delete.csv")
 
 if (Test-Path $csvPath) {
     $deleteItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `

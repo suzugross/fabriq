@@ -163,7 +163,7 @@ if (-not (Test-AdminPrivilege)) {
 # ========================================
 # Step 1: Load CSV
 # ========================================
-$csvPath = Join-Path $PSScriptRoot "firewall_rule_list.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "firewall_rule_list.csv")
 
 $enabledItems = Import-ModuleCsv -Path $csvPath -FilterEnabled `
     -RequiredColumns @("Enabled", "Mode", "SourcePath", "DestinationPath", "IAcknowledgeReplace")

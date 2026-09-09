@@ -50,7 +50,7 @@ Write-Host ""
 $targets = @()
 $csvMode = $false
 
-$csvPath = Join-Path $PSScriptRoot "firewall_list.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "firewall_list.csv")
 
 if (Test-Path $csvPath) {
     $csvData = Import-ModuleCsv -Path $csvPath -FilterEnabled `

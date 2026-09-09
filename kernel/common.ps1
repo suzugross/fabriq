@@ -1175,6 +1175,114 @@ function Get-FabriqMaskedText {
     return $Text
 }
 
+# ----------------------------------------
+# Profile Data Overlay (PDF) - dev/PROFILE_DATA_OVERLAY_PLAN.md
+# ----------------------------------------
+# A profile "profiles/<name>.csv" may carry a data folder "profiles/<name>/"
+# that mirrors "modules/<module>/<rel>". While a profile batch runs,
+# $env:FABRIQ_PROFILE_DATA_DIR points at that folder and module data paths
+# resolve there first; the module directory is only a (visible) fallback.
+# No context (menu-mode single runs, profiles without a data folder) means
+# identity mapping - byte-identical behavior to pre-overlay kernels.
+# Phase 1 resolves FILES only (CSV); asset folders follow in Phase 2.
+
+function Get-FabriqModulesRoot {
+    # <repo>\modules\ with a trailing separator, derived from this file's
+    # location (kernel\common.ps1) so it is independent of the CWD.
+    if (-not $script:FabriqModulesRoot) {
+        $root = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot -Parent) 'modules'))
+        $script:FabriqModulesRoot = $root.TrimEnd('\') + '\'
+    }
+    return $script:FabriqModulesRoot
+}
+
+function Get-FabriqProfileDataDir {
+    # Returns the absolute profile data folder for a profile CSV path
+    # ("profiles\foo.csv" -> "<abs>\profiles\foo") when that folder exists,
+    # otherwise "" (no overlay for this profile).
+    param([Parameter(Mandatory = $true)][string]$ProfilePath)
+    try {
+        $full = [System.IO.Path]::GetFullPath($ProfilePath)
+        $dir  = Join-Path (Split-Path $full -Parent) ([System.IO.Path]::GetFileNameWithoutExtension($full))
+        if (Test-Path -LiteralPath $dir -PathType Container) { return $dir }
+    }
+    catch { }
+    return ""
+}
+
+function Set-FabriqProfileDataContext {
+    # Internal (kernel / tests). Sets the batch-scoped overlay context and
+    # resets the once-per-file resolution display. Empty = no context.
+    param([string]$ProfileDataDir = "")
+    $script:FabriqDataResolutionSeen = @{}
+    if ([string]::IsNullOrWhiteSpace($ProfileDataDir)) {
+        $env:FABRIQ_PROFILE_DATA_DIR = $null
+    }
+    else {
+        $env:FABRIQ_PROFILE_DATA_DIR = $ProfileDataDir
+    }
+}
+
+function Clear-FabriqProfileDataContext {
+    Set-FabriqProfileDataContext -ProfileDataDir ""
+}
+
+function Test-FabriqResumeDataDir {
+    # Fail-closed resume guard: a resume_state written while a profile data
+    # folder was active must not continue without it (the remaining modules
+    # would silently apply the module-dir CSVs = a different configuration
+    # set). Returns $true when it is safe to continue.
+    param([Parameter(Mandatory = $true)]$ResumeState)
+    $saved = if ($null -ne $ResumeState.ProfileDataDir) { "$($ResumeState.ProfileDataDir)" } else { "" }
+    if ([string]::IsNullOrWhiteSpace($saved)) { return $true }
+    if (Test-Path -LiteralPath $saved -PathType Container) { return $true }
+    Show-Error "Profile data folder recorded before the restart is missing: $saved"
+    Show-Error "Resume aborted to avoid applying module-dir CSVs in its place. Restore the folder and relaunch (resume_state.json was kept)."
+    return $false
+}
+
+function Resolve-ModuleDataPath {
+    # Public API (KERNEL_API.md 1.2). Resolves a module data path against
+    # the active profile data folder:
+    #   1. no context / not under <repo>\modules\ / not a file -> $Path unchanged
+    #   2. <pdf>\modules\<module>\<rel> exists (file) -> that path  [profile]
+    #   3. otherwise -> $Path unchanged                             [FALLBACK]
+    # Every resolution under a context is displayed once per batch per file
+    # so a fallback is never silent (profile-first principle).
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $dataDir = $env:FABRIQ_PROFILE_DATA_DIR
+    if ([string]::IsNullOrWhiteSpace($dataDir)) { return $Path }
+
+    $full = $null
+    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { return $Path }
+
+    $modulesRoot = Get-FabriqModulesRoot
+    if (-not $full.StartsWith($modulesRoot, [System.StringComparison]::OrdinalIgnoreCase)) { return $Path }
+
+    # "<tier>\<module>\<rel...>" - the tier (standard / extended) is dropped
+    # from the overlay layout because module names are unique across tiers.
+    $parts = $full.Substring($modulesRoot.Length).Split('\', 3)
+    if ($parts.Count -lt 3 -or [string]::IsNullOrEmpty($parts[2])) { return $Path }
+    $moduleName  = $parts[1]
+    $relInModule = $parts[2]
+
+    $candidate = Join-Path (Join-Path (Join-Path $dataDir 'modules') $moduleName) $relInModule
+    $label     = "$moduleName/$($relInModule.Replace('\', '/'))"
+    $seenKey   = $label.ToLowerInvariant()
+    if ($null -eq $script:FabriqDataResolutionSeen) { $script:FabriqDataResolutionSeen = @{} }
+    $firstTime = -not $script:FabriqDataResolutionSeen.ContainsKey($seenKey)
+    $script:FabriqDataResolutionSeen[$seenKey] = $true
+
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        if ($firstTime) { Show-Info "[DATA] $label <- profile ($(Split-Path $dataDir -Leaf))" }
+        return $candidate
+    }
+
+    if ($firstTime) { Show-Warning "[DATA] $label <- module dir (FALLBACK: not in profile data folder)" }
+    return $Path
+}
+
 function Import-ModuleCsv {
     param(
         [Parameter(Mandatory = $true)]
@@ -1183,6 +1291,14 @@ function Import-ModuleCsv {
         [string[]]$RequiredColumns,
         [string]$Segment = $env:FABRIQ_SEGMENT
     )
+
+    # Profile data overlay: resolve before anything touches the file. With
+    # no active context this is an identity mapping (see Resolve-ModuleDataPath).
+    $requestedPath = $Path
+    $Path = Resolve-ModuleDataPath -Path $Path
+    $resolvedFrom = if ($Path -ne $requestedPath) { 'profile' }
+                    elseif ([string]::IsNullOrWhiteSpace($env:FABRIQ_PROFILE_DATA_DIR)) { 'none' }
+                    else { 'module' }
 
     $allItems = Import-CsvSafe -Path $Path -Description ([System.IO.Path]::GetFileName($Path))
     if ($null -eq $allItems) { return $null }
@@ -1267,6 +1383,7 @@ function Import-ModuleCsv {
                 returnedRows  = @($allItems).Count
                 filterEnabled = [bool]$FilterEnabled
                 segment       = $Segment
+                resolvedFrom  = $resolvedFrom
                 columns       = @($csvColumns)
             })
         }
@@ -3331,6 +3448,10 @@ function Save-ResumeState {
     $state = @{
         ProfilePath      = $ProfilePath
         ProfileName      = $ProfileName
+        # Profile data folder active when the state was written ("" when the
+        # profile has none). Resume refuses to continue if it disappeared
+        # (Test-FabriqResumeDataDir) - see dev/PROFILE_DATA_OVERLAY_PLAN.md.
+        ProfileDataDir   = if ([string]::IsNullOrWhiteSpace($env:FABRIQ_PROFILE_DATA_DIR)) { "" } else { "$env:FABRIQ_PROFILE_DATA_DIR" }
         AutoPilot        = $global:AutoPilotMode
         AutoPilotWaitSec = $global:AutoPilotWaitSec
         SessionID        = $script:SessionID
@@ -3545,7 +3666,7 @@ function Reset-FabriqState {
         "SELECTED_WIFI_IP", "SELECTED_WIFI_SUBNET", "SELECTED_WIFI_GATEWAY",
         "SELECTED_DNS1", "SELECTED_DNS2", "SELECTED_DNS3", "SELECTED_DNS4",
         "SELECTED_PIN", "FABRIQ_WORKER_NAME", "FABRIQ_SEGMENT",
-        "FABRIQ_AUTOLOGON_USER"
+        "FABRIQ_AUTOLOGON_USER", "FABRIQ_PROFILE_DATA_DIR"
     )
     foreach ($key in $envKeys) {
         [Environment]::SetEnvironmentVariable($key, $null, "Process")

@@ -61,7 +61,7 @@ function Get-LicenseStatusText {
 $productKey = $null
 $keySource = ""
 
-$csvPath = Join-Path $PSScriptRoot "license_key.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "license_key.csv")
 if (Test-Path $csvPath) {
     $allKeys = Import-ModuleCsv -Path $csvPath
     # @() re-wrap: on kernels predating the ,@() return contract, a

@@ -8,7 +8,7 @@ Write-Host ""
 # ========================================
 # Load CSV
 # ========================================
-$csvPath = Join-Path $PSScriptRoot "local_user_list.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "local_user_list.csv")
 
 $userList = Import-ModuleCsv -Path $csvPath
 if ($null -eq $userList) {
@@ -22,7 +22,7 @@ if ($null -eq $userList) {
 # ========================================
 # Load Per-PC User CSV (optional)
 # ========================================
-$hostCsvPath = Join-Path $PSScriptRoot "local_user_host_list.csv"
+$hostCsvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "local_user_host_list.csv")
 
 if ((Test-Path $hostCsvPath) -and -not [string]::IsNullOrWhiteSpace($env:SELECTED_NEW_PCNAME)) {
     $hostUserList = Import-ModuleCsv -Path $hostCsvPath -RequiredColumns @("Enabled", "NewPCName", "UserName", "Password")

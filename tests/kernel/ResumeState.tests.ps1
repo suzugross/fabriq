@@ -79,6 +79,27 @@ Describe 'Save-ResumeState / Load-ResumeState' {
             $loaded.EvidenceBasePath | Should -Be 'C:\test\evidence'
         }
 
+        It 'persists ProfileDataDir from the active overlay context (empty string when none)' {
+            Clear-FabriqProfileDataContext
+            Save-ResumeState -ProfilePath 'C:\profiles\foo.csv' `
+                             -ProfileName 'foo' `
+                             -ResumeAfterOrder 30 `
+                             -CompletedModules @()
+            $loaded = Get-Content $script:tmpStatePath -Raw | ConvertFrom-Json
+            $loaded.ProfileDataDir | Should -Be ''
+
+            Set-FabriqProfileDataContext -ProfileDataDir 'C:\profiles\foo'
+            try {
+                Save-ResumeState -ProfilePath 'C:\profiles\foo.csv' `
+                                 -ProfileName 'foo' `
+                                 -ResumeAfterOrder 30 `
+                                 -CompletedModules @()
+                $loaded2 = Get-Content $script:tmpStatePath -Raw | ConvertFrom-Json
+                $loaded2.ProfileDataDir | Should -Be 'C:\profiles\foo'
+            }
+            finally { Clear-FabriqProfileDataContext }
+        }
+
         It 'serializes CompletedModules as Order/MenuName/Status triples' {
             $completed = @(
                 [PSCustomObject]@{ Order = 10; MenuName = 'Hostname';    Status = 'Success' }

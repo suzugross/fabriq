@@ -30,6 +30,8 @@ try {
     $env:SELECTED_KANRI_NO = 'TEST-0001'; $env:FABRIQ_WORKER_NAME = 'ci-harness'
     if ($req.selected) { foreach ($p in $req.selected.PSObject.Properties) { Set-Item -Path "Env:SELECTED_$($p.Name)" -Value ([string]$p.Value) } }
     $env:FABRIQ_SEGMENT = [string]$req.segment; $env:SELECTED_SEGMENT = [string]$req.segment
+    # Profile data overlay context (dev/PROFILE_DATA_OVERLAY_PLAN.md section 15.2). Empty = no context.
+    $env:FABRIQ_PROFILE_DATA_DIR = [string]$req.profileDataDir
 
     $modPath = Join-Path $req.moduleDirVM $req.script
     $r = Invoke-SafeCommand -ScriptBlock { & $modPath } -OperationName $req.moduleName 6>$null 4>$null 5>$null 3>$null 2>$null

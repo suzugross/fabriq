@@ -24,9 +24,12 @@
 ### 1.2 CSV 読み込み
 | 関数 | シグネチャ | 用途 |
 |---|---|---|
-| `Import-ModuleCsv` | `-Path <string> [-FilterEnabled] [-RequiredColumns <string[]>] [-Segment <string>]` | モジュール用 CSV を透過復号・列検証・Segment フィルタ付きで読み込む |
+| `Import-ModuleCsv` | `-Path <string> [-FilterEnabled] [-RequiredColumns <string[]>] [-Segment <string>]` | モジュール用 CSV を透過復号・列検証・Segment フィルタ付きで読み込む。**読込前に `Resolve-ModuleDataPath` を適用**（since 3.7.0） |
+| `Resolve-ModuleDataPath` | `-Path <string>`（string 返却、since 3.7.0） | **プロファイル別データオーバーレイ**の解決。`$env:FABRIQ_PROFILE_DATA_DIR`（プロファイルデータフォルダ = PDF）が有効なら `<repo>\modules\<tier>\<module>\<rel>` を `<PDF>\modules\<module>\<rel>` に写像し、そのファイルが存在すればそれを返す。無ければ入力パスを返す（フォールバック）。コンテキスト無し・モジュール外パス・PDF 配下のパスは恒等写像。`Import-ModuleCsv` 以外で CSV パスを組み立てて `Test-Path` する箇所・資材パスを解決する箇所はモジュール側で本関数を通すこと |
 
 **契約**: `Segment` 列を持つ CSV は `$env:FABRIQ_SEGMENT` で厳密一致フィルタされる（空 vs 空もマッチ）。
+
+**オーバーレイ契約（since 3.7.0、dev/PROFILE_DATA_OVERLAY_PLAN.md §4 が正）**: プロファイル `profiles/<name>.csv` に併設フォルダ `profiles/<name>/` があるとき、プロファイル実行中（`Invoke-BatchExecution` の間、Linear / Flex / resume 二段目とも）は `FABRIQ_PROFILE_DATA_DIR` がそのフォルダを指し、モジュール CSV は PDF 側が優先される。**Profile-First 原則**: 本体側 CSV へのフォールバックは非推奨の救済措置であり、コンテキスト有効時のフォールバックは毎回（1 バッチ 1 ファイル 1 回）`Show-Warning` で可視化される。コンテキスト無し（メニュー単発実行・PDF の無いプロファイル）は従来と完全同一の動作。Phase 1 の解決対象はファイル（CSV）のみ、資材フォルダ・書き込み系は後続フェーズ。`__RESTART__` 跨ぎは resume_state の `ProfileDataDir` で再起動後にフォルダの存在を fail-closed 検証する（欠落時は残モジュールを実行しない）。
 
 **戻り値契約**: 真のロード失敗（ファイル不在・空ファイル・`-RequiredColumns` 欠落）は **`$null`** を返す。正常ロードだがフィルタ（`-FilterEnabled` で有効行ゼロ／Segment 不一致）で対象ゼロの場合は **空配列（`Count` 0、`$null` ではない）** を返す（`return ,@()` で呼出側のスカラ代入時に `$null` へ unroll されないよう保持）。よって呼出側は `if ($null -eq $items) { Error } elseif ($items.Count -eq 0) { Skipped }` で「ロード失敗」と「対象ゼロ＝Skip」を区別できる。**行が 1 件以上の場合も常に配列で返す**（`return ,@($allItems)`。単一行 CSV がスカラーに unroll されると PS 5.1 では `.Count` が `$null` になり、`.Count -gt 0` 型の門番が偽陰性を起こすため。修正前のカーネルではこの unroll が起きる — 呼出側で防御する場合は `@($items).Count` を使う）。
 
@@ -139,6 +142,7 @@
 - `FABRIQ_AUTOLOGON_USER` — `__AUTO_to_<User>__` マーカーで渡される User 名（autologon_config 専用）
 - `FABRIQ_WORKER_NAME` — 選択中の作業者名
 - `FABRIQ_EVIDENCE_BASE` — エビデンスベースパス（`$global:FabriqEvidenceBasePath` と同値）
+- `FABRIQ_PROFILE_DATA_DIR` — 実行中プロファイルのデータフォルダ（PDF）の絶対パス（since 3.7.0）。`Invoke-BatchExecution` がバッチ開始時に設定し終了時に必ず解除する。未設定 = オーバーレイ無効。モジュールは通常 `Resolve-ModuleDataPath` 経由で利用し、直接参照は「PDF の有無で表示を変える」程度に留める
 
 ---
 
@@ -380,6 +384,16 @@ formal SemVer の出発点。以下すべて利用可能:
   `Capture-ScreenEvidence` で不可逆に DPI-aware 化する構造下で、125%/150% 環境の UI 崩れを防ぐ
   （fabriq_checksheet 実証方式の移植）。GUI を持つモジュール（pianist / manual_kitting_assistant /
   temp_ipaddress_config / printer_delete）が本版を要求（`REQUIRES_KERNEL` 3.7.0）
+  - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
+
+- **§1.2 `Resolve-ModuleDataPath` 追加 + §3.2 `FABRIQ_PROFILE_DATA_DIR` 追加（後方互換 / MINOR）**:
+  プロファイル別データオーバーレイ Phase 1（dev/PROFILE_DATA_OVERLAY_PLAN.md / TM t-0095）。
+  `profiles/<name>/` を PDF として `Import-ModuleCsv` の読込前に解決（88 ファイル/100 呼出を
+  無改修で吸収）。コンテキスト無しは恒等写像＝従来動作と完全同一。resume_state.json に
+  `ProfileDataDir` を追加（v1 追加フィールド、再起動後の fail-closed 検証用）。
+  `Test-Path` 前置きを持つ 8 モジュール（firewall_config / firewall_rule_config /
+  local_user_config / office_license_config / printer_delete / printer_driver_config /
+  windows_license_config / history_destroyer）が本関数を呼ぶため `REQUIRES_KERNEL` 3.7.0
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
 
 ### 3.6.0

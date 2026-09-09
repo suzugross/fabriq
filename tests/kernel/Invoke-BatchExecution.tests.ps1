@@ -345,4 +345,97 @@ Describe 'Invoke-BatchExecution' {
             $global:AutoPilotMode | Should -BeFalse
         }
     }
+
+    Context 'Profile data overlay context lifetime (dev/PROFILE_DATA_OVERLAY_PLAN.md)' {
+
+        BeforeEach {
+            # profiles/<name>.csv + sibling profiles/<name>/ data folder
+            # GetFullPath: $env:TEMP may be an 8.3 short name that the kernel
+            # expands when it normalizes the profile path.
+            $script:ovRoot    = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP ("fabriq-pdf-batch-{0}" -f ([guid]::NewGuid().ToString('N')))))
+            $script:ovProfile = Join-Path $script:ovRoot 'Master_OV.csv'
+            $script:ovFolder  = Join-Path $script:ovRoot 'Master_OV'
+            $null = New-Item -ItemType Directory -Path $script:ovFolder -Force
+            [System.IO.File]::WriteAllLines($script:ovProfile, @('Order,ScriptPath,Enabled'), [System.Text.Encoding]::ASCII)
+            Clear-FabriqProfileDataContext
+            $script:seenDataDir = 'not-captured'
+        }
+
+        AfterEach {
+            Clear-FabriqProfileDataContext
+            # Destructive-path guard (CLAUDE.md section 8): only the temp
+            # folder this context created.
+            $tempRoot = [System.IO.Path]::GetFullPath($env:TEMP)
+            if ($script:ovRoot -and $script:ovRoot.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) `
+                -and $script:ovRoot -like '*fabriq-pdf-batch-*' -and (Test-Path $script:ovRoot)) {
+                Remove-Item $script:ovRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'exposes FABRIQ_PROFILE_DATA_DIR to modules during the batch and clears it afterwards' {
+            Mock Invoke-SafeCommand {
+                $script:seenDataDir = "$env:FABRIQ_PROFILE_DATA_DIR"
+                New-FakeRunResult -Status 'Success'
+            }
+            $mods = @((New-BatchModule -Order 10))
+
+            Invoke-BatchExecution -SelectedModules $mods `
+                -ProfilePath $script:ovProfile -ProfileName 'Master_OV' -FinalizeOnComplete:$false
+
+            $script:seenDataDir | Should -Be $script:ovFolder
+            [string]::IsNullOrEmpty($env:FABRIQ_PROFILE_DATA_DIR) | Should -BeTrue
+        }
+
+        It 'sets no context for a profile without a data folder (backward compatibility)' {
+            Remove-Item $script:ovFolder -Recurse -Force
+            Mock Invoke-SafeCommand {
+                $script:seenDataDir = "$env:FABRIQ_PROFILE_DATA_DIR"
+                New-FakeRunResult -Status 'Success'
+            }
+            $mods = @((New-BatchModule -Order 10))
+
+            Invoke-BatchExecution -SelectedModules $mods `
+                -ProfilePath $script:ovProfile -ProfileName 'Master_OV' -FinalizeOnComplete:$false
+
+            $script:seenDataDir | Should -Be ''
+        }
+
+        It 'sets no context for a menu-mode batch without a ProfilePath' {
+            Mock Invoke-SafeCommand {
+                $script:seenDataDir = "$env:FABRIQ_PROFILE_DATA_DIR"
+                New-FakeRunResult -Status 'Success'
+            }
+            $mods = @((New-BatchModule -Order 10))
+
+            Invoke-BatchExecution -SelectedModules $mods
+
+            $script:seenDataDir | Should -Be ''
+        }
+
+        It 'clears the context even when the loop throws mid-batch' {
+            Mock Invoke-SafeCommand {
+                $script:seenDataDir = "$env:FABRIQ_PROFILE_DATA_DIR"
+                throw 'harness exploded'
+            }
+            $mods = @((New-BatchModule -Order 10))
+
+            { Invoke-BatchExecution -SelectedModules $mods `
+                -ProfilePath $script:ovProfile -ProfileName 'Master_OV' -FinalizeOnComplete:$false } |
+                Should -Throw '*harness exploded*'
+
+            $script:seenDataDir | Should -Be $script:ovFolder
+            [string]::IsNullOrEmpty($env:FABRIQ_PROFILE_DATA_DIR) | Should -BeTrue
+        }
+
+        It 'records the data folder in resume_state.json at a __RESTART__ marker' {
+            $mods = @((New-BatchModule -Order 10), (New-BatchModule -Order 20 -Restart), (New-BatchModule -Order 30))
+
+            Invoke-BatchExecution -SelectedModules $mods `
+                -ProfilePath $script:ovProfile -ProfileName 'Master_OV' -AutoPilot
+
+            (Test-Path $script:tmpResume) | Should -BeTrue
+            $saved = Get-Content $script:tmpResume -Raw | ConvertFrom-Json
+            $saved.ProfileDataDir | Should -Be $script:ovFolder
+        }
+    }
 }

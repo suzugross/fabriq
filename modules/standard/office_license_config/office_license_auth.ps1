@@ -61,7 +61,7 @@ Show-Info "Detected OSPP.vbs: $osppPath"
 # Load office_key.csv to determine if MAK activation is configured.
 # If any enabled entry has ActivationType=MAK, verify internet connectivity.
 $hasMak = $false
-$csvPath = Join-Path $PSScriptRoot "office_key.csv"
+$csvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "office_key.csv")
 
 if (Test-Path $csvPath) {
     $allKeys = Import-ModuleCsv -Path $csvPath

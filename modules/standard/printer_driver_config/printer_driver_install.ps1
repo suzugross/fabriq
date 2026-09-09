@@ -319,7 +319,7 @@ for ($i = 1; $i -le 10; $i++) {
 
 # Collect from printer_driver_list.csv (optional)
 # TargetHost column: empty = all hosts, value = exact match with SELECTED_NEW_PCNAME.
-$driverCsvPath = Join-Path $PSScriptRoot "printer_driver_list.csv"
+$driverCsvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "printer_driver_list.csv")
 $currentHost = [Environment]::GetEnvironmentVariable("SELECTED_NEW_PCNAME")
 
 if (Test-Path $driverCsvPath) {

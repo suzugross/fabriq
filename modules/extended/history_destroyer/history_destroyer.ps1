@@ -242,7 +242,7 @@ function Clear-SearchIndex {
 # (7) Delete kitting-time Wi-Fi profiles (ssid_list.csv)
 # ----------------------------------------
 function Clear-WiFiProfiles {
-    $ssidCsvPath = Join-Path $PSScriptRoot "ssid_list.csv"
+    $ssidCsvPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot "ssid_list.csv")
 
     if (-not (Test-Path $ssidCsvPath)) {
         Show-Skip "ssid_list.csv not found"

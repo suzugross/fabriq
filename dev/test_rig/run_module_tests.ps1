@@ -85,6 +85,8 @@ $remote = {
         $env:SELECTED_KANRI_NO = 'TEST-0001'; $env:FABRIQ_WORKER_NAME = 'ci-harness'
         if ($Scn.envelope.selected) { foreach ($k in $Scn.envelope.selected.Keys) { Set-Item -Path "Env:SELECTED_$k" -Value ([string]$Scn.envelope.selected[$k]) } }
         $env:FABRIQ_SEGMENT = [string]$Scn.envelope.segment; $env:SELECTED_SEGMENT = [string]$Scn.envelope.segment
+        # Profile data overlay context (dev/PROFILE_DATA_OVERLAY_PLAN.md section 15.2). Empty = no context.
+        $env:FABRIQ_PROFILE_DATA_DIR = [string]$Scn.envelope.profileDataDir
 
         # fixtures
         $fixOk = $true; $fixDetail = ''
@@ -109,7 +111,7 @@ $remote = {
         function Invoke-Apply {
             $o = @{ status='(null result)'; verified=$null; message=''; dur=0; via='' }
             if ($ApplyMode -eq 'task') {
-                $req = @{ repoPath=$RepoPath; moduleDirVM=$ModuleDirVM; script=$Scn.script; moduleName=$ModuleName; passphrase=[string]$Scn.envelope.passphrase; selected=$Scn.envelope.selected; segment=[string]$Scn.envelope.segment } | ConvertTo-Json -Compress
+                $req = @{ repoPath=$RepoPath; moduleDirVM=$ModuleDirVM; script=$Scn.script; moduleName=$ModuleName; passphrase=[string]$Scn.envelope.passphrase; selected=$Scn.envelope.selected; segment=[string]$Scn.envelope.segment; profileDataDir=[string]$Scn.envelope.profileDataDir } | ConvertTo-Json -Compress
                 Set-Content 'C:\fabriq_test\rig\request.json' -Value $req -Encoding UTF8
                 Remove-Item 'C:\fabriq_test\rig\result.json' -ErrorAction SilentlyContinue
                 try { Start-ScheduledTask -TaskName 'FabriqRigInteractive' -ErrorAction Stop } catch { $o.status='(no session-b task)'; $o.message=$_.Exception.Message; return $o }

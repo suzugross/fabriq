@@ -363,6 +363,20 @@ function Invoke-BatchExecution {
 
     Clear-ExecutionResults
 
+    # Profile data overlay context (dev/PROFILE_DATA_OVERLAY_PLAN.md). Every
+    # profile execution path (Linear / Flex / resume 2nd leg) passes through
+    # here, so this is the single place the context is derived. Menu-mode
+    # single runs carry no ProfilePath -> no context -> identity mapping.
+    # Cleared in finally so nothing leaks past this batch.
+    $batchDataDir = if ([string]::IsNullOrWhiteSpace($ProfilePath)) { "" } else { Get-FabriqProfileDataDir -ProfilePath $ProfilePath }
+    Set-FabriqProfileDataContext -ProfileDataDir $batchDataDir
+    if ($batchDataDir) {
+        Show-Info "[DATA] Profile data folder: $batchDataDir"
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($ProfilePath)) {
+        Show-Info "[DATA] No profile data folder for this profile (module CSVs in use)"
+    }
+
     # Execution toolbar: signal batch start (enables Skip / Gyotaq
     # buttons; per-module label updates happen inside the foreach
     # loop below).
@@ -779,6 +793,9 @@ function Invoke-BatchExecution {
         # Clear telemetry profile context so it doesn't leak into ad-hoc
         # module runs invoked outside Invoke-BatchExecution.
         $global:_FabriqCurrentProfileContext = $null
+        # Profile data overlay context: batch-scoped, never outlives the batch
+        # (cancel / completion / mid-throw / __RESTART__ early exit alike).
+        Clear-FabriqProfileDataContext
     }
 }
 
@@ -1162,7 +1179,14 @@ function Invoke-WindowsUpdateLoop {
     }
 
     if ($null -eq $wuState) {
-        # Read config from CSV
+        # Read config from CSV.
+        # The WU loop runs from main.ps1 startup, before any profile resume
+        # restores a profile data context, so the config is read from the
+        # module dir. Say so explicitly (no silent fallback); restoring the
+        # context for these legs is Phase 2 of the overlay plan.
+        if ([string]::IsNullOrWhiteSpace($env:FABRIQ_PROFILE_DATA_DIR)) {
+            Show-Info "[DATA] WU loop runs outside a profile data context (module dir windows_update_list.csv in use)"
+        }
         $maxLoops = 5
         $rebootSec = 15
         $autoLogon = $true
@@ -1764,15 +1788,28 @@ if ($isResuming -and -not $isFlexResuming) {
             $resumedProfileStart = Get-Date
         }
 
-        Invoke-BatchExecution -SelectedModules $remainingModules `
-            -AutoPilot:$resumeAutoPilot `
-            -AutoPilotWaitSec $resumeAutoPilotWaitSec `
-            -ProfilePath $resumeState.ProfilePath `
-            -ProfileName $resumeState.ProfileName `
-            -FullProfileModules $validation.ValidModules `
-            -ProfileStartTime $resumedProfileStart
+        # Fail-closed: a profile data folder that was active before the
+        # restart must still exist, otherwise the remaining modules would
+        # silently apply module-dir CSVs. State file is kept for retry.
+        if (Test-FabriqResumeDataDir -ResumeState $resumeState) {
+            Invoke-BatchExecution -SelectedModules $remainingModules `
+                -AutoPilot:$resumeAutoPilot `
+                -AutoPilotWaitSec $resumeAutoPilotWaitSec `
+                -ProfilePath $resumeState.ProfilePath `
+                -ProfileName $resumeState.ProfileName `
+                -FullProfileModules $validation.ValidModules `
+                -ProfileStartTime $resumedProfileStart
 
-        Remove-ResumeState
+            Remove-ResumeState
+        }
+        else {
+            Show-Warning "Remaining modules were NOT executed. Restore the profile data folder and relaunch Fabriq to resume."
+            # Record the abort as an Error so the completion banner, checklist
+            # and history reflect it instead of reporting a clean completion
+            # (same recording pattern as the RunOnce failure in Invoke-BatchExecution).
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder
+            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder
+        }
 
         # Post-profile completion (same logic as [P] handler)
         Write-Host ""
@@ -1861,17 +1898,26 @@ if ($isFlexResuming) {
 
             # 3.1.5: -FinalizeOnComplete:$false. Operator presses [Complete]
             # on the dashboard reopen below.
-            Invoke-BatchExecution -SelectedModules $flexRemaining `
-                -AutoPilot:$true `
-                -AutoPilotWaitSec   $flexResumeWaitSec `
-                -ProfilePath        $resumeState.ProfilePath `
-                -ProfileName        $resumeState.ProfileName `
-                -FullProfileModules $flexResolved.ValidModules `
-                -ProfileStartTime   $flexResumedStart `
-                -FinalizeOnComplete:$false `
-                -ExecutionMode      'Flex' `
-                -SelectedOrders     @($resumeState.SelectedOrders)
-            # Invoke-BatchExecution removes resume_state on natural completion.
+            # Fail-closed guard for the profile data folder (see Linear path).
+            if (Test-FabriqResumeDataDir -ResumeState $resumeState) {
+                Invoke-BatchExecution -SelectedModules $flexRemaining `
+                    -AutoPilot:$true `
+                    -AutoPilotWaitSec   $flexResumeWaitSec `
+                    -ProfilePath        $resumeState.ProfilePath `
+                    -ProfileName        $resumeState.ProfileName `
+                    -FullProfileModules $flexResolved.ValidModules `
+                    -ProfileStartTime   $flexResumedStart `
+                    -FinalizeOnComplete:$false `
+                    -ExecutionMode      'Flex' `
+                    -SelectedOrders     @($resumeState.SelectedOrders)
+                # Invoke-BatchExecution removes resume_state on natural completion.
+            }
+            else {
+                Show-Warning "Remaining modules were NOT executed. Restore the profile data folder and relaunch Fabriq to resume (dashboard reopens below)."
+                # Record the abort as an Error (see the Linear path above).
+                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder
+            }
 
             # Operator returns to a dashboard already flagged for finalize
             $flexInitialPending = $true

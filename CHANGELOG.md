@@ -16,6 +16,30 @@
 ## [Unreleased]
 
 ### Added
+- kernel/common.ps1 + kernel/main.ps1: **プロファイル別データオーバーレイ Phase 1**
+  (dev/PROFILE_DATA_OVERLAY_PLAN.md / TM t-0095)。プロファイル `profiles/<name>.csv` に併設した
+  `profiles/<name>/modules/<module>/<csv>` を、プロファイル実行中はモジュール本体 CSV より優先して
+  読む。公開 API `Resolve-ModuleDataPath`(§1.2)と環境変数 `FABRIQ_PROFILE_DATA_DIR`(§3.2)を
+  追加し、`Import-ModuleCsv` の読込前に解決を適用(88 ファイル/100 呼出をモジュール無改修で吸収)。
+  Profile-First 原則: 本体 CSV へのフォールバックは非推奨の救済措置として毎回 Show-Warning で
+  可視化(1 バッチ 1 ファイル 1 回)、PROFILE 採用も Show-Info で採用元を表示。コンテキストは
+  `Invoke-BatchExecution` に閉じ(Linear / Flex / resume 二段目を単一点でカバー、finally で必ず
+  解除)、無ければ恒等写像で**従来動作と完全同一**(後方互換)。resume_state.json に
+  `ProfileDataDir` を追加し、再起動後にフォルダが消えていれば残モジュールを実行せず停止
+  (fail-closed、state 温存。abort は `[RESTART]` の Error 結果として履歴に記録され、完了バナーは
+  `Completed with Errors` 側になる)。WU 再起動ループはメニュー起動のみのためコンテキスト外で
+  動く旨を明示表示(復元不要と確認済み)。
+  `Reset-FabriqState` の env クリア対象に追加。kernel MINOR 相当(3.7.0 節に追記、実昇格はリリース時)。
+  新規 tests/kernel/ProfileDataOverlay.tests.ps1 18 ケース + ResumeState 1 + Invoke-BatchExecution 5。
+  VM リグ(dev/test_rig)の envelope に `profileDataDir` を追加し、test_harness_config/test.psd1 の
+  overlay-profile / overlay-fallback シナリオで実 VM 上の解決・フォールバック・後方互換を検証済み(3/3 PASS)。
+- profiles: 手動 E2E 用フィクスチャ `_test_overlay.csv`(`__RESTART__` 跨ぎ)と併設データフォルダ
+  `_test_overlay/modules/test_harness_config/test_harness_list.csv` を追加(計画書 §15.3 の手順で使用)。
+- modules (8 件・13 箇所): CSV の `Test-Path` 前置きを `Resolve-ModuleDataPath` 経由に変更し、
+  「本体に無く PDF にある」構成での無言スキップを防止。firewall_config 1.1.0 / firewall_rule_config
+  1.1.0 / local_user_config 1.2.0 / office_license_config 1.2.0 / printer_delete 1.1.0 /
+  printer_driver_config 1.2.0 / windows_license_config 1.2.0 / history_destroyer 1.3.0
+  (各 MINOR、REQUIRES_KERNEL 3.7.0)。
 - modules/standard/gpo_config: **ローカルグループポリシー設定モジュール**を新設 (v0.1.0)。
   `gpo_list*.csv`（Scope / KeyPath / ValueName / Action=Set|Delete|DeleteAllValues|CreateKey|Unmanage /
   Type / Value / PolicyRef）を `%SystemRoot%\System32\GroupPolicy\{Machine,User}\Registry.pol` へ

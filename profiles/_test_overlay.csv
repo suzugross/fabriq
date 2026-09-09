@@ -1,0 +1,7 @@
+﻿Order,ScriptPath,Enabled,Description,Segment,ErrorMode
+10,__AUTOPILOT__,1,WaitSec=1,,
+20,standard/test_harness_config/test_harness_config.ps1,1,Overlay check A (before restart),,
+30,standard/test_harness_config/test_harness_config.ps1,1,Overlay check B (before restart),,
+40,__RESTART__,1,Restart - resume must re-derive the profile data folder,,
+50,standard/test_harness_config/test_harness_config.ps1,1,Overlay check C (after restart),,
+60,standard/test_harness_config/test_harness_config.ps1,1,Overlay check D (after restart),,
