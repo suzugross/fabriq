@@ -69,6 +69,17 @@
   ため自動追随し、カーネルのガード変更は不要だった。新規テスト 9 ケース、run_tests 464/464 PASS。
 
 ### Fixed
+- kernel/common.ps1: **スクリーンショットの見切れを修正**。`Capture-ScreenEvidence` /
+  `Save-Screenshot` の撮影矩形を `Screen.PrimaryScreen.Bounds` から、キャッシュされない Win32
+  `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)`(新ヘルパ `Get-PhysicalScreenBounds`・内部関数)に変更。
+  WinForms の `Screen` はモニタ情報をプロセス静的にキャッシュし、**CenterScreen のフォームを 1 枚
+  表示するだけ**で埋まる。operator GUI はモジュール実行前に出るため、キャッシュは DPI 非対応の
+  論理サイズ(125% 環境で 1536x864)で固定され、その後 `Capture-ScreenEvidence` が
+  `SetProcessDPIAware` でプロセスを aware 化しても古い値を返し続けていた。結果、実デスクトップ
+  1920x1080 に対して 1536x864 のビットマップで左上だけを切り取っていた(退行は operator GUI 導入時
+  = 6c38910・2026-03-31 から。125%/150% 環境のみ発現)。取得は現在の DPI モードに追随するため、
+  `Save-Screenshot` は従来どおり DPI モードを変えないまま全画面を撮る。実機 125% で
+  1920x1080 の全画面 PNG を確認、run_tests 464/464 PASS。
 - kernel/common.ps1: `Import-ModuleCsv` の csv.load テレメトリ `resolvedFrom` が、呼出側から**すでに
   PDF 側のパス**を渡された場合に `module` と誤記録されていた(判定が「`Resolve-ModuleDataPath` でパスが
   変化したか」だったため)。判定を「最終パスが PDF 配下か」に是正。Phase 1 の全経路では結果は同値で、

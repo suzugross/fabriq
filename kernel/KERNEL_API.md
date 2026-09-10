@@ -207,6 +207,7 @@ return (New-BatchResult -Success 3 -Skip 1 -Fail 0 -Title "Foo Results" -Verifie
 - `Write-StatusFile` / `Remove-StatusFile`
 - `Show-ExecutionToolbar` / `Hide-ExecutionToolbar` / `Update-ExecutionToolbar` **(since 3.4.0)**: in-process 浮遊ツールバー (Skip / Gyotaq) のライフサイクル。実装は `apps/fabriq_operator/lib/execution_toolbar.ps1` の dedicated STA Runspace。kernel/main.ps1 が batch / 各モジュール開始 / 完了 / __RESTART__ / exit でこれらを呼ぶ。
 - `Save-Screenshot` (since 3.4.0、公開化なし): 任意タイミングで `evidence/gyotaku/` に PNG 保存。Execution Toolbar の `[Gyotaq]` ボタンが呼ぶ。
+- `Get-PhysicalScreenBounds`（撮影矩形の取得。Win32 `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)` を毎回読むため現在の DPI モードに追随する。WinForms の `Screen` はモニタ情報をプロセス静的にキャッシュし、CenterScreen フォームの表示だけで DPI 非対応時の論理サイズが固定される — `SetProcessDPIAware` 後もその値を返し続けキャプチャが左上に切れるため、`Capture-ScreenEvidence` / `Save-Screenshot` は `Screen.Bounds` を使わない）
 - `Protect-PassphraseForResume` / `Unprotect-PassphraseFromResume`
 - `Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`（秘密値レジストリ。`Import-ModuleCsv` の ENC: 復号値・マスターパスフレーズ・PIN を自動登録し、`Show-*` / telemetry / 実行履歴の 3 sink で `***` マスク。モジュールからの直接呼び出しは不要 — 透過動作）
 - `Test-MasterPassphrase` / `Add-ExecutionResult` / `Clear-ExecutionResults` / `Show-ExecutionSummary`

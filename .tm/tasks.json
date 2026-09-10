@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-09-09T14:40:00+09:00",
+  "updatedAt": "2026-09-10T15:40:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -893,6 +893,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-09-09T14:10:00+09:00",
       "updatedAt": "2026-09-09T14:10:00+09:00"
+    },
+    {
+      "id": "t-0101",
+      "title": "スクリーンショット見切れの修正 — WinForms Screen 静的キャッシュ由来 (kernel)",
+      "content": "125%/150% スケーリング環境で evidence の auto_capture / gyotaku PNG が右下で見切れる問題。原因は DPI そのものではなく WinForms の System.Windows.Forms.Screen がモニタ情報をプロセス静的にキャッシュすること。CenterScreen フォームを 1 枚表示するだけでキャッシュが埋まり、operator GUI はモジュール実行前に出るため DPI 非対応時の論理サイズ (1536x864) で固定される。その後 Capture-ScreenEvidence が SetProcessDPIAware でプロセスを aware 化しても Screen は古い値を返し続け、実デスクトップ 1920x1080 に対し 1536x864 のビットマップで左上だけを切り取っていた。退行点は operator GUI 導入 (6c38910 / 2026-03-31)。2026-07-21 の DPI 案 B (New-UiFont / ClientSize) は無関係。",
+      "claudeNote": "調査 (2026-09-10): 開発機 125% で完全再現。(1) Screen 汚染あり → flip 後も Screen.Bounds=1536x864 / GetSystemMetrics=1920x1080、(2) 汚染なし → flip 後 Screen.Bounds=1920x1080、(3) CenterScreen フォームを表示するだけで汚染されることを実測。\n設計ゲート軽量版で承認取得 (新規状態なし / 撮影契約・保存先・ファイル名不変 / 100% 環境ではピクセル同値)。\n実装: kernel/common.ps1 に内部ヘルパ Get-PhysicalScreenBounds を新設 (Win32 GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN) を毎回読む・失敗時は従来の Screen.Bounds へフォールバック)、Capture-ScreenEvidence と Save-Screenshot の矩形取得を差し替え。プライマリ原点は定義上 (0,0) なので CopyFromScreen のソース点は不変。Save-Screenshot は従来どおり DPI モードを変えない (現在のフェーズに追随して全画面を撮る)。公開 API 不変 → KERNEL_VERSION は据置、KERNEL_API.md §6 (内部実装) に追記のみ。\n検証: 汚染状態を再現したうえで Capture-ScreenEvidence を実行 → PNG 1920x1080、右端 100px 帯に 43 色・最下行にタスクバー色を確認 (旧実装なら欠落する領域)。run_tests 464/464 PASS、check_ps1_encoding / check_version とも exit 0。\n未実施: 150% 実機での目視スモーク、副次の manual_kitting_assistant の右下配置ずれ (同じ古い WorkingArea 由来・見た目のみ / ユーザー判断でカーネル側のみに限定)。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-09-10T15:40:00+09:00",
+      "updatedAt": "2026-09-10T15:40:00+09:00"
     }
   ]
 }

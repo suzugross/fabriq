@@ -44,6 +44,7 @@
 #   Function: Build Menu by Category
 #   Module System Initialization
 #   RunOnce Registration & Countdown
+#   Function: Get Physical Screen Bounds
 #   Function: Capture Screen Evidence
 #   Function: Save Screenshot (Manual)
 # ----------------------------------------
@@ -5198,6 +5199,50 @@ function Invoke-AutoResumeCountdown {
 }
 
 # ========================================
+# Function: Get Physical Screen Bounds
+# ========================================
+# Returns the primary screen rectangle as the CURRENT process DPI
+# mode sees it, read live from Win32 (never cached).
+#
+# Why not [System.Windows.Forms.Screen]::PrimaryScreen.Bounds:
+# WinForms caches monitor geometry in a process-static array the
+# first time any Screen member is touched - and merely SHOWING a
+# CenterScreen form touches it. fabriq shows operator GUI forms
+# before the first module runs, so that cache is filled while the
+# process is still DPI-UNAWARE (e.g. 1536x864 on a 125% display).
+# Capture-ScreenEvidence then flips the process to DPI-aware, but
+# Screen keeps handing back the stale logical size, so the bitmap
+# is smaller than the real desktop (1920x1080) and the capture is
+# cropped to its top-left corner - the "cut off screenshot" bug.
+# GetSystemMetrics is not cached and always reports what the
+# current DPI mode sees, so it is correct in both phases.
+# The primary monitor's origin is (0,0) by definition, so the
+# CopyFromScreen source point stays Point(0,0).
+# Falls back to the WinForms value if the P/Invoke is unavailable.
+# ========================================
+function Get-PhysicalScreenBounds {
+    try {
+        Add-Type -TypeDefinition @"
+            using System.Runtime.InteropServices;
+            public class FabriqScreenMetrics {
+                [DllImport("user32.dll")]
+                public static extern int GetSystemMetrics(int nIndex);
+            }
+"@ -ErrorAction SilentlyContinue
+
+        $width  = [FabriqScreenMetrics]::GetSystemMetrics(0)  # SM_CXSCREEN
+        $height = [FabriqScreenMetrics]::GetSystemMetrics(1)  # SM_CYSCREEN
+        if ($width -gt 0 -and $height -gt 0) {
+            return (New-Object System.Drawing.Rectangle(0, 0, $width, $height))
+        }
+    }
+    catch { }
+
+    # Fallback: WinForms value (may be stale after a DPI-mode flip)
+    return [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+}
+
+# ========================================
 # Function: Capture Screen Evidence
 # ========================================
 # Captures a screenshot of the primary screen
@@ -5250,9 +5295,9 @@ function Capture-ScreenEvidence {
         $fileName = "${timestamp}_${safeName}${statusSuffix}_${pcName}.png"
         $filePath = Join-Path $saveDir $fileName
 
-        # Capture primary screen
-        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-        $bounds = $screen.Bounds
+        # Capture primary screen (live Win32 bounds - see
+        # Get-PhysicalScreenBounds for why Screen.Bounds is unusable here)
+        $bounds = Get-PhysicalScreenBounds
         $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
@@ -5277,9 +5322,14 @@ function Capture-ScreenEvidence {
 #
 # NOTE: Does NOT call SetProcessDPIAware(). That call
 # irreversibly changes the process DPI mode, which shrinks
-# WinForms windows in scaled displays. The caller (e.g.
-# Status Monitor) is a GUI process, so DPI changes are
-# destructive. Screenshots are captured at logical resolution.
+# WinForms windows in scaled displays. The caller (e.g. the
+# Execution Toolbar) is in-process with the GUI, so flipping
+# DPI here would be destructive. The capture therefore follows
+# whichever DPI mode the process is already in: logical
+# resolution before the first module runs, physical resolution
+# afterwards (Capture-ScreenEvidence has flipped it by then).
+# Either way the frame is the FULL screen - see
+# Get-PhysicalScreenBounds.
 #
 # Returns: file path on success, $null on failure.
 # ========================================
@@ -5316,9 +5366,10 @@ function Save-Screenshot {
         $fileName = "${timestamp}_${pcName}.png"
         $filePath = Join-Path $saveDir $fileName
 
-        # Capture primary screen
-        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-        $bounds = $screen.Bounds
+        # Capture primary screen. Live Win32 bounds, so this stays correct
+        # in both DPI phases: logical full-screen while the process is still
+        # unaware, physical full-screen once a module has flipped it aware.
+        $bounds = Get-PhysicalScreenBounds
         $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
