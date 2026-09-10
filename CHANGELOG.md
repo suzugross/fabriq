@@ -209,6 +209,23 @@
   復号された CSV 秘密値を知らない(パスフレーズ/PIN は親でも登録済みで常時マスク)。
   Write-Host 直書きの preview 表示は対象外(§2 の Show-* 必須規律で担保)。
   新規テスト 13 本(tests/kernel/SecretRegistry.tests.ps1、368→381 全 green)。
+- modules/extended/history_destroyer: **自動ログオン情報の消去を追加**(destroy_list.csv に
+  `AutoLogon` グループ 6 行、`.ps1` は無変更)。`autologon_config` が HKLM Winlogon に書く
+  `DefaultPassword` は**平文**で、Windows の自動クリーンアップ(AutoLogonCount が 0 に達した時点で
+  AutoAdminLogon / DefaultPassword を削除)は**再起動回数が予定より少なくカウントが余ると発火しない**。
+  加えて kernel の `Clear-WindowsUpdateAutoLogon` は Windows Update ループ経路でしか呼ばれず、
+  `DefaultUserName` / `DefaultDomainName` も削除しないため、納品機にキッティング用アカウントの
+  パスワードが残り得る系統的な取りこぼしがあった。追加行は `AutoAdminLogon` を "0" に設定し、
+  `DefaultUserName` / `DefaultPassword` / `DefaultDomainName` / `AutoLogonCount` を値名指定で削除する
+  (ユーザー提示の 4 コマンドに `DefaultDomainName` を追加。`ClearRegistry` は Winlogon の
+  `Shell` / `Userinit` まで消して OS を起動不能にするため使用禁止 — Guide.txt に明記)。
+  最終行 `AutoLogonResidue` は削除後の読み返し検証で、`DefaultPassword` / `AutoLogonCount` の残存または
+  `AutoAdminLogon` = "1" を検出すると throw して当該行を Fail に落とす(fail-closed。`Command` は
+  `ErrorActionPreference = Stop` 下で実行されるため、コード改修なしで Post-Apply Verification 相当が成立)。
+  配置制約: 本モジュールより後ろに `__RESTART__` を置かないこと(kernel は `__RESTART__` で自動ログオンを
+  張り直さず `autologon_config` の撒いた `AutoLogonCount` に依存するため)。同梱の sysprep.csv /
+  Master_Config04.csv はいずれも終端付近に配置済みで制約を満たす。history_destroyer 1.3.0 → 1.4.0
+  (MINOR / `REQUIRES_KERNEL` 3.7.0 据置 — 新規の公開 API 依存なし)。
 
 ## [3.6.2] - 2026-07-02
 

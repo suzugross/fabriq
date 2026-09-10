@@ -23,7 +23,11 @@ Windowsの各種履歴・キャッシュ・一時ファイルを一括削除し�
                                    （ワイルドカード指定対応）
                   ClearRegistry  : TargetPath のレジストリキーの値を全削除
                   Command        : TargetPath に書かれた PowerShell 文を
-                                   Invoke-Expression で実行
+                                   ScriptBlock として実行
+                                   （ErrorActionPreference = Stop で実行するため
+                                   コマンドのエラーはその行の Fail になる。
+                                   ベストエフォートにしたい行は行内で
+                                   -ErrorAction SilentlyContinue を指定する）
                   Special        : 専用ハンドラ（TargetPath がハンドラ名）
                                    例: clear-all-eventlogs / recycle-bin /
                                    office-mru / edge-cleanup / chrome-cleanup /
@@ -46,7 +50,7 @@ Windowsの各種履歴・キャッシュ・一時ファイルを一括削除し�
   1,KittingNet-01,キッティング専用AP
   1,Setup-WiFi-Temp,セットアップ用一時SSID
 
-■ 削除される内容（13ステップ）
+■ 削除される内容（14ステップ）
   1. Explorer プロセスの停止
   2. エクスプローラー履歴（最近使ったファイル、ジャンプリスト、各種MRU）
   3. イベントビューアーログ
@@ -60,6 +64,41 @@ Windowsの各種履歴・キャッシュ・一時ファイルを一括削除し�
   11. Windows Search インデックス
   12. サムネイル/アイコンキャッシュ
   13. キッティング用Wi-Fiプロファイル（ssid_list.csv で指定）
+  14. 自動ログオン設定（Winlogon の AutoAdminLogon / DefaultUserName /
+      DefaultPassword / DefaultDomainName / AutoLogonCount）
+
+■ 自動ログオン設定の消去（AutoLogon グループ）
+autologon_config が HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+に書き込む自動ログオン情報を納品前に消去します。DefaultPassword は平文で
+保存されるため、拭き残すとキッティング用アカウントのパスワードがそのまま
+納品先に渡ります。
+
+Windows は AutoLogonCount が 0 になった時点で AutoAdminLogon /
+DefaultPassword を自動削除しますが、実際の再起動回数が予定より少なく
+カウントが余った場合などは残存します。また kernel の
+Clear-WindowsUpdateAutoLogon は Windows Update ループ経路でしか呼ばれず、
+DefaultUserName / DefaultDomainName も削除しません。本グループはその
+取りこぼしを拭う位置づけです。
+
+【重要】プロファイル上の配置制約
+  本モジュールより後ろに __RESTART__ を置かないこと。
+  kernel は __RESTART__ 時に自動ログオンを張り直さず、autologon_config が
+  事前に設定した AutoLogonCount に依存して再開します。ここで消去すると
+  再起動後に自動ログオンしなくなります（RunOnce は登録済みなので、
+  手動でログオンすればプロファイルの再開自体は行われます）。
+  同梱プロファイルでは sysprep.csv / Master_Config04.csv とも本モジュールを
+  終端付近に配置しており、この制約を満たしています。
+
+【重要】ClearRegistry を Winlogon に使わないこと
+  ClearRegistry はキー配下の値を全削除するため、Shell / Userinit が消えて
+  OS が起動不能になります。必ず ActionType=Command で値名を指定して
+  1 値ずつ消すこと。
+
+  AutoLogon グループ最終行 AutoLogonResidue は削除後の読み返し検証です。
+  DefaultPassword / AutoLogonCount が残っている、または AutoAdminLogon が
+  "1" のままの場合に throw して当該行を Fail に落とします（fail-closed）。
+  権限不足などで削除が黙って失敗した場合に Success と誤報しないための行なので、
+  AutoLogon グループを使う場合はこの行も一緒に有効にしてください。
 
 ■ 動作の流れ
 1. 実行確認（Y/N）
@@ -76,3 +115,7 @@ AutoPilot モードでは確認をスキップして CSV の設定を自動適�
 false FAIL を引き起こすリスクが高いため意図的に非対応としています。
 New-BatchResult に -Verified を渡していないため、実行履歴の Verified 列は
 空欄になります。
+
+ただし AutoLogon グループのみ、CSV 行レベルで読み返し検証を行います
+（AutoLogonResidue 行）。残存を検出すると throw され、その行が Fail として
+集計されるため、モジュール全体の結果も Fail 側に倒れます。
