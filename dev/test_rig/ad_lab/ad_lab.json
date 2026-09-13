@@ -1,0 +1,89 @@
+{
+  "_comment": "Fabriq AD lab definition. LAB ONLY - passwords are clear text on purpose. OU paths may be written relative to the domain root; the script appends the DC= components.",
+  "domain": {
+    "fqdn": "lab.fabriq.local",
+    "netbios": "LABFABRIQ",
+    "dsrmPassword": "LabP@ssw0rd!",
+    "forestMode": "WinThreshold",
+    "domainMode": "WinThreshold"
+  },
+  "network": {
+    "ip": "10.1.10.20",
+    "prefixLength": 27,
+    "gateway": "10.1.10.30",
+    "dnsForwarder": "8.8.8.8"
+  },
+  "ous": [
+    "OU=PC",
+    "OU=Kitting,OU=PC",
+    "OU=NoDelegation",
+    "OU=Sales\\,EMEA",
+    "OU=SameLenTest13"
+  ],
+  "users": [
+    {
+      "name": "svc_join_ok",
+      "password": "LabP@ssw0rd!",
+      "description": "Delegated on OU=Kitting - the happy path join account",
+      "groups": []
+    },
+    {
+      "name": "svc_join_plain",
+      "password": "LabP@ssw0rd!",
+      "description": "No delegation - used to prove that an OU join needs one",
+      "groups": []
+    },
+    {
+      "name": "svc_creator",
+      "password": "LabP@ssw0rd!",
+      "description": "Owns pre-created computer objects (account re-use tests)",
+      "groups": []
+    }
+  ],
+  "delegations": [
+    {
+      "ou": "OU=Kitting,OU=PC",
+      "user": "svc_join_ok",
+      "right": "CreateComputer"
+    },
+    {
+      "ou": "OU=Sales\\,EMEA",
+      "user": "svc_join_ok",
+      "right": "CreateComputer"
+    },
+    {
+      "ou": "OU=Kitting,OU=PC",
+      "user": "svc_creator",
+      "right": "CreateComputer"
+    },
+    {
+      "ou": "OU=NoDelegation",
+      "user": "svc_join_ok",
+      "right": "FullJoin"
+    },
+    {
+      "ou": "OU=SameLenTest13",
+      "user": "svc_join_ok",
+      "right": "FullJoin"
+    }
+  ],
+  "computers": [
+    {
+      "name": "PRESTAGED-01",
+      "ou": "OU=Kitting,OU=PC",
+      "createdBy": "svc_creator"
+    },
+    {
+      "name": "AD16-STALE",
+      "ou": "OU=NoDelegation"
+    },
+    {
+      "name": "AD17-SAMELEN",
+      "ou": "OU=SameLenTest13"
+    }
+  ],
+  "settings": {
+    "machineAccountQuota": 10,
+    "domainAdmins": []
+  }
+}
