@@ -67,6 +67,48 @@
   driver_config 1.3.0 / default_app_config 1.2.0(各 MINOR、`REQUIRES_KERNEL` 3.7.0)。
   既存の再帰削除ガード 2 箇所(acl_backup / driver_export)は解決後ベースへの containment 判定の
   ため自動追随し、カーネルのガード変更は不要だった。新規テスト 9 ケース、run_tests 464/464 PASS。
+- modules/standard/domain_join 2.1.0 → **2.2.0** (MINOR): **参加先 OU の指定に対応**。
+  `domain.csv` に**任意列 `ou`** を追加し、値があれば `Add-Computer -OUPath <DN>` へ渡す
+  (未指定・列自体が無い旧 CSV は従来どおりドメイン既定コンテナ = パラメータ自体を渡さない)。
+  `-OUPath` は WMI `Win32_ComputerSystem.JoinDomainOrWorkgroup` の `AccountOU` → `NetJoinDomain`
+  の `lpMachineAccountOU` に届く。あわせて (1) **DN 形式の事前検証** — フル DN でない/`DC=` 成分が
+  無い値は `Add-Computer` を呼ぶ前に Error(CSV で DN をダブルクォートし忘れてカンマで切れた値を
+  水際で止める。エスケープ済みカンマ `OU=Sales\,EMEA` は許容 — 実 AD で参加成功を確認済み)、
+  **先頭 RDN が `OU=` でない値(`CN=Computers` 等のコンテナ)も同様に事前 Error**
+  (参加 API が `Specified path '<dn>' is not an OU` として status `0x2` で必ず失敗することを
+  Windows Server 2025 + Windows 11 で実測。ネットワーク往復を払う前に止める)、
+  (2) **適用前プレビュー表示**(computer/domain/account/dns/ou、
+  パスワードは非表示)、(3) **失敗時の診断ブロック** — 固定チェックリスト(OU の存在 / 作成権限の
+  2 経路と `ms-DS-MachineAccountQuota` 枯渇 / 既存アカウントの再利用ブロック KB5020276 / 資格情報と
+  DC 到達性)と `C:\Windows\Debug\netsetup.log` の `NetpDoDomainJoin: status: 0x...` を表示。
+  **エラー本文の文字列照合は行わない** — `Add-Computer` の例外末尾は Win32 由来で日本語版 Windows
+  では日本語化されるため、英語部分文字列マッチは本番で必ず外れる。代わりに言語非依存な
+  netsetup.log の status コード(**0x2**/0x8b0/0xaac/0x5/0x525/0x534/0x54b/0x6ba/0x2030)を解釈する
+  (`0x2` = OU 不在 / 非 OU。実測で判明した本命コードで、当初予想した `ERROR_DS_*` 系ではない)。
+  OU 検証は冪等性チェックの**後**に置き、`ou` にタイプミスがあっても参加済み機は Skip のまま。
+  (4) **OU 配置は検証しない**ことを実測で確定し、その理由を Guide に明記。当初は LDAP で
+  `distinguishedName` を読み返す Post-Apply Verification を実装したが、実 AD で測ったところ
+  **参加 API 自身が OU を検証しており、食い違えば必ず失敗する**ことが判明したため撤去した
+  (`NetpGetComputerObjectDn` が要求 DN と実在 DN を突き合わせる。DN 長で先に比較し、長さが
+  一致する場合は文字列で比較 — 同長 OU を作って**両経路とも実測**。不一致は status `0x8b0`)。
+  「参加成功なのに別 OU に居る」という結末が存在しないため、読み返しても答えは常に「一致」に
+  なる。**落ちない検証は検証ではない**ので、そのために LDAP 依存を増やさない判断。
+  成功時は `[INFO] Requested OU: ...(enforced by the join API, not re-read here)` と情報表示。
+  (5) **失敗時診断の強化** — 上記の裏返しで、OU に関する問題は必ず「参加の失敗」として現れる
+  ため、投資先を検証から診断へ移した。`0x8b0` は Windows のメッセージが「アカウントは既に
+  存在します」としか言わず**真因 (OU 不一致) も対処も分からない**ので、`ou` 指定時は
+  「要求 OU と実在 OU が違う」ことと対処 3 通り (旧オブジェクト削除 / `ou` を実在 OU に合わせる /
+  `ou` を空欄にする) を明示する。あわせて再キッティングのチェックリストに**関門 0 = OU 一致**を追加
+  (従来の KB5020276 ポリシー・ACL の 2 関門より手前で弾かれる)。
+  (6) **保留中の改名を検出して改名後の名前で参加**(`-Options AccountCreate,JoinWithNewName`)。
+  `hostname_config` の `Rename-Computer` は再起動まで保留されるため、間に `__RESTART__` を挟まない
+  プロファイルでは AD に**旧名**でオブジェクトが作られ、再起動後にマシン名とアカウント名が食い違って
+  納品前から信頼関係が壊れる。`ComputerName` と `ActiveComputerName` の差で検出し、差があるときだけ
+  自動適用する(`__RESTART__` を正しく挟んだ既存プロファイルはこの分岐に入らない = 後方互換)。
+  `-Options` は**既定値 `AccountCreate` を置換する**ため両フラグをセットで渡す必要がある(実測)。
+  確認ダイアログは追加していない(既存の操作フロー・AutoPilot 分岐は不変)。`REQUIRES_KERNEL` 据置。
+  新規テスト 8 ケース(tests/modules/domain_join/DomainJoinLogic.tests.ps1 — 出荷モジュールに
+  `-LoadOnly` を足さず AST で関数定義だけ抽出して評価する方式)、run_tests 488/488 PASS。
 
 ### Fixed
 - kernel/common.ps1: **スクリーンショットの見切れを修正**。`Capture-ScreenEvidence` /

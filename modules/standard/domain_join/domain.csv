@@ -1,2 +1,3 @@
-Enabled,domain,user,pass,dns,Description,Segment
-1,town.twinpeaks.blacklodge.local,Administrator,P@ssword123,192.168.1.1,,
+Enabled,domain,user,pass,dns,ou,Description,Segment
+1,town.twinpeaks.blacklodge.local,Administrator,P@ssword123,192.168.1.1,,,
+0,town.twinpeaks.blacklodge.local,Administrator,P@ssword123,192.168.1.1,"OU=Kitting,OU=PC,DC=town,DC=twinpeaks,DC=blacklodge,DC=local",Example with OU specified,
