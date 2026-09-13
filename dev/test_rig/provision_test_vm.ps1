@@ -42,7 +42,14 @@ try {
         Set-ItemProperty $wl AutoAdminLogon '1'
         Set-ItemProperty $wl DefaultUserName $u
         Set-ItemProperty $wl DefaultPassword $p
-        Set-ItemProperty $wl DefaultDomainName $env:COMPUTERNAME
+        # DefaultDomainName is deliberately REMOVED, not set to the current
+        # computer name: baking the name in breaks autologon the moment a test
+        # renames the VM (hostname_config, a domain-join case, ...), and a
+        # locked-out rig with an unknown password is a painful way to find out.
+        # With the value absent, Winlogon falls back to whatever the machine is
+        # called at that boot. autologon_config does the same thing for the same
+        # reason (modules/standard/autologon_config/autologon_config.ps1).
+        Remove-ItemProperty $wl -Name DefaultDomainName -Force -ErrorAction SilentlyContinue
 
         # 3) on-demand scheduled task that runs the runner in the interactive desktop session (session-b)
         $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\fabriq_test\rig\_rig_interactive_runner.ps1'
