@@ -105,17 +105,46 @@ Describe 'Read-LabConfig' {
 
 Describe 'Get-PendingRebootReason' {
     # The promotion prerequisite check refuses to run while a reboot is pending,
-    # so this probe decides whether phase 1 reboots before promoting. It only
-    # reads the registry, so it is safe to exercise on any machine.
-    It 'returns a list without throwing' {
-        { Get-PendingRebootReason } | Should -Not -Throw
-        @(Get-PendingRebootReason) | Should -BeOfType [string] -Because 'reasons are printed one per line'
+    # so this probe decides whether phase 1 reboots before promoting.
+    #
+    # The registry is MOCKED on purpose. An earlier version asserted against the
+    # real registry and passed on the dev machine only because that machine
+    # happened to have a pending file rename; on a clean CI runner the list was
+    # empty, an empty array piped into Should arrives as $null, and the type
+    # assertion failed. Both states are now pinned explicitly.
+
+    It 'returns an empty list when nothing is pending' {
+        Mock Test-Path { $false }
+        Mock Get-ItemProperty { $null }
+
+        $reasons = @(Get-PendingRebootReason)
+        $reasons.Count | Should -Be 0
     }
 
-    It 'reports every reason as a non-empty description' {
-        foreach ($r in @(Get-PendingRebootReason)) {
+    It 'reports every pending source as a non-empty string' {
+        Mock Test-Path { $true }
+        Mock Get-ItemProperty -ParameterFilter { $Name -eq 'PendingFileRenameOperations' } {
+            [pscustomobject]@{ PendingFileRenameOperations = @('\??\C:\stale.tmp') }
+        }
+        Mock Get-ItemProperty -ParameterFilter { $Path -like '*\ActiveComputerName' } {
+            [pscustomobject]@{ ComputerName = 'OLD-NAME' }
+        }
+        Mock Get-ItemProperty -ParameterFilter { $Path -like '*\ComputerName\ComputerName' } {
+            [pscustomobject]@{ ComputerName = 'NEW-NAME' }
+        }
+
+        $reasons = @(Get-PendingRebootReason)
+        # 3 registry flags + pending file renames + a staged computer rename
+        $reasons.Count | Should -Be 5
+        foreach ($r in $reasons) {
+            $r | Should -BeOfType [string]
             [string]::IsNullOrWhiteSpace($r) | Should -BeFalse
         }
+        ($reasons -join "`n") | Should -Match 'OLD-NAME -> NEW-NAME'
+    }
+
+    It 'does not throw against the real registry of whatever machine runs it' {
+        { Get-PendingRebootReason } | Should -Not -Throw
     }
 }
 
