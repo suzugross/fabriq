@@ -147,6 +147,50 @@ Describe 'Registration chokepoints' {
         (Get-FabriqMaskedText -Text 'x CsvSecret42! y') | Should -Be 'x *** y'
     }
 
+    It 'Import-ModuleCsv decrypts + registers from inside a module script (no false warning)' {
+        # Modules run as their own script (& module.ps1), which is a new
+        # script scope. The registry must not resolve per script scope, or
+        # Register-FabriqSecret throws AFTER the value was decrypted and the
+        # catch in Import-ModuleCsv prints a false "Failed to decrypt" warning
+        # while masking silently stays off.
+        $global:FabriqMasterPassphrase = 'rig-master-key'
+        $enc = Protect-TestValue -PlainText 'ModuleSecret77!' -Passphrase 'rig-master-key'
+        $csvPath = Join-Path $TestDrive 'module_secret_list.csv'
+        @(
+            '"Enabled","Name","Password"'
+            "`"1`",`"row1`",`"$enc`""
+        ) | Set-Content -Path $csvPath -Encoding Ascii
+
+        $childPath = Join-Path $TestDrive 'child_module.ps1'
+        @(
+            'param($CsvPath)'
+            '$items = Import-ModuleCsv -Path $CsvPath -FilterEnabled'
+            '[PSCustomObject]@{'
+            '    Password = $items[0].Password'
+            '    Masked   = (Get-FabriqMaskedText -Text "x ModuleSecret77! y")'
+            '}'
+        ) | Set-Content -Path $childPath -Encoding Ascii
+
+        Mock Show-Warning { }
+        $out = & $childPath -CsvPath $csvPath
+        $out.Password | Should -Be 'ModuleSecret77!'
+        $out.Masked   | Should -Be 'x *** y'
+        Should -Invoke Show-Warning -Times 0 -Exactly
+        # Registered in the shared registry, not a module-local copy
+        (Get-FabriqMaskedText -Text 'x ModuleSecret77! y') | Should -Be 'x *** y'
+    }
+
+    It 'Register-FabriqSecret does not throw when called from a module script' {
+        $childPath = Join-Path $TestDrive 'child_register.ps1'
+        @(
+            'Register-FabriqSecret -Value "ChildSecret55"'
+            'Get-FabriqMaskedText -Text "v=ChildSecret55"'
+        ) | Set-Content -Path $childPath -Encoding Ascii
+
+        { & $childPath } | Should -Not -Throw
+        (& $childPath) | Should -Be 'v=***'
+    }
+
     It 'Test-MasterPassphrase registers the passphrase on success only' {
         $token = Protect-TestValue -PlainText 'surkitinisme' -Passphrase 'good-pass-123'
         $tokenPath = Join-Path $TestDrive 'verify.txt'

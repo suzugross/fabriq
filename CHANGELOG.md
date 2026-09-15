@@ -111,6 +111,20 @@
   `-LoadOnly` を足さず AST で関数定義だけ抽出して評価する方式)、run_tests 488/488 PASS。
 
 ### Fixed
+- kernel/common.ps1: **ENC: 列を持つ全モジュールで出ていた偽の復号失敗警告と、秘密値マスクの無効化を修正**。
+  秘密値レジストリ(`Register-FabriqSecret` / `Get-FabriqMaskedText` / `Clear-FabriqSecrets`、A7)の保持変数を
+  `$script:` から `$global:` に変更。`$script:` は呼び出し時点の直近スクリプトスコープに解決されるため、
+  `& module.ps1` として動くモジュール内ではレジストリが `$null` になり、`Import-ModuleCsv` が ENC: を
+  **復号・代入した後**に登録で例外 → catch が `Failed to decrypt field '<列>' ... null 値の式ではメソッドを
+  呼び出せません` を表示していた(値は正しく復号済みで、動作は成功)。同時にモジュール内からの登録が
+  すべて失われ、A7 のマスクはモジュール経由では実質無効だった(0c159f9 以降・同期/非同期の両経路で再現)。
+  既存テストは common.ps1 を読み込んだテストスクリプトから直接呼んでいたため検出できなかった。
+  回帰テスト 2 ケース(tests/kernel/SecretRegistry.tests.ps1 — 子スクリプトから `Import-ModuleCsv` /
+  `Register-FabriqSecret` を呼ぶ。修正前 FAIL を確認済み)。
+- modules/standard/cert_config (1.1.1): 明示モード(AutoRoute=0)で証明書を読めなかったときに、理由
+  (例: PFX パスワード不一致)を捨てて `Failed to read certificate` しか出していなかったのを修正。
+  `Get-CertificateThumbprint` が `@{ Thumbprint; Error }` を返すようにし、プレビューの `[READ ERROR]` に
+  `Reason:` 行、適用時の `Show-Error` に理由を付けた。件数・冪等性判定・結果契約は不変。`REQUIRES_KERNEL` 据置。
 - kernel/common.ps1: **スクリーンショットの見切れを修正**。`Capture-ScreenEvidence` /
   `Save-Screenshot` の撮影矩形を `Screen.PrimaryScreen.Bounds` から、キャッシュされない Win32
   `GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN)`(新ヘルパ `Get-PhysicalScreenBounds`・内部関数)に変更。

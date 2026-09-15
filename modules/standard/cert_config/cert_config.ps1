@@ -40,6 +40,8 @@ function Resolve-CertFileName {
 }
 
 function Get-CertificateThumbprint {
+    # Returns @{ Thumbprint; Error }. Thumbprint is $null on failure and Error
+    # carries the load reason (e.g. wrong PFX password) so callers can show why.
     param(
         [string]$Path,
         [string]$Password
@@ -54,17 +56,20 @@ function Get-CertificateThumbprint {
             )
             $thumbprint = $cert.Thumbprint
             $cert.Dispose()
-            return $thumbprint
+            return @{ Thumbprint = $thumbprint; Error = $null }
         }
         else {
             $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Path)
             $thumbprint = $cert.Thumbprint
             $cert.Dispose()
-            return $thumbprint
+            return @{ Thumbprint = $thumbprint; Error = $null }
         }
     }
     catch {
-        return $null
+        # New-Object wraps the real cause in "Exception calling .ctor ..."
+        $ex = $_.Exception
+        if ($null -ne $ex.InnerException) { $ex = $ex.InnerException }
+        return @{ Thumbprint = $null; Error = "$($ex.Message)".Trim() }
     }
 }
 
@@ -250,10 +255,12 @@ foreach ($ri in $resolvedItems) {
         continue
     }
 
-    $thumbprint = Get-CertificateThumbprint -Path $certPath -Password $item.Password
+    $thumbInfo = Get-CertificateThumbprint -Path $certPath -Password $item.Password
+    $thumbprint = $thumbInfo.Thumbprint
     if ($null -eq $thumbprint) {
         Write-Host "  [$index] $displayName  [READ ERROR]" -ForegroundColor Red
         Write-Host "      File: $($fileInfo.Resolved)" -ForegroundColor DarkGray
+        Write-Host "      Reason: $($thumbInfo.Error)" -ForegroundColor DarkGray
         Write-Host ""
         continue
     }
@@ -443,9 +450,10 @@ foreach ($ri in $resolvedItems) {
     }
 
     # Get thumbprint
-    $thumbprint = Get-CertificateThumbprint -Path $certPath -Password $item.Password
+    $thumbInfo = Get-CertificateThumbprint -Path $certPath -Password $item.Password
+    $thumbprint = $thumbInfo.Thumbprint
     if ($null -eq $thumbprint) {
-        Show-Error "Failed to read certificate: $($fileInfo.Resolved)"
+        Show-Error "Failed to read certificate: $($fileInfo.Resolved) : $($thumbInfo.Error)"
         $failCount++
         Write-Host ""
         continue

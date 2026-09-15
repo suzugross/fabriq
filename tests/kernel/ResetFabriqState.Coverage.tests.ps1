@@ -185,7 +185,12 @@ BeforeAll {
         '_TelemetryUtf8NoBom'          = 'cached UTF8-no-BOM encoder instance; content-free'
         '_TelemetryHostInfo'           = 'machine-scoped host info cache (OS/hardware/PS version); no session data'
         '_TelemetryModuleSeq'          = 'monotonic in-process sequence counter; ordering only, no payload'
-        'PSDefaultParameterValues'     = 'PowerShell built-in preference dictionary; verbose capture toggles *:Verbose around module execution and restores it in finally'
+        # Not surviving Reset: cleared INDIRECTLY via Clear-FabriqSecrets, which
+        # this AST collector does not follow. The Reset -> Clear-FabriqSecrets
+        # call is pinned by SecretRegistry.tests.ps1 (next-customer isolation).
+        'FabriqSecretValues'           = 'secret registry; cleared by Reset via Clear-FabriqSecrets (pinned in SecretRegistry.tests.ps1)'
+        'FabriqSecretsSorted'          = 'secret registry sort cache; cleared by Reset via Clear-FabriqSecrets (pinned in SecretRegistry.tests.ps1)'
+        'PSDefaultParameterValues'     ='PowerShell built-in preference dictionary; verbose capture toggles *:Verbose around module execution and restores it in finally'
     }
 
     # Session env vars that deliberately survive Reset (none today).

@@ -447,7 +447,7 @@ function New-TelemetryRedactMap {
 
     # Registered secrets (ENC:-decrypted values, master passphrase):
     # hard-redacted like the PIN — never stored even as a hash.
-    foreach ($secret in $script:FabriqSecretValues.Keys) {
+    foreach ($secret in $global:FabriqSecretValues.Keys) {
         if (-not $map.ContainsKey($secret)) {
             $map[$secret] = "[REDACTED]"
         }
@@ -1142,9 +1142,14 @@ function Test-MasterPassphrase {
 # execute inside the child (Show-*, telemetry) are covered there; the
 # parent-side history write additionally masks what the parent knows
 # (passphrase / PIN, registered in both).
+# Scope note: $global:, NOT $script:. $script: resolves to the nearest
+# script scope at CALL time, and every module runs as its own script
+# (& module.ps1) - there the registry read as $null, Register threw after
+# Import-ModuleCsv had already decrypted, and its catch printed a false
+# "Failed to decrypt" warning while masking silently stayed off.
 
-$script:FabriqSecretValues  = @{}   # set: plaintext -> $true
-$script:FabriqSecretsSorted = @()   # cached keys, longest-first
+$global:FabriqSecretValues  = @{}   # set: plaintext -> $true
+$global:FabriqSecretsSorted = @()   # cached keys, longest-first
 
 function Register-FabriqSecret {
     # Values shorter than 3 chars are rejected: masking "1" or "OK" would
@@ -1152,16 +1157,16 @@ function Register-FabriqSecret {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return }
     if ($Value.Length -lt 3) { return }
-    if ($script:FabriqSecretValues.ContainsKey($Value)) { return }
-    $script:FabriqSecretValues[$Value] = $true
-    $script:FabriqSecretsSorted = @(
-        $script:FabriqSecretValues.Keys | Sort-Object -Property Length -Descending
+    if ($global:FabriqSecretValues.ContainsKey($Value)) { return }
+    $global:FabriqSecretValues[$Value] = $true
+    $global:FabriqSecretsSorted = @(
+        $global:FabriqSecretValues.Keys | Sort-Object -Property Length -Descending
     )
 }
 
 function Clear-FabriqSecrets {
-    $script:FabriqSecretValues  = @{}
-    $script:FabriqSecretsSorted = @()
+    $global:FabriqSecretValues  = @{}
+    $global:FabriqSecretsSorted = @()
 }
 
 function Get-FabriqMaskedText {
@@ -1169,8 +1174,8 @@ function Get-FabriqMaskedText {
     # longer one never splits the longer match. Pure string ops, no throw.
     param([string]$Text)
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
-    if ($script:FabriqSecretsSorted.Count -eq 0) { return $Text }
-    foreach ($s in $script:FabriqSecretsSorted) {
+    if ($global:FabriqSecretsSorted.Count -eq 0) { return $Text }
+    foreach ($s in $global:FabriqSecretsSorted) {
         if ($Text.Contains($s)) { $Text = $Text.Replace($s, '***') }
     }
     return $Text
