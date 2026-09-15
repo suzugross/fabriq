@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-09-13T22:33:20+09:00",
+  "updatedAt": "2026-09-16T10:00:00+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -920,6 +920,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-09-13T15:09:57+09:00",
       "updatedAt": "2026-09-13T22:33:20+09:00"
+    },
+    {
+      "id": "t-0104",
+      "title": "autologon_config: hostlist に紐づくローカルユーザーへの自動ログオン (__AUTO_to_[HOST]__ 変数指定)",
+      "content": "autologon_config で、hostlist (SELECTED_NEW_PCNAME) に紐づく local_user_host_list.csv のユーザー＝「そのホストで作成されるユーザー」へ、Profile 上の変数指定だけで自動ログオンできるようにする。現状は __AUTO_to_<User>__ に固定ユーザー名を書き、パスワードも autologon_list.csv に二重記載する必要があり、PC ごとにユーザーが違う案件ではプロファイルを PC 台数分用意するしかない。\n\n■ 調査結果（2026-09-15・実現可能と判断）\n- kernel: Resolve-ProfileModules の __AUTO_to_(.+)__ は捕捉文字列をそのまま _AutoLogonUser → $env:FABRIQ_AUTOLOGON_USER に流すだけで、ユーザー名の妥当性は見ていない。よってトークン解釈をモジュール側に置けば kernel 無改修で実現できる（kernel/common.ps1:4152, kernel/main.ps1:620）。\n- 必要な材料はすべて揃っている: SELECTED_NEW_PCNAME（__RESTART__ 跨ぎでも baked 値が復元される）、local_user_host_list.csv の NewPCName / UserName / Password（ENC: は Import-ModuleCsv が透過復号し secret 登録）、他モジュールの CSV パスでも Resolve-ModuleDataPath のオーバーレイ写像は GetFullPath で正規化されるので PDF 構成でも正しく解決される。\n- 既存の冪等性チェック / 適用 / Post-Apply Verification は $targetEntry（User/Password/Domain）に対する処理なので、対象行の決め方だけ差し替えれば残りはそのまま使える。\n\n■ ロジック案\n(1) トークン: __AUTO_to_[HOST]__（仮）。[ ] はローカルアカウント名に使えない文字なので実ユーザー名と衝突しない。表記は設計ゲートで確定（候補: [HOST] / * など）。\n(2) 分岐位置: $env:FABRIQ_AUTOLOGON_USER がトークンと一致したら、Step 1 の autologon_list.csv 読込より前に「ホストモード」へ分岐する（autologon_list.csv が空でも Skipped にならないように）。Script Menu からの対話モード・通常の __AUTO_to_<User>__ は変更しない。\n(3) 対象の決定（operator に判断を投げない。曖昧なら全部 Error）:\n  - SELECTED_NEW_PCNAME が空 → Error（ホスト未選択）\n  - local_user_host_list.csv を Import-ModuleCsv で読み、NewPCName 一致かつ Enabled=1 の行を候補にする。同じ UserName が複数行あれば 1 件にまとめる（Password が食い違えば Error）\n  - 候補 0 件 → Error / 1 件 → 採用 / 2 件以上 → 任意列 AutoLogon=1 がちょうど 1 行ならそれを採用、それ以外は Error\n  - 対象を $targetEntry = {User=UserName, Password, Domain=空} に組み立て、Step 3 以降は既存フローに合流させる\n(4) 事前ガード: Get-LocalUser で対象ユーザーが存在しなければ Error。local_user_config より前の Order に置かれた場合を検出するため。存在しないユーザーで自動ログオンすると __RESTART__ 後の再開がログオン画面で止まる。\n\n■ 設計ゲートで決めること\n(a) Segment の扱い: __AUTO_to_ 行は _Segment が伝播されない（kernel/common.ps1:4152 の分岐には _Segment が無い）ため FABRIQ_SEGMENT が常に空になり、Segment 付きの host 行（Guide にある create/delete の Segment 分割運用）は候補に入らない。\n    案1: まずは空 Segment の行だけを対象にし、Guide に明記する（モジュールのみの変更）。\n    案2: kernel で __AUTO_to_ 行にも Segment を伝播し、通常行と揃える（kernel 変更。AUTO 行に Segment を書いた既存プロファイルでは autologon_list.csv にもフィルタが掛かるため、PATCH か MINOR かをゲートで判定）。\n    Segment を無視して生読みする案は、delete 側 Segment の行が混ざる・Import-CsvSafe（非公開 API）に依存する、の 2 点で不採用。\n(b) パスワードの事前照合: local_user_config は既存ユーザーを Skip し、パスワードを更新しない。そのため CSV と実際のパスワードがずれていても気付けず、再起動後の自動ログオンが失敗する。PrincipalContext(Machine).ValidateCredentials で照合するか決める（ログオン監査イベントやロックアウトカウンタへの影響を要確認）。\n(c) ドメイン参加済み機でのローカルユーザー自動ログオン: 既存コードはローカル扱いのとき DefaultDomainName を削除する。domain_join 後（改名保留時を含む）もこれで正しくローカルアカウントにログオンできるか。できなければ DefaultDomainName に新 PC 名を入れる必要がある。AD ラボで実機確認する。\n(d) 共通ユーザー（local_user_list.csv）も候補に含めるか: 今回は「ホストに紐づくユーザー」が要件なので host リストのみを推奨。\n\n■ 変更スコープ見込み\n- modules/standard/autologon_config: 1.1.0 → 1.2.0（MINOR・新しい指定方法の追加）。REQUIRES_KERNEL は案1なら据え置き。\n- modules/standard/local_user_config: 任意列 AutoLogon を追加するならドキュメントとサンプル CSV のみ（コードは変更しない）。VERSION の要否はゲートで判定。\n- README / KERNEL_API.md §3.2・§4.2 のマーカー説明にトークンを追記（ドキュメントのみ）。案2 を採る場合は kernel 変更と CHANGELOG・KERNEL_API.md の同期が必要。\n- テスト: Resolve-ProfileModules.tests に __AUTO_to_[HOST]__ の捕捉ケースを追加。対象決定ロジックは純関数に切り出して Pester で網羅する（候補 0 件 / 1 件 / 複数件・AutoLogon 列あり / 複数件・AutoLogon 列なし / 同名ユーザーでパスワード不一致 / PC 名未設定）。\n- VM テストリグで E2E 確認: local_user_config → autologon(ホストモード) → __RESTART__ → 指定ユーザーで自動ログオンされ、処理が再開すること。",
+      "claudeNote": "調査 (2026-09-15): 実現可能。kernel は無改修でいける見込み（マーカーの捕捉文字列をそのまま env に渡すだけのため）。主な論点は Segment が伝播されない件 (a)。ここだけは運用実態次第で、案1（モジュールのみ）で足りるか、案2（kernel 変更）が要るかが分かれる。未実装・設計ゲート前。\n\nユーザー回答 (2026-09-16):\n(a) Segment → 案2（kernel で __AUTO_to_ 行にも Segment を伝播し、通常行と揃える）\n(複数候補) → local_user_host_list.csv に任意列 AutoLogon を追加し、1 を付けた行を対象にする\n(表記) → __AUTO_to_[HOSTUSER]__\nClaude 側で推奨として置いたもの（設計ゲートで提示）: (b) パスワードの事前照合は見送り（既存の User 指定モードと同じ扱い）。(c) DefaultDomainName の方針は、コーディング前に AD ラボで実験して決める（Phase 0）。(d) 候補は host リストのみ。\n設計ゲート提示済み・承認待ち。",
+      "status": "未着手",
+      "createdAt": "2026-09-15T12:00:00+09:00",
+      "updatedAt": "2026-09-16T10:00:00+09:00"
     }
   ]
 }
