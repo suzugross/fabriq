@@ -257,6 +257,27 @@ PDF 側にフォルダが存在すれば(空でも)PDF 側を使う。空フォ�
 | manual_kitting_assistant | prompt/ | manual_kitting_assistant.ps1:99 |
 | pianist | profiles/ | pianist.ps1:147(per-case 裁定済み 2026-08-09 → PDF 対象) |
 
+#### 7.2.1 追補: CSV 列由来の相対パス(2026-09-16 に漏れを検出・修正済み)
+
+当初の棚卸しは「`$PSScriptRoot` 直下の**固定フォルダ名**」を対象にしたため、
+**CSV の列値から来る相対パス**を拾えておらず、以下 2 モジュールが Phase 2 から漏れていた。
+症状は「`batch_list.csv` / `process_list.csv` は PDF 側が採用されるのに、
+それが指す `.bat` / `.exe` は本体側にしか無いと実行できない」= §8 R1(誤った設定セットの無言適用)。
+`generic_batch_runner` は不在時 `Show-Skip` のため、プロファイルが**何も実行せず完走**する経路だった。
+
+| モジュール | 列 | 箇所 | 対応 |
+|---|---|---|---|
+| generic_batch_runner | `BatchPath` | batch_runner.ps1:37, 91 | 解決 API 経由に修正(v1.1.0) |
+| generic_process_runner | `ExecutablePath` | process_runner.ps1:62, 134 | 同上(v1.2.0) |
+
+- 併せて**作業ディレクトリ**も `Resolve-ModuleDataPath -Path $PSScriptRoot`(= モジュールデータルート)に変更。
+  「CWD = モジュールルート」というセマンティクスを保ったままデータセットだけが切り替わり、
+  オーバーレイ不在時は恒等写像で従来と完全同一。「バッチ自身のフォルダ」案は
+  CWD 相対参照を持つ既存バッチを壊すため不採用。
+- 解決系の先例は `odt_config` の `Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot $entry.AssetsFolder)`。
+- 検出コマンド(再発防止): `grep -rn 'Join-Path \$PSScriptRoot \$' modules/ --include=*.ps1 | grep -v Resolve-ModuleDataPath`
+  → 修正後 0 件。
+
 ### 7.3 多 CSV 列挙(Phase 2・§4.4 適用)
 
 - reg_hklm_config/reg_hklm_config.ps1:14 / reg_hklm_delete.ps1:12

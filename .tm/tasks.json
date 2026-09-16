@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-09-16T11:30:00+09:00",
+  "updatedAt": "2026-09-16T16:26:57+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -929,6 +929,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-09-15T12:00:00+09:00",
       "updatedAt": "2026-09-16T11:30:00+09:00"
+    },
+    {
+      "id": "t-0105",
+      "title": "generic_batch_runner / generic_process_runner: CSV 列由来の相対パスがオーバーレイ解決を通っていなかった問題の修正",
+      "content": "generic_batch_runner / generic_process_runner が、プロファイル別データオーバーレイ (PDF) に片肺でしか対応していなかった問題。\n\n【症状】\nbatch_list.csv / process_list.csv 自体は Import-ModuleCsv 経由なので PDF 側が採用されるが、その CSV が指す BatchPath / ExecutablePath の相対パスは Join-Path $PSScriptRoot でモジュール本体側に固定されていた。結果「レシピは PDF、材料は本体」という分裂状態になり、PDF 側に .bat / .exe を置いても実行できなかった。\ngeneric_batch_runner はファイル不在時が Show-Skip のため、PDF に資材を置いた運用ではプロファイルが何も実行せず完走する (dev/PROFILE_DATA_OVERLAY_PLAN.md §8 R1 = 誤った設定セットの無言適用)。\n\n【原因】\nPhase 2 (§7.2) の棚卸しが「$PSScriptRoot 直下の固定フォルダ名」だけを対象にしており、CSV 列値から来る相対パスを拾えていなかった。意図的除外ではなく洗い出し漏れ。\n\n【対応】\n- 両モジュールの相対パス解決を Resolve-ModuleDataPath 経由に統一 (odt_config の AssetsFolder と同型)。\n- 作業ディレクトリを Resolve-ModuleDataPath -Path $PSScriptRoot (モジュールデータルート) に変更。\n- BatchPath の環境変数展開を追加、空欄パスのガード、-PathType Leaf 厳格化、解決の 1 回化 (_ResolvedPath)。\n- batch_list.csv の死に列 Encoding を撤去。\n- Guide.txt 2 件 / CHANGELOG / 計画書 §7.2.1 を更新。\n- VERSION: generic_batch_runner 1.0.0 -> 1.1.0 / generic_process_runner 1.1.0 -> 1.2.0、REQUIRES_KERNEL は両者 2.0.0 -> 3.7.0。",
+      "claudeNote": "出所: 2026-09-16 ユーザー依頼の調査「generic batch runner はオーバレイ対応しているが、相対パスがモジュール側でないとバッチが実行できないのでは」。指摘は事実だった。\n\n【設計判断】作業ディレクトリは「バッチ自身のフォルダ」ではなく「モジュールデータルート」を採用。前者は CWD 相対参照を持つ既存バッチを壊す (CWD が assets\\ に移る) のに対し、後者は「CWD = モジュールルート」というセマンティクスを保ったままデータセットだけが切り替わり、オーバーレイ不在時は恒等写像で従来と完全同一になる。\n\n【再発防止】検出コマンド: grep -rn \"Join-Path \\$PSScriptRoot \\$\" modules/ --include=*.ps1 | grep -v Resolve-ModuleDataPath\n修正後 0 件。modules/ 全体でオーバーレイ未通過の変数駆動パス結合はこの 4 箇所のみだった。\n\n【検証】\n- run_tests.ps1: 517/517 PASS (exit 0)。テストファイルは未 touch。\n- check_ps1_encoding.ps1 / check_version.ps1 / seed_module_versions.ps1 -DryRun: いずれも exit 0。\n- 実挙動スモーク (scratchpad の一時ハーネス・計 27 アサーション全 PASS):\n  A) PDF に CSV と .bat/.exe 両方 → PDF 側が実行され CWD も PDF 側 (マーカーファイルで実証)\n  B) PDF に CSV のみ → 本体側にフォールバックし [DATA] ... (FALLBACK) が警告表示、無言スキップしない\n  C) コンテキスト無し → [DATA] 出力ゼロ・パスも CWD も従来どおり (恒等写像)\n  D) パス列空欄 → Join-Path の例外ではなく Show-Skip で報告\n- 未実施: VM リグでの E2E。ローカルで実プロセス起動まで確認済みのため優先度は低いが、実機確認が要るなら別途。\n\n【残件・保留】\ngeneric_process_runner の TimeoutSec=0 無限化 (t-0069 A-2) は本件のスコープ外。今回は触っていない。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-09-16T16:26:57+09:00",
+      "updatedAt": "2026-09-16T16:26:57+09:00"
     }
   ]
 }

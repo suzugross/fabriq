@@ -15,6 +15,33 @@
 
 ## [Unreleased]
 
+### Fixed
+- modules/standard/generic_batch_runner (1.0.0 → 1.1.0) / modules/standard/generic_process_runner
+  (1.1.0 → 1.2.0): **汎用ランナー 2 種がプロファイル別データオーバーレイに片肺だった問題**
+  (dev/PROFILE_DATA_OVERLAY_PLAN.md §7.2.1)。`batch_list.csv` / `process_list.csv` 自体は
+  `Import-ModuleCsv` 経由で PDF 側が採用されるのに、その CSV が指す `BatchPath` / `ExecutablePath`
+  の相対パスは `Join-Path $PSScriptRoot` でモジュール本体側に固定されており、**PDF 側に .bat / .exe を
+  置いても実行できなかった**。Phase 2 の棚卸しが「固定フォルダ名」だけを対象にしたため CSV 列由来の
+  相対パスが漏れていたもの。両モジュールの相対パス解決を `Resolve-ModuleDataPath` 経由に統一
+  (`odt_config` の `AssetsFolder` と同型)。`generic_batch_runner` は不在時 `Show-Skip` のため、
+  PDF に資材を置いた運用では**プロファイルが何も実行せず完走**する経路になっていた(§8 R1 に該当)。
+- modules/standard/generic_batch_runner: 作業ディレクトリを `Resolve-ModuleDataPath -Path $PSScriptRoot`
+  (= モジュールデータルート)に変更。「CWD = モジュールルート」というセマンティクスは保ったまま、
+  バッチ内の `.\` 相対参照が有効なデータセット側を向く。オーバーレイ不在時は恒等写像で従来と完全同一。
+  `generic_process_runner` の `WorkingDirectory` 空欄時の既定も同様。
+- modules/standard/generic_batch_runner: `BatchPath` に `%TEMP%` 等の環境変数を書けるようにした
+  (`Expand-UserEnvironmentVariables`。`generic_process_runner` には元からあった挙動を揃えたもの)。
+- modules/standard/generic_batch_runner / generic_process_runner: パス列が空欄の行が
+  `Join-Path` の例外を投げていたのを、`[NOT FOUND]` → `Show-Skip` の既存経路に載せた。存在判定を
+  `-PathType Leaf` に厳格化し、ディレクトリを実行対象と誤認しないようにした。パス解決は事前に
+  1 回だけ行って `_ResolvedPath` に保持する形に整理し(`script_looper` と同じパターン)、
+  プレビュー一覧と実行ループが別々に解決して食い違う余地を無くした。
+
+### Removed
+- modules/standard/generic_batch_runner: `batch_list.csv` の `Encoding` 列。必須列として要求しながら
+  コード中で一度も参照していない死に列で、PDF 側で CSV を書き起こす際に「機能しない列を書かないと
+  読込エラーになる」罠になっていた。列が残っている既存 CSV はそのまま動く(余剰列は無視される)。
+
 ### Added
 - modules/standard/autologon_config (1.1.0 → 1.2.0) + kernel/common.ps1: **hostlist に紐づくローカルユーザーへの
   自動ログオン**（TM t-0104）。プロファイルに `__AUTO_to_[HOSTUSER]__` と書くと、`autologon_list.csv` ではなく

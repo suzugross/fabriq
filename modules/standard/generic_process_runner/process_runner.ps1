@@ -6,7 +6,11 @@
 # [NOTES]
 # - ExecutablePath accepts absolute paths, environment variables,
 #   or paths relative to WorkingDirectory
-# - When WorkingDirectory is empty, paths are resolved relative to $PSScriptRoot
+# - When WorkingDirectory is empty, paths are resolved relative to the MODULE
+#   DATA ROOT through Resolve-ModuleDataPath, so a profile data folder (PDF)
+#   can ship process_list.csv AND the payload it names
+#   (dev/PROFILE_DATA_OVERLAY_PLAN.md). Without an overlay context the
+#   resolution is an identity mapping = pre-overlay behavior.
 # ========================================
 
 Write-Host ""
@@ -34,6 +38,48 @@ Write-Host ""
 
 
 # ========================================
+# Step 2: Path resolution
+# ========================================
+# Resolved once up front so the dry-run summary and the execution loop can
+# never disagree about which file a row points at (script_looper uses the same
+# _ResolvedPath pattern).
+#
+# The module data root is the profile-side module folder while an overlay is
+# active, otherwise $PSScriptRoot. Using it as the default working directory
+# keeps the documented "CWD = module root" semantics while pointing
+# CWD-relative references at the active data set.
+$moduleDataRoot = Resolve-ModuleDataPath -Path $PSScriptRoot
+
+foreach ($proc in $processList) {
+    $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
+        Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
+    } else {
+        ""
+    }
+
+    # A blank ExecutablePath must short-circuit: Expand-UserEnvironmentVariables
+    # rejects an empty mandatory string, and an empty relative path would
+    # resolve to a directory that then looks like a valid target.
+    $fullPath = ""
+    if (-not [string]::IsNullOrWhiteSpace($proc.ExecutablePath)) {
+        $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
+        if ([System.IO.Path]::IsPathRooted($exePath)) {
+            $fullPath = $exePath
+        } elseif (-not [string]::IsNullOrWhiteSpace($workDir)) {
+            $fullPath = Join-Path $workDir $exePath
+        } else {
+            $fullPath = Resolve-ModuleDataPath -Path (Join-Path $PSScriptRoot $exePath)
+        }
+    }
+
+    $execWorkDir = if (-not [string]::IsNullOrWhiteSpace($workDir)) { $workDir } else { $moduleDataRoot }
+
+    $null = $proc | Add-Member -NotePropertyName "_ResolvedPath" -NotePropertyValue $fullPath -Force
+    $null = $proc | Add-Member -NotePropertyName "_WorkDir"      -NotePropertyValue $execWorkDir -Force
+}
+
+
+# ========================================
 # Step 3: Dry-run summary before execution
 # ========================================
 Write-Host "----------------------------------------" -ForegroundColor White
@@ -44,30 +90,14 @@ Write-Host ""
 $missingCount = 0
 
 foreach ($proc in $processList) {
-    # --- Resolve path ---
-    # Expand environment variables
-    $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
-    $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
-        Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
-    } else {
-        ""
-    }
-
-    # Resolve absolute vs relative path
-    if ([System.IO.Path]::IsPathRooted($exePath)) {
-        $fullPath = $exePath
-    } elseif (-not [string]::IsNullOrWhiteSpace($workDir)) {
-        $fullPath = Join-Path $workDir $exePath
-    } else {
-        $fullPath = Join-Path $PSScriptRoot $exePath
-    }
+    $fullPath = $proc._ResolvedPath
 
     # Format parameters for display
-    $exists  = Test-Path $fullPath
+    $exists  = (-not [string]::IsNullOrWhiteSpace($fullPath)) -and (Test-Path -LiteralPath $fullPath -PathType Leaf)
     $timeout = if ([string]::IsNullOrWhiteSpace($proc.TimeoutSec) -or $proc.TimeoutSec -eq '0') { "None" } else { "$($proc.TimeoutSec)s" }
     $codes   = if ([string]::IsNullOrWhiteSpace($proc.SuccessCodes)) { "0" } else { $proc.SuccessCodes }
     $window  = if ($proc.NoNewWindow -eq '1') { "NoNewWindow" } else { "NewWindow" }
-    $dispWorkDir = if (-not [string]::IsNullOrWhiteSpace($workDir)) { $workDir } else { "(default: $PSScriptRoot)" }
+    $dispWorkDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) { $proc._WorkDir } else { "(default: $($proc._WorkDir))" }
 
     if ($exists) {
         Write-Host "  $($proc.Description)" -ForegroundColor Yellow
@@ -83,7 +113,12 @@ foreach ($proc in $processList) {
     }
     else {
         Write-Host "  $($proc.Description) [NOT FOUND]" -ForegroundColor Red
-        Write-Host "    EXE:      $fullPath"
+        if ([string]::IsNullOrWhiteSpace($fullPath)) {
+            Write-Host "    EXE:      (ExecutablePath is empty)"
+        }
+        else {
+            Write-Host "    EXE:      $fullPath"
+        }
         $missingCount++
     }
     Write-Host ""
@@ -118,28 +153,21 @@ $failCount    = 0
 foreach ($proc in $processList) {
     $desc = $proc.Description
 
-    # --- Resolve path (same logic as Step 3) ---
-    $exePath = Expand-UserEnvironmentVariables ($proc.ExecutablePath)
-    $workDir = if (-not [string]::IsNullOrWhiteSpace($proc.WorkingDirectory)) {
-        Expand-UserEnvironmentVariables ($proc.WorkingDirectory)
-    } else {
-        ""
-    }
-
-    if ([System.IO.Path]::IsPathRooted($exePath)) {
-        $fullPath = $exePath
-    } elseif (-not [string]::IsNullOrWhiteSpace($workDir)) {
-        $fullPath = Join-Path $workDir $exePath
-    } else {
-        $fullPath = Join-Path $PSScriptRoot $exePath
-    }
+    # --- Resolved in Step 2 ---
+    $fullPath = $proc._ResolvedPath
 
     Write-Host "----------------------------------------" -ForegroundColor White
     Write-Host "Executing: $desc" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
     # --- Existence check ---
-    if (-not (Test-Path $fullPath)) {
+    if ([string]::IsNullOrWhiteSpace($fullPath)) {
+        Show-Skip "ExecutablePath is empty"
+        Write-Host ""
+        $skipCount++
+        continue
+    }
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
         Show-Skip "Executable not found: $fullPath"
         Write-Host ""
         $skipCount++
@@ -151,12 +179,8 @@ foreach ($proc in $processList) {
     $timeoutSec   = if ([string]::IsNullOrWhiteSpace($proc.TimeoutSec) -or $proc.TimeoutSec -eq '0') { 0 } else { [int]$proc.TimeoutSec }
     $successList  = @($successCodes -split ',' | ForEach-Object { [int]$_.Trim() })
 
-    # --- Decide the working directory ---
-    $execWorkDir = if (-not [string]::IsNullOrWhiteSpace($workDir)) {
-        $workDir
-    } else {
-        $PSScriptRoot
-    }
+    # --- Working directory (resolved in Step 2) ---
+    $execWorkDir = $proc._WorkDir
 
     # --- Build the Start-Process arguments ---
     $spParams = @{
