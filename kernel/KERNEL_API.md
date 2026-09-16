@@ -140,7 +140,7 @@
 
 ### 3.2 プロファイル実行パラメータ
 - `FABRIQ_SEGMENT` — `Import-ModuleCsv` の Segment フィルタ対象値
-- `FABRIQ_AUTOLOGON_USER` — `__AUTO_to_<User>__` マーカーで渡される User 名（autologon_config 専用）
+- `FABRIQ_AUTOLOGON_USER` — `__AUTO_to_<User>__` マーカーで渡される User 名（autologon_config 専用）。kernel は値を解釈せずそのまま渡す（`autologon_config` 側が `[HOSTUSER]` を「選択ホスト用のローカルユーザー」として解釈する。`[` `]` はローカルアカウント名に使えない文字なので実ユーザー名と衝突しない）
 - `FABRIQ_WORKER_NAME` — 選択中の作業者名
 - `FABRIQ_EVIDENCE_BASE` — エビデンスベースパス（`$global:FabriqEvidenceBasePath` と同値）
 - `FABRIQ_PROFILE_DATA_DIR` — 実行中プロファイルのデータフォルダ（PDF）の絶対パス（since 3.7.0）。`Invoke-BatchExecution` がバッチ開始時に設定し終了時に必ず解除する。未設定 = オーバーレイ無効。モジュールは通常 `Resolve-ModuleDataPath` 経由で利用し、直接参照は「PDF の有無で表示を変える」程度に留める
@@ -168,7 +168,7 @@
 | `__RESTART__` | Windows 再起動 + RunOnce 経由で再開 |
 | `__REEXPLORER__` | Explorer 再起動 |
 | `__GATE__` | 前進バリア（**since kernel 3.6.0**）。直前ゲート〜本マーカの窓に `Error`/`Partial` または **Post-Apply Verification 失敗（`Verified=False`）** のモジュールが残る間、本マーカ以降の Order の実行を `Invoke-BatchExecution` が拒否する（動的評価）。FlexProfile では該当行をグレーアウト。窓が解消すると解除。`Verified=$null`（検証非対応）/`Pending`（未実行）はブロックしない（失敗を防ぐが省略は防がない） |
-| `__AUTO_to_<User>__` | `autologon_config` に User 指定で呼び出し |
+| `__AUTO_to_<User>__` | `autologon_config` に User 指定で呼び出し。**since kernel 3.7.0**: 本行の `Segment` 列も通常行と同様に `_Segment` → `FABRIQ_SEGMENT` として伝播する（従来は黙って無視。マーカー先のモジュールが読む CSV に Segment を効かせるため）。`User` の値は kernel では解釈しない |
 
 ---
 
@@ -381,6 +381,16 @@ formal SemVer の出発点。以下すべて利用可能:
   - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.4.1` 据置・本節は `[Unreleased]`）
 
 ### 3.7.0
+
+- **§4.2 `__AUTO_to_<User>__` 行の `Segment` 伝播（後方互換 / MINOR）**: `Resolve-ProfileModules` が
+  AUTO 行にも `_Segment` を付与し、`Invoke-BatchExecution` が `FABRIQ_SEGMENT` に流すようになった
+  （通常行と同じ扱い。従来は AUTO 行の `Segment` 列が黙って無視されていた）。表示名にも `[seg:<値>]` が付く。
+  用途は `autologon_config` の `__AUTO_to_[HOSTUSER]__`（`local_user_host_list.csv` を Segment で絞る）。
+  既存プロファイルへの影響は「AUTO 行に `Segment` を書いていた場合に `autologon_list.csv` へもフィルタが
+  掛かるようになる」点のみ（従来その記述は無効だったため実質ゼロ）。`autologon_config` が本版を要求
+  （`REQUIRES_KERNEL` 3.7.0）
+  - ※ `KERNEL_VERSION` 実ファイルの昇格はリリース指示時（現行 `3.6.2` 据置・本節は `[Unreleased]`）
+
 
 - **§1.11 UI ユーティリティ `New-UiFont` 追加（後方互換 / MINOR）**: DPI モード中立な WinForms
   フォント生成（pt→96dpi 等価 px + `GraphicsUnit.Pixel` 固定）。プロセスがモジュール初回実行時の

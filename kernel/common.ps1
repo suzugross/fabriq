@@ -4162,12 +4162,21 @@ function Resolve-ProfileModules {
                 $moduleWithOrder | Add-Member -NotePropertyName "Order" -NotePropertyValue ([int]$entry.Order) -Force
                 $moduleWithOrder | Add-Member -NotePropertyName "_AutoLogonUser" -NotePropertyValue $autoLogonUser
                 $moduleWithOrder | Add-Member -NotePropertyName "_IsAsync" -NotePropertyValue $asyncMode
+                # Segment travels with an AUTO row like it does with a normal
+                # one (since 3.7.0). It was silently dropped here, so a
+                # segmented CSV the marker's module reads - the per-PC user
+                # rows behind __AUTO_to_[HOSTUSER]__ - was invisible to it.
+                $segmentValue = if ($entry.PSObject.Properties.Name -contains 'Segment') { $entry.Segment } else { "" }
+                $moduleWithOrder | Add-Member -NotePropertyName "_Segment" -NotePropertyValue $segmentValue
                 $groupValue = if ($entry.PSObject.Properties.Name -contains 'Group') { "$($entry.Group)".Trim() } else { "" }
                 $moduleWithOrder | Add-Member -NotePropertyName "_Group" -NotePropertyValue $groupValue
                 if ($IncludeDisabled) {
                     $moduleWithOrder | Add-Member -NotePropertyName "_IsCheckedDefault" -NotePropertyValue ($entry.Enabled -eq "1")
                 }
                 $moduleWithOrder.MenuName = "[AUTO:$autoLogonUser] $($autoLogonModule.MenuName)"
+                if (-not [string]::IsNullOrWhiteSpace($segmentValue)) {
+                    $moduleWithOrder.MenuName = "$($moduleWithOrder.MenuName) [seg:$segmentValue]"
+                }
                 $validModules += $moduleWithOrder
             }
             else {

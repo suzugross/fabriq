@@ -16,6 +16,19 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/autologon_config (1.1.0 → 1.2.0) + kernel/common.ps1: **hostlist に紐づくローカルユーザーへの
+  自動ログオン**（TM t-0104）。プロファイルに `__AUTO_to_[HOSTUSER]__` と書くと、`autologon_list.csv` ではなく
+  `local_user_config` の `local_user_host_list.csv` から「選択中の PC 用に作られたローカルユーザー」を引いて
+  自動ログオンする。PC ごとにユーザーが違う案件でプロファイルを台数分作る必要がなくなり、パスワードの二重管理も
+  消える。対象の決定は純関数 `Get-HostAutoLogonTarget` に切り出し、絞り込みは NewPCName → Enabled=1 → Segment →
+  任意列 `AutoLogon=1`（同一 PC の候補が複数のときの指名）の順。**曖昧な状態はすべて Error**（PC 未選択 / 候補 0 件 /
+  候補複数で指名なし / `AutoLogon=1` が複数 / 同名ユーザーでパスワード不一致 / 空パスワード / ENC: 復号失敗 /
+  対象ユーザーが未作成・無効）。`DefaultDomainName` は `"."`（この PC の SAM）を設定する — AD ラボ実測
+  （2026-09-16・ドメイン参加済み / ワークグループの両方）で、コンピューター名の焼き込み（改名で壊れる）と
+  空値（同名ドメインユーザーで曖昧）の両方を避けられることを確認した。`local_user_host_list.csv` に任意列
+  `AutoLogon` を追加（`local_user_config` 1.2.0 → 1.3.0・コードは不変、列が無い旧 CSV もそのまま動く）。
+  新規テスト 25 ケース（tests/modules/autologon_config/HostAutoLogonLogic.tests.ps1 の決定表 22 +
+  tests/kernel/Resolve-ProfileModules.tests.ps1 の AUTO 行 3）、run_tests 516/516 PASS。
 - kernel/common.ps1: **プロファイル別データオーバーレイ Phase 2 / W0(カーネル拡張)**
   (dev/PROFILE_DATA_OVERLAY_PLAN.md §12.1 / TM t-0095)。`Resolve-ModuleDataPath` を**ディレクトリ解決**に
   拡張し(資材フォルダ driver/ certs/ xml/ file/ source/ INF/ prompt/ 等を**フォルダ単位 all-or-nothing** で
@@ -109,6 +122,14 @@
   確認ダイアログは追加していない(既存の操作フロー・AutoPilot 分岐は不変)。`REQUIRES_KERNEL` 据置。
   新規テスト 8 ケース(tests/modules/domain_join/DomainJoinLogic.tests.ps1 — 出荷モジュールに
   `-LoadOnly` を足さず AST で関数定義だけ抽出して評価する方式)、run_tests 488/488 PASS。
+
+### Changed
+- kernel/common.ps1: `Resolve-ProfileModules` が **`__AUTO_to_<User>__` 行の `Segment` 列も通常行と同様に
+  伝播**するようにした（`_Segment` → `FABRIQ_SEGMENT`、表示名に `[seg:<値>]`）。従来は AUTO 行の `Segment` が
+  黙って無視され、マーカー先のモジュールが読む CSV に Segment を効かせられなかった（`__AUTO_to_[HOSTUSER]__` が
+  `local_user_host_list.csv` の Segment 付き行を拾えない）。既存プロファイルへの影響は「AUTO 行に `Segment` を
+  書いていた場合に `autologon_list.csv` へもフィルタが掛かる」点のみで、従来その記述は無効だったため実質ゼロ。
+  KERNEL_API.md §3.2 / §4.2 / §8 を同コミットで更新（予想影響 = kernel MINOR・未リリースの 3.7.0 に合流）。
 
 ### Fixed
 - kernel/common.ps1: **ENC: 列を持つ全モジュールで出ていた偽の復号失敗警告と、秘密値マスクの無効化を修正**。

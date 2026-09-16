@@ -23,6 +23,62 @@ AutoLogonCount=1 により、次回の1回のみ自動ログオンし、
 ・有効なエントリが1件の場合は自動選択されます
 ・複数ある場合はNo番号で選択します
 ・プロファイル実行時は __AUTO_to_ユーザー名__ で自動指定できます
+・プロファイル実行時に __AUTO_to_[HOSTUSER]__ と書くと、autologon_list.csv を
+  使わず「その PC 用に作られたローカルユーザー」を対象にします（下記参照）
+
+■ ホストごとのローカルユーザーへの自動ログオン（__AUTO_to_[HOSTUSER]__）
+
+PC ごとに作るローカルユーザーが違う案件では、プロファイルに
+  __AUTO_to_[HOSTUSER]__
+と書くだけで「その PC 用のローカルユーザー」に自動ログオンできます。
+autologon_list.csv への記載は不要で、パスワードを二重に持つ必要もありません。
+（[HOSTUSER] は固定の合図です。[ ] はローカルアカウント名に使えない文字なので、
+  実在のユーザー名と取り違えることはありません）
+
+[対象ユーザーの決まり方]
+local_user_config の local_user_host_list.csv を読み、次の順に絞り込みます。
+  1. NewPCName が選択中の PC 名（SELECTED_NEW_PCNAME）と一致する行
+  2. そのうち Enabled=1 の行
+  3. さらに実行中の Segment に一致する行
+  4. ここまで残った「その PC の候補」の中だけで AutoLogon 列を見る
+     ・AutoLogon=1 のユーザーが 1 人 → そのユーザー
+     ・AutoLogon=1 が 1 人もいない  → 候補が 1 人のときだけそのユーザー
+     ・AutoLogon=1 が 2 人以上      → Error
+     ・候補が 2 人以上で AutoLogon=1 が無い → Error
+他の PC の行に AutoLogon=1 が付いていても影響しません（1 で絞り込み済みのため）。
+PC ごとに 1 行ずつ AutoLogon=1 を付けるのが通常の書き方です。
+
+[Error になる場合]
+判断が必要な状態は、現場で選ばせず必ず Error で止めます。
+・hostlist で PC を選んでいない（SELECTED_NEW_PCNAME が空）
+・その PC の有効な行が無い（Segment 違いで全部外れた場合を含む）
+・同じユーザー名の行が複数あり、パスワードが食い違っている
+・候補が複数で対象を特定できない（上記のとおり）
+・パスワードが空、または ENC: の復号に失敗して暗号文のまま
+・対象ユーザーがまだ作られていない、または無効になっている
+
+[Order の注意]
+必ず local_user_config（ユーザー作成）より後ろに置いてください。
+まだ存在しないユーザーで自動ログオンを設定すると、次回起動がログオン画面で
+止まり、__RESTART__ を跨いだプロファイルの再開が成立しません。
+本モジュールは Get-LocalUser で存在と有効状態を確認し、満たさなければ
+Error で止めます（並び順の誤りが事前検証で分かります）。
+
+[DefaultDomainName に "." を使う理由]
+ホストモードでは DefaultDomainName に "." を設定します（= この PC 自身の
+ローカルアカウント）。AD ラボでの実測（2026-09-16）に基づく判断です。
+・ドメイン参加済み / ワークグループのどちらでもログオンできることを確認
+・コンピューター名を焼き込まないので、改名の保留中でも壊れない
+  （焼き込んだ名前で自動ログオンが失敗した事故が過去にあります）
+・お客様のドメインに同名のユーザーが居ても、ローカルであることが明示される
+なお User 指定モード（CSV の Domain 空欄）は従来どおり DefaultDomainName を
+削除します。こちらもドメイン参加済み機で動作することを同じ実測で確認済みです。
+
+[Segment について]
+プロファイル行に Segment を書くと、local_user_host_list.csv の行も同じ Segment で
+絞り込まれます（kernel 3.7.0 以降。それより前のカーネルでは __AUTO_to_ 行の
+Segment は無視されます）。create / delete などで Segment を分けている場合は、
+__AUTO_to_[HOSTUSER]__ の行にも作成側と同じ Segment を書いてください。
 
 ■ 前提条件
 ・管理者権限が必要です
@@ -48,14 +104,18 @@ $env:FABRIQ_AUTOLOGON_USER = <User> を設定してから本モジュールを�
   - 複数件 → No 番号を Read-Host で入力
 
 ■ 冪等性（レジストリ既存値チェック）
-適用前に HKLM\...\Winlogon の以下 3 値を読み返し、すべて一致する場合は
+適用前に HKLM\...\Winlogon の以下 5 値を読み返し、すべて一致する場合は
 Skipped を返して再書き込みを行いません。
   - AutoAdminLogon       = "1"
-  - DefaultUserName      = CSV で指定した User と一致
+  - DefaultUserName      = 対象の User と一致
+  - DefaultPassword      = 対象の Password と一致（大文字小文字を区別）
+  - DefaultDomainName    = 対象の Domain と一致（Domain 未指定なら空であること）
   - AutoLogonCount       >= 1（DWORD）
 
 これにより、同じ設定での再実行時は冪等に Skipped となります。
-（Password / Domain は可読性・安全性の観点から比較対象外）
+Password / Domain も比較対象です。ここを比較しないと、CSV を直した後の再実行や
+別の設定が残した DefaultDomainName を「一致」と誤認し、次回起動で失敗する
+自動ログオンを Skipped として出荷してしまいます。
 
 ■ Post-Apply Verification
 本モジュールは Post-Apply Verification を実装しています。
@@ -73,11 +133,13 @@ New-ModuleResult に -Verified（$true/$false）を渡します（実行履歴�
 
 ■ 使用環境変数
 - $env:FABRIQ_AUTOLOGON_USER : Profile 実行時の対象 User 指定（上記参照）
-- $env:SELECTED_SEGMENT    : Segment フィルタ（Import-ModuleCsv が暗黙参照）
+                               値が [HOSTUSER] のときはホストモード
+- $env:SELECTED_NEW_PCNAME   : ホストモードでの対象 PC 名（hostlist で選択した PC）
+- $env:FABRIQ_SEGMENT        : Segment フィルタ（Import-ModuleCsv が暗黙参照）
 
 ■ 動作の流れ
-1. autologon_list.csv を読み込み
-2. $env:FABRIQ_AUTOLOGON_USER または対話 No 選択で対象 User を決定
+1. 対象の決め方を選ぶ（[HOSTUSER] ならホストモード、それ以外は autologon_list.csv）
+2. $env:FABRIQ_AUTOLOGON_USER・対話 No 選択・ホストモードのいずれかで対象を決定
 3. 対象の設定を表示（パスワードはマスク表示）
 4. 現在のレジストリ値を読み返し、一致すれば Skipped で終了（冪等性）
 5. 実行確認（Y/N）

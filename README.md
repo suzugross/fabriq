@@ -59,7 +59,7 @@ Fabriq で 2 台の PC を一括キッティングし、Fabriq Evidence Manager 
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
 | **再起動跨ぎ** | `__RESTART__` マーカーにより、再起動後に RunOnce 経由で自動再開 |
-| **`__AUTO_to_<User>__`** | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを指定して呼び出す専用マーカー（例: `__AUTO_to_admin01__`） |
+| **`__AUTO_to_<User>__`** | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを指定して呼び出す専用マーカー（例: `__AUTO_to_admin01__`）。`User` に `[HOSTUSER]` を書くと、`autologon_list.csv` ではなく `local_user_config` の `local_user_host_list.csv` から**選択中の PC 用に作られたローカルユーザー**を引いて自動ログオンする（例: `__AUTO_to_[HOSTUSER]__`） |
 | **CSV 駆動** | `hostlist.csv` で PC 毎の設定を定義。各モジュールの設定も CSV で管理 |
 | **暗号化** | AES-256-CBC + PBKDF2-SHA256（10 万回、固定ソルト）で CSV 中の機密値を `ENC:<Base64>` 形式で保持 |
 | **エビデンス自動取得** | モジュール実行ごとにスクリーンショットを自動保存 |
@@ -199,7 +199,7 @@ Order,ScriptPath,Enabled,Description,Segment,ErrorMode,Group
 | `__RESTART__` | Windows を再起動し、RunOnce 経由で次モジュールから自動再開 |
 | `__REEXPLORER__` | Explorer を再起動（レジストリ変更の即時反映等） |
 | `__GATE__` | 前進バリア（kernel 3.6.0〜）。直前ゲート〜本マーカの窓に `Error`/`Partial` または Post-Apply Verification 失敗（`Verified=False`）のモジュールが残る間、本マーカ以降の `Order` 実行を拒否（動的評価）。FlexProfile では該当行をグレーアウト。窓が解消すると解除 |
-| `__AUTO_to_<User>__` | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを呼び出す（例: `__AUTO_to_admin01__`） |
+| `__AUTO_to_<User>__` | `autologon_config` の `autologon_list.csv` から `User` 列一致のエントリを呼び出す（例: `__AUTO_to_admin01__`）。`__AUTO_to_[HOSTUSER]__` は特例で、`local_user_host_list.csv` の `NewPCName` = 選択ホストの行から対象ローカルユーザーを決定する（候補が複数なら任意列 `AutoLogon=1` で 1 人に絞る。`Segment` も profile 行から伝播される） |
 
 > kernel 3.0.0 で旧マーカー `__SHUTDOWN__` / `__PAUSE__` / `__STOPLOG__` / `__STARTLOG__` を破壊的に削除しました。これらを含む旧プロファイルは graceful degradation（"module not found" 警告として降格、他モジュールの実行は継続）で動作します。
 

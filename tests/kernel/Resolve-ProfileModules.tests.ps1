@@ -264,6 +264,46 @@ Describe 'Resolve-ProfileModules' {
             } finally { Remove-TestProfileCsv $csv }
         }
 
+        It 'expands __AUTO_to_[HOSTUSER]__ and passes the token through verbatim' {
+            # The kernel does not interpret the value - autologon_config reads
+            # this token as "the local user of the selected host". Brackets are
+            # invalid in account names, so the token cannot shadow a real user.
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = '__AUTO_to_[HOSTUSER]__'; Enabled = '1' }
+            )
+            try {
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules.Count             | Should -Be 1
+                $r.ValidModules[0]._AutoLogonUser | Should -Be '[HOSTUSER]'
+                $r.ValidModules[0].MenuName       | Should -Be '[AUTO:[HOSTUSER]] Auto Logon Config'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'passes Segment on an __AUTO_to_ row like on a normal row (kernel 3.7.0)' {
+            # Without this the CSV the marker's module reads is filtered by an
+            # empty Segment, so segmented per-PC user rows are invisible to it.
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = '__AUTO_to_[HOSTUSER]__'; Enabled = '1'; Segment = 'create' }
+            )
+            try {
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules.Count       | Should -Be 1
+                $r.ValidModules[0]._Segment | Should -Be 'create'
+                $r.ValidModules[0].MenuName | Should -Be '[AUTO:[HOSTUSER]] Auto Logon Config [seg:create]'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
+        It 'leaves _Segment empty on an __AUTO_to_ row without a Segment' {
+            $csv = New-TestProfileCsv -Rows @(
+                @{ Order = 10; ScriptPath = '__AUTO_to_admin01__'; Enabled = '1' }
+            )
+            try {
+                $r = Resolve-ProfileModules -ProfileCsvPath $csv -AllModules $script:AllModules
+                $r.ValidModules[0]._Segment | Should -BeNullOrEmpty
+                $r.ValidModules[0].MenuName | Should -Not -Match '\[seg:'
+            } finally { Remove-TestProfileCsv $csv }
+        }
+
         It 'collects retired __SHUTDOWN__ marker as InvalidPath (graceful degradation, kernel 3.0.0)' {
             $csv = New-TestProfileCsv -Rows @(
                 @{ Order = 10; ScriptPath = '__SHUTDOWN__'; Enabled = '1' }

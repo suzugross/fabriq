@@ -11,3 +11,5 @@ Group,Power Users,Power Users
 Group,Remote Desktop Users,Remote Desktop Users (RDP)
 Group,Backup Operators,Backup Operators
 Group,Hyper-V Administrators,Hyper-V Administrators
+AutoLogon,1,自動ログオン対象
+AutoLogon,0,対象外 (既定)

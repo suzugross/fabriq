@@ -39,11 +39,36 @@
     UserMayNotChangePassword : 同上
     Group                    : 同上
     Description              : 説明（表示用）
+    AutoLogon                : 自動ログオン対象の目印（1=対象, 空/0=対象外・省略可）
+                               本モジュールは使いません。autologon_config が
+                               __AUTO_to_[HOSTUSER]__ で対象を 1 人に決めるときに
+                               参照します（下記「AutoLogon 列」参照）
     Segment                  : Segment フィルタ（省略可）
 
   [記載例]
-    Enabled,NewPCName,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description,Segment
-    1,NEW-PC-01,pc01_local,Pass0001,1,1,Users,PC01 専用アカウント,
+    Enabled,NewPCName,UserName,Password,PasswordNeverExpires,UserMayNotChangePassword,Group,Description,AutoLogon,Segment
+    1,NEW-PC-01,pc01_local,Pass0001,1,1,Users,PC01 専用アカウント,1,
+    1,NEW-PC-01,pc01_admin,Adm00001,1,1,Administrators,PC01 管理者,,
+
+■ AutoLogon 列（自動ログオン対象の指定）
+
+autologon_config のプロファイル行に __AUTO_to_[HOSTUSER]__ と書くと、その PC 用の
+ローカルユーザーに自動ログオンします。対象は次の順で絞り込まれます。
+  1. NewPCName が選択中の PC 名と一致する行
+  2. そのうち Enabled=1 の行
+  3. さらに実行中の Segment に一致する行
+  4. 残った「その PC の候補」の中だけで AutoLogon 列を見る
+
+候補が 1 人なら AutoLogon 列は不要です。管理者と利用者のように 1 台へ複数作る
+場合は、自動ログオンさせたい 1 行に AutoLogon=1 を付けてください。
+同じ PC の候補に AutoLogon=1 が 2 人以上あると autologon_config は Error で
+止まります（どちらを使うかを現場で選ばせない方針）。
+他の PC の行に AutoLogon=1 が付いていても影響しません。PC ごとに 1 行ずつ
+AutoLogon=1 を付けるのが通常の書き方です。
+
+本モジュール（Create / Delete Local Users）は AutoLogon 列を読みません。
+列が無い古い CSV でもそのまま動きます。
+詳細は autologon_config の Guide.txt を参照してください。
 
 ■ Group の指定
 セミコロン（;）区切りで複数グループを指定できます。
