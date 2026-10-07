@@ -5,6 +5,32 @@
 Show-Info "Executing local user creation..."
 Write-Host ""
 
+function Get-LocalUserCreatePlan {
+    # Classifies one CSV row before anything touches the machine. Pure (reads
+    # no machine state, prints nothing) so the decision table is testable:
+    # returns @{ Mode; Error }, a non-null Error meaning "refuse this row".
+    #   Mode 'Password'   - the Password cell has a value
+    #   Mode 'NoPassword' - the Password cell is there but empty
+    # A missing Password FIELD ($null: the CSV line ends before that column)
+    # is refused rather than read as "empty" - a truncated line must not turn
+    # into an account without a password.
+    param(
+        [object]$Row
+    )
+
+    if ([string]::IsNullOrWhiteSpace("$($Row.UserName)")) {
+        return @{ Mode = $null; Error = "UserName is empty" }
+    }
+    if ($null -eq $Row.Password) {
+        return @{ Mode = $null; Error = "Password field is missing (the CSV line ends before the Password column)" }
+    }
+    if ("$($Row.Password)".Length -eq 0) {
+        return @{ Mode = "NoPassword"; Error = $null }
+    }
+
+    return @{ Mode = "Password"; Error = $null }
+}
+
 # ========================================
 # Load CSV
 # ========================================
@@ -54,11 +80,22 @@ Write-Host "----------------------------------------" -ForegroundColor White
 Write-Host ""
 
 foreach ($user in $enabledUsers) {
+    $plan = Get-LocalUserCreatePlan -Row $user
     $source = if ($user.PSObject.Properties['NewPCName'] -and $user.NewPCName) { " [PC: $($user.NewPCName)]" } else { "" }
     $displayName = if ($user.Description) { "$($user.UserName) ($($user.Description))$source" } else { "$($user.UserName)$source" }
     $pwdExpire = if ($user.PasswordNeverExpires -eq "1") { "Never" } else { "Expires" }
     $pwdChange = if ($user.UserMayNotChangePassword -eq "1") { "Denied" } else { "Allowed" }
     Write-Host "  UserName: $displayName" -ForegroundColor Yellow
+    if ($plan.Error) {
+        Write-Host "    [INVALID] $($plan.Error) - this row will fail" -ForegroundColor Red
+        Write-Host ""
+        continue
+    }
+    if ($plan.Mode -eq "NoPassword") {
+        Write-Host "    Password: (none) - the account will have NO password" -ForegroundColor Magenta
+    } else {
+        Write-Host "    Password: (set)"
+    }
     Write-Host "    Password Expire: $pwdExpire / Change: $pwdChange / Group: $($user.Group)"
     Write-Host ""
 }
@@ -90,6 +127,17 @@ foreach ($user in $enabledUsers) {
     Write-Host "Creating User: $($user.UserName)" -ForegroundColor Cyan
     Write-Host "----------------------------------------" -ForegroundColor White
 
+    # --- Validate Row ---
+    # Refused before the existence check, so a broken row fails the same way
+    # whatever accounts the machine already has.
+    $plan = Get-LocalUserCreatePlan -Row $user
+    if ($plan.Error) {
+        Show-Error "Row rejected (UserName '$($user.UserName)'): $($plan.Error)"
+        Write-Host ""
+        $failCount++
+        continue
+    }
+
     # --- Create User ---
     try {
         # Check existing user
@@ -101,7 +149,16 @@ foreach ($user in $enabledUsers) {
         }
 
         # Build parameters
-        $securePassword = ConvertTo-SecureString $user.Password -AsPlainText -Force
+        if ($plan.Mode -eq "NoPassword") {
+            # An empty SecureString sets a blank password. New-LocalUser
+            # -NoPassword is deliberately not used: it leaves "user must
+            # change password at next logon" set and has no
+            # -PasswordNeverExpires in its parameter set.
+            Show-Warning "Creating user '$($user.UserName)' WITHOUT a password (Password cell is empty)"
+            $securePassword = New-Object System.Security.SecureString
+        } else {
+            $securePassword = ConvertTo-SecureString $user.Password -AsPlainText -Force
+        }
         $params = @{
             Name                    = $user.UserName
             Password                = $securePassword
@@ -118,7 +175,11 @@ foreach ($user in $enabledUsers) {
 
         # Create user
         New-LocalUser @params | Out-Null
-        Show-Success "Created user '$($user.UserName)'"
+        if ($plan.Mode -eq "NoPassword") {
+            Show-Success "Created user '$($user.UserName)' (no password)"
+        } else {
+            Show-Success "Created user '$($user.UserName)'"
+        }
     }
     catch {
         Show-Error "Failed to create user '$($user.UserName)': $_"

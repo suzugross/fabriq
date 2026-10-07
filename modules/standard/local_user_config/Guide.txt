@@ -13,7 +13,8 @@
   全 PC 共通で作成/削除するユーザーを定義します。
     Enabled                  : 有効フラグ（1=実行, 0=スキップ）
     UserName                 : ユーザー名
-    Password                 : パスワード
+    Password                 : パスワード（空欄=パスワードなしで作成。
+                               下記「パスワードなしユーザー」参照）
     PasswordNeverExpires     : パスワード無期限（1=無期限, 0=有効期限あり）
     UserMayNotChangePassword : パスワード変更禁止（1=禁止, 0=変更可）
     Group                    : 所属グループ（セミコロン区切りで複数指定可）
@@ -25,6 +26,7 @@
     1,admin_user,P@ssw0rd,1,1,Administrators,管理者ユーザー,
     1,standard_user,Pass1234,0,0,Users,一般ユーザー,
     1,remote_user,R3m0te!,1,1,Users;Remote Desktop Users,リモート接続用,
+    1,kiosk_user,,1,1,Users,受付端末用（パスワードなし）,
 
 [local_user_host_list.csv] （任意）
   PC 固有で追加するユーザーを定義します。
@@ -34,7 +36,7 @@
     Enabled                  : 有効フラグ（1=実行, 0=スキップ）
     NewPCName                : 対象 PC 名（hostlist.csv の NewPCName と一致）
     UserName                 : ユーザー名
-    Password                 : パスワード
+    Password                 : パスワード（空欄=パスワードなしで作成）
     PasswordNeverExpires     : 同上
     UserMayNotChangePassword : 同上
     Group                    : 同上
@@ -74,6 +76,37 @@ AutoLogon=1 を付けるのが通常の書き方です。
 セミコロン（;）区切りで複数グループを指定できます。
   例: Users;Remote Desktop Users
 
+■ パスワードなしユーザー
+Password 列を空欄にした行は、パスワードなしのユーザーとして作成します。
+PasswordNeverExpires / UserMayNotChangePassword はパスワードありの行と
+同じように反映されます。
+  例: 1,kiosk_user,,1,1,Users,受付端末用,
+
+  [入力漏れに注意]
+  空欄はすべて「パスワードなし」として扱います。パスワードの書き忘れも
+  そのままパスワードなしのアカウントになります。
+    ・実行前の一覧に「Password: (none)」と表示されます
+    ・作成するときに [WARNING] のログが 1 行出ます
+  AutoPilot では確認が出ないため、CSV の段階で確認してください。
+
+  [作成せず失敗にする行]
+    ・UserName が空の行（一覧に [INVALID] と表示）
+    ・行が途中で切れていて Password の欄そのものが無い行
+      （例: 「1,user01」で終わっている行。空欄の「1,user01,,...」とは別扱い）
+  どちらも、同じ名前のユーザーが既に居るかどうかに関係なく失敗になります。
+
+  [制約]
+    ・既存ユーザーは SKIP です。あとから Password を空欄に書き換えても、
+      既に在るアカウントのパスワードは変わりません。
+    ・Windows の既定（空のパスワードの使用をコンソール ログオンのみに制限）
+      では、パスワードなしのアカウントはリモート デスクトップや共有フォルダー
+      への接続に使えません。
+    ・autologon_config の __AUTO_to_[HOSTUSER]__ は、パスワードなしの
+      ユーザーを対象にできません（Error で止まります）。
+    ・パスワードの最小文字数などのポリシーが効いている PC（ドメイン参加機
+      など）での動作は未確認です。作成できなかった場合はその行だけ失敗に
+      なります。
+
 ■ 動作モード
 
   [全 PC 共通モード]
@@ -100,9 +133,12 @@ AutoLogon=1 を付けるのが通常の書き方です。
   1. local_user_list.csv を読み込む
   2. local_user_host_list.csv が存在すれば NewPCName で突合して追加
   3. Enabled=1 のユーザーを一覧表示（Enabled=0 は [DISABLED] 表示）
+     ・Password: (set) / (none) を表示。作成できない行は [INVALID]
   4. 実行確認（Y/N）
   5. ユーザー作成
+     ・UserName が空 / Password の欄が無い行は作成せず失敗
      ・既存ユーザーは SKIP（冪等性あり）
+     ・Password 空欄の行はパスワードなしで作成
      ・PasswordNeverExpires / UserMayNotChangePassword を反映
      ・AccountNeverExpires は常に true で作成
   6. Group 列のグループへ Add-LocalGroupMember で追加

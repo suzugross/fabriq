@@ -15,6 +15,24 @@
 
 ## [Unreleased]
 
+### Changed
+- modules/standard/local_user_config (1.3.0 → 1.4.0): **`Password` 列が空欄の行を、パスワードなしの
+  ユーザーとして作成するようにした**。従来は `ConvertTo-SecureString` が空文字を拒否し、その行だけ
+  失敗していた。**これまで失敗していた空欄の行が、更新後は成功してパスワードなしのアカウントになる**
+  (パスワードの入力漏れも同じ扱い)。空欄の行は実行前の一覧に `Password: (none)` と表示し、作成する
+  ときに `Show-Warning` を 1 行出す。作成は `New-LocalUser -Password <空の SecureString>` で行う。
+  `-NoPassword` は実測(2026-10-05、PS 5.1.26100)で「次回ログオン時にパスワード変更を強制」の状態で
+  作られ、`-PasswordNeverExpires` も同時に指定できないため使わない。
+- modules/standard/local_user_config: 行の判定を純関数 `Get-LocalUserCreatePlan` に切り出した。
+  `UserName` が空の行と、行が途中で切れて `Password` の欄そのものが無い行(`Import-Csv` が `$null` を
+  返す)は、作成前に理由つきで失敗にする(一覧では `[INVALID]`)。後者を空欄と同一視すると壊れた行が
+  パスワードなしのアカウントになるため区別する。この 2 種の行は同名ユーザーが既に居ても失敗になる
+  (従来は既存チェックが先で Skip)。
+- modules/standard/local_user_config: CSV スキーマ・`preset.csv`・`REQUIRES_KERNEL`(3.7.0)は変更なし。
+  `autologon_config` の `__AUTO_to_[HOSTUSER]__` は無改修で、対象がパスワードなしのユーザーなら従来どおり
+  Error で止まる。テスト `tests/modules/local_user_config/LocalUserCreatePlan.tests.ps1` と、`test.psd1` の
+  VM 用シナリオ `nopassword` を追加。
+
 ### Fixed
 - modules/standard/generic_batch_runner (1.0.0 → 1.1.0) / modules/standard/generic_process_runner
   (1.1.0 → 1.2.0): **汎用ランナー 2 種がプロファイル別データオーバーレイに片肺だった問題**
