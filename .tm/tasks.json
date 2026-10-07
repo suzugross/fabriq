@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-10-07T09:46:00+09:00",
+  "updatedAt": "2026-10-07T16:15:28+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -956,6 +956,24 @@
       "status": "レビュー待ち",
       "createdAt": "2026-10-05T10:53:44+09:00",
       "updatedAt": "2026-10-07T09:46:00+09:00"
+    },
+    {
+      "id": "t-0108",
+      "title": "hostlist_precheck: hostlist と実機状態の事前整合性チェックモジュール（新規）",
+      "content": "別業者がホスト名や IP アドレスの設定だけを済ませた端末を、Fabriq で続けてキッティングする際の整合性チェック。\n選択した hostlist 行の内容と端末の現在の状態を比べ、合致していれば Success、不一致なら Error を返す。\nチェックする項目はモジュール CSV で選択できるようにする。",
+      "claudeNote": "[2026-10-07] 実装済み・コミット 78a77e4（main、push 未）。同日に実機報告を 2 件受けて判定方法を 2 回直した（下記）。2 回目の修正後の実機での再確認はまだ。\n\n■ 確定した仕様（設計ゲートで合意）\n- 読み取り専用。照合した項目が全一致で Success、1 件でも不一致で Error（Partial なし）。\n- 照合項目は precheck_list.csv の CheckItem で選ぶ: NewPCName / OldPCName / EthernetIP / EthernetSubnet / EthernetGateway / EthernetDNS / WifiIP / WifiSubnet / WifiGateway / WifiDNS。\n- 有効な項目は hostlist 側が空欄でない限り照合。空欄の項目は N/A。全項目 N/A なら Skipped。\n- DNS の項目は、hostlist にそのアダプタの IP があるときだけ照合する（2 件目の報告でユーザーが指定。DNS1〜4 が両アダプタ共通の列のため。ipaddress_config が DNS を設定する条件と同じ）。\n- DNS はアダプタ別の項目に分割（ユーザー要望: Wi-Fi が DHCP の PC で Wi-Fi の DNS を見ないようにする）。出荷時は Wi-Fi 系と OldPCName が無効。\n- リンク断のアダプタも照合する（ユーザー要望）。\n- 読めない値・アダプタ不在・未知の CheckItem はすべて Error 側（fail-closed）。\n- Verified: 全一致 true / 不一致あり false / 照合なし null。\n\n■ テンプレートからの逸脱（意図的）\n- 実行確認を置かない。Cancelled は __GATE__ を通過するため、N で未チェックのまま進めてしまう。\n- New-BatchResult ではなく New-ModuleResult を直接返す（Partial を出さないため）。\n\n■ リンク断での誤判定と修正（2026-10-07）\n- 報告: 静的 IP を振ってあるのに、リンクダウン時に DHCP と判定される。\n- 原因: 初版は DHCP かどうかを Get-NetIPInterface（現在の通信状態）の Dhcp で判定していた。モジュールが「DHCP」と表示する経路はこの値が Disabled 以外のときだけなので、リンク断ではこの値が静的設定のアダプタでも Disabled にならない、と判断した（cmdlet の生の出力は未採取）。\n- 修正: 設計時に予備手段として合意していたレジストリ読みに切り替えた。Tcpip\\Parameters\\Interfaces\\{GUID} の EnableDHCP / IPAddress / SubnetMask / DefaultGateway / NameServer を読む（「IPv4 のプロパティ」画面に出る値）。変換は純関数 ConvertTo-PrecheckSavedConfig。PersistentStore の cmdlet 読みは全廃。\n- DNS は、静的 DNS（NameServer）があればそれと比べ、無いアダプタに限り Get-DnsClientServerAddress の値と比べる（「値の一致だけを見る」という合意済みの仕様は変えていない）。\n- 教訓: 「DHCP の有効/無効はリンク状態に依らないはず」を未実測のまま前提にしていた。リンク断の挙動は、設定ストア（レジストリ）以外は実測するまで信用しない。\n\n■ 2 件目の報告と修正（2026-10-07）\n- 報告: hostlist は有線一式 + DNS、Wi-Fi は空欄。端末は fabriq で設定済みでステータスモニターは全項目 OK。チェック項目は有線一式・Wi-Fi 一式・ホスト名。結果は、有線の IP とサブネットが DHCP 判定、ゲートウェイと有線 DNS は OK、Wi-Fi は DNS だけ NG（ここは判定してほしくない）。\n- 不明点: この結果がレジストリ読みに直す前の版か後の版かは未確認。前の版なら 1 件目と同じ原因、後の版ならレジストリの EnableDHCP が「静的」を示していなかったことになる。\n- 修正 1（IP / サブネット）: インターフェース単位の DHCP フラグで判定するのをやめた。静的アドレスの根拠を 2 つ持ち、どちらかで確認できれば静的とする: (a) レジストリの EnableDHCP=0 + IPAddress、(b) 現在の通信状態の Manual 由来アドレス（ipaddress_config の Test-IpConfigMatch と同じ見方）。DHCP 配布のアドレスはどちらにも当たらない。合成は純関数 Join-PrecheckStaticAddresses。ステータスモニターが OK = 通信状態側にアドレスが見えている、というのが (b) を足した根拠。上の不明点がどちらでも通る形にした。\n- 修正 2（DNS）: hostlist にそのアダプタの IP が無ければ DNS の項目は N/A。\n- 画面にアダプタごとの根拠を 2 行追加: Static IPv4（どちらの根拠で見つかったか）と Saved DHCP（表示のみ）。次に実機で走らせれば、上の不明点はこの 2 行で分かる。\n- 要注意: もし実機で「Static IPv4 が live stack のみ・Saved DHCP が Enabled」と出たら、fabriq（netsh）で静的設定した端末のレジストリが DHCP 有効のままということになり、hostlist_precheck ではなく ipaddress_config 側の問題（リンクアップ後に DHCP へ戻る恐れ）として調べる必要がある。\n\n■ その他のメモ\n- アダプタ選択のロジックは ipaddress_config と二重。共通化は kernel の公開 API 追加になるため見送り、コメントと Guide で相互参照。\n- ipaddress_config 自身の読み返し（Test-IpConfigMatch / Step 5.5）がリンク断で正しく通るかは未確認のまま（本タスクの範囲外。現在の通信状態を読んでいる点は同じ）。\n\n■ 検証結果（2026-10-07、開発機、修正後）\n- run_tests.ps1: Passed 641 / Failed 0 / Skipped 0（うち本モジュール 109）。\n- check_ps1_encoding: exit 0。check_version / seed_module_versions -DryRun は修正前に exit 0（対象ファイル不変）。\n- 開発機でモジュール本体をスモーク実行（リンクアップ・静的設定の NIC、16 ケース。報告と同じ「有線のみの hostlist + 全項目有効」を含む）: 全件期待どおり。開発機では静的アドレスが両方の根拠（saved settings + live stack）で見つかることを確認。\n\n■ 未確認\n- 2 回目の修正後のモジュールで、報告の実機（リンク断を含む）の有線 4 項目が MATCH、Wi-Fi が全項目 N/A になること。\n- そのとき画面の Static IPv4 / Saved DHCP に何が出るか（上の不明点の答え）。\n- test.psd1 の VM シナリオ 5 本（検証 VM が電源オフ）。\n- プロファイル経由で __GATE__ が後続を止めること（kernel の契約どおりのはずだが end-to-end は未確認）。\n\n■ 変更ファイル\n- 新規: modules/standard/hostlist_precheck/（ps1 / precheck_list.csv / module.csv / Guide.txt / VERSION 0.1.0 / REQUIRES_KERNEL 3.5.0 / test.psd1 / fixtures 2 本）、tests/modules/hostlist_precheck/PrecheckVerdict.tests.ps1\n- 変更: CHANGELOG.md（[Unreleased] Added）、README.md（モジュール表と件数）",
+      "status": "対応中",
+      "createdAt": "2026-10-07T14:56:48+09:00",
+      "updatedAt": "2026-10-07T16:15:28+09:00"
+    },
+    {
+      "id": "t-0109",
+      "title": "[テストリグ] run_module_tests.ps1 が expect.verified = $true を検査していない",
+      "content": "dev/test_rig/run_module_tests.ps1 の Verified 判定:\n  $vOk = ($vexp -eq 'any') -or (\"$($rr.verified)\" -eq \"$vexp\")\n$vexp が $true のとき、左辺が bool なので 'any' が bool に変換されて $true になり、($true -eq 'any') が常に真になる。結果、expect.verified = $true と書いたシナリオは、モジュールが Verified=$false を返しても FAIL にならない。\n$false / $null を期待するシナリオは文字列比較に落ちるので正しく検査されている。",
+      "claudeNote": "[2026-10-07] t-0108（hostlist_precheck）の test.psd1 を書く過程で発見。開発機の PowerShell 5.1 で再現を確認済み（期待 True・実際 False で vOk が True）。未修正。\n修正案: 'any' の判定を文字列のときだけに限定する（例: ($vexp -is [string] -and $vexp -eq 'any')）。\n影響: verified = $true を期待している既存の記述子は、Verified の検査が実質効いていない。修正後に FAIL へ変わるシナリオが出る可能性があるので、修正時は全記述子を回して確認する。\nリグは非出荷の dev ツールなので、VERSION / CHANGELOG の対象外。",
+      "status": "未着手",
+      "createdAt": "2026-10-07T15:18:07+09:00",
+      "updatedAt": "2026-10-07T15:18:07+09:00"
     }
   ]
 }
