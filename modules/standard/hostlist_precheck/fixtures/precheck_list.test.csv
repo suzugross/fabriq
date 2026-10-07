@@ -1,0 +1,6 @@
+Enabled,CheckItem,Description,Segment
+1,NewPCName,rig: hostname,
+1,EthernetIP,rig: ethernet ip,
+1,EthernetSubnet,rig: ethernet subnet,
+1,EthernetGateway,rig: ethernet gateway,
+1,EthernetDNS,rig: ethernet dns,

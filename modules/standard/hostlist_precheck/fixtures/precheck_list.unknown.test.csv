@@ -1,0 +1,3 @@
+Enabled,CheckItem,Description,Segment
+1,NewPCName,rig: hostname,
+1,EthernetDnss,rig: misspelled item (must fail the whole check),

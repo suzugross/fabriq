@@ -1,0 +1,129 @@
+■ 概要
+hostlist.csv で選択したホストの値と、この PC の現在の設定を突き合わせます。
+照合した項目がすべて一致すれば Success、1 件でも一致しなければ Error を返します。
+
+PC には一切書き込みません（読み取り専用）。
+
+想定している使い方:
+別の業者がホスト名や IP アドレスだけを先に設定した PC を、Fabriq で続けて
+キッティングするときの検問です。設定の誤りと、hostlist の行の選び間違いの
+どちらも、後続モジュールが動く前に検出します。
+
+■ 設定ファイル
+[precheck_list.csv]
+  Enabled     : 1=照合する / 0=照合しない
+  CheckItem   : 照合する項目（下の表の名前のいずれか）
+  Description : 説明（任意）
+  Segment     : セグメント名（任意。空欄=全セグメント共通）
+
+CheckItem に下の表にない名前を書くと、何も照合せずに Error で終わります
+（打ち間違いで照合が黙って抜けるのを防ぐため）。
+
+■ 照合項目
+  CheckItem        hostlist の列                一致の条件
+  ---------------  ---------------------------  ------------------------------------
+  NewPCName        NewPCName                    現在のホスト名と同じ
+  OldPCName        OldPCName                    現在のホスト名と同じ
+  EthernetIP       EthernetIP                   静的 IPv4 が 1 個だけで、値が同じ
+  EthernetSubnet   EthernetSubnet               その IPv4 のサブネットマスクが同じ
+  EthernetGateway  EthernetGateway              デフォルトゲートウェイが 1 個だけで、値が同じ
+  EthernetDNS      DNS1 / DNS2 / DNS3 / DNS4    DNS サーバの個数と順序が完全に同じ
+  WifiIP           WifiIP                       （Ethernet と同じ条件を Wi-Fi で判定）
+  WifiSubnet       WifiSubnet
+  WifiGateway      WifiGateway
+  WifiDNS          DNS1 / DNS2 / DNS3 / DNS4
+
+・有効にした項目は、hostlist 側の値が空欄でない限り照合します。
+・hostlist 側の値が空欄の項目は「照合対象外」（N/A）になります。
+・DNS1〜4 は Ethernet と Wi-Fi で共通の列です。そのため DNS の項目は、
+  hostlist にそのアダプタの IP アドレスが入っているときだけ照合します。
+    例: hostlist の WifiIP が空欄なら、WifiDNS を有効にしていても Wi-Fi の
+        DNS は照合しません（Wi-Fi が DHCP の PC で不一致になるのを防ぐため）。
+  これは ipaddress_config が DNS を設定する条件（IP が入っているアダプタ
+  だけ）と同じです。
+・全機種で同じ precheck_list.csv を使い、Wi-Fi の項目を有効にしておいても
+  かまいません。hostlist に Wi-Fi の値がない行では、Wi-Fi の項目はすべて
+  照合対象外になります。
+・NewPCName と OldPCName は用途が違います。
+    NewPCName : 他の業者が最終的なホスト名まで設定済みのとき
+    OldPCName : Fabriq でこれからリネームする PC の取り違えを検出したいとき
+  hostlist で両者の値が違う行に対して両方を有効にすると、必ず Error になります。
+
+■ 判定のしかた
+・IP アドレスは「静的に設定された値」だけを一致とみなします。DHCP でたまたま
+  同じアドレスになっていても不一致です。
+・静的なアドレスかどうかは、次のどちらかで確認できれば静的とみなします。
+    1) アダプタに保存されている設定（レジストリ）が「DHCP 無効」で、
+       そこにアドレスが入っている
+    2) 現在の通信状態に、手動設定（Manual）のアドレスがある
+       （ipaddress_config が設定済みかどうかを見るのと同じ方法）
+  DHCP で配られたアドレスは、どちらにも当てはまりません。
+  「DHCP が有効かどうか」の表示だけでは判定しません（静的に設定済みの PC を
+  DHCP と誤判定した実例があるため）。
+・ゲートウェイは、アダプタに保存されている設定（レジストリ）から読みます。
+・DNS は、アダプタに静的に設定されていればその値と比べます。静的な設定が
+  ない（自動取得の）ときは、いま使われている値（DHCP で配られた値）と
+  比べます。
+・ケーブルが挿さっていない（リンク断の）アダプタも照合の対象です。
+・アダプタの選び方は ipaddress_config と同じです（物理アダプタのうち無効で
+  ないものの先頭。Wi-Fi は InterfaceDescription で判別）。
+・値が読み取れなかった項目、アダプタが見つからなかった項目は、一致とは
+  みなさず Error 側に数えます。hostlist に Wi-Fi の値が入っているのに
+  Wi-Fi アダプタがない PC は Error になります。
+
+■ 結果
+  状況                                        Status    Verified
+  ------------------------------------------  --------  --------
+  照合した項目がすべて一致                    Success   true
+  不一致、または読み取れない項目が 1 件以上   Error     false
+  有効な行がない / 全項目が照合対象外         Skipped   (なし)
+  CSV が読めない / 未知の CheckItem           Error     (なし)
+
+Partial は返しません。実行確認（Y/N）もありません。
+画面には項目ごとに hostlist の値（Expected）と PC の値（Actual）を並べて
+表示するので、どこが違うかをその場で確認できます。
+
+アダプタごとに次の 2 行も表示します。IP アドレスの判定の根拠です。
+  Static IPv4 : 見つかった静的アドレスと、それを確認できた場所
+                saved settings = 保存されている設定（レジストリ）
+                live stack     = 現在の通信状態
+  Saved DHCP  : 保存されている設定上の DHCP（Enabled / Disabled）。表示のみで、
+                判定には使いません。
+
+■ プロファイルでの使い方
+プロファイルの先頭に置き、直後に __GATE__ を置いてください。
+
+  Order  ScriptPath
+  10     standard/hostlist_precheck/hostlist_precheck.ps1
+  20     __GATE__
+  30     （以降のモジュール）
+
+本モジュールが Error の間、__GATE__ より後ろのモジュールは実行されません。
+設定を直して本モジュールを再実行し、Success になれば先へ進めます。
+
+__GATE__ は「失敗」を止めますが「省略」は止めません。本モジュールが
+未実行のまま、または Skipped のときは後続が実行されます。必ず先頭に
+置いてください。
+
+■ 前提条件
+・Fabriq 起動時にホストを選択済みであること
+
+■ 使用環境変数
+  $env:SELECTED_NEW_PCNAME / SELECTED_OLD_PCNAME
+  $env:SELECTED_ETH_IP / SELECTED_ETH_SUBNET / SELECTED_ETH_GATEWAY
+  $env:SELECTED_WIFI_IP / SELECTED_WIFI_SUBNET / SELECTED_WIFI_GATEWAY
+  $env:SELECTED_DNS1 / SELECTED_DNS2 / SELECTED_DNS3 / SELECTED_DNS4
+
+■ AutoPilot
+実行確認を行わないため、AutoPilot モードでも通常モードでも動作は同じです。
+
+■ 注意事項
+・hostlist の __SELF__ 行とは併用しないでください。__SELF__ は「この PC の
+  現在値」を期待値にするので照合の意味がなく、DHCP の PC では IP アドレスが
+  不一致になります。
+・ホスト名の変更後にまだ再起動していない PC は、ホスト名が不一致になります。
+  その場合、保留中のホスト名を Note として表示します。
+・ホスト名は 15 文字までで比較されます（Windows の $env:COMPUTERNAME の
+  仕様）。hostlist のホスト名が 15 文字を超えると不一致になります。
+・アダプタの選び方を ipaddress_config と揃えています。ipaddress_config の
+  選び方を変えるときは、本モジュールも同じように変えてください。

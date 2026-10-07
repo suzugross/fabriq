@@ -1,0 +1,11 @@
+Enabled,CheckItem,Description,Segment
+1,NewPCName,Hostname equals NewPCName,
+0,OldPCName,Hostname equals OldPCName (use before fabriq renames the PC),
+1,EthernetIP,Ethernet static IPv4 address,
+1,EthernetSubnet,Ethernet subnet mask,
+1,EthernetGateway,Ethernet default gateway,
+1,EthernetDNS,Ethernet DNS servers (DNS1-4 in order),
+0,WifiIP,Wi-Fi static IPv4 address,
+0,WifiSubnet,Wi-Fi subnet mask,
+0,WifiGateway,Wi-Fi default gateway,
+0,WifiDNS,Wi-Fi DNS servers (DNS1-4 in order),

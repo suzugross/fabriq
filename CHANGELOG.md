@@ -15,6 +15,38 @@
 
 ## [Unreleased]
 
+### Added
+- modules/standard/hostlist_precheck (新規 0.1.0): **hostlist と PC の現在の設定を突き合わせる、読み取り専用の
+  検問モジュール**（TM t-0108）。他の業者がホスト名や IP アドレスだけを先に設定した PC を Fabriq で続けて
+  キッティングする際に、設定の誤りや hostlist の行の選び間違いを、後続モジュールが動く前に検出する。
+  照合した項目がすべて一致すれば Success、1 件でも一致しなければ Error を返す(Partial は返さない)。
+  PC には一切書き込まない。
+- modules/standard/hostlist_precheck: 照合項目は `precheck_list.csv` の `CheckItem` 列で選ぶ
+  (`NewPCName` / `OldPCName` / `EthernetIP` / `EthernetSubnet` / `EthernetGateway` / `EthernetDNS` /
+  `WifiIP` / `WifiSubnet` / `WifiGateway` / `WifiDNS`)。有効にした項目は hostlist 側の値が空欄でない限り
+  照合し、空欄の項目は照合対象外になる。全項目が対象外なら Skipped。DNS1〜4 は両アダプタ共通の列なので、
+  DNS の項目は **hostlist にそのアダプタの IP アドレスがあるときだけ**照合する(`ipaddress_config` が DNS を
+  設定する条件と同じ。有線だけを設定する hostlist で、DHCP の Wi-Fi の DNS が不一致になるのを防ぐ)。
+  出荷時は Wi-Fi 系と `OldPCName` が無効。未知の `CheckItem` は何も照合せず Error。
+- modules/standard/hostlist_precheck: **静的アドレスかどうかは 2 つの根拠のどちらかで確認する** — 保存されている
+  設定(レジストリ `Tcpip\Parameters\Interfaces\{GUID}` の `EnableDHCP=0` と `IPAddress`)、または現在の通信状態の
+  Manual 由来アドレス(`ipaddress_config` の `Test-IpConfigMatch` と同じ見方)。DHCP で配られたアドレスは
+  どちらにも当たらないので、たまたま同じアドレスでも不一致になる。**インターフェース単位の DHCP フラグ
+  だけで「静的か DHCP か」を決めてはいけない** — 開発中の版はそうしており(最初は `Get-NetIPInterface`、次に
+  レジストリの `EnableDHCP`)、fabriq 自身が静的 IP を設定済みの実機を DHCP と誤判定した(2026-10-07 の実機報告
+  2 件を受けて修正。どちらの版で 2 件目が出たかは未確認)。ゲートウェイと静的 DNS は保存されている設定から
+  読み、静的 DNS が無いアダプタに限り、いま使われている DNS(`Get-DnsClientServerAddress`)と比べる。値が
+  読めない項目とアダプタ不在は Error 側に数える。画面にはアダプタごとに、静的アドレスをどちらの根拠で
+  確認したか(`Static IPv4`)と保存設定上の DHCP(`Saved DHCP`、表示のみ)を出す。開発機(リンクアップ・静的
+  設定)では両方の根拠が一致することを確認した。**修正後の実機(リンク断を含む)での再確認はまだ**。
+- modules/standard/hostlist_precheck: `dev/template` からの逸脱が 2 点ある。実行確認を置かない(`Cancelled` は
+  `__GATE__` を通過するため、確認で N を押すと未チェックのまま先へ進めてしまう)。結果は `New-BatchResult`
+  ではなく `New-ModuleResult` で返す(一部失敗を Partial にしないため)。`Verified` は照合結果そのもの
+  (全一致 `$true` / 不一致あり `$false` / 照合なし `$null`)。プロファイルの先頭に置き、直後に `__GATE__` を
+  置く運用を想定する。判定は純関数 `Get-PrecheckItemResult` / `Get-PrecheckOutcome` に切り出し、
+  テスト `tests/modules/hostlist_precheck/PrecheckVerdict.tests.ps1` と、`test.psd1` の VM 用シナリオ 5 本を
+  追加した。kernel と既存モジュールは変更していない。
+
 ### Changed
 - modules/standard/local_user_config (1.3.0 → 1.4.0): **`Password` 列が空欄の行を、パスワードなしの
   ユーザーとして作成するようにした**。従来は `ConvertTo-SecureString` が空文字を拒否し、その行だけ

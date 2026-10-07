@@ -1,0 +1,2 @@
+MenuName,Category,Script,Order,Enabled
+Hostlist Pre-Check,Network,hostlist_precheck.ps1,3,1

@@ -12,7 +12,7 @@ Fabriq は、Windows 11 PC の初期セットアップ（キッティング）�
 - **GUI ダッシュボード**（WinForms）から個別モジュール実行・プロファイル一括実行・セッション切替を操作
 - **AutoPilot** による省人化キッティング。モジュール単位のエラー処理ポリシー（`skip` / `retry`）、再起動跨ぎ自動再開、HTML チェックリスト出力、スクリーンショット自動取得（運用上は仕上げ・確認のため operator の立ち会いを想定）
 - **AES-256-CBC + PBKDF2** による CSV 内機密値の暗号化保持
-- **79 種類の標準・拡張モジュール**を同梱
+- **80 種類の標準・拡張モジュール**を同梱
 
 Fabriq には、本体（PowerShell フレームワーク）と連携する 2 つの GUI アプリケーション（いずれも別リポジトリ・WPF / .NET 8.0）があります。設定・運用は本体だけでも完結しますが、これらを併用することで「設定の整備 → キッティング実行 → エビデンスの納品」までを一貫してカバーできます。
 
@@ -54,7 +54,7 @@ Fabriq で 2 台の PC を一括キッティングし、Fabriq Evidence Manager 
 
 | 機能 | 説明 |
 |------|------|
-| **モジュールシステム** | Standard 62 種・Extended 18 種・計 80 種（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等。うち `windows_update` は GUI ボタン専用） |
+| **モジュールシステム** | Standard 63 種・Extended 18 種・計 81 種（ホスト名、IP、レジストリ、アプリ、BitLocker、Sysprep 等。うち `windows_update` は GUI ボタン専用） |
 | **GUI ダッシュボード** | `Fabriq.exe` 起動後、WinForms ダッシュボードから全操作を実施。CLI モードは廃止 |
 | **プロファイル実行** | 複数モジュールを順序付きで一括実行。`__AUTOPILOT__` マーカー以降は確認ダイアログをスキップして自動進行 |
 | **AutoPilot ErrorMode** | プロファイル CSV の `ErrorMode` 列でモジュール単位に `skip` / `retry`（最大 5 回）を宣言し、AutoPilot 中のエラー対応を自動化 |
@@ -89,7 +89,7 @@ fabriq/
 │   ├── ps1/                # カーネルサブスクリプト（manifesto, view_report）
 │   └── txt/                # パスフレーズ検証トークン、アート文言、silence フラグ
 ├── modules/
-│   ├── standard/           # 標準モジュール群（62）
+│   ├── standard/           # 標準モジュール群（63）
 │   └── extended/           # 拡張モジュール群（16）
 ├── profiles/               # 実行プロファイル CSV
 ├── apps/                   # FabriqApps：GUI アプリツール群
@@ -228,11 +228,11 @@ Linear 経路（`Execute Profile`）も並走運用しており、従来の「�
 
 ## モジュール一覧
 
-### Standard モジュール（62）
+### Standard モジュール（63）
 
 | カテゴリ | モジュール |
 |---|---|
-| **Network** | `hostname_config`, `ipaddress_config`, `temp_ipaddress_config`, `domain_join`, `ssid_config` |
+| **Network** | `hostlist_precheck`, `hostname_config`, `ipaddress_config`, `temp_ipaddress_config`, `domain_join`, `ssid_config` |
 | **Display** | `brightness_config`, `dpi_api_config`, `resolution_api_config` |
 | **Desktop** | `wallpaper_config`, `taskbar_config`, `startlayout_config` |
 | **Security** | `bitlocker_config`, `firewall_config`, `firewall_rule_config`, `firewall_rule_make_config`, `cert_config`, `credential_config`, `office_license_config`, `windows_license_config` |
