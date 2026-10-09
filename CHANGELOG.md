@@ -16,6 +16,32 @@
 ## [Unreleased]
 
 ### Added
+- modules/standard/windows_license_config (v1.2.0 → v1.3.0 / MINOR): **PC のファームウェアに記録されている
+  OEM プロダクトキーを読み出してインストールするスクリプト `windows_license_oem_install.ps1`
+  （メニュー「Install OEM Product Key」）を追加**（TM t-0110）。`SoftwareLicensingService` の
+  `OA3xOriginalProductKey` を読み、`InstallProductKey` で投入する。設定ファイルは無く、キーは常に実行した
+  PC 自身のもの。マスターイメージの展開などで別のキーが入った PC を、出荷時の OEM ライセンスへ戻す用途。
+  別モジュールにはせず、既存の `windows_license_install.ps1` / `windows_license_auth.ps1` /
+  `license_key.csv` は変更していない（どちらの Install を使うかは、プロファイルに登録するスクリプトで選ぶ）。
+  認証は行わない（従来どおり Activate Windows License）。
+- modules/standard/windows_license_config: `windows_license_oem_install.ps1` の結果 — インストール後に
+  末尾 5 桁の読み返しが一致すれば Success（Verified=true）、OEM キーが既にインストール済みなら Skipped
+  （Verified=true）。**ファームウェアに OEM キーが無い PC（仮想マシン・ボリュームライセンス機・自作機）は
+  Error で止まり、`license_key.csv` や手動入力には切り替えない**（OEM キーを入れるつもりの PC に、別のキーが
+  入ったまま正常終了するのを防ぐ。`Read-Host` を持たないので、AutoPilot でキーの入力待ちにならない）。
+  キーの形式が想定外・インストール失敗・インストール後も別のキーが残る場合も Error。現在のキーが読めない
+  ときは「インストール済み」とみなさず、インストールへ進む。インストールに失敗したときは、OEM キーの
+  エディション表記（`OA3xOriginalProductKeyDescription`）を併せて表示する（エディション不一致の切り分け用。
+  エディションの変更は行わない）。キーは末尾 5 桁以外を伏せて表示し、生のキーはヘルパー関数と
+  `InstallProductKey` にしか渡さない。
+- modules/standard/windows_license_config: `windows_license_oem_install.ps1` の判定を純関数にして
+  `tests/modules/windows_license_config/OemKeyVerdict.tests.ps1`（39 ケース）で固定。仮想マシンには OEM キーが
+  無く、Success / Skipped の経路は開発機・CI・検証 VM のどれでも再現できないため。「キーの入力を求めない」
+  「CSV を読まない」「生のキーを表示系のコマンドに渡さない」「`Get-MaskedKey` / `Get-LicenseStatusText` が
+  `windows_license_install.ps1` と同一」も同じテストで固定した。`test.psd1` を新設（VM で到達できる
+  「OEM キー無し → Error」の 1 シナリオのみ。他は対象外と明記）。Guide.txt に 3 本目のスクリプトを追記し、
+  Install Product Key の Post-Apply Verification の記述を v1.1.0 の実装に合わせて修正。
+  **物理の OEM 機での Success / Skipped の確認は未実施。**
 - modules/standard/hostlist_precheck (新規 0.1.0): **hostlist と PC の現在の設定を突き合わせる、読み取り専用の
   検問モジュール**（TM t-0108）。他の業者がホスト名や IP アドレスだけを先に設定した PC を Fabriq で続けて
   キッティングする際に、設定の誤りや hostlist の行の選び間違いを、後続モジュールが動く前に検出する。

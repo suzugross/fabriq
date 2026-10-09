@@ -1,11 +1,25 @@
 ■ 概要
-このモジュールには2つのスクリプトがあります。
+このモジュールには3つのスクリプトがあります。
 
 [Install Product Key]
   Windowsプロダクトキーをインストールします。
+  キーは license_key.csv または手動入力で指定します。
+
+[Install OEM Product Key]
+  PC のファームウェアに記録されている OEM プロダクトキーを読み出し、
+  そのキーをインストールします。設定ファイルはありません。
 
 [Activate Windows License]
   Windowsライセンスのオンライン認証を実行します。
+
+■ どちらの Install を使うか
+・案件で用意したキー（ボリュームライセンス等）を入れる場合
+    → Install Product Key
+・PC に最初から付いていた OEM ライセンスに戻す場合
+  （マスターイメージの展開などで、別のキーが入った状態の PC）
+    → Install OEM Product Key
+プロファイルには、使う方のスクリプトだけを登録してください。
+両方を並べると、後に実行した方のキーで上書きされます。
 
 ■ 設定ファイル
 [license_key.csv]（Install Product Key で使用）
@@ -19,18 +33,33 @@
 [記載例]
   1,XXXXX-XXXXX-XXXXX-XXXXX-XXXXX,Windows 11 Pro VL,
 
-■ プロダクトキーの入力
+Install OEM Product Key と Activate Windows License は設定ファイルを
+使いません。
+
+■ プロダクトキーの入力（Install Product Key）
 ・CSVにキーが定義されている場合はそちらを使用します
 ・CSVがない場合や有効なエントリがない場合は手動入力になります
 
 ■ 前提条件
 ・管理者権限が必要です
 ・ライセンス認証にはインターネット接続が必要です
+・Install OEM Product Key は、ファームウェアに OEM キーが記録されている
+  PC でのみ使えます（下記「OEM キーが無い PC」を参照）
 
 ■ 動作の流れ（Install Product Key）
 1. license_key.csv からキーを読み込み（または手動入力）
 2. 現在のライセンス状態を表示
 3. 実行確認（Y/N）後、プロダクトキーをインストール
+4. インストール後のキーを読み返して検証
+
+■ 動作の流れ（Install OEM Product Key）
+1. ファームウェアの OEM キーを読み出し
+   （SoftwareLicensingService の OA3xOriginalProductKey）
+2. OEM キーと現在のライセンス状態を表示
+   （キーは末尾 5 桁以外を伏せて表示します）
+3. OEM キーが既にインストールされていれば Skip
+4. 実行確認（Y/N）後、OEM キーをインストール
+5. インストール後のキーを読み返して検証
 
 ■ 動作の流れ（Activate Windows License）
 1. 現在のライセンス状態を表示
@@ -38,13 +67,53 @@
 3. 実行確認（Y/N）後、SoftwareLicensingService.RefreshLicenseStatus を起動
 4. 3 秒待機後、SoftwareLicensingProduct を再取得して最終状態を表示
 
+■ Install OEM Product Key の結果
+  Success : OEM キーをインストールした
+  Skipped : OEM キーが既にインストールされている
+            （インストール済みキーの末尾 5 桁が OEM キーと一致）
+  Error   : 下記のいずれか
+            ・ファームウェアに OEM キーが無い
+            ・OEM キーの形式が想定外
+            ・インストールに失敗した
+            ・インストール後も別のキーが残っている
+
+[OEM キーが無い PC]
+  仮想マシン、ボリュームライセンス前提で出荷された PC、自作 PC などには
+  ファームウェアの OEM キーがありません。この場合は Error で止まります。
+  license_key.csv のキーや手動入力に切り替えることはありません
+  （OEM キーを入れるつもりの PC に、別のキーが入ったまま正常終了するのを
+  防ぐため）。
+
+[インストールに失敗する場合]
+  多くは、ファームウェアの OEM キーのエディションと、インストールされて
+  いる Windows のエディションが一致していないケースです
+  （例: OEM キーは Home、展開したイメージは Pro）。
+  画面の「Firmware OEM Key」欄の Description に OEM キーのエディションが
+  表示されるので、現在のエディションと見比べてください。
+  このスクリプトはエディションの変更は行いません。
+
+[認証について]
+  このスクリプトはキーのインストールまでを行います。認証は続けて
+  Activate Windows License を実行してください。
+
 ■ AutoPilot
-AutoPilot モードでは確認をスキップして CSV の設定を自動適用します。
+AutoPilot モードでは確認をスキップして自動適用します。
+Install Product Key は CSV の設定を、Install OEM Product Key は
+ファームウェアの OEM キーを使います。
+Install OEM Product Key には手動入力がないため、キーの入力待ちで止まる
+ことはありません。
 
 ■ Post-Apply Verification
 [Install Product Key]
-  Post-Apply Verification を実装していません。プロダクトキーの
-  インストール成否は OS 側のエラーコードで判定します。
+  インストール後に SoftwareLicensingProduct を読み返し、投入したキーの
+  末尾 5 桁と一致するキーがあるかを確認します。
+    一致するキーがある                 : Success（Verified = true）
+    キーは読めるが一致するものが無い   : Error（旧キーが残っている）
+    キーが 1 つも読めない              : Success（Verified = false）
+
+[Install OEM Product Key]
+  Install Product Key と同じ方法で、OEM キーの末尾 5 桁と照合します。
+  既にインストール済みで Skip した場合は Verified = true を返します。
 
 [Activate Windows License]
   Post-Apply Verification 相当の処理を Step 5 に実装済みです。

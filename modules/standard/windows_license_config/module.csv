@@ -1,3 +1,4 @@
 MenuName,Category,Script,Order,Enabled
 Install Product Key,Security,windows_license_install.ps1,91,1
+Install OEM Product Key,Security,windows_license_oem_install.ps1,91,1
 Activate Windows License,Security,windows_license_auth.ps1,92,1
