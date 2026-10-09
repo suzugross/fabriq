@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-10-07T16:15:28+09:00",
+  "updatedAt": "2026-10-09T17:06:57+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -974,6 +974,24 @@
       "status": "未着手",
       "createdAt": "2026-10-07T15:18:07+09:00",
       "updatedAt": "2026-10-07T15:18:07+09:00"
+    },
+    {
+      "id": "t-0110",
+      "title": "windows_license_config: ファームウェアの OEM キーを読み出してインストールするスクリプトを追加",
+      "content": "モジュールを実行した PC の OEM キー（(Get-CimInstance SoftwareLicensingService).OA3xOriginalProductKey）を読み出し、そのキーを自動でインストールするモードを追加する。\n別モジュールにすべきかどうかも含めて検討する。",
+      "claudeNote": "[2026-10-09] 設計ゲート（フル版）を提示して承認を受け、実装した。コミット b65600f。物理の OEM 機での確認と、検証 VM での確認はまだ。\n\n■ 確定した仕様（設計ゲートで合意）\n- 配置: 別モジュールにせず、windows_license_config に 3 本目のスクリプト windows_license_oem_install.ps1（メニュー「Install OEM Product Key」）を追加する。CSV なし。既存の windows_license_install.ps1 / windows_license_auth.ps1 / license_key.csv は変更しない。\n- OEM キーが無い PC（VM・VL 機・自作機）は Error。license_key.csv や手入力へのフォールバックは持たない。\n- OEM キーが既にインストール済み（末尾 5 桁が一致）なら Skipped（Verified=true）。\n- インストールまでが範囲。認証は従来どおり Activate Windows License。\n- 「OEM キーがあればそれ、無ければ CSV のキー」という混在モードは範囲外。\n\n■ 配置を同モジュールの新スクリプトにした理由\n- license_key.csv に予約語（ProductKey=OEM）を置く案は、同じプロファイル行が CSV の中身で別動作になり、既存の「CSV → 手入力」フォールバックと絡むので採らなかった。\n- 別モジュール案は、CSV を持たないスクリプト 1 本だけのモジュールになり、後続の Activate が元モジュールに残ってドメインが割れるので採らなかった。\n\n■ 実装の要点\n- 判定は純関数（Get-OemKeyPlan / Get-OemVerifyOutcome / Get-KeyPartial）。現在のキーが読めないときは「インストール済み」とみなさず、インストールへ進む。\n- インストール後の読み返しは既存スクリプトと同じ契約: 一致 → Success+Verified=true / キーは読めるが不一致 → Error / 1 つも読めない → Success+Verified=false。\n- インストール失敗時は OA3xOriginalProductKeyDescription（OEM キーのエディション表記）を併せて表示する。エディションの変更はしない。\n- キーは末尾 5 桁以外を伏せて表示。生のキーはヘルパー関数と InstallProductKey にしか渡さない（テストで固定）。Read-Host なし（t-0056 のハング経路を増やさない）。\n- Get-MaskedKey / Get-LicenseStatusText とインストール・読み返し部分は windows_license_install.ps1 と重複している。2 つのヘルパーが同一であることはテストで固定した。\n- module.csv の Order は 91（Install Product Key と同値。Security カテゴリは 91〜94 が埋まっている）。\n\n■ 検証結果（2026-10-09、開発機）\n- run_tests.ps1: Passed 680 / Failed 0 / Skipped 0（既存 641 + 新規 39）。\n- check_ps1_encoding / check_version / seed_module_versions -DryRun: いずれも exit 0。\n- 新規テストのうち構造を固定する 2 件（Read-Host なし / 生のキーを表示しない）は、スクリプトを一時的に壊すと落ちることを確認した（確認後に元へ戻し、バックアップとバイト一致）。\n- 開発機でスクリプト本体を実行: 開発機は VMware のゲストで OEM キーが無いため、Error（No OEM product key in firmware）で止まり、インストール済みキーは変わらず、確認プロンプトも出ないことを確認。\n- Get-CimInstance / Invoke-CimMethod を差し替えたスタブで本体の全分岐を通した（12 シナリオ・83 チェック全通過）: インストール済み → Skipped / インストール成功 / 前後に空白のあるキー / 事前にキーが読めない / 旧キーが残る → Error / 読み返し不能 → Verified=false / インストール例外 → Error+エディション表示 / キー無し / 空白のみ / 形式不正 / サービス照会失敗 / N 回答 → Cancelled。全シナリオで、キーの末尾 5 桁以外が画面と結果に出ないことも確認。ハーネスはスクラッチ（非コミット）。\n\n■ 未確認\n- 物理の OEM 機での Success / Skipped（本物の InstallProductKey を通る経路）。開発機も検証 VM も VMware で OEM キーが無いため、実機でしか確認できない。確認項目: (1) 別キーの状態から実行して Success / Verified=true (2) 再実行で Skipped (3) 続けて Activate Windows License が通る。\n- エディション不一致（例: OEM キーが Home、OS が Pro）のときに InstallProductKey が例外を返すこと。スタブでは例外時の経路を確認済みだが、実際の OS の挙動は未実測。\n- 検証 VM での test.psd1 のシナリオ（OEM キー無し → Error）。2026-10-09 時点で VM（10.1.10.8）は電源オフ。\n\n■ 関連して気づいた点（本タスクの範囲外・未対応）\n- evidence_config.ps1:1537 は OA3xOriginalProductKey をマスクせずエビデンスに書き出している。意図したものかは未確認。\n- fabriq_ios のカタログ（module_categories.json）には新スクリプトを登録していない。\n\n■ 変更ファイル\n- 新規: modules/standard/windows_license_config/windows_license_oem_install.ps1、同 test.psd1、tests/modules/windows_license_config/OemKeyVerdict.tests.ps1\n- 変更: 同 module.csv（1 行追加）、Guide.txt、VERSION（1.2.0 → 1.3.0）、CHANGELOG.md（[Unreleased] Added）\n- REQUIRES_KERNEL は 3.7.0 のまま。kernel は変更なし。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-10-09T15:00:39+09:00",
+      "updatedAt": "2026-10-09T17:06:57+09:00"
+    },
+    {
+      "id": "t-0111",
+      "title": "FlexProfile: 同一セッションで別プロファイルを開くと、前のプロファイルの実行結果が同じ Order の行に残る",
+      "content": "FlexProfile を実行し、そのままのセッションで別の FlexProfile の画面を表示すると、先ほど実行したモジュールの実行結果が残る。\n例: プロファイル A の 1 番目（ホスト名変更）が Success のあと、プロファイル B を開くと B の 1 番目（アプリインストール）も Success と表示される。\n発現経路を究明し、コード上で発生することを確認したうえで修正内容を検討する。",
+      "claudeNote": "■ 2026-10-09 調査結果（コード未変更・設計承認待ち）\n\n根本原因: 実行結果の同一性キーが (SessionID, Order) で、プロファイルが入っていない。Order はプロファイルごとのローカル番号なので、同じセッションで別プロファイルを扱うと同じ Order の行が衝突する。execution_history.csv にもメモリ上の結果にもプロファイル列が無い。\n\n実測で再現した漏れ経路（scratch の Pester で 3/3 再現。A の Order 10 = Hostname Change/Success を記録 → B の Order 10 = App Install を解決）:\n- L1 ダッシュボード: $script:LastBatchResults を main.ps1 L855 が無条件で渡し、flex_dashboard.ps1 L130-139 が Order だけで上書き。KanriNo 未選択でも発生。\n- L2 ダッシュボード: flex_dashboard.ps1 L64-86 の byOrder（history.csv・セッション絞り込みのみ）。L1 を消してもこちらで同じ表示になる。\n- L3 HTML チェックリスト（納品物）: common.ps1 L3074-3078 が Order だけで照合。B で未実行の行に A の結果が載り OK 1 / A のメッセージが出る。Flex の [Complete]、Linear のゲートブロック行・中断後の行で起きる。\n\n同根の周辺:\n- ダッシュボードのゲート判定（stateMap 由来）: A の Error が B の行を誤ブロックしうる。kernel 側のゲート seed は afebb2f で Order+MenuName 束縛済みのため、UI と kernel の判定が食い違う。\n- [Log] ボタン（log_viewer.ps1 Get-ModuleTelemetryLog）: セッション内を profileOrder だけで照合。B の行で A のログが開く。envelope.start には profileName が既に入っている。\n- RestartNow の ModuleStates スナップショット（MenuName のみ）: 書き込み専用で読む側が無いため実害なし。\n\n■ 修正方針（提案）\nキーを (SessionID, Profile, Order) にする。\n- 書き込み: Add-ExecutionResult / Write-ExecutionHistory に -ProfileName（任意）。履歴 CSV に 14 列目 Profile を追加。LastBatchResults の各要素に ProfileName。\n- 読み込み: Import-ExecutionHistory を列位置読みにして旧ヘッダ（13 列）のファイルでも Profile を落とさない。\n- 照合: ダッシュボード（history / LastBatchResults）、Export-HtmlChecklist の Order 照合、ゲート seed、ログビューワを Profile 一致で束縛。Order>0 で Profile 空の行は不一致扱い（fail-closed）。\n- ダッシュボードの状態マップ構築を UI 無しの関数に切り出して回帰テストを付ける。\n\n代替案（不採用の理由）: 各参照点を Order+MenuName で束縛するだけの案は報告の例は直るが、同じモジュールが同じ Order にある 2 プロファイル（データオーバーレイで設定内容が異なりうる）では漏れが残る。\n\n下流: fabriq_evidence_manager の ChecklistParserService.ParseExportHistory は列名参照のため末尾の列追加は無害（確認済み）。履歴 CSV を直接読むのは kernel/common.ps1 のみ。\n\n別件として気づいた点（今回の範囲外）: HTML チェックリストは Order 無しの ad-hoc 実行結果を MenuName で拾う（テストで固定された既存契約）。ダッシュボードは Wave 3D で拾わないようにしたため、両者で表示が食い違う。",
+      "status": "対応中",
+      "createdAt": "2026-10-09T16:04:32+09:00",
+      "updatedAt": "2026-10-09T16:04:32+09:00"
     }
   ]
 }
