@@ -7,6 +7,8 @@
 # Pins the data-access contract of the FlexProfile log viewer (t-0074):
 #   - Parses only show.* events (envelope.start/end excluded) from the
 #     telemetry per-module JSONL, keyed by envelope.start.order.
+#   - With -ProfileName, only runs recorded for that profile match (Order
+#     is local to a profile; TM t-0111).
 #   - When an Order ran multiple times, the newest run wins (selected by
 #     file LastWriteTimeUtc, which is restart-proof).
 #   - Missing order / missing dir -> empty array (never $null-collapse).
@@ -29,19 +31,23 @@ BeforeAll {
             [Parameter(Mandatory)][int]$Order,
             [string[]]$ShowLines = @(),
             [datetime]$LastWrite = ([datetime]'2026-01-01T00:00:00Z'),
-            [switch]$LegacyOrder
+            [switch]$LegacyOrder,
+            # Emits envelope.start.profileName (the writer adds it for every
+            # module run inside a profile batch). Empty = field absent.
+            [string]$ProfileName = ''
         )
         if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
         $lines = @()
+        $profileField = if ($ProfileName) { ',"profileName":"{0}"' -f $ProfileName } else { '' }
         # Mirror the production telemetry writer: `order` is always 0 and the
         # real per-entry Order lives in `profileOrder` (set from the Profile
         # context). Pass -LegacyOrder to instead emit only the plain `order`
         # field (no profileOrder), exercising the fallback path.
         if ($LegacyOrder) {
-            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":{1}}}' -f $Name, $Order)
+            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":{1}{2}}}' -f $Name, $Order, $profileField)
         }
         else {
-            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":0,"profileOrder":{1}}}' -f $Name, $Order)
+            $lines += ('{{"ts":"2026-01-01T00:00:00.000+09:00","type":"envelope.start","module":"{0}","order":0{2},"profileOrder":{1}}}' -f $Name, $Order, $profileField)
         }
         $lines += $ShowLines
         $lines += '{"ts":"2026-01-01T00:00:05.000+09:00","type":"envelope.end","status":"Error"}'
@@ -123,6 +129,54 @@ Describe 'Get-ModuleTelemetryLog' {
             $log = @(Get-ModuleTelemetryLog -Order 50 -ModulesDir $dir)
             $log.Count | Should -Be 1
             $log[0].Message | Should -Be 'NEW run'
+        }
+    }
+
+    Context 'Profile scoping (Order is local to a profile; TM t-0111)' {
+        # Two profiles run in one session share the session's telemetry
+        # folder, so the same Order exists once per profile.
+        BeforeEach {
+            $script:scopeDir = Join-Path $TestDrive ("modules_scope_{0}" -f ([guid]::NewGuid().ToString('N')))
+            New-TestTelemetryFile -Dir $script:scopeDir -Name '0001_hostname' -Order 10 -ProfileName 'Pre' -ShowLines @(
+                '{"ts":"t1","type":"show.success","tag":"info","msg":"hostname log of Pre"}'
+            ) -LastWrite ([datetime]'2026-06-15T00:00:00Z') | Out-Null
+            New-TestTelemetryFile -Dir $script:scopeDir -Name '0002_appinstall' -Order 10 -ProfileName 'Config' -ShowLines @(
+                '{"ts":"t2","type":"show.error","tag":"error","msg":"app install log of Config"}'
+            ) -LastWrite ([datetime]'2026-01-01T00:00:00Z') | Out-Null
+        }
+
+        It 'returns the run of the requested profile even when the other profile''s run is newer' {
+            $log = @(Get-ModuleTelemetryLog -Order 10 -ProfileName 'Config' -ModulesDir $script:scopeDir)
+
+            $log.Count | Should -Be 1
+            $log[0].Message | Should -Be 'app install log of Config'
+        }
+
+        It 'returns nothing when only another profile ran that Order' {
+            (@(Get-ModuleTelemetryLog -Order 10 -ProfileName 'NeverRan' -ModulesDir $script:scopeDir)).Count | Should -Be 0
+        }
+
+        It 'accepts any of several names (the stored name may be the secret-masked form)' {
+            $log = @(Get-ModuleTelemetryLog -Order 10 -ProfileName @('Con***', 'Config') -ModulesDir $script:scopeDir)
+
+            $log.Count | Should -Be 1
+            $log[0].Message | Should -Be 'app install log of Config'
+        }
+
+        It 'does not match a run recorded without a profile when a profile is requested' {
+            $dir = Join-Path $TestDrive 'modules_scope_noprofile'
+            New-TestTelemetryFile -Dir $dir -Name '0001_adhoc' -Order 10 -ShowLines @(
+                '{"ts":"t1","type":"show.info","tag":"info","msg":"no profile context"}'
+            ) | Out-Null
+
+            (@(Get-ModuleTelemetryLog -Order 10 -ProfileName 'Config' -ModulesDir $dir)).Count | Should -Be 0
+        }
+
+        It 'without -ProfileName matches on Order alone (newest run wins)' {
+            $log = @(Get-ModuleTelemetryLog -Order 10 -ModulesDir $script:scopeDir)
+
+            $log.Count | Should -Be 1
+            $log[0].Message | Should -Be 'hostname log of Pre'
         }
     }
 

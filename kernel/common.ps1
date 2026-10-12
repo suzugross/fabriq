@@ -58,6 +58,9 @@ $script:ExecutionResults = @()
 # Populated by Invoke-BatchExecution at natural completion (and from
 # finally on cancel / mid-throw paths). Each entry is a hashtable:
 #   Order    : int     - profile CSV Order (markers included with their Order)
+#   ProfileName : string - profile the batch ran for ("" = menu-mode batch).
+#                          Order is local to a profile, so the dashboard
+#                          only applies entries of the profile it shows.
 #   MenuName : string  - module display name (with [seg:..] suffix etc)
 #   Status   : string  - Success / Error / Skipped / Cancelled / Partial
 #   Verified : Nullable[bool] - Post-Apply Verification result, or $null
@@ -2324,7 +2327,15 @@ function Add-ExecutionResult {
         # module runs). Used by FlexProfile dashboard / HTML checklist
         # for per-row state tracking when multiple Profile rows share
         # the same MenuName.
-        [int]$Order = 0
+        [int]$Order = 0,
+        # Profile the result belongs to (profiles/<name>.csv base name).
+        # Order is local to a profile, so a Profile row is identified by
+        # (Profile, Order): matching on Order alone picks up whatever
+        # module sat at the same Order in another profile run earlier in
+        # this session. Empty = no profile context (menu-mode batch,
+        # ad-hoc run, profile-external entries such as [RESTART NOW] or
+        # the log upload).
+        [string]$ProfileName = ""
     )
 
     $script:ExecutionResults += [PSCustomObject]@{
@@ -2334,6 +2345,7 @@ function Add-ExecutionResult {
         Timestamp = Get-Date
         Verified  = $Verified
         Order     = $Order
+        Profile   = $ProfileName
     }
 
     # Refresh the status monitor
@@ -2531,6 +2543,48 @@ function Initialize-ExecutionHistory {
     }
 }
 
+function Get-ExecutionHistoryColumns {
+    # Column order of execution_history.csv. APPEND-ONLY: a new column goes
+    # at the end, so a file created by an older kernel stays readable (see
+    # Read-ExecutionHistoryCsv).
+    return @(
+        'Timestamp', 'KanriNo', 'PCName', 'ModuleName', 'Category', 'Status', 'Message',
+        'WindowsUser', 'Worker', 'MediaSerial', 'SessionID', 'Verified', 'Order', 'Profile'
+    )
+}
+
+function Read-ExecutionHistoryCsv {
+    # Reads the history CSV into row objects. Throws when the file cannot
+    # be read (callers retry / fall back to the backup).
+    #
+    # A history file keeps the header it was created with, and Import-Csv
+    # silently drops fields beyond that header. The file outlives a kernel
+    # update (it travels with the media across PCs), so rows appended by
+    # this kernel to a file created by an older one would lose their
+    # trailing columns on read - the Profile column, without which no
+    # result can be matched to a Profile row. When the on-disk header is a
+    # leading subset of the current column list, read by position with the
+    # current list instead. Any other header is read by name as before.
+    param([Parameter(Mandatory)][string]$Path)
+
+    $columns   = Get-ExecutionHistoryColumns
+    $firstLine = "$(Get-Content -Path $Path -TotalCount 1 -Encoding UTF8 -ErrorAction Stop)".TrimStart([char]0xFEFF)
+    $diskCols  = @($firstLine.Split(',') | ForEach-Object { $_.Trim().Trim('"') })
+
+    $isLeadingSubset = ($diskCols.Count -lt $columns.Count)
+    if ($isLeadingSubset) {
+        for ($i = 0; $i -lt $diskCols.Count; $i++) {
+            if ($diskCols[$i] -ne $columns[$i]) { $isLeadingSubset = $false; break }
+        }
+    }
+
+    if ($isLeadingSubset) {
+        # -Header turns the on-disk header line into a data row: skip it.
+        return @(Import-Csv -Path $Path -Encoding UTF8 -Header $columns | Select-Object -Skip 1)
+    }
+    return @(Import-Csv -Path $Path -Encoding UTF8)
+}
+
 function Write-ExecutionHistory {
     param(
         [string]$ModuleName,
@@ -2545,7 +2599,14 @@ function Write-ExecutionHistory {
         # New column added in kernel 3.1.3 — backward compatible
         # (legacy rows without Order column read as Order=0 via
         # Restore-ExecutionHistory).
-        [int]$Order = 0
+        [int]$Order = 0,
+        # Profile this entry belongs to (profiles/<name>.csv base name).
+        # Order is local to a profile, so (SessionID, Profile, Order) is
+        # the identity of a Profile row's result; Order alone collides as
+        # soon as two profiles run in one session. Empty = no profile
+        # context (menu-mode batch / ad-hoc / profile-external markers);
+        # the CSV cell is left empty in that case.
+        [string]$ProfileName = ""
     )
 
     $maxRetry = 3
@@ -2582,7 +2643,14 @@ function Write-ExecutionHistory {
     # otherwise the integer value.
     $orderStr = if ($Order -gt 0) { "$Order" } else { "" }
 
-    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID),$Verified,$orderStr"
+    # Profile column: a profile name is a file name, so it may contain a
+    # comma - quote it then.
+    $escapedProfile = $ProfileName
+    if ($escapedProfile -match '[,"\r\n]') {
+        $escapedProfile = '"' + ($escapedProfile -replace '"', '""') + '"'
+    }
+
+    $line = "$timestamp,$env:SELECTED_KANRI_NO,$env:SELECTED_NEW_PCNAME,$ModuleName,$Category,$Status,$escapedMessage,$windowsUser,$workerName,$mediaSerial,$($script:SessionID),$Verified,$orderStr,$escapedProfile"
 
     # Create with header if file does not exist
     $needHeader = -not (Test-Path $script:HistoryPath)
@@ -2590,7 +2658,7 @@ function Write-ExecutionHistory {
     for ($i = 0; $i -lt $maxRetry; $i++) {
         try {
             if ($needHeader) {
-                $header = "Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order"
+                $header = (Get-ExecutionHistoryColumns) -join ','
                 $header | Out-File -FilePath $script:HistoryPath -Encoding UTF8 -Force
                 $needHeader = $false
             }
@@ -2626,7 +2694,7 @@ function Import-ExecutionHistory {
         $data = $null
         for ($retry = 0; $retry -lt 3; $retry++) {
             try {
-                $data = @(Import-Csv -Path $script:HistoryPath -Encoding UTF8)
+                $data = @(Read-ExecutionHistoryCsv -Path $script:HistoryPath)
                 break
             }
             catch {
@@ -2657,7 +2725,7 @@ function Import-ExecutionHistory {
             try {
                 Copy-Item $backupPath $script:HistoryPath -Force
                 Show-Warning "Restored history file from backup"
-                return @(Import-Csv -Path $script:HistoryPath -Encoding UTF8)
+                return @(Read-ExecutionHistoryCsv -Path $script:HistoryPath)
             }
             catch {
                 Show-Warning "Failed to restore history file"
@@ -2746,6 +2814,9 @@ function Restore-ExecutionHistory {
                 SessionID  = $entry.SessionID
                 Verified   = $restoredVerified
                 Order      = $restoredOrder
+                # Empty for rows without a profile context and for rows
+                # written before the Profile column existed.
+                Profile    = "$($entry.Profile)"
             }
         }
 
@@ -2760,6 +2831,7 @@ function Restore-ExecutionHistory {
                     IsRestored = $false
                     SessionID  = $script:SessionID
                     Order      = 0
+                    Profile    = ""
                 }
 
                 $script:ExecutionResults = $restoredResults
@@ -3062,26 +3134,28 @@ function Export-HtmlChecklist {
 "@
             continue
         }
-        # Match prefers Order (per-row precision; supports multiple
-        # Profile rows sharing the same MenuName). Falls back to
-        # MenuName for legacy entries that lack Order (pre-3.1.3
-        # history.csv rows). The fallback is STRICT: only entries
-        # with Order=0 (legacy / non-Profile) or matching Order are
-        # accepted, so an executed sibling row sharing the same
-        # MenuName does not leak its status into this row's display.
+        # Match on (Profile, Order). Order gives per-row precision
+        # (several Profile rows may share a MenuName) but is local to a
+        # profile: an Order-only match would hand this row the result of
+        # whatever module sat at the same Order in a DIFFERENT profile
+        # run earlier in this session, delivering a never-run row as OK.
+        # Falls back to MenuName only for entries that carry NO Order
+        # (ad-hoc runs / pre-3.1.3 history.csv rows). An entry with an
+        # Order belongs to exactly one Profile row: it is matched above
+        # or not at all, so neither an executed sibling row sharing the
+        # MenuName nor another profile's row leaks into this one.
         $result = $null
         $moduleOrder = if ($null -ne $module.Order) { [int]$module.Order } else { 0 }
         if ($moduleOrder -gt 0) {
             $result = $currentResults | Where-Object {
-                ($null -ne $_.Order) -and ([int]$_.Order -eq $moduleOrder)
+                ($null -ne $_.Order) -and ([int]$_.Order -eq $moduleOrder) -and ("$($_.Profile)" -eq $ProfileName)
             } | Select-Object -Last 1
         }
         if ($null -eq $result) {
             $result = $currentResults | Where-Object {
                 if ($_.Operation -ne $module.MenuName) { return $false }
-                # Accept legacy entry (Order=0/null) or matching-Order entry only.
                 $candOrder = if ($null -ne $_.Order) { [int]$_.Order } else { 0 }
-                return ($candOrder -eq 0 -or $candOrder -eq $moduleOrder)
+                return ($candOrder -eq 0)
             } | Select-Object -Last 1
         }
 

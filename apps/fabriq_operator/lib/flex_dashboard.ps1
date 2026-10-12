@@ -10,6 +10,90 @@
 # Actual execution dispatch happens in main.ps1 (P6 wiring).
 # ========================================
 
+function Get-FlexModuleStateMap {
+    # Resolves the state the dashboard shows for each row of ONE profile:
+    # Order -> @{ Status; Verified; Message }. No UI - kept apart from
+    # Show-FlexDashboard so the matching rules can be unit-tested.
+    #
+    # A result belongs to (SessionID, Profile, Order). Order is local to a
+    # profile, so a result recorded for another profile earlier in this
+    # session is NOT this profile's state, even when its Order equals a
+    # row's Order here (an Order-only match used to paint a never-run row
+    # with the other profile's Success).
+    #
+    # Precedence (later wins):
+    #   1. Seed all rows as Pending
+    #   2. Overlay history.csv (latest entry per Order; current SessionID,
+    #      this profile)
+    #   3. Overlay $LastBatchResults (most recent in-process record, this
+    #      profile)
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$Rows,
+        [Parameter(Mandatory)][string]$ProfileName,
+        [array]$LastBatchResults = @()
+    )
+
+    $stateMap = @{}
+    foreach ($r in $Rows) {
+        $stateMap[[int]$r.Order] = @{ Status = 'Pending'; Verified = $null; Message = '' }
+    }
+
+    if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
+        $history = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO)
+        # Current session + this profile only. Rows without a profile
+        # (ad-hoc runs from the Modules tab, menu-mode batches, markers)
+        # drop out here: letting them through painted a never-run Profile
+        # row with an unrelated result (false green / false UI gate).
+        $profileHist = @($history | Where-Object {
+            $_.SessionID -eq $script:SessionID -and "$($_.Profile)" -eq $ProfileName
+        })
+
+        # Import-ExecutionHistory returns descending by Timestamp, so the
+        # first occurrence per Order is the latest. Order is the row
+        # identity inside a profile; MenuName is not (two rows may run the
+        # same module, e.g. same module + segment at Orders 80 and 110).
+        $byOrder = @{}
+        foreach ($h in $profileHist) {
+            if ([string]::IsNullOrWhiteSpace($h.Order)) { continue }
+            try {
+                $hOrder = [int]$h.Order
+                if ($hOrder -gt 0 -and -not $byOrder.ContainsKey($hOrder)) {
+                    $byOrder[$hOrder] = $h
+                }
+            } catch { }
+        }
+
+        foreach ($r in $Rows) {
+            $rOrder = [int]$r.Order
+            if (-not $byOrder.ContainsKey($rOrder)) { continue }
+            $found = $byOrder[$rOrder]
+            $verified = if ($found.Verified -eq 'True') { $true }
+                        elseif ($found.Verified -eq 'False') { $false }
+                        else { $null }
+            $stateMap[$rOrder] = @{
+                Status   = $found.Status
+                Verified = $verified
+                Message  = $found.Message
+            }
+        }
+    }
+
+    foreach ($lbr in $LastBatchResults) {
+        # The last batch may have run for another profile (or in menu mode).
+        if ("$($lbr.ProfileName)" -ne $ProfileName) { continue }
+        $ord = [int]$lbr.Order
+        if ($stateMap.ContainsKey($ord)) {
+            $stateMap[$ord] = @{
+                Status   = $lbr.Status
+                Verified = $lbr.Verified
+                Message  = $lbr.Message
+            }
+        }
+    }
+
+    return $stateMap
+}
+
 function Show-FlexDashboard {
     param(
         [Parameter(Mandatory)][string]$ProfilePath,
@@ -18,7 +102,8 @@ function Show-FlexDashboard {
         # Optional: most-recent batch results from $script:LastBatchResults.
         # When present, overlays history.csv for the rows it covers (more
         # authoritative than history because the history CSV may not have
-        # been re-imported since the last write).
+        # been re-imported since the last write). Entries recorded for
+        # another profile are ignored (see Get-FlexModuleStateMap).
         [array]$LastBatchResults = @(),
         # Optional: timestamp of last [Complete] press (display only)
         [string]$LastFinalizedAt = "",
@@ -38,105 +123,8 @@ function Show-FlexDashboard {
     $resolved = Resolve-ProfileModules -ProfileCsvPath $ProfilePath -AllModules $AllModules -IncludeDisabled
     $rows = @($resolved.ValidModules | Sort-Object Order)
 
-    # ----------------------------------------
-    # Build state map: Order -> { Status, Verified, Message }
-    #
-    # Precedence (later wins):
-    #   1. Seed all rows as Pending
-    #   2. Overlay history.csv (latest entry per MenuName, current SessionID)
-    #   3. Overlay $LastBatchResults (most recent in-process record)
-    # ----------------------------------------
-    $stateMap = @{}
-    foreach ($r in $rows) {
-        $stateMap[[int]$r.Order] = @{ Status = 'Pending'; Verified = $null; Message = '' }
-    }
-
-    if (-not [string]::IsNullOrEmpty($env:SELECTED_KANRI_NO)) {
-        $history = @(Import-ExecutionHistory -FilterKanriNo $env:SELECTED_KANRI_NO)
-        # Filter to current session only; Import-ExecutionHistory returns descending
-        # by Timestamp, so the first occurrence per key is the latest.
-        $sessionHist = @($history | Where-Object { $_.SessionID -eq $script:SessionID })
-
-        # Build two lookup tables:
-        #   byOrder: keyed on int Order (preferred, per-row precision)
-        #   byMenu : keyed on ModuleName (fallback for legacy entries
-        #            without Order, and for non-Profile entries)
-        $byOrder = @{}
-        $byMenu  = @{}
-        foreach ($h in $sessionHist) {
-            $hasOrder = $h.PSObject.Properties.Name -contains 'Order' -and -not [string]::IsNullOrWhiteSpace($h.Order)
-            if ($hasOrder) {
-                try {
-                    $hOrder = [int]$h.Order
-                    if ($hOrder -gt 0 -and -not $byOrder.ContainsKey($hOrder)) {
-                        $byOrder[$hOrder] = $h
-                    }
-                } catch { }
-            }
-            if (-not $byMenu.ContainsKey($h.ModuleName)) {
-                $byMenu[$h.ModuleName] = $h
-            }
-        }
-
-        foreach ($r in $rows) {
-            $found = $null
-            $rOrder = [int]$r.Order
-            if ($byOrder.ContainsKey($rOrder)) {
-                $found = $byOrder[$rOrder]
-            }
-            elseif ($byMenu.ContainsKey($r.MenuName)) {
-                # MenuName fallback is intentionally STRICT to handle the
-                # case of two Profile rows sharing the same MenuName
-                # (e.g., same module + same segment at Orders 80 and 110).
-                # Without this strictness, an executed sibling row's
-                # entry would leak into an unexecuted row's state.
-                # Accept the candidate ONLY when its Order matches the
-                # row's Order (defensive — normally caught by byOrder).
-                #
-                # Order-less candidates are NOT accepted: ad-hoc runs from
-                # the Modules tab write history without -Order, and letting
-                # them through painted a never-run Profile row with the
-                # ad-hoc result (false green / false UI gate). The legacy
-                # no-Order-column histories this branch once served cannot
-                # occur anymore: execution_history.csv is session-scoped
-                # and the current kernel always writes Order for every
-                # profile-context run.
-                $candidate = $byMenu[$r.MenuName]
-                $candOrder = 0
-                $candHasOrder = $candidate.PSObject.Properties.Name -contains 'Order' -and -not [string]::IsNullOrWhiteSpace($candidate.Order)
-                if ($candHasOrder) {
-                    try { $candOrder = [int]$candidate.Order } catch { $candOrder = 0 }
-                }
-                if ($candHasOrder -and $candOrder -eq $rOrder) {
-                    $found = $candidate
-                }
-                # Otherwise: candidate is an ad-hoc entry (no Order) or
-                # belongs to a sibling Profile row — leave this row Pending
-                # so its state is genuinely "not yet run".
-            }
-            if ($null -ne $found) {
-                $verified = if ($found.Verified -eq 'True') { $true }
-                            elseif ($found.Verified -eq 'False') { $false }
-                            else { $null }
-                $stateMap[$rOrder] = @{
-                    Status   = $found.Status
-                    Verified = $verified
-                    Message  = $found.Message
-                }
-            }
-        }
-    }
-
-    foreach ($lbr in $LastBatchResults) {
-        $ord = [int]$lbr.Order
-        if ($stateMap.ContainsKey($ord)) {
-            $stateMap[$ord] = @{
-                Status   = $lbr.Status
-                Verified = $lbr.Verified
-                Message  = $lbr.Message
-            }
-        }
-    }
+    # State map: Order -> { Status, Verified, Message } for THIS profile.
+    $stateMap = Get-FlexModuleStateMap -Rows $rows -ProfileName $ProfileName -LastBatchResults $LastBatchResults
 
     # __GATE__ barrier (TM t-0073): the Order of the first unsatisfied gate,
     # or $null. A window is unsatisfied if a module in it has Status
@@ -683,7 +671,7 @@ function Show-FlexDashboard {
         # [Log] is non-destructive: open the viewer modally and return to
         # the dashboard. Must NOT touch $result / close the form.
         if ($colName -eq 'LogBtn') {
-            Show-ModuleLogViewer -Order ([int]$tag.Order) -ModuleName "$($tag.MenuName)"
+            Show-ModuleLogViewer -Order ([int]$tag.Order) -ModuleName "$($tag.MenuName)" -ProfileName $ProfileName
             return
         }
 

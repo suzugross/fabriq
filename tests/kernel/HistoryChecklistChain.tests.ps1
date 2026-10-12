@@ -10,14 +10,17 @@
 # is not a code bug but an error in the customer-facing acceptance
 # document. Pinned contracts:
 #   A. CSV roundtrip - manual escaping (comma/quote messages), header
-#      creation, Order empty-vs-int, Verified passthrough
+#      creation, Order empty-vs-int, Verified passthrough, the Profile
+#      column, and reading a file whose header predates a column
 #   B. Restore-ExecutionHistory's two modes - legacy (separator +
 #      IsRestored) and SessionID filter, including the 0-hit EVICTION
 #      that fixed a real field bug (stale cross-session entries
 #      polluting the FlexProfile checklist; see main.ps1 comment)
-#   C. Export-HtmlChecklist row matching - Order-match precedence,
-#      STRICT MenuName fallback (no sibling-Order leak), Pending
-#      counting, totals reconciliation, HtmlEncode
+#   C. Export-HtmlChecklist row matching - (Profile, Order) match
+#      precedence, no leak from another profile's same-Order result
+#      (TM t-0111: a never-run row was delivered as OK), STRICT MenuName
+#      fallback (no sibling-Order leak), Pending counting, totals
+#      reconciliation, HtmlEncode
 #   D. Complete-ProfileExecution - log_uploader result recording per
 #      mode (incl. the t-0015 "Log Upload (auto)" addition)
 #
@@ -31,10 +34,14 @@ BeforeAll {
     $script:RepoRoot = Get-FabriqRepoRoot
     . (Join-Path $script:RepoRoot 'kernel\common.ps1')
 
+    # -ProfileName defaults to 'P', the profile every Export-HtmlChecklist
+    # call in this file renders, so a result is "this profile's" unless a
+    # test says otherwise.
     function New-HistoryResult {
         param(
             [string]$Operation, [string]$Status = 'Success', [string]$Message = '',
-            $Verified = $null, [int]$Order = 0, [bool]$IsRestored = $false
+            $Verified = $null, [int]$Order = 0, [bool]$IsRestored = $false,
+            [string]$ProfileName = 'P'
         )
         [PSCustomObject]@{
             Operation  = $Operation
@@ -43,6 +50,7 @@ BeforeAll {
             Timestamp  = Get-Date
             Verified   = $Verified
             Order      = $Order
+            Profile    = $ProfileName
             IsRestored = $IsRestored
         }
     }
@@ -74,13 +82,13 @@ Describe 'Write-ExecutionHistory / Import-ExecutionHistory (CSV roundtrip)' {
         $env:SELECTED_KANRI_NO = $script:savedKanri
     }
 
-    It 'creates the 13-column header and a row that survives the roundtrip' {
+    It 'creates the 14-column header and a row that survives the roundtrip' {
         $ok = Write-ExecutionHistory -ModuleName 'Mod A' -Category 'Net' -Status 'Success' `
-            -Message 'all good' -Verified 'True' -Order 10
+            -Message 'all good' -Verified 'True' -Order 10 -ProfileName 'Master_Pre'
 
         $ok | Should -BeTrue
         (Get-Content $script:tmpHistory -TotalCount 1) |
-            Should -Be 'Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order'
+            Should -Be 'Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order,Profile'
 
         $rows = @(Import-ExecutionHistory)
         $rows.Count | Should -Be 1
@@ -89,6 +97,61 @@ Describe 'Write-ExecutionHistory / Import-ExecutionHistory (CSV roundtrip)' {
         $rows[0].SessionID | Should -Be 'sess-A'
         $rows[0].Verified | Should -Be 'True'
         $rows[0].Order | Should -Be '10'
+        $rows[0].Profile | Should -Be 'Master_Pre'
+    }
+
+    It 'leaves the Profile cell EMPTY without a profile context and quotes a profile name containing a comma' {
+        $null = Write-ExecutionHistory -ModuleName 'AdHoc' -Category 'Test' -Status 'Success'
+        $null = Write-ExecutionHistory -ModuleName 'InProfile' -Category 'Test' -Status 'Success' `
+            -Order 10 -ProfileName 'ACME, Inc'
+
+        $rows = @(Import-ExecutionHistory)
+        ($rows | Where-Object { $_.ModuleName -eq 'AdHoc' }).Profile | Should -Be ''
+        $inProfile = $rows | Where-Object { $_.ModuleName -eq 'InProfile' }
+        $inProfile.Profile | Should -Be 'ACME, Inc'
+        # ...and the comma did not shift the row
+        $inProfile.Order | Should -Be '10'
+    }
+
+    It 'reads Profile from rows appended to a file created with the pre-Profile 13-column header' {
+        # The file keeps the header it was created with (it travels with the
+        # media across a kernel update). Import-Csv alone would silently drop
+        # the 14th field of the appended row.
+        @(
+            'Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order'
+            '2026-06-11 10:00:00,K-100,PC1,OldRow,Test,Success,before update,u,w,m,sess-A,True,10'
+        ) | Set-Content -Path $script:tmpHistory -Encoding UTF8
+        $null = Write-ExecutionHistory -ModuleName 'NewRow' -Category 'Test' -Status 'Error' `
+            -Message 'after update' -Order 20 -ProfileName 'Master_Pre'
+
+        $rows = @(Import-ExecutionHistory)
+        # The on-disk header line is not returned as a data row
+        $rows.Count | Should -Be 2
+        @($rows | Where-Object { $_.ModuleName -eq 'ModuleName' }).Count | Should -Be 0
+
+        $new = $rows | Where-Object { $_.ModuleName -eq 'NewRow' }
+        $new.Profile | Should -Be 'Master_Pre'
+        $new.Order | Should -Be '20'
+        $new.Status | Should -Be 'Error'
+
+        $old = $rows | Where-Object { $_.ModuleName -eq 'OldRow' }
+        [string]::IsNullOrEmpty($old.Profile) | Should -BeTrue
+        $old.Order | Should -Be '10'
+        $old.SessionID | Should -Be 'sess-A'
+    }
+
+    It 'reads a header that is NOT a leading subset of the current columns by name (no positional guess)' {
+        # First-generation header: columns were later inserted BEFORE
+        # SessionID, so reading it by position would misplace every field.
+        @(
+            'Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,Operator,SessionID'
+            '2026-02-15 10:00:00,K-100,PC1,Ancient,Test,Success,msg,op,sess-OLD'
+        ) | Set-Content -Path $script:tmpHistory -Encoding UTF8
+
+        $rows = @(Import-ExecutionHistory)
+        $rows.Count | Should -Be 1
+        $rows[0].ModuleName | Should -Be 'Ancient'
+        $rows[0].SessionID | Should -Be 'sess-OLD'
     }
 
     It 'escapes messages containing commas and quotes (the hand-rolled CSV escape)' {
@@ -179,6 +242,21 @@ Describe 'Restore-ExecutionHistory (two modes)' {
         $r[0].Operation | Should -Be 'ModNow'
         $r[0].IsRestored | Should -BeTrue
         @($r | Where-Object { $_.Status -eq 'Separator' }).Count | Should -Be 0
+    }
+
+    It 'restores the Profile of each entry (empty when the row has none)' {
+        @(
+            'Timestamp,KanriNo,PCName,ModuleName,Category,Status,Message,WindowsUser,Worker,MediaSerial,SessionID,Verified,Order,Profile'
+            '2026-06-11 10:00:00,K-100,PC1,InProfile,Test,Success,,u,w,m,sess-NOW,,10,Master_Pre'
+            '2026-06-11 11:00:00,K-100,PC1,AdHoc,Test,Success,,u,w,m,sess-NOW,,,'
+        ) | Set-Content -Path $script:tmpHistory -Encoding UTF8
+
+        Restore-ExecutionHistory -SessionIDFilter 'sess-NOW'
+
+        $r = @($script:ExecutionResults)
+        $r.Count | Should -Be 2
+        ($r | Where-Object { $_.Operation -eq 'InProfile' }).Profile | Should -Be 'Master_Pre'
+        ($r | Where-Object { $_.Operation -eq 'AdHoc' }).Profile | Should -Be ''
     }
 
     It 'filter mode with 0 hits EVICTS stale entries (real-bug pin: cross-session pollution)' {
@@ -274,6 +352,75 @@ Describe 'Export-HtmlChecklist (row matching / counts / encoding)' {
         $html | Should -Not -Match 'order10 run'
         $html | Should -Match 'chip-ok">OK 1<'
         $html | Should -Match 'chip-ng">NG 0<'
+    }
+
+    It 'another profile''s result at the same Order is NOT this row''s result (real-bug pin: TM t-0111)' {
+        # Profile "Pre" ran Hostname Change at Order 10 earlier in the
+        # session; the checklist is for profile "P", whose Order 10 is a
+        # different module that never ran.
+        $defined = @(
+            (New-DefinedModule -MenuName 'App Install' -Order 10),
+            (New-DefinedModule -MenuName 'Printer Install' -Order 20)
+        )
+        $results = @(
+            (New-HistoryResult -Operation 'Hostname Change' -Status 'Success' -Message 'renamed to PC-001' `
+                -Verified $true -Order 10 -ProfileName 'Pre')
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Not -Match 'renamed to PC-001'
+        $html | Should -Match 'chip-ok">OK 0<'
+        $html | Should -Match 'chip-notrun">Not Run 2<'
+        $html | Should -Not -Match 'overall-ok">OK<'
+    }
+
+    It 'the SAME module at the same Order in another profile does not leak either' {
+        # A MenuName check could not tell these apart; with per-profile data
+        # folders the two runs may not even apply the same settings.
+        $defined = @((New-DefinedModule -MenuName 'Hostname Change' -Order 10))
+        $results = @(
+            (New-HistoryResult -Operation 'Hostname Change' -Status 'Success' -Message 'ran for the other profile' `
+                -Order 10 -ProfileName 'Other')
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Not -Match 'ran for the other profile'
+        $html | Should -Match 'chip-notrun">Not Run 1<'
+    }
+
+    It 'a LATER result of another profile does not mask this profile''s own failure' {
+        $defined = @((New-DefinedModule -MenuName 'Hostname Change' -Order 10))
+        $results = @(
+            (New-HistoryResult -Operation 'Hostname Change' -Status 'Error' -Message 'own failure' -Order 10),
+            (New-HistoryResult -Operation 'Hostname Change' -Status 'Success' -Message 'other profile later' `
+                -Order 10 -ProfileName 'Other')
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Match 'own failure'
+        $html | Should -Not -Match 'other profile later'
+        $html | Should -Match 'chip-ng">NG 1<'
+        $html | Should -Match 'overall-ng">NG<'
+    }
+
+    It 'a result that carries an Order but no profile (row written before the Profile column) is not matched' {
+        $defined = @((New-DefinedModule -MenuName 'Hostname Change' -Order 10))
+        $results = @(
+            (New-HistoryResult -Operation 'Hostname Change' -Status 'Success' -Message 'unscoped' `
+                -Order 10 -ProfileName '')
+        )
+
+        $html = Get-Content (Export-HtmlChecklist -ProfileName 'P' -ProfilePath '' `
+            -DefinedModules $defined -ExecutionResults $results) -Raw
+
+        $html | Should -Not -Match 'unscoped'
+        $html | Should -Match 'chip-notrun">Not Run 1<'
     }
 
     It 'MenuName fallback is STRICT: a sibling-Order result must not leak in, a legacy Order=0 one may' {

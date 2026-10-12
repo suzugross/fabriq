@@ -92,6 +92,41 @@
   VM 用シナリオ `nopassword` を追加。
 
 ### Fixed
+- kernel/common.ps1 / kernel/main.ps1 / apps/fabriq_operator: **同じセッションで 2 つのプロファイルを
+  扱うと、前のプロファイルの実行結果が、別のプロファイルの同じ Order の行に表示される問題**（TM t-0111）。
+  プロファイル A の Order 10（ホスト名変更）が Success のあとプロファイル B の FlexProfile を開くと、
+  B の Order 10（アプリインストール・未実行）も Success と表示されていた。実行結果を「セッション +
+  Order」だけで識別しており、Order はプロファイルごとのローカル番号なのに、どのプロファイルの結果かを
+  記録していなかったのが原因。識別キーを「セッション + プロファイル名 + Order」に変更した。
+  漏れていたのは次の 5 箇所で、すべてプロファイル一致で束縛した。
+  - FlexProfile ダッシュボードの行状態（履歴 CSV の参照と、直前バッチ結果の上書きの 2 経路）
+  - **HTML チェックリスト**: B で未実行の行に A の結果が載り、OK として納品物に出ていた
+    （Flex で一部だけ実行して [Complete] を押した場合、Linear でゲートに止められた行・中断後の行）
+  - ダッシュボードのゲート判定（A の Error が B の行をグレーアウトさせる）
+  - kernel の `__GATE__` seed。Order + モジュール名で束縛済みだったが、同じモジュールが同じ Order に
+    ある 2 プロファイルでは、別プロファイルの新しい Success が自プロファイルの Error を隠してゲートが開いた
+  - FlexProfile の [Log] ボタン（B の行で A のログが開く）
+- kernel/common.ps1: 実行履歴 CSV（`execution_history.csv`）の末尾に 14 列目 `Profile` を追加。
+  プロファイル外の実行（Modules タブからの単発・複数実行、`[RESTART NOW]`、ログアップロード）は空欄。
+  `Add-ExecutionResult` / `Write-ExecutionHistory` に任意引数 `-ProfileName` を追加
+  （どちらも KERNEL_API.md §6 の内部関数。モジュールからの呼び出しは無い）。
+- kernel/common.ps1: **旧ヘッダの履歴ファイルに追記した行の末尾列が読めなくなる問題を予防**。履歴ファイルは
+  作成時のヘッダを持ち続け、`Import-Csv` はヘッダより後ろの値を黙って捨てる。履歴はメディアごと kernel の
+  更新をまたぐので、13 列ヘッダのファイルに新しい kernel が追記した行は `Profile` が読めず、どの行にも
+  照合されなくなるところだった。ディスク上のヘッダが現行の列リストの先頭部分と一致する場合は、現行の
+  列リストで位置読みする（`Read-ExecutionHistoryCsv`）。それ以外のヘッダは従来どおり列名で読む。
+  ファイルは書き換えない。
+- kernel/common.ps1: HTML チェックリストの MenuName フォールバックを「Order を持たない結果のみ」に限定。
+  従来は「Order が一致する結果」も受け入れており、Order 照合をプロファイルで束縛しても、同じモジュール名・
+  同じ Order の別プロファイルの結果がここから入り直す形になっていた。
+- apps/fabriq_operator: ダッシュボードの行状態の解決を、画面を持たない関数 `Get-FlexModuleStateMap` に
+  切り出した（`tests/operator/FlexStateMap.tests.ps1` で固定）。プロファイルで絞ったあとは到達しなく
+  なった MenuName フォールバックの分岐を削除。`Get-ModuleTelemetryLog` / `Show-ModuleLogViewer` に
+  `-ProfileName` を追加し、テレメトリの `envelope.start.profileName` で照合する。
+- 上記の既知の制限: この修正より前の kernel が**同じセッション内で**書いた行（`__RESTART__` をまたぐ途中で
+  kernel を差し替えた場合のみ）は `Profile` が空なので、どのプロファイルの行にも照合されない。ダッシュボードは
+  Pending、チェックリストは Not Run になり、`__GATE__` はその行の失敗を参照しない。該当した場合は
+  ダッシュボードで該当行を実行し直す。
 - modules/standard/generic_batch_runner (1.0.0 → 1.1.0) / modules/standard/generic_process_runner
   (1.1.0 → 1.2.0): **汎用ランナー 2 種がプロファイル別データオーバーレイに片肺だった問題**
   (dev/PROFILE_DATA_OVERLAY_PLAN.md §7.2.1)。`batch_list.csv` / `process_list.csv` 自体は

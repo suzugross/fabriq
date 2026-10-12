@@ -419,13 +419,16 @@ function Invoke-BatchExecution {
     # completed before a __RESTART__) and updated as each module finishes.
     $gateRows = if ($null -ne $FullProfileModules) { $FullProfileModules } else { $SelectedModules }
 
-    # Order -> MenuName for the CURRENT profile. execution_history.csv has no
-    # profile column and Order is per-profile-local, so the seed below only
-    # accepts a history row whose ModuleName matches the module occupying
-    # that Order in this profile. Without this, a same-Order module from a
+    # Order -> MenuName for the CURRENT profile. Order is per-profile-local,
+    # so the seed below only accepts a history row recorded for THIS profile
+    # (Profile column) whose ModuleName also matches the module occupying
+    # that Order now. Without the profile check, a same-Order row from a
     # DIFFERENT profile run earlier in the same session (master-image flow
     # runs Pre/Config stages back-to-back with overlapping Orders) could seed
-    # a false barrier and silently leave legitimate modules Pending.
+    # a false barrier and silently leave legitimate modules Pending - or, as
+    # the latest row for that Order, hide this profile's own failure. The
+    # MenuName check additionally drops rows left behind when the profile
+    # CSV was edited mid-session.
     $gateMenuByOrder = @{}
     foreach ($gr in $gateRows) {
         $gro = $null
@@ -443,11 +446,14 @@ function Invoke-BatchExecution {
             $gho = $null
             try { $gho = [int]$gh.Order } catch { $gho = $null }
             if ($null -eq $gho -or $gho -le 0 -or $statusByOrder.ContainsKey($gho)) { continue }
+            # Rows of other profiles (and rows without a profile context)
+            # are not part of this profile's state.
+            if ("$($gh.Profile)" -ne $ProfileName) { continue }
             # Import-ExecutionHistory is descending by Timestamp (second
             # resolution), so the first occurrence per Order is the latest;
             # the live in-run update below corrects any same-second tie once
-            # the Order is re-executed this batch. Bind the row to this
-            # profile by MenuName before trusting it.
+            # the Order is re-executed this batch. Bind the row to the module
+            # at that Order by MenuName before trusting it.
             if ($gateMenuByOrder.ContainsKey($gho) -and "$($gh.ModuleName)" -eq $gateMenuByOrder[$gho]) {
                 $statusByOrder[$gho] = $gh.Status
                 # History Verified column is "True"/"False"/"" -> bool/$null.
@@ -536,14 +542,14 @@ function Invoke-BatchExecution {
                 # continuing past the restart marker (TM t-0045).
                 Show-Error "RunOnce registration failed - restart aborted; remaining modules skipped"
                 Remove-ResumeState
-                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed (restart aborted, remaining modules skipped)" -Order $module.Order
-                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed - restart aborted, remaining modules skipped (fail-closed)" -Order $module.Order
+                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "RunOnce registration failed (restart aborted, remaining modules skipped)" -Order $module.Order -ProfileName $ProfileName
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "RunOnce registration failed - restart aborted, remaining modules skipped (fail-closed)" -Order $module.Order -ProfileName $ProfileName
                 break
             }
 
             # Record in execution history
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..." -Order $module.Order
-            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))" -Order $module.Order
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Restarting..." -Order $module.Order -ProfileName $ProfileName
+            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Success" -Message "Profile restart (ResumeAfter: $($module.Order))" -Order $module.Order -ProfileName $ProfileName
 
             # Hide toolbar cleanly before reboot kills the process
             try { Hide-ExecutionToolbar } catch { }
@@ -574,16 +580,17 @@ function Invoke-BatchExecution {
                 }
                 # Only force-start when Windows did not auto-revive Explorer in time
                 if (-not $restarted) { Start-Process explorer.exe }
-                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted" -Order $module.Order
-                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted" -Order $module.Order
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Success" -Message "Explorer restarted" -Order $module.Order -ProfileName $ProfileName
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Success" -Message "Explorer restarted" -Order $module.Order -ProfileName $ProfileName
             }
             catch {
                 $reexplorerStatus  = "Error"
                 $reexplorerMessage = $_.Exception.Message
-                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message -Order $module.Order
-                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message -Order $module.Order
+                Add-ExecutionResult -Operation "[REEXPLORER]" -Status "Error" -Message $_.Exception.Message -Order $module.Order -ProfileName $ProfileName
+                $null = Write-ExecutionHistory -ModuleName "[REEXPLORER]" -Category "System" -Status "Error" -Message $_.Exception.Message -Order $module.Order -ProfileName $ProfileName
             }
             $completedResults += @{
+                ProfileName = $ProfileName
                 Order    = $module.Order
                 MenuName = "[REEXPLORER]"
                 Status   = $reexplorerStatus
@@ -692,15 +699,18 @@ function Invoke-BatchExecution {
             $verifiedStr = if ($result.Verified) { "True" } else { "False" }
         }
 
-        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message -Verified $result.Verified -Order $module.Order
-        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr -Order $module.Order
+        Add-ExecutionResult -Operation $module.MenuName -Status $result.Status -Message $result.Message -Verified $result.Verified -Order $module.Order -ProfileName $ProfileName
+        $null = Write-ExecutionHistory -ModuleName $module.MenuName -Category $module.Category -Status $result.Status -Message $result.Message -Verified $verifiedStr -Order $module.Order -ProfileName $ProfileName
         Capture-ScreenEvidence -ModuleName $module.MenuName -Status $result.Status
 
         # Track completed results for resume state and FlexProfile feedback.
         # Save-ResumeState reshapes to {MenuName, Status} on serialization;
         # extra keys are dropped. Flex dashboard reads the full hashtable
         # via $script:LastBatchResults (published in finally below).
+        # ProfileName scopes the entry: the dashboard only applies entries
+        # of the profile it shows (Order is local to a profile).
         $completedResults += @{
+            ProfileName = $ProfileName
             Order    = $module.Order
             MenuName = $module.MenuName
             Status   = $result.Status
@@ -1039,16 +1049,18 @@ function Invoke-FlexProfileLoop {
                     # Order is critical here so per-row state matching
                     # picks up the Pending entry against the correct
                     # Profile row (not its MenuName twin).
-                    Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
-                    $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator" -Order $tgt.Order
+                    Add-ExecutionResult -Operation $tgt.MenuName -Status "Pending" -Message "Reset by operator" -Order $tgt.Order -ProfileName $ProfileName
+                    $null = Write-ExecutionHistory -ModuleName $tgt.MenuName -Category $tgt.Category -Status "Pending" -Message "Reset by operator" -Order $tgt.Order -ProfileName $ProfileName
 
                     # The dashboard overlays $script:LastBatchResults LAST
                     # (highest precedence), so a stale entry from the prior
                     # batch would mask this reset until the next run
                     # republishes it. Update the matching entry in place so
-                    # the reset is reflected immediately (TM t-0080).
+                    # the reset is reflected immediately (TM t-0080). Only
+                    # this profile's entries: the last batch may belong to
+                    # another profile whose same-Order row is unrelated.
                     foreach ($lbr in $script:LastBatchResults) {
-                        if ([int]$lbr.Order -eq [int]$tgt.Order) {
+                        if ("$($lbr.ProfileName)" -eq $ProfileName -and [int]$lbr.Order -eq [int]$tgt.Order) {
                             $lbr.Status   = "Pending"
                             $lbr.Verified = $null
                             $lbr.Message  = "Reset by operator"
@@ -1764,10 +1776,10 @@ if ($isResuming -and -not $isFlexResuming) {
 
         foreach ($cm in $resumeState.CompletedModules) {
             $cmOrder = if ($null -ne $cm.Order) { [int]$cm.Order } else { 0 }
-            Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder
+            Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder -ProfileName $resumeState.ProfileName
         }
         $restartOrder = if ($null -ne $resumeState.ResumeAfterOrder) { [int]$resumeState.ResumeAfterOrder } else { 0 }
-        Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $restartOrder
+        Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $restartOrder -ProfileName $resumeState.ProfileName
 
         # Restore the absolute profile start timestamp so the post-resume
         # elapsed display covers the full wall-clock duration of the
@@ -1807,8 +1819,8 @@ if ($isResuming -and -not $isFlexResuming) {
             # Record the abort as an Error so the completion banner, checklist
             # and history reflect it instead of reporting a clean completion
             # (same recording pattern as the RunOnce failure in Invoke-BatchExecution).
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder
-            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder -ProfileName $resumeState.ProfileName
+            $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $restartOrder -ProfileName $resumeState.ProfileName
         }
 
         # Post-profile completion (same logic as [P] handler)
@@ -1877,10 +1889,10 @@ if ($isFlexResuming) {
             # reshape (Save-ResumeState now persists Order per entry).
             foreach ($cm in $resumeState.CompletedModules) {
                 $cmOrder = if ($null -ne $cm.Order) { [int]$cm.Order } else { 0 }
-                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder
+                Add-ExecutionResult -Operation $cm.MenuName -Status $cm.Status -Message "(completed before restart)" -Order $cmOrder -ProfileName $resumeState.ProfileName
             }
             $flexRestartOrder = if ($null -ne $resumeState.ResumeAfterOrder) { [int]$resumeState.ResumeAfterOrder } else { 0 }
-            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $flexRestartOrder
+            Add-ExecutionResult -Operation "[RESTART]" -Status "Success" -Message "Resumed after restart" -Order $flexRestartOrder -ProfileName $resumeState.ProfileName
 
             # Restore absolute profile start timestamp for accurate elapsed display
             $flexResumedStart = $null
@@ -1915,8 +1927,8 @@ if ($isFlexResuming) {
             else {
                 Show-Warning "Remaining modules were NOT executed. Restore the profile data folder and relaunch Fabriq to resume (dashboard reopens below)."
                 # Record the abort as an Error (see the Linear path above).
-                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder
-                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder
+                Add-ExecutionResult -Operation "[RESTART]" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder -ProfileName $resumeState.ProfileName
+                $null = Write-ExecutionHistory -ModuleName "[RESTART]" -Category "System" -Status "Error" -Message "Resume aborted: profile data folder missing (remaining modules not executed)" -Order $flexRestartOrder -ProfileName $resumeState.ProfileName
             }
 
             # Operator returns to a dashboard already flagged for finalize

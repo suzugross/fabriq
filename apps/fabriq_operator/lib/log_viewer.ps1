@@ -10,9 +10,11 @@
 #
 # Robustness contract (see t-0074 design):
 #   - Reads ONLY the current $script:SessionID folder, so orphan folders
-#     (created on resume) and other Profile runs cannot leak in.
-#   - Identifies an entry by envelope.start.order (Profile Order), NOT the
-#     filename sequence (which resets across __RESTART__ and would collide).
+#     (created on resume) and other sessions cannot leak in.
+#   - Identifies an entry by envelope.start.profileName + profileOrder, NOT
+#     the filename sequence (which resets across __RESTART__ and would
+#     collide). Order alone is not enough: it is local to a profile, and
+#     two profiles run in one session share the session folder.
 #   - When an Order ran multiple times this session, the newest run wins
 #     (selected by file LastWriteTimeUtc, which is restart-proof).
 #   - Malformed JSONL lines (partial writes) are skipped, never fatal.
@@ -31,12 +33,22 @@ function Get-ModuleTelemetryLog {
     # session. Returns an empty array when no telemetry was captured for
     # that Order (telemetry disabled, or the entry has not run yet).
     #
+    # -ProfileName restricts the match to runs recorded for that profile
+    # (envelope.start.profileName). Order is local to a profile, so once two
+    # profiles ran in one session the same Order exists once per profile and
+    # an Order-only match would show the other profile's log. Several values
+    # may be passed (a run matches when its profileName equals ANY of them);
+    # empty = match on Order alone.
+    #
     # -ModulesDir is injectable for testing; in production it defaults to
     # the current session's telemetry modules folder.
     param(
         [Parameter(Mandatory)][int]$Order,
+        [string[]]$ProfileName = @(),
         [string]$ModulesDir = $null
     )
+
+    $profileNames = @($ProfileName | Where-Object { -not [string]::IsNullOrEmpty($_) })
 
     # Callers wrap the call in @(...) (e.g. @(Get-ModuleTelemetryLog ...)),
     # so empty results are returned as a plain @(). Note: the ,@() "preserve
@@ -66,11 +78,13 @@ function Get-ModuleTelemetryLog {
         # Invoke-SafeCommandAsync call Start-ModuleTelemetry without -Order;
         # it is only honored as a fallback for callers that do pass one.
         $fileOrder = $null
+        $fileProfile = ""
         foreach ($ln in $lines) {
             if ([string]::IsNullOrWhiteSpace($ln)) { continue }
             $obj = $null
             try { $obj = $ln | ConvertFrom-Json } catch { continue }
             if ("$($obj.type)" -eq "envelope.start") {
+                $fileProfile = "$($obj.profileName)"
                 $po = $null
                 if ($null -ne $obj.profileOrder) {
                     try { $po = [int]$obj.profileOrder } catch { $po = $null }
@@ -85,6 +99,7 @@ function Get-ModuleTelemetryLog {
             }
         }
         if ($null -ne $fileOrder -and $fileOrder -eq $Order) {
+            if ($profileNames.Count -gt 0 -and $profileNames -notcontains $fileProfile) { continue }
             $matchFiles += [pscustomobject]@{ File = $f; Lines = $lines }
         }
     }
@@ -121,10 +136,21 @@ function Show-ModuleLogViewer {
     # state; the caller stays on the dashboard after this returns.
     param(
         [Parameter(Mandatory)][int]$Order,
-        [string]$ModuleName = ""
+        [string]$ModuleName = "",
+        # Profile whose row was clicked; the log of another profile's module
+        # at the same Order must not be shown for it.
+        [string]$ProfileName = ""
     )
 
-    $lines = @(Get-ModuleTelemetryLog -Order $Order)
+    # Telemetry masks registered secrets in every string field on write, so
+    # a profile name that happens to contain one (e.g. a short numeric PIN)
+    # is stored masked. Accept both forms.
+    $profileNames = @()
+    if (-not [string]::IsNullOrEmpty($ProfileName)) {
+        $profileNames = @($ProfileName, (Get-FabriqMaskedText -Text $ProfileName)) | Select-Object -Unique
+    }
+
+    $lines = @(Get-ModuleTelemetryLog -Order $Order -ProfileName $profileNames)
 
     $form = New-Object System.Windows.Forms.Form
     $titleName = if ([string]::IsNullOrWhiteSpace($ModuleName)) { "Order $Order" } else { "$ModuleName (Order $Order)" }
