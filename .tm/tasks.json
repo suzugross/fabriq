@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "fabriq",
-  "updatedAt": "2026-10-12T20:05:42+09:00",
+  "updatedAt": "2026-10-29T14:23:09+09:00",
   "tasks": [
     {
       "id": "t-0001",
@@ -992,6 +992,15 @@
       "status": "レビュー待ち",
       "createdAt": "2026-10-09T16:04:32+09:00",
       "updatedAt": "2026-10-12T20:05:42+09:00"
+    },
+    {
+      "id": "t-0112",
+      "title": "[調査] fabriq をお手本にした Android 一括キッティングツールの実現性調査",
+      "content": "fabriq をお手本にした Android 一括キッティングツールを作る計画がある。まずはどの程度のことができるか徹底的に調査する。",
+      "claudeNote": "調査完了 (2026-10-29T14:23:09+09:00)。レポート: reports/Android 一括キッティング 実現性調査.md / 調査ノート: research_notes/Android 一括キッティング 実現性調査/ (fabriq 構造解析・ADB 単独・Device Owner・Google/OEM 管理基盤・運用制約の 5 本)。\n結論: Windows ホストから USB/ADB で N 台を並列操作する方式 (tier a) を基盤とし、CA 証明書・EAP Wi-Fi・ユーザー制限による強制だけを自作 Device Owner エージェント (tier b、adb shell dpm set-device-owner) で補う構成が「MDM なし」での現実解。典型 27 項目中 ◎ は ADB 単独 11 件、DO 併用で 18 件。開発者オプション/USB デバッグ/RSA 許可は ADB 系の全方式で端末ごとの手作業として残る。\nポリシー: AMAPI は商用 EMM 等に利用限定・新規プロジェクトの既定クォータ 0 台、Play EMM API は custom DPC の新規登録停止、Play Protect が未承認 DPC をプロビジョニング中にブロック (証拠は混在) — 自作 DPC の QR プロビジョニング (tier c) と AMAPI 直結は狭まっている。\nfabriq 流用: ModuleResult 契約・Step 1〜6+5.5・プロファイル CSV・__GATE__・エビデンス・ガバナンスは A (そのまま)。SELECTED_* / $global: はプロセス単一のため端末ごとワーカプロセス化、FlexProfile は端末×ステップのマトリクス化、__RESTART__ は adb reboot + sys.boot_completed 待ちに作り直し (B)。\n制約: 調査環境から developers.google.com / support.google.com / android.googlesource.com / docs.samsungknox.com / bayton.org に直接到達できず、※ 付きの結論は一次情報の再確認が必要。高リスクの実機検証 5 項目 (testharness 初期化、日本メーカーでの DO 化、Play Protect、ハブ台数、A15+ FRP) が方式選定の前提。",
+      "status": "レビュー待ち",
+      "createdAt": "2026-10-29T14:23:09+09:00",
+      "updatedAt": "2026-10-29T14:23:09+09:00"
     }
   ]
 }
